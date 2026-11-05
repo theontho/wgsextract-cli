@@ -13,10 +13,19 @@ import urllib.error
 import zipfile
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 
+import psutil
 import pytest
 
-from tests.htslib_helpers import bgzip_index, needs_htslib, sam_to_bam, write_fasta
+from tests.fake_tools import python_tool, require_bare_name_fakes
+from tests.htslib_helpers import (
+    bgzip_index,
+    needs_htslib,
+    needs_tools,
+    sam_to_bam,
+    write_fasta,
+)
 from wgsextract_cli.commands import benchmark as benchmark_entry
 from wgsextract_cli.commands.benchmark import (
     datasets,
@@ -24,12 +33,11 @@ from wgsextract_cli.commands.benchmark import (
     execution,
     fixtures,
     machine,
-    setup,
 )
 from wgsextract_cli.commands.benchmark.models import (
+    BenchmarkDatasetSpec,
     BenchmarkDerivedAlignment,
     BenchmarkRemoteFile,
-    BenchmarkResult,
     BenchmarkThreadPlan,
 )
 from wgsextract_cli.core import dev_download_cache
@@ -134,9 +142,7 @@ def test_download_file_writes_atomically_and_retains_partial_for_resume(
     assert not (tmp_path / "b.zip.partial").exists()
 
 
-def test_cached_remote_file_downloads_verifies_and_then_trusts_marker(
-    tmp_path, served, monkeypatch
-):
+def test_cached_remote_file_downloads_verifies_and_then_trusts_marker(tmp_path, served):
     files, fetched = served
     url = "https://example.test/sample.cram"
     files[url] = b"cram bytes"
@@ -150,8 +156,13 @@ def test_cached_remote_file_downloads_verifies_and_then_trusts_marker(
     assert marker.name == f".sample.cram.{remote.md5.lower()}.verified"
     assert marker.read_text().splitlines()[0] == remote.md5.lower()
 
-    monkeypatch.setattr(datasets, "_file_digest", lambda *a: pytest.fail("rehashed"))
+    # The marker vouches for an unchanged file without rehashing it: same-size
+    # bytes swapped in under the old mtime are kept, not refetched.
+    stat = path.stat()
+    path.write_bytes(b"CRAM BYTES")
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     assert datasets._cached_remote_dataset_file(remote, tmp_path) == path
+    assert path.read_bytes() == b"CRAM BYTES"
     assert fetched == [url]
 
 
@@ -191,6 +202,48 @@ def test_cached_remote_file_refetches_after_a_corrupt_download(tmp_path, served)
     (tmp_path / "sample.cram").write_bytes(b"bit rot")
     assert datasets._cached_remote_dataset_file(remote, tmp_path).read_bytes() == good
     assert fetched == [url, url, url]
+
+    # An older marker that records only the MD5 can't vouch for the file.
+    (tmp_path / "sample.cram").write_bytes(b"CRAM BYTES")
+    datasets._verified_checksum_path(tmp_path / "sample.cram", remote.md5).write_text(
+        remote.md5 + "\n"
+    )
+    assert datasets._cached_remote_dataset_file(remote, tmp_path).read_bytes() == good
+    assert fetched == [url, url, url, url]
+
+
+def test_direct_real_dataset_downloads_into_the_shared_cache_root(
+    tmp_path, served, monkeypatch
+):
+    files, _ = served
+    monkeypatch.setitem(settings, "dev_download_cache", False)
+    files["https://example.test/ref.fa"] = b">chr1\nACGT\n"
+    files["https://example.test/sample.bam"] = b"bam"
+    spec = BenchmarkDatasetSpec(
+        tag="real-test",
+        dataset_id="real-test",
+        description="test direct dataset",
+        build="hg38",
+        sample="HG00096",
+        kind="direct",
+        remote_files=(
+            BenchmarkRemoteFile("ref", "https://example.test/ref.fa", "ref.fa"),
+            BenchmarkRemoteFile("bam", "https://example.test/sample.bam", "sample.bam"),
+        ),
+        region_safe=True,
+    )
+    run_dataset = tmp_path / "run-dataset"
+
+    dataset = datasets._prepare_direct_real_benchmark_dataset(
+        Namespace(dataset_cache_dir=None), run_dataset, tmp_path, spec
+    )
+
+    root = tmp_path / "datasets" / "real-test"
+    assert dataset.root == root
+    assert (root / "sample.bam").read_bytes() == b"bam"
+    # The run only notes where the shared files are; it holds no copies.
+    assert (run_dataset / "real-test-cache-root.txt").exists()
+    assert not (run_dataset / "real-test" / "sample.bam").exists()
 
 
 def test_cached_remote_file_drops_corrupt_dev_cache_copy_and_downloads(
@@ -234,10 +287,11 @@ def test_real_dataset_cache_dir_precedence(tmp_path, monkeypatch):
     explicit = Namespace(dataset_cache_dir=str(tmp_path / "x" / ".." / "cache"))
     assert datasets._real_dataset_cache_dir(explicit, out) == tmp_path / "cache"
     monkeypatch.setitem(settings, "dev_download_cache", True)
-    monkeypatch.setattr(
-        datasets, "benchmark_dataset_cache_root", lambda: tmp_path / "dev"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    assert (
+        datasets._real_dataset_cache_dir(Namespace(), out)
+        == tmp_path / "xdg" / "wgsextract" / "benchmark-datasets"
     )
-    assert datasets._real_dataset_cache_dir(Namespace(), out) == tmp_path / "dev"
 
 
 def test_dataset_sha256_and_filename_normalisation():
@@ -470,9 +524,7 @@ def test_extract_zip_reports_non_zip(tmp_path):
 
 
 @needs_htslib
-def test_derived_alignment_subsamples_to_indexed_cram_and_is_reused(
-    tmp_path, monkeypatch
-):
+def test_derived_alignment_subsamples_to_indexed_cram_and_is_reused(tmp_path):
     ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 250})
     lines = ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:1000"]
     lines += [
@@ -503,10 +555,15 @@ def test_derived_alignment_subsamples_to_indexed_cram_and_is_reused(
     )
     assert 20 < kept < 100
 
-    monkeypatch.setattr(datasets, "run_command", lambda *a, **k: pytest.fail("rebuilt"))
+    built = {p: p.stat() for p in (tmp_path / "sub.cram", tmp_path / "sub.crai")}
     datasets._prepare_derived_alignment(
         spec, {"source_cram": source, "ref": ref}, tmp_path
     )
+    for path, stat in built.items():
+        assert (path.stat().st_ino, path.stat().st_mtime_ns) == (
+            stat.st_ino,
+            stat.st_mtime_ns,
+        )
     with pytest.raises(WGSExtractError, match="requires source alignment and ref"):
         datasets._prepare_derived_alignment(spec, {"ref": ref}, tmp_path)
 
@@ -514,36 +571,50 @@ def test_derived_alignment_subsamples_to_indexed_cram_and_is_reused(
 # --- execution -------------------------------------------------------------
 
 
+def _fake_python(monkeypatch, bindir: Path, code: str) -> None:
+    """Benchmark steps run the CLI with ``sys.executable``; this one runs ``code``."""
+    monkeypatch.setattr(sys, "executable", str(python_tool(bindir, "python", code)))
+
+
 @pytest.mark.parametrize("keep_awake", [None, True, False])
-def test_cli_command_carries_flags_threads_and_memory(
+def test_cli_step_child_inherits_config_flags_threads_memory_and_source(
     monkeypatch, tmp_path, keep_awake
 ):
     from wgsextract_cli.core import config
 
     own = tmp_path / "own.toml"
-    monkeypatch.setattr(config, "_config_path_override", own)
+    own.write_text("")
+    config.set_config_path(own)
     monkeypatch.setitem(config.settings, "keep_awake", True)
-    plan = BenchmarkThreadPlan("3", 3, "test")
+    monkeypatch.setenv("PYTHONPATH", "/elsewhere")
+    log = tmp_path / "child.json"
+    _fake_python(monkeypatch, tmp_path / "bin", f"""
+import json, os, sys
+json.dump({{"argv": sys.argv[1:], "pythonpath": os.environ["PYTHONPATH"]}},
+          open({str(log)!r}, "w"))
+""")  # fmt: skip
     args = Namespace(
         debug=True,
         quiet=True,
         memory="2G",
-        _benchmark_thread_plan=plan,
+        _benchmark_thread_plan=BenchmarkThreadPlan("3", 3, "test"),
         threads=9,
         keep_awake=keep_awake,
     )
-    cmd = execution._cli_command(
-        args, ["bam", "sort"], execution._benchmark_threads(args)
+    result = execution._run_cli_step(
+        args, "Sort", "05-sort", ["bam", "sort"], tmp_path, tmp_path / "logs", []
     )
-    assert cmd[:3] == [sys.executable, "-m", "wgsextract_cli.main"]
-    assert cmd[5:] == [
+
+    assert result.status == "PASS"
+    child = json.loads(log.read_text())
+    argv = child["argv"]
+    assert argv[:4] == ["-m", "wgsextract_cli.main", "--parent-pid", str(os.getpid())]
+    # contract: each step runs with the parent's config file, its sleep override,
+    # its log level, the planned thread count (not the raw --threads) and memory.
+    assert argv[4:] == [
         "--config",
-        str(own),
-        *(
-            ["--keep-awake" if keep_awake else "--no-keep-awake"]
-            if keep_awake is not None
-            else []
-        ),
+        str(own.resolve()),
+        *({True: ["--keep-awake"], False: ["--no-keep-awake"]}.get(keep_awake, [])),
         "--debug",
         "bam",
         "sort",
@@ -552,31 +623,24 @@ def test_cli_command_carries_flags_threads_and_memory(
         "--memory",
         "2G",
     ]
-    quiet = Namespace(quiet=True, threads=None)
-    assert execution._cli_command(quiet, ["info"], execution._benchmark_threads(quiet))[
-        -2:
-    ] == ["--quiet", "info"]
-
-
-def test_subprocess_env_puts_this_source_tree_first(monkeypatch):
-    monkeypatch.setenv("PYTHONPATH", "/elsewhere")
+    assert result.command == [sys.executable, *argv]
+    # The child imports this source tree, not another installed copy.
     src = str(Path(benchmark_entry.__file__).resolve().parents[2])
-    assert execution._subprocess_env()["PYTHONPATH"].split(os.pathsep) == [
-        src,
-        "/elsewhere",
-    ]
+    assert child["pythonpath"].split(os.pathsep) == [src, "/elsewhere"]
 
-
-def _script(monkeypatch, code: str) -> None:
-    monkeypatch.setattr(
-        execution, "_cli_command", lambda *a: [sys.executable, "-c", code]
-    )
+    quiet = execution._run_cli_step(
+        Namespace(quiet=True, threads=None), "Info", "i", ["info"], tmp_path,
+        tmp_path / "logs", [],
+    )  # fmt: skip
+    assert json.loads(log.read_text())["argv"][-2:] == ["--quiet", "info"]
+    assert quiet.status == "PASS"
 
 
 def test_cli_step_passes_logs_output_and_label(tmp_path, monkeypatch):
     out = tmp_path / "step" / "o.txt"
-    _script(
+    _fake_python(
         monkeypatch,
+        tmp_path / "bin",
         f"import sys; open({str(out)!r}, 'w').write('x'); print('hi'); print('warn', file=sys.stderr)",
     )
     result = execution._run_cli_step(
@@ -609,7 +673,7 @@ def test_cli_step_passes_logs_output_and_label(tmp_path, monkeypatch):
 def test_cli_step_fails_on_exit_status_or_missing_output(
     tmp_path, monkeypatch, code, error
 ):
-    _script(monkeypatch, code)
+    _fake_python(monkeypatch, tmp_path / "bin", code)
     result = execution._run_cli_step(
         Namespace(), "N", "s", [], tmp_path, tmp_path, [tmp_path / "gone"]
     )
@@ -618,8 +682,9 @@ def test_cli_step_fails_on_exit_status_or_missing_output(
 
 
 def test_pipe_step_streams_file_through_the_command(tmp_path, monkeypatch):
-    _script(
+    _fake_python(
         monkeypatch,
+        tmp_path / "bin",
         "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read().upper())",
     )
     src, dst = tmp_path / "in.txt", tmp_path / "out" / "o.txt"
@@ -715,68 +780,27 @@ def _run_args(tmp_path: Path, **overrides) -> Namespace:
     return Namespace(**values)
 
 
-@pytest.fixture
-def stub_steps(monkeypatch):
-    """Replace CLI steps with instant ones that fail for slugs in ``failing``."""
-    calls: dict[str, list[str]] = {}
-    failing: set[str] = set()
+_STEP_PYTHON = """\
+import subprocess, sys
 
-    def cli_step(
-        args,
-        name,
-        slug,
-        command_args,
-        output_dir,
-        logs_dir,
-        expected_outputs,
-        command_label=None,
-    ):
-        calls[slug] = command_args
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        stderr = logs_dir / f"{slug}.stderr.log"
-        stderr.write_text(f"{slug} went wrong\n" if slug in failing else "")
-        for path in expected_outputs:
-            if slug not in failing:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.touch()
-        status = "FAIL" if slug in failing else "PASS"
-        return BenchmarkResult(
-            name,
-            slug,
-            status,
-            0.01,
-            ["x", slug],
-            str(output_dir),
-            stderr_log=str(stderr),
-            returncode=int(slug in failing),
-        )
+argv = sys.argv[1:]
+if argv[:2] == ["-m", "wgsextract_cli.main"]:
+    command = " ".join(argv)
+    for broken in {fail!r}:
+        if f" {{broken}} " in f"{{command}} ":
+            sys.exit(f"{{broken}} went wrong")
+    if {noop!r}:
+        sys.exit(0)
+sys.exit(subprocess.call([sys.executable, *argv]))
+"""
 
-    def target_tab(ref, tab, count, region):
-        if "02-microarray-targets" in failing:
-            raise WGSExtractError(
-                f"No reference contigs match benchmark region: {region}"
-            )
-        tab.touch()
-        Path(f"{tab}.tbi").touch()
 
-    for module in (setup, benchmark_entry.core):
-        monkeypatch.setattr(module, "_run_cli_step", cli_step)
-    monkeypatch.setattr(setup, "_create_target_snp_tab", target_tab)
-    monkeypatch.setattr(benchmark_entry, "_benchmark_external_tools", lambda: [])
-    monkeypatch.setattr(
-        benchmark_entry,
-        "_machine_stats",
-        lambda run_dir: {
-            "physical_cores": None,
-            "logical_cores": None,
-            "ram_total": None,
-            "ram_available": None,
-            "disk_total": None,
-            "disk_free": None,
-            "drive_model": None,
-        },
+def _steps(monkeypatch, tmp_path: Path, *fail: str, noop: bool = False) -> None:
+    """Benchmark steps fail when they run a listed command; the others run the
+    real CLI, or with ``noop`` do nothing."""
+    _fake_python(
+        monkeypatch, tmp_path / "bin", _STEP_PYTHON.format(fail=fail, noop=noop)
     )
-    return calls, failing
 
 
 def _report(tmp_path: Path) -> dict:
@@ -784,70 +808,75 @@ def _report(tmp_path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def test_failed_step_stops_run_and_still_writes_report(tmp_path, stub_steps, capsys):
-    _calls, failing = stub_steps
-    failing.add("03-bam-unalign")
+needs_benchmark_tools = needs_tools("samtools", "bcftools", "bgzip", "tabix", "bwa")
+
+
+@needs_benchmark_tools
+def test_failed_step_stops_run_and_still_writes_report(tmp_path, monkeypatch, capsys):
+    _steps(monkeypatch, tmp_path, "info --detailed")
     with pytest.raises(
-        WGSExtractError, match=r"BAM unalignment .*03-bam-unalign\.stderr\.log"
+        WGSExtractError, match=r"BAM metadata .*00a-info-detailed\.stderr\.log"
     ):
         benchmark_entry.run(_run_args(tmp_path))
     out = capsys.readouterr().out
-    assert "03-bam-unalign went wrong" in out
+    assert "info --detailed went wrong" in out
     slugs = [r["slug"] for r in _report(tmp_path)["results"]]
-    assert slugs[-1] == "03-bam-unalign" and "03b-align" not in slugs
+    assert slugs == ["00-generate-bam", "00a-info-detailed"]
     assert "Failed: 1" in out
 
 
-def test_internal_step_failure_message_shows_its_error(tmp_path, stub_steps):
-    _calls, failing = stub_steps
-    failing.add("02-microarray-targets")
+@needs_benchmark_tools
+def test_internal_step_failure_message_shows_its_error(tmp_path):
+    # A region beyond the end of chrM leaves no contig to place targets on.
     with pytest.raises(WGSExtractError) as excinfo:
-        benchmark_entry.run(_run_args(tmp_path))
-    assert "No reference contigs match" in str(excinfo.value)
+        benchmark_entry.run(_run_args(tmp_path, region="chrM:17000-18000"))
+    assert "No reference contigs match benchmark region" in str(excinfo.value)
     assert "See None" not in str(excinfo.value)
+    assert _report(tmp_path)["results"][-1]["slug"] == "02-microarray-targets"
 
 
-def test_keep_going_runs_remaining_steps_after_failure(tmp_path, stub_steps):
-    calls, failing = stub_steps
-    failing.add("03-bam-unalign")
-    with pytest.raises(WGSExtractError):
-        benchmark_entry.run(_run_args(tmp_path, keep_going=True))
-    results = _report(tmp_path)["results"]
-    assert [r["slug"] for r in results if r["status"] == "FAIL"] == ["03-bam-unalign"]
-    assert results[-1]["slug"] == list(calls)[-1]
-    assert "04a-bam-subset" in calls
-
-
-def test_keep_going_still_reports_failure_at_the_end(tmp_path, stub_steps):
-    _calls, failing = stub_steps
-    failing.add("04b-mt-bam")
-    failing.add("03-bam-unalign")
+@needs_benchmark_tools
+def test_keep_going_runs_remaining_steps_and_reports_failures_at_the_end(
+    tmp_path, monkeypatch
+):
+    _steps(monkeypatch, tmp_path, "extract mt-bam", "microarray")
     with pytest.raises(WGSExtractError) as excinfo:
         benchmark_entry.run(_run_args(tmp_path, keep_going=True))
     assert str(excinfo.value) == (
-        "2 benchmark step(s) failed: BAM unalignment to paired FASTQ; "
-        "Mitochondrial BAM extraction"
+        "2 benchmark step(s) failed: Mitochondrial BAM extraction [extract mt-bam]; "
+        "Microarray CombinedKit generation [microarray]"
     )
+    status = {r["slug"]: r["status"] for r in _report(tmp_path)["results"]}
+    assert [slug for slug, s in status.items() if s == "FAIL"] == [
+        "04b-mt-bam",
+        "10-microarray",
+    ]
+    # The steps after each failure still ran, and passed.
+    assert status["04c-ydna-bam"] == status["11-vcf-qc"] == "PASS"
+    assert list(status.values()).count("PASS") == len(status) - 2
 
 
 def test_real_smoke_run_uses_archive_files_and_records_base_size(
-    tmp_path, stub_steps, capsys
+    tmp_path, monkeypatch, capsys
 ):
-    calls, _ = stub_steps
+    _steps(monkeypatch, tmp_path, noop=True)
     asset = _dataset_zip(
         tmp_path / "asset.zip", {"default_region": "chrM:1-500", "region_safe": True}
     )
-    benchmark_entry.run(
-        _run_args(
-            tmp_path / "o",
-            dataset="real",
-            dataset_zip=str(asset),
-            dataset_sha256=_sha256(asset),
+    with pytest.raises(WGSExtractError, match="benchmark step"):
+        benchmark_entry.run(
+            _run_args(
+                tmp_path / "o",
+                dataset="real",
+                dataset_zip=str(asset),
+                dataset_sha256=_sha256(asset),
+                keep_going=True,
+            )
         )
-    )
 
     report = _report(tmp_path / "o")
     meta, results = report["metadata"], report["results"]
+    steps = {r["slug"]: r for r in results}
     root = Path(meta["run_dir"]) / "dataset" / "real" / DATASET_DIR
     assert meta["data_source"] == "real" and meta["build"] == "hg19"
     assert meta["region"] == "MT:1-500"
@@ -859,13 +888,16 @@ def test_real_smoke_run_uses_archive_files_and_records_base_size(
         "01-reference-index",
         "02-microarray-targets",
     ]
-    assert results[3]["expected_outputs"] == [
+    # The archive's own targets are used, not generated ones.
+    assert steps["00-load-real-dataset"]["status"] == "PASS"
+    assert steps["02-microarray-targets"]["status"] == "PASS"
+    assert steps["02-microarray-targets"]["expected_outputs"] == [
         str(root / DATASET_FILES["targets"]),
         str(root / DATASET_FILES["targets_index"]),
     ]
-    assert all(r["status"] == "PASS" for r in results)
-    assert calls["03-bam-unalign"][-2:] == ["--region", "MT:1-500"]
-    assert "00-generate-bam" not in calls
+    assert str(root / DATASET_FILES["bam"]) in steps["00a-info-detailed"]["command"]
+    assert steps["03-bam-unalign"]["command"][-4:-2] == ["--region", "MT:1-500"]
+    assert "00-generate-bam" not in steps
     md = (Path(meta["run_dir"]) / "benchmark_report.md").read_text()
     assert "- Data source: `real` (HG00096 mini)" in md
     assert (
@@ -874,15 +906,24 @@ def test_real_smoke_run_uses_archive_files_and_records_base_size(
     )
 
 
-def test_unsafe_real_dataset_ignores_region(tmp_path, stub_steps):
-    calls, _ = stub_steps
+def test_unsafe_real_dataset_ignores_region(tmp_path, monkeypatch):
+    _steps(monkeypatch, tmp_path, noop=True)
     asset = _dataset_zip(tmp_path / "asset.zip")
-    benchmark_entry.run(
-        _run_args(tmp_path / "o", dataset="real", dataset_zip=str(asset), region="MT")
-    )
-    assert _report(tmp_path / "o")["metadata"]["region"] == "MT"
-    assert "--region" not in calls["03-bam-unalign"]
-    assert "--region" not in calls["04a-bam-subset"]
+    with pytest.raises(WGSExtractError, match="benchmark step"):
+        benchmark_entry.run(
+            _run_args(
+                tmp_path / "o",
+                dataset="real",
+                dataset_zip=str(asset),
+                region="MT",
+                keep_going=True,
+            )
+        )
+    report = _report(tmp_path / "o")
+    steps = {r["slug"]: r for r in report["results"]}
+    assert report["metadata"]["region"] == "MT"
+    assert "--region" not in steps["03-bam-unalign"]["command"]
+    assert "--region" not in steps["04a-bam-subset"]["command"]
 
 
 @pytest.mark.parametrize(("flag", "value"), [("coverage", 0.0), ("target_count", -1)])
@@ -1096,12 +1137,23 @@ Data:
     ],
 )
 def test_macos_drive_model_and_speed_fall_back_to_system_profiler(
-    monkeypatch, diskutil, model, speed
+    tmp_path, monkeypatch, diskutil, model, speed
 ):
+    require_bare_name_fakes()
+    bindir = tmp_path / "bin"
+    # diskutil knows only the volume's mount point, and may say nothing useful.
+    python_tool(bindir, "diskutil", f"""
+import sys
+if sys.argv[1:] != ["info", "/Volumes/Data"] or {diskutil!r} is None:
+    sys.exit(1)
+print({diskutil!r})
+""")  # fmt: skip
+    python_tool(bindir, "system_profiler", f"print({PROFILER!r})")
+    monkeypatch.setenv("PATH", str(bindir))
     monkeypatch.setattr(machine.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(machine, "_filesystem_mount", lambda _p: "/Volumes/Data")
-    outputs = {"diskutil": diskutil, "system_profiler": PROFILER}
-    monkeypatch.setattr(machine, "_command_output", lambda cmd, **_k: outputs[cmd[0]])
+    volumes = [SimpleNamespace(mountpoint=m) for m in ("/", "/Volumes/Data")]
+    monkeypatch.setattr(psutil, "disk_partitions", lambda all=False: volumes)
+
     assert machine._drive_model(Path("/Volumes/Data/x")) == model
     assert machine._drive_speed(Path("/Volumes/Data/x")) == speed
 

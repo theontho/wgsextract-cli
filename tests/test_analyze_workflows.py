@@ -1,32 +1,33 @@
-"""In-process tests for `analyze comprehensive` and `analyze batch-gen`.
+"""Tests for `analyze comprehensive` and `analyze batch-gen`.
 
-Subcommands the pipeline shells out to (info, lineage, vcf snp/indel,
-chain-annotate) are replaced by a recorder that writes the files they would
-write; the discovery filter and batch handling run for real.
+The subcommands the pipeline runs as child `wgsextract` processes (info,
+lineage, vcf snp/indel, chain-annotate) need samtools, Haplogrep, Yleaf and
+gigabytes of annotation data, so the child interpreter is replaced by a fake
+that writes the files each step would write and logs its command line. The
+step journal, discovery filter, report and batch handling run for real.
 """
 
-import argparse
 import csv
 import json
+import os
 import re
-import shutil
-import subprocess
 import sys
-import time
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+import psutil
 import pytest
 
-from tests.htslib_helpers import bgzip_index, needs_tools, run_wgsextract
+from tests.fake_tools import python_tool
+from tests.htslib_helpers import bgzip_index, needs_tools, run_wgsextract, sam_to_bam
 from tests.smoke_utils import state_directory_setting
 from wgsextract_cli.commands import _analyze_workflows as wf
-from wgsextract_cli.commands import analyze
-from wgsextract_cli.commands.vcf import chain
-from wgsextract_cli.core import config
-from wgsextract_cli.core.config import reload_settings, settings
-from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.config import get_config_path
+from wgsextract_cli.core.dependencies import clear_tool_caches, get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.main import main
 
 needs_bcftools = needs_tools("bcftools", "bgzip", "tabix", "samtools")
 
@@ -57,9 +58,10 @@ def write_vcf(
     return bgzip_index(plain, path)
 
 
-def ids(vcf: str) -> list[str]:
+def ids(vcf: str | Path) -> list[str]:
     out: str = run_command(
-        [get_tool_path("bcftools"), "query", "-f", "%ID\n", vcf], capture_output=True
+        [get_tool_path("bcftools"), "query", "-f", "%ID\n", str(vcf)],
+        capture_output=True,
     ).stdout
     return out.split()
 
@@ -72,80 +74,210 @@ _ANNOTATED = [
     (300, "patho", "50", "GNOMAD_AF=0.3;CLNSIG=Pathogenic"),
 ]
 
+# Every annotation's data, as the config settings that point at it.
+_ANNOTATION_DATA = {
+    "clinvar": "clinvar_vcf_path",
+    "revel": "revel_tsv_path",
+    "phylop": "phylop_tsv_path",
+    "cadd": "cadd_tsv_path",
+    "gerp": "gerp_bigwig_path",
+    "gnomad": "gnomad_vcf_path",
+    "spliceai": "spliceai_vcf_path",
+    "alphamissense": "alphamissense_vcf_path",
+    "pharmgkb": "pharmgkb_vcf_path",
+}
 
-class FakeSubcommands:
-    """Records each `run_cli_subcommand` call and writes what it would write."""
+_FAKE_WGSEXTRACT = """\
+import json, os, shutil, subprocess, sys
+from pathlib import Path
 
-    def __init__(self, gender: str = "Male", fail: Iterable[str] = ()) -> None:
-        self.calls: list[list[str]] = []
-        self.gender = gender
-        self.fail = set(fail)
+if sys.argv[1:3] != ["-m", "wgsextract_cli.main"]:
+    # Not a step, such as the keep-awake helper: the real interpreter runs it.
+    sys.exit(subprocess.call([sys.executable, *sys.argv[1:]]))
+home = Path({home!r})
+state = json.loads((home / "state.json").read_text())
+argv = sys.argv[3:]  # after `-m wgsextract_cli.main`
+with open(home / "calls.jsonl", "a") as log:
+    log.write(json.dumps(argv) + "\\n")
+# The real parser: a step must accept every option it is given.
+from wgsextract_cli.cli.parser import build_parser
+build_parser()[0].parse_args(argv)
+while argv[0].startswith("--"):
+    argv = argv[2:] if argv[0] in ("--config", "--tmp-dir") else argv[1:]
+name = " ".join(argv[:2]) if argv[0] in ("lineage", "vcf") else argv[0]
+opt = dict(zip(argv, argv[1:]))
+outdir = Path(opt["--outdir"])
+output = {{
+    "vcf snp": outdir / "snps.vcf.gz",
+    "vcf indel": outdir / "indels.vcf.gz",
+    "vcf chain-annotate": outdir / "chain_annotated.vcf.gz",
+}}.get(name)
+document = {{"command": name}}
+if name in state["fail"]:
+    sys.exit(f"{{name}} failed")
+if name == state["die"]:
+    output.write_bytes(b"\\x1f\\x8b half a file")
+    if state["writer"]:
+        # A tool of the step that outlives it, still writing.
+        writer = "import sys, time; open(sys.argv[1], 'ab').write(b'1'); time.sleep(60)"
+        tool = subprocess.Popen([sys.executable, "-c", writer, str(output)],
+                                start_new_session=True, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        (home / "writer.pid").write_text(str(tool.pid))
+    os._exit(9)
+if name == "info":
+    cache = outdir / (Path(opt["--input"]).name + ".wgse_info.json")
+    cache.write_text("{{not json" if state["broken_info"]
+                     else json.dumps({{"gender": state["gender"]}}))
+elif output and not (name in state["skip_existing"] and output.exists()):
+    source = state["outputs"].get(name)
+    if source:
+        shutil.copy(source, output)
+        shutil.copy(source + ".tbi", str(output) + ".tbi")
+if name == "vcf snp" and state["reference"]:
+    # Callers name the FASTA they used only in their provenance.
+    document["provenance"] = {{"reference": {{"path": state["reference"]}}}}
+Path(opt["--result-file"]).write_text(json.dumps(document))
+"""
+
+
+@dataclass
+class Run:
+    """One `analyze comprehensive` run: its exit code, result document and the
+    steps it ran (rather than skipped)."""
+
+    code: int
+    document: dict[str, Any]
+    ran: list[str] = field(default_factory=list)
+
+    @property
+    def error(self) -> str:
+        return str((self.document.get("error") or {}).get("message", ""))
+
+
+class FakeSteps:
+    """The child `wgsextract` processes of `analyze comprehensive`."""
+
+    def __init__(self, home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.home = home
+        home.mkdir()
+        self.gender = "Male"
+        self.fail: set[str] = set()
+        self.die: str | None = None
+        self.writer = False
+        self.skip_existing: set[str] = set()
+        self.broken_info = False
         self.reference: Path | None = None
+        self.outputs: dict[str, str] = {}
+        if all(get_tool_path(t) for t in ("bgzip", "tabix", "bcftools")):
+            self.outputs = {
+                "vcf snp": write_vcf(home / "snps.vcf.gz", [(100, "s", "50", ".")]),
+                "vcf indel": write_vcf(home / "indels.vcf.gz", [(100, "i", "50", ".")]),
+                "vcf chain-annotate": write_vcf(
+                    home / "annotated.vcf.gz", _ANNOTATED, ["GNOMAD_AF", "CLNSIG"]
+                ),
+            }
+        monkeypatch.setattr(
+            sys, "executable", str(python_tool(home / "bin", "python",
+                                               _FAKE_WGSEXTRACT.format(home=str(home))))
+        )  # fmt: skip
+        # Every annotation's data is installed, and VEP with its cache.
+        data = home / "data"
+        data.mkdir()
+        self.config = get_config_path().read_text()
+        # An empty library, so only the configured data counts as installed.
+        (home / "library").mkdir()
+        self.settings: dict[str, object] = {"reference_library": str(home / "library")}
+        for ann, key in _ANNOTATION_DATA.items():
+            (data / ann).write_text(f"{ann} release 1")
+            self.settings[key] = str(data / ann)
+        (data / "vep").mkdir()
+        self.settings["vep_cache_directory"] = str(data / "vep")
+        python_tool(home / "tools", "vep", "")
+        monkeypatch.setenv("PATH", f"{home / 'tools'}{os.pathsep}{os.environ['PATH']}")
+        clear_tool_caches()
+        self.runs = 0
 
-    @staticmethod
-    def name(cmd: list[str]) -> str:
-        return " ".join(cmd[:2]) if cmd[0] in ("lineage", "vcf") else cmd[0]
+    def install_only(self, *annotations: str) -> None:
+        """Leave just these annotations' data (and VEP's cache) installed."""
+        for ann, key in _ANNOTATION_DATA.items():
+            if ann not in annotations:
+                self.settings.pop(key, None)
+        if "vep" not in annotations:
+            self.settings.pop("vep_cache_directory", None)
 
-    def __call__(self, cmd: list[str], args: argparse.Namespace) -> None:
-        self.calls.append(cmd)
-        name = self.name(cmd)
-        if name in self.fail:
-            raise WGSExtractError("Subcommand failed: " + " ".join(cmd))
-        opt = dict(zip(cmd, cmd[1:], strict=False))
-        outdir = Path(opt["--outdir"])
-        if name == "info":
-            cache = outdir / f"{Path(opt['--input']).name}.wgse_info.json"
-            cache.write_text(json.dumps({"gender": self.gender}))
-        elif name == "vcf snp":
-            write_vcf(outdir / "snps.vcf.gz", [(100, "s", "50", ".")])
-            if self.reference:
-                # Callers name the FASTA they used only in their provenance.
-                document = outdir / "snp.result.json"
-                provenance = {"reference": {"path": str(self.reference)}}
-                document.write_text(json.dumps({"command": "vcf snp",
-                                                "provenance": provenance}))  # fmt: skip
-                wf.record_step_result(document)
-        elif name == "vcf indel":
-            write_vcf(outdir / "indels.vcf.gz", [(100, "i", "50", ".")])
-        elif name == "vcf chain-annotate":
-            write_vcf(
-                outdir / "chain_annotated.vcf.gz",
-                _ANNOTATED,
-                ["GNOMAD_AF", "CLNSIG"],
-            )
-
-    def names(self) -> list[str]:
-        return [self.name(c) for c in self.calls]
+    @property
+    def calls(self) -> list[list[str]]:
+        """The child command lines of the last run, without global flags."""
+        log = self.home / "calls.jsonl"
+        return [json.loads(line) for line in log.read_text().splitlines()] if (
+            log.exists()
+        ) else []  # fmt: skip
 
     def annotated(self) -> dict[str, str]:
-        """chain-annotate --input -> --annotations."""
+        """chain-annotate --input -> --annotations, in the last run."""
         return {
             c[c.index("--input") + 1]: c[c.index("--annotations") + 1]
             for c in self.calls
-            if self.name(c) == "vcf chain-annotate"
+            if "chain-annotate" in c
         }
+
+    def prepare(self) -> None:
+        """Write the children's behaviour and the run's config."""
+        (self.home / "calls.jsonl").unlink(missing_ok=True)
+        (self.home / "state.json").write_text(json.dumps({
+            "gender": self.gender, "fail": sorted(self.fail), "die": self.die,
+            "writer": self.writer, "skip_existing": sorted(self.skip_existing),
+            "broken_info": self.broken_info, "outputs": self.outputs,
+            "reference": str(self.reference) if self.reference else None,
+        }))  # fmt: skip
+        # Literal strings: TOML would read a Windows path's backslashes as escapes.
+        get_config_path().write_text(
+            self.config + "".join(f"{k} = '{v}'\n" for k, v in self.settings.items())
+        )
+
+    def run(self, *argv: str) -> Run:
+        self.prepare()
+        self.runs += 1
+        document = self.home / f"result-{self.runs}.json"
+        code = 0
+        try:
+            main(["analyze", "comprehensive", *argv, "--result-file", str(document)])
+        except SystemExit as error:
+            code = int(error.code or 0)
+        result = json.loads(document.read_text()) if document.exists() else {}
+        steps = (result.get("details") or {}).get("steps") or []
+        ran = [s["step"] for s in steps if s["action"] == "run"]
+        return Run(code, result, ran)
 
 
 @pytest.fixture
-def fake(monkeypatch: pytest.MonkeyPatch) -> FakeSubcommands:
-    rec = FakeSubcommands()
-    monkeypatch.setattr(wf, "run_cli_subcommand", rec)
-    # Every annotation's data is "installed".
-    monkeypatch.setattr(chain, "skip_reason", lambda ann, lib: None)
-    return rec
+def fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeSteps:
+    return FakeSteps(tmp_path / "fake-steps", monkeypatch)
+
+
+def _bam(path: Path, sample: str = "S") -> str:
+    if not get_tool_path("samtools"):
+        pytest.skip("samtools missing")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return sam_to_bam(
+        ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:10000",
+         f"@RG\tID:rg\tSM:{sample}"],
+        path,
+    )  # fmt: skip
 
 
 @pytest.fixture
 def bam(tmp_path: Path) -> str:
-    """A path that exists; the fake subcommands never read it."""
-    path = tmp_path / "in" / "sample.bam"
-    path.parent.mkdir()
-    path.write_bytes(b"")
-    return str(path)
+    """A header-only BAM; the fake steps never read its reads."""
+    return _bam(tmp_path / "in" / "sample.bam")
 
 
-def comprehensive(*argv: str) -> None:
-    run_wgsextract("analyze", "comprehensive", *argv)
+_ALL_STEPS = [
+    "info", "mt-haplogroup", "y-haplogroup", "snp", "indel",
+    "annotate:snp-indel_snps", "discovery:snp-indel_snps",
+    "annotate:snp-indel_indels", "discovery:snp-indel_indels",
+]  # fmt: skip
 
 
 # --- analyze comprehensive: orchestration ---------------------------------------
@@ -153,29 +285,21 @@ def comprehensive(*argv: str) -> None:
 
 @needs_bcftools
 def test_bam_only_runs_metrics_lineage_calling_then_annotates_both_call_sets(
-    fake: FakeSubcommands, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture
+    fake: FakeSteps, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "out"
-    comprehensive("--input", bam, "--outdir", str(out))
+    run = fake.run("--input", bam, "--outdir", str(out))
 
-    assert fake.names() == [
-        "info",
-        "lineage mt-haplogroup",
-        "lineage y-haplogroup",
-        "vcf snp",
-        "vcf indel",
-        "vcf chain-annotate",
-        "vcf chain-annotate",
-    ]
-    assert all(c[c.index("--input") + 1] == bam for c in fake.calls[:5])
-    assert list(fake.annotated()) == [
-        str(out / "snps.vcf.gz"),
-        str(out / "indels.vcf.gz"),
-    ]
+    assert run.code == 0
+    assert run.ran == _ALL_STEPS
+    # contract: metrics, lineage and calling read the alignment the user gave.
+    assert [c[c.index("--input") + 1] for c in fake.calls[:5]] == [bam] * 5
+    assert list(fake.annotated()) == [str(out / "snps.vcf.gz"),
+                                      str(out / "indels.vcf.gz")]  # fmt: skip
     # Annotated per call set in its own work dir; rare + pathogenic kept.
     for base in ("snps", "indels"):
         sig = out / f"significant_snp-indel_{base}.vcf.gz"
-        assert ids(str(sig)) == ["rare", "patho"]
+        assert ids(sig) == ["rare", "patho"]
         assert (out / f"work_snp-indel_{base}" / "chain_annotated.vcf.gz").exists()
     report = capsys.readouterr().out
     assert "TOTAL SIGNIFICANT VARIANTS FOUND: 4" in report
@@ -183,38 +307,34 @@ def test_bam_only_runs_metrics_lineage_calling_then_annotates_both_call_sets(
 
 
 def test_female_genome_skips_y_lineage(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
     fake.gender = "Female"
-    comprehensive("--input", bam, "--outdir", str(tmp_path), "--skip-calling")
-    assert fake.names() == ["info", "lineage mt-haplogroup"]
+    run = fake.run("--input", bam, "--outdir", str(tmp_path / "o"), "--skip-calling")
+    assert run.ran == ["info", "mt-haplogroup"]
 
 
 def test_unreadable_info_cache_still_runs_y_lineage(
-    fake: FakeSubcommands, bam: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
-    def broken_info(cmd: list[str], args: argparse.Namespace) -> None:
-        fake.calls.append(cmd)
-        if cmd[0] == "info":
-            Path(tmp_path, "sample.bam.wgse_info.json").write_text("{not json")
-
-    monkeypatch.setattr(wf, "run_cli_subcommand", broken_info)
-    comprehensive("--input", bam, "--outdir", str(tmp_path), "--skip-calling")
-    assert fake.names() == ["info", "lineage mt-haplogroup", "lineage y-haplogroup"]
+    fake.broken_info = True
+    run = fake.run("--input", bam, "--outdir", str(tmp_path / "o"), "--skip-calling")
+    assert run.ran == ["info", "mt-haplogroup", "y-haplogroup"]
 
 
 @needs_bcftools
 def test_vcf_inputs_replace_calling_and_get_annotations_for_their_type(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
     vcfs = {
         name: write_vcf(tmp_path / name, [(100, "x", "50", ".")])
         for name in ("s.vcf.gz", "s_sv.vcf.gz", "s.cnv.vcf.gz")
     }
     out = tmp_path / "out"
-    comprehensive("--input", bam, "--vcf-inputs", *vcfs.values(), "--outdir", str(out))
+    run = fake.run("--input", bam, "--vcf-inputs", *vcfs.values(), "--outdir", str(out))
 
-    assert "vcf snp" not in fake.names() and "vcf indel" not in fake.names()
+    assert "snp" not in run.ran and "indel" not in run.ran
+    # contract: each variant type gets the annotations that score it.
     assert fake.annotated() == {
         vcfs["s.vcf.gz"]: "clinvar,revel,phylop,cadd,gerp,gnomad,spliceai,"
         "alphamissense,pharmgkb,vep",
@@ -234,48 +354,38 @@ def test_vcf_inputs_replace_calling_and_get_annotations_for_their_type(
 
 @needs_bcftools
 def test_only_installed_annotations_are_requested(
-    fake: FakeSubcommands, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    fake: FakeSteps, tmp_path: Path
 ) -> None:
-    installed = {"clinvar", "gnomad"}
-    monkeypatch.setattr(
-        chain, "skip_reason", lambda ann, lib: None if ann in installed else "no"
-    )
+    fake.install_only("clinvar", "gnomad")
     vcf = write_vcf(tmp_path / "s.vcf.gz", [(100, "x", "50", ".")])
-    comprehensive("--vcf-inputs", vcf, "--outdir", str(tmp_path / "out"))
+    fake.run("--vcf-inputs", vcf, "--outdir", str(tmp_path / "out"))
+    # contract: an annotation without its data isn't asked for.
     assert fake.annotated() == {vcf: "clinvar,gnomad"}
 
 
 @needs_bcftools
 def test_no_annotation_data_skips_discovery_instead_of_reporting_zero(
-    fake: FakeSubcommands,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture,
+    fake: FakeSteps, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(chain, "skip_reason", lambda ann, lib: "not installed")
+    fake.install_only()
     vcf = write_vcf(tmp_path / "s.vcf.gz", [(100, "x", "50", ".")])
     out = tmp_path / "out"
-    comprehensive("--vcf-inputs", vcf, "--outdir", str(out))
-    assert fake.calls == []
-    # Nothing but the step journal's hidden lock.
-    assert sorted(p.name for p in out.iterdir() if not p.name.startswith(".")) == []
+    run = fake.run("--vcf-inputs", vcf, "--outdir", str(out))
+    assert run.code == 0 and fake.calls == []
+    # Nothing but the step journal and its hidden lock.
+    shown = [p.name for p in out.iterdir() if not p.name.startswith(".")]
+    assert shown == ["analyze.manifest.json"]
     assert "TOTAL SIGNIFICANT VARIANTS FOUND: 0" in capsys.readouterr().out
 
 
 @needs_bcftools
 def test_annotation_that_writes_nothing_is_left_out_of_the_report(
-    fake: FakeSubcommands,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture,
+    fake: FakeSteps, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def quiet(cmd: list[str], args: argparse.Namespace) -> None:
-        fake.calls.append(cmd)
-
-    monkeypatch.setattr(wf, "run_cli_subcommand", quiet)
+    del fake.outputs["vcf chain-annotate"]
     vcf = write_vcf(tmp_path / "s.vcf.gz", [(100, "x", "50", ".")])
-    comprehensive("--vcf-inputs", vcf, "--outdir", str(tmp_path / "out"))
-    assert fake.names() == ["vcf chain-annotate"]
+    run = fake.run("--vcf-inputs", vcf, "--outdir", str(tmp_path / "out"))
+    assert run.ran == ["annotate:snp-indel_s"]
     assert not list((tmp_path / "out").glob("significant_*"))
     report = capsys.readouterr().out
     assert "[SNP-INDEL]" not in report
@@ -284,221 +394,182 @@ def test_annotation_that_writes_nothing_is_left_out_of_the_report(
 
 @needs_bcftools
 def test_confidence_thresholds_given_on_the_command_line_judge_discovery(
-    fake: FakeSubcommands, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    fake: FakeSteps, tmp_path: Path
 ) -> None:
-    def annotate(cmd: list[str], args: argparse.Namespace) -> None:
-        fake.calls.append(cmd)
-        outdir = Path(cmd[cmd.index("--outdir") + 1])
-        plain = outdir / "chain_annotated.vcf"
-        plain.write_text(
-            "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=10000>\n"
-            f"{_INFO_HEADERS['CLNSIG']}\n"
-            '##FORMAT=<ID=GT,Number=1,Type=String,Description="g">\n'
-            '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="a">\n'
-            '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="d">\n'
-            '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="q">\n'
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
-            "chr1\t100\tp\tA\tG\t50\tPASS\tCLNSIG=Pathogenic\t"
-            "GT:AD:DP:GQ\t0/1:7,7:14:99\n"
-        )
-        bgzip_index(plain, outdir / "chain_annotated.vcf.gz")
-
-    monkeypatch.setattr(wf, "run_cli_subcommand", annotate)
+    plain = tmp_path / "annotated.vcf"
+    plain.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=10000>\n"
+        f"{_INFO_HEADERS['CLNSIG']}\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="g">\n'
+        '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="a">\n'
+        '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="d">\n'
+        '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="q">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        "chr1\t100\tp\tA\tG\t50\tPASS\tCLNSIG=Pathogenic\t"
+        "GT:AD:DP:GQ\t0/1:7,7:14:99\n"
+    )
+    fake.outputs["vcf chain-annotate"] = bgzip_index(plain, tmp_path / "ann.vcf.gz")
     vcf = write_vcf(tmp_path / "s.vcf.gz", [(100, "x", "50", ".")])
     out = tmp_path / "out"
     # 14 reads: moderate at the default depth thresholds (10, 20).
-    comprehensive("--vcf-inputs", vcf, "--outdir", str(out),
-                  "--confidence-depth", "5", "10")  # fmt: skip
+    fake.run("--vcf-inputs", vcf, "--outdir", str(out),
+             "--confidence-depth", "5", "10")  # fmt: skip
     table = (out / "significant_snp-indel_s.confidence.tsv").read_text()
     row = next(line for line in table.splitlines() if line.startswith("chr1"))
     assert "\thigh\t" in row
 
 
-@pytest.mark.parametrize("failing", ["info", "lineage mt-haplogroup", "vcf snp"])
+@pytest.mark.parametrize(
+    ("failing", "step"),
+    [("info", "info"), ("lineage mt-haplogroup", "mt-haplogroup"),
+     ("vcf snp", "snp")],
+)  # fmt: skip
 def test_failing_step_stops_the_pipeline_and_names_the_command(
-    fake: FakeSubcommands, bam: str, tmp_path: Path, failing: str
+    fake: FakeSteps, bam: str, tmp_path: Path, failing: str, step: str
 ) -> None:
     fake.fail = {failing}
-    with pytest.raises(WGSExtractError, match=f"Subcommand failed: {failing}"):
-        comprehensive("--input", bam, "--outdir", str(tmp_path))
-    assert fake.names()[-1] == failing
+    run = fake.run("--input", bam, "--outdir", str(tmp_path / "o"))
+    assert run.code == 1
+    assert re.search(f"Subcommand failed: .* {failing} ", run.error)
+    assert run.ran[-1] == step
 
 
 # --- analyze comprehensive: resuming ---------------------------------------------
 
 
 def _significant(out: Path) -> dict[str, list[str]]:
-    return {p.name: ids(str(p)) for p in sorted(out.glob("significant_*.vcf.gz"))}
+    return {p.name: ids(p) for p in sorted(out.glob("significant_*.vcf.gz"))}
+
+
+def _summary(text: str, out: Path) -> str:
+    return text.split("GENOMIC ANALYSIS SUMMARY")[1].replace(str(out), "")
 
 
 @needs_bcftools
 def test_a_killed_run_resumes_at_the_step_it_was_in(
-    fake: FakeSubcommands,
-    bam: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture,
+    fake: FakeSteps, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     clean = tmp_path / "clean"
-    comprehensive("--input", bam, "--outdir", str(clean))
-    clean_report = capsys.readouterr().out.split("GENOMIC ANALYSIS SUMMARY")[1]
+    fake.run("--input", bam, "--outdir", str(clean))
+    clean_report = _summary(capsys.readouterr().out, clean)
 
     out = tmp_path / "out"
-    calls = fake.calls = []
+    fake.die = "vcf indel"
+    run = fake.run("--input", bam, "--outdir", str(out))
+    assert run.code != 0
+    assert run.ran == ["info", "mt-haplogroup", "y-haplogroup", "snp", "indel"]
+    capsys.readouterr()
 
-    def killed_in_indel(cmd: list[str], args: argparse.Namespace) -> None:
-        if fake.name(cmd) == "vcf indel":
-            calls.append(cmd)
-            (out / "indels.vcf.gz").write_bytes(b"\x1f\x8b half a file")
-            raise KeyboardInterrupt
-        fake(cmd, args)
-
-    monkeypatch.setattr(wf, "run_cli_subcommand", killed_in_indel)
-    with pytest.raises(KeyboardInterrupt):
-        comprehensive("--input", bam, "--outdir", str(out))
-    assert fake.names() == ["info", "lineage mt-haplogroup", "lineage y-haplogroup",
-                            "vcf snp", "vcf indel"]  # fmt: skip
-
-    monkeypatch.setattr(wf, "run_cli_subcommand", fake)
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out))
+    fake.die = None
+    run = fake.run("--input", bam, "--outdir", str(out))
     # The finished steps are skipped; the half-written indels are redone.
-    assert fake.names() == ["vcf indel", "vcf chain-annotate", "vcf chain-annotate"]
+    assert run.ran == _ALL_STEPS[4:]
     assert _significant(out) == _significant(clean)
-    report = capsys.readouterr().out.split("GENOMIC ANALYSIS SUMMARY")[1]
-    assert report.replace(str(out), "") == clean_report.replace(str(clean), "")
+    assert _summary(capsys.readouterr().out, out) == clean_report
 
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out))
-    assert fake.calls == []
+    run = fake.run("--input", bam, "--outdir", str(out))
+    assert run.ran == [] and fake.calls == []
     assert _significant(out) == _significant(clean)
 
 
 @needs_bcftools
 def test_a_rerun_waits_for_a_killed_runs_tools_and_never_keeps_their_output(
-    fake: FakeSubcommands,
-    bam: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
     clean = tmp_path / "clean"
-    comprehensive("--input", bam, "--outdir", str(clean))
+    fake.run("--input", bam, "--outdir", str(clean))
     out = tmp_path / "out"
     indels = out / "indels.vcf.gz"
-    tools: list[subprocess.Popen[bytes]] = []
-
-    def killed_in_indel(cmd: list[str], args: argparse.Namespace) -> None:
-        if fake.name(cmd) != "vcf indel":
-            return fake(cmd, args)
-        # The caller runs in its own session, so killing wgsextract leaves it
-        # writing; the kill test in test_realign covers the kill itself.
-        writer = (
-            "import sys, time; open(sys.argv[1], 'ab').write(b'\\x1f'); time.sleep(60)"
-        )
-        tools.append(subprocess.Popen([sys.executable, "-c", writer, str(indels)],
-                                      start_new_session=True))  # fmt: skip
-        while not indels.exists():
-            time.sleep(0.05)
-        raise KeyboardInterrupt
-
-    def skips_existing(cmd: list[str], args: argparse.Namespace) -> None:
-        # Like callers that keep an existing output unless --force.
-        if fake.name(cmd) != "vcf indel" or not indels.exists():
-            fake(cmd, args)
-
-    monkeypatch.setattr(wf, "run_cli_subcommand", killed_in_indel)
+    # The caller's tool runs in its own session, so it outlives the step; the
+    # kill test in test_realign covers the kill itself.
+    fake.die, fake.writer = "vcf indel", True
+    # Like callers that keep an existing output.
+    fake.skip_existing = {"vcf indel"}
+    writer = None
     try:
-        with pytest.raises(KeyboardInterrupt):
-            comprehensive("--input", bam, "--outdir", str(out))
-        fake.calls = []
-        monkeypatch.setattr(wf, "run_cli_subcommand", skips_existing)
-        with pytest.raises(WGSExtractError, match=f"still writing.*pid {tools[0].pid}"):
-            comprehensive("--input", bam, "--outdir", str(out))
+        assert fake.run("--input", bam, "--outdir", str(out)).code != 0
+        writer = psutil.Process(int((fake.home / "writer.pid").read_text()))
+        fake.die = None
+        run = fake.run("--input", bam, "--outdir", str(out))
+        assert run.code != 0
+        assert re.search(f"still writing.*pid {writer.pid}", run.error)
         assert fake.calls == []
     finally:
-        for tool in tools:
-            tool.kill()
-            tool.wait()
+        if writer:
+            writer.kill()
+            writer.wait()
 
-    comprehensive("--input", bam, "--outdir", str(out))
-    assert fake.names() == ["vcf indel", "vcf chain-annotate", "vcf chain-annotate"]
-    assert ids(str(indels)) == ids(str(clean / "indels.vcf.gz"))
+    run = fake.run("--input", bam, "--outdir", str(out))
+    assert run.ran == _ALL_STEPS[4:]
+    assert ids(indels) == ids(clean / "indels.vcf.gz")
     assert _significant(out) == _significant(clean)
     assert not list(out.glob(".wgse-step-*"))
 
 
 @needs_bcftools
 def test_changed_inputs_settings_or_outputs_redo_only_the_steps_they_affect(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
     out = tmp_path / "out"
-    comprehensive("--input", bam, "--outdir", str(out))
+    fake.run("--input", bam, "--outdir", str(out))
 
     # A truncated call set is redone, with what was made from it.
     snps = out / "snps.vcf.gz"
     snps.write_bytes(snps.read_bytes()[:20])
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out))
-    assert fake.names() == ["vcf snp", "vcf chain-annotate"]
+    run = fake.run("--input", bam, "--outdir", str(out))
+    assert run.ran == ["snp", "annotate:snp-indel_snps", "discovery:snp-indel_snps"]
     assert list(fake.annotated()) == [str(snps)]
 
     # New thresholds only refilter.
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out),
-                  "--confidence-depth", "5", "10")  # fmt: skip
+    run = fake.run("--input", bam, "--outdir", str(out),
+                   "--confidence-depth", "5", "10")  # fmt: skip
+    assert run.ran == ["discovery:snp-indel_snps", "discovery:snp-indel_indels"]
     assert fake.calls == []
 
     # A different input file redoes everything that read it.
-    Path(bam).write_bytes(b"another sample")
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out),
-                  "--confidence-depth", "5", "10")  # fmt: skip
-    assert len(fake.calls) == 7
+    _bam(Path(bam), sample="another sample")
+    run = fake.run("--input", bam, "--outdir", str(out),
+                   "--confidence-depth", "5", "10")  # fmt: skip
+    assert run.ran == _ALL_STEPS
 
 
 @needs_bcftools
 def test_updated_reference_or_annotation_data_redo_the_steps_that_read_them(
-    fake: FakeSubcommands,
-    bam: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
     out = tmp_path / "out"
     fasta = fake.reference = tmp_path / "ref.fa"
     fasta.write_text(">chr1\nACGT\n")
-    clinvar = tmp_path / "clinvar.vcf.gz"
-    clinvar.write_text("release 1")
-    monkeypatch.setattr(
-        chain, "dataset", lambda ann, lib: str(clinvar) if ann == "clinvar" else None
-    )
-    comprehensive("--input", bam, "--outdir", str(out))
+    fake.run("--input", bam, "--outdir", str(out))
 
-    clinvar.write_text("release 2")
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out))
-    assert fake.names() == ["vcf chain-annotate", "vcf chain-annotate"]
+    Path(str(fake.settings["clinvar_vcf_path"])).write_text("clinvar release 2")
+    run = fake.run("--input", bam, "--outdir", str(out))
+    assert [s for s in run.ran if not s.startswith("discovery")] == [
+        "annotate:snp-indel_snps", "annotate:snp-indel_indels"
+    ]  # fmt: skip
 
     fasta.write_text(">chr1\nACGA\n")
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out))
-    assert fake.names() == ["vcf snp", "vcf chain-annotate"]
+    run = fake.run("--input", bam, "--outdir", str(out))
+    assert [s for s in run.ran if not s.startswith("discovery")] == [
+        "snp", "annotate:snp-indel_snps"
+    ]  # fmt: skip
 
 
 @needs_bcftools
 def test_dry_run_plans_and_forced_steps_rerun_with_what_uses_them(
-    fake: FakeSubcommands, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture
+    fake: FakeSteps, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "out"
-    comprehensive("--input", bam, "--outdir", str(out), "--dry-run")
+    fake.run("--input", bam, "--outdir", str(out), "--dry-run")
     assert fake.calls == [] and not (out / wf.JOURNAL).exists()
     plan = capsys.readouterr().out
     assert "info" in plan and "annotate:snp-indel_snps" in plan
     assert "not run before" in plan
 
-    comprehensive("--input", bam, "--outdir", str(out))
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out), "--force-step", "snp",
-                  "--dry-run")  # fmt: skip
+    fake.run("--input", bam, "--outdir", str(out))
+    capsys.readouterr()
+    fake.run("--input", bam, "--outdir", str(out), "--force-step", "snp",
+             "--dry-run")  # fmt: skip
     plan = capsys.readouterr().out
     assert fake.calls == []
     assert re.search(
@@ -506,57 +577,57 @@ def test_dry_run_plans_and_forced_steps_rerun_with_what_uses_them(
     )
     assert re.search(r"discovery:snp-indel_indels +skip +complete", plan)
 
-    comprehensive("--input", bam, "--outdir", str(out), "--force-step", "annotate")
-    assert fake.names() == ["vcf chain-annotate", "vcf chain-annotate"]
-    fake.calls = []
-    comprehensive("--input", bam, "--outdir", str(out), "--force")
-    assert len(fake.calls) == 7
+    run = fake.run("--input", bam, "--outdir", str(out), "--force-step", "annotate")
+    assert run.ran == _ALL_STEPS[5:]
+    run = fake.run("--input", bam, "--outdir", str(out), "--force")
+    assert run.ran == _ALL_STEPS
 
 
 def test_missing_inputs_are_reported_before_anything_runs(
-    fake: FakeSubcommands, tmp_path: Path
+    fake: FakeSteps, tmp_path: Path
 ) -> None:
     out = tmp_path / "out"
     missing = str(tmp_path / "nope.bam")
     with pytest.raises(WGSExtractError, match="nope.bam") as err:
-        comprehensive(
-            "--input", missing, "--vcf-inputs", str(tmp_path), "--outdir", str(out)
-        )
+        run_wgsextract("analyze", "comprehensive", "--input", missing,
+                       "--vcf-inputs", str(tmp_path), "--outdir", str(out))  # fmt: skip
     assert "directory" in str(err.value)
     assert fake.calls == [] and not out.exists()
 
 
-def test_no_input_and_no_vcf_is_an_error(fake: FakeSubcommands) -> None:
-    with pytest.raises(WGSExtractError):
-        comprehensive()
+def test_no_input_and_no_vcf_is_an_error(fake: FakeSteps, tmp_path: Path) -> None:
+    run = fake.run("--outdir", str(tmp_path / "out"))
+    assert run.code != 0
     assert fake.calls == []
 
 
 @needs_bcftools
 def test_configured_vcf_input_paths_are_used_without_vcf_inputs(
-    fake: FakeSubcommands, tmp_path: Path
+    fake: FakeSteps, tmp_path: Path
 ) -> None:
     a = write_vcf(tmp_path / "a.vcf.gz", [(100, "x", "50", ".")])
     b = write_vcf(tmp_path / "b_sv.vcf.gz", [(100, "x", "50", ".")])
-    settings["vcf_input_paths"] = f"{a} {b}"
-    comprehensive("--outdir", str(tmp_path / "out"))
-    assert list(fake.annotated()) == [a, b]
+    fake.settings["vcf_input_paths"] = f"{a} {b}"
+    out = tmp_path / "out"
+    fake.run("--outdir", str(out))
+    assert sorted(p.name for p in out.glob("significant_*.vcf.gz")) == [
+        "significant_snp-indel_a.vcf.gz",
+        "significant_sv_b_sv.vcf.gz",
+    ]
 
 
 @needs_bcftools
 def test_vcfs_sharing_a_stem_get_separate_outputs(
-    fake: FakeSubcommands, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    fake: FakeSteps, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    results: list[wf.AnalyzeResult] = []
-    monkeypatch.setattr(
-        analyze, "generate_summary_report", lambda r, o: results.extend(r)
-    )
     vcfs = [
         write_vcf(tmp_path / n, [(100, "x", "50", ".")])
         for n in ("NA12878.snp.vcf.gz", "NA12878.indel.vcf.gz")
     ]
-    comprehensive("--vcf-inputs", *vcfs, "--outdir", str(tmp_path / "out"))
-    assert len({r["output"] for r in results}) == 2
+    fake.run("--vcf-inputs", *vcfs, "--outdir", str(tmp_path / "out"))
+    shown = re.findall(r"Results file: (\S+)", capsys.readouterr().out)
+    assert len(shown) == 2 and len(set(shown)) == 2
+    assert all(Path(path).is_file() for path in shown)
 
 
 # --- discovery filter -----------------------------------------------------------
@@ -631,86 +702,56 @@ def test_discovery_ignores_a_format_af_tag(tmp_path: Path) -> None:
     assert wf.run_discovery_filter(ann, "snp-indel", out) == 1
 
 
-# --- run_cli_subcommand ---------------------------------------------------------
-
-
-def _args(**kw: object) -> argparse.Namespace:
-    base = {"ref": None, "input": None, "threads": None, "debug": False}
-    return argparse.Namespace(**{**base, **kw})
+# --- child subcommands -------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "keep_awake,configured,flag",
     [
-        (None, True, None),
+        (None, True, "--keep-awake"),  # the configured setting, made explicit
         (True, True, "--keep-awake"),
         (False, True, "--no-keep-awake"),
         (False, False, None),
     ],
 )
-def test_subcommand_forwards_ref_threads_debug_force_and_config(
-    monkeypatch: pytest.MonkeyPatch,
+def test_subcommand_forwards_ref_threads_debug_and_config(
+    fake: FakeSteps,
+    bam: str,
     tmp_path: Path,
     keep_awake: bool | None,
     configured: bool,
     flag: str | None,
 ) -> None:
-    seen: list[list[str]] = []
-    monkeypatch.setattr(
-        wf,
-        "run_command",
-        lambda cmd, **_: seen.append(cmd),
-    )
     own = tmp_path / "own.toml"
-    monkeypatch.setattr(config, "_config_path_override", own)
-    monkeypatch.setitem(config.settings, "keep_awake", configured)
-    args = _args(ref="/refs", threads=2, debug=True, force=True, keep_awake=keep_awake)
-    wf.run_cli_subcommand(["info", "--input", "x.bam"], args)
-    assert seen[0][-2] == "--result-file"
-    assert seen[0][1:-2] == [
-        "-m",
-        "wgsextract_cli.main",
+    own.write_text(f"keep_awake = {str(configured).lower()}\n")
+    sleep = {None: [], True: ["--keep-awake"], False: ["--no-keep-awake"]}[keep_awake]
+    fake.prepare()
+    main(["--config", str(own), *sleep, "analyze", "comprehensive", "--input", bam,
+          "--outdir", str(tmp_path / "out"), "--ref", str(tmp_path), "--threads", "2",
+          "--debug", "--force", "--skip-calling"])  # fmt: skip
+    info = fake.calls[0]
+    # contract: each step runs with the run's config, sleep override,
+    # reference, threads and debug. --force reruns the steps; the steps
+    # themselves have no --force, so it is not passed on.
+    assert info[: info.index("info")] == [
         "--config",
         str(own),
         *([flag] if flag else []),
-        "info",
-        "--input",
-        "x.bam",
-        "--ref",
-        "/refs",
-        "--threads",
-        "2",
-        "--debug",
-        "--force",
     ]
+    assert info[info.index("--ref") :][:6] == [
+        "--ref", str(tmp_path), "--threads", "2", "--debug", "--result-file"
+    ]  # fmt: skip
 
 
 def test_subcommand_without_ref_uses_the_configured_library(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
-    seen: list[list[str]] = []
-    monkeypatch.setattr(
-        wf,
-        "run_command",
-        lambda cmd, **_: seen.append(cmd),
-    )
-    settings["reference_library"] = str(tmp_path)
-    wf.run_cli_subcommand(["vcf", "snp"], _args(input="calls.vcf.gz"))
-    del settings["reference_library"]
-    wf.run_cli_subcommand(["vcf", "snp"], _args(input="calls.vcf.gz"))
-    assert seen[0][-4:-2] == ["--ref", str(tmp_path)]
-    assert "--ref" not in seen[1]
-
-
-def test_subcommand_failure_raises_with_the_command_line(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def boom(cmd: list[str], **_: object) -> None:
-        raise OSError("exec failed")
-
-    monkeypatch.setattr(wf, "run_command", boom)
-    with pytest.raises(WGSExtractError, match="Subcommand failed: .* lineage"):
-        wf.run_cli_subcommand(["lineage", "mt-haplogroup"], _args(ref="/r"))
+    fake.settings["reference_library"] = str(tmp_path)
+    fake.run("--input", bam, "--outdir", str(tmp_path / "a"), "--skip-calling")
+    assert fake.calls[0][fake.calls[0].index("--ref") + 1] == str(tmp_path)
+    del fake.settings["reference_library"]
+    fake.run("--input", bam, "--outdir", str(tmp_path / "b"), "--skip-calling")
+    assert "--ref" not in fake.calls[0]
 
 
 def test_console_text_survives_a_narrow_stdout_encoding(
@@ -719,7 +760,7 @@ def test_console_text_survives_a_narrow_stdout_encoding(
     class Ascii:
         encoding = "ascii"
 
-    monkeypatch.setattr(wf.sys, "stdout", Ascii())
+    monkeypatch.setattr(sys, "stdout", Ascii())
     assert wf._safe_console_text("Sample Zoë") == "Sample Zo?"
     assert wf._safe_console_text("plain") == "plain"
 
@@ -729,7 +770,7 @@ def test_console_text_survives_a_narrow_stdout_encoding(
 
 @needs_bcftools
 def test_vcf_input_end_to_end_with_clinvar(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Annotate with a tiny ClinVar through the real `vcf chain-annotate`."""
     clinvar = write_vcf(
@@ -746,18 +787,17 @@ def test_vcf_input_end_to_end_with_clinvar(
         f"reference_library = '{lib}'\nclinvar_vcf_path = '{clinvar}'\n"
         + state_directory_setting(tmp_path)
     )
-    monkeypatch.setattr(config, "_config_path_override", cfg)
-    reload_settings()
 
     calls = write_vcf(
         tmp_path / "me.vcf.gz",
         [(100, "a", "50", "."), (200, "b", "50", "."), (300, "c", "50", ".")],
     )
     out = tmp_path / "out"
-    comprehensive("--vcf-inputs", calls, "--outdir", str(out), "--threads", "1")
+    main(["--config", str(cfg), "analyze", "comprehensive", "--vcf-inputs", calls,
+          "--outdir", str(out), "--threads", "1"])  # fmt: skip
 
     sig = out / "significant_snp-indel_me.vcf.gz"
-    assert ids(str(sig)) == ["a"]
+    assert ids(sig) == ["a"]
     assert "TOTAL SIGNIFICANT VARIANTS FOUND: 1" in capsys.readouterr().out
 
 
@@ -770,33 +810,28 @@ def write_batch(path: Path, rows: list[list[str]], delimiter: str = ",") -> str:
     return str(path)
 
 
-def recorded_samples(fake: FakeSubcommands) -> dict[str, str]:
-    """--outdir -> --input of each info call."""
-    return {
-        Path(c[c.index("--outdir") + 1]).name: c[c.index("--input") + 1]
-        for c in fake.calls
-        if c[0] == "info"
-    }
+def analysed(out: Path) -> set[str]:
+    """The sample folders of ``out`` holding an alignment's metrics."""
+    return {p.parent.name for p in out.glob("*/*.wgse_info.json")}
 
 
 def test_batch_runs_each_sample_in_its_own_directory(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
-    other = shutil.copy(bam, tmp_path / "other.cram")
+    other = _bam(tmp_path / "other.bam")
     batch = write_batch(
         tmp_path / "b.csv",
-        [["name", "input", "vcf"], ["A", bam, ""], ["B", str(other), ""]],
+        [["name", "input", "vcf"], ["A", bam, ""], ["B", other, ""]],
     )
     out = tmp_path / "out"
-    comprehensive("--batch", batch, "--outdir", str(out), "--skip-calling")
-    assert recorded_samples(fake) == {"A": bam, "B": str(other)}
+    fake.run("--batch", batch, "--outdir", str(out), "--skip-calling")
     assert (out / "A" / "sample.bam.wgse_info.json").exists()
-    assert (out / "B" / "other.cram.wgse_info.json").exists()
+    assert (out / "B" / "other.bam.wgse_info.json").exists()
 
 
 @needs_bcftools
 def test_batch_tsv_with_alternate_headers_and_comma_separated_vcfs(
-    fake: FakeSubcommands, tmp_path: Path
+    fake: FakeSteps, tmp_path: Path
 ) -> None:
     a = write_vcf(tmp_path / "a.vcf.gz", [(100, "x", "50", ".")])
     b = write_vcf(tmp_path / "a_sv.vcf.gz", [(100, "x", "50", ".")])
@@ -804,16 +839,15 @@ def test_batch_tsv_with_alternate_headers_and_comma_separated_vcfs(
         tmp_path / "b.tsv", [["Sample", "BAM", "VCFs"], ["S1", "", f"{a}, {b}"]], "\t"
     )
     out = tmp_path / "out"
-    comprehensive("--batch", batch, "--outdir", str(out))
-    assert fake.annotated() == {
-        a: "clinvar,revel,phylop,cadd,gerp,gnomad,spliceai,alphamissense,pharmgkb,vep",
-        b: "clinvar,gnomad",
-    }
-    assert (out / "S1" / "significant_sv_a_sv.vcf.gz").exists()
+    fake.run("--batch", batch, "--outdir", str(out))
+    assert sorted(p.name for p in (out / "S1").glob("significant_*.vcf.gz")) == [
+        "significant_snp-indel_a.vcf.gz",
+        "significant_sv_a_sv.vcf.gz",
+    ]
 
 
 def test_batch_failing_sample_does_not_stop_the_others(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
     batch = write_batch(
         tmp_path / "b.csv",
@@ -824,27 +858,26 @@ def test_batch_failing_sample_does_not_stop_the_others(
             ["ok", bam, ""],
         ],
     )
-    with pytest.raises(WGSExtractError, match="sample\\(s\\): gone, empty$"):
-        comprehensive("--batch", batch, "--outdir", str(tmp_path), "--skip-calling")
-    assert recorded_samples(fake) == {"ok": bam}
+    out = tmp_path / "out"
+    run = fake.run("--batch", batch, "--outdir", str(out), "--skip-calling")
+    assert run.code == 1
+    assert run.error.endswith("sample(s): gone, empty")
+    assert analysed(out) == {"ok"}
 
 
-def test_batch_file_must_exist(fake: FakeSubcommands, tmp_path: Path) -> None:
-    with pytest.raises(WGSExtractError, match="Batch file not found"):
-        comprehensive("--batch", str(tmp_path / "none.csv"))
+def test_batch_file_must_exist(fake: FakeSteps, tmp_path: Path) -> None:
+    run = fake.run("--batch", str(tmp_path / "none.csv"))
+    assert run.code != 0 and "Batch file not found" in run.error
 
 
 @needs_bcftools
-def test_batch_gen_output_drives_a_batch_run(
-    fake: FakeSubcommands, tmp_path: Path
-) -> None:
+def test_batch_gen_output_drives_a_batch_run(fake: FakeSteps, tmp_path: Path) -> None:
     scan = tmp_path / "scan"
-    (scan / "a").mkdir(parents=True)
-    (scan / "b").mkdir()
-    Path(scan / "a" / "alice.bam").write_bytes(b"")
-    Path(scan / "a" / "alice.bam.bai").write_bytes(b"")
+    alice = _bam(scan / "a" / "alice.bam")
+    run_command([get_tool_path("samtools"), "index", alice])
     write_vcf(scan / "a" / "alice.snp.vcf.gz", [(100, "x", "50", ".")])
     write_vcf(scan / "a" / "alice_SV.vcf.gz", [(100, "x", "50", ".")])
+    (scan / "b").mkdir()
     write_vcf(scan / "b" / "bob.vcf.gz", [(100, "x", "50", ".")])
     Path(scan / "b" / "notes.txt").write_text("x")
     batch = tmp_path / "batch.csv"
@@ -854,7 +887,7 @@ def test_batch_gen_output_drives_a_batch_run(
     )
     rows = list(csv.DictReader(batch.open()))
     assert [r["name"] for r in rows] == ["alice", "bob"]
-    assert rows[0]["input"] == str(scan / "a" / "alice.bam")
+    assert rows[0]["input"] == alice
     assert sorted(rows[0]["vcf"].split(";")) == [
         str(scan / "a" / "alice.snp.vcf.gz"),
         str(scan / "a" / "alice_SV.vcf.gz"),
@@ -865,11 +898,15 @@ def test_batch_gen_output_drives_a_batch_run(
         "vcf": str(scan / "b" / "bob.vcf.gz"),
     }
 
-    comprehensive("--batch", str(batch), "--outdir", str(tmp_path / "out"))
-    assert recorded_samples(fake) == {"alice": rows[0]["input"]}
-    assert sorted(fake.annotated()) == sorted(
-        [*rows[0]["vcf"].split(";"), rows[1]["vcf"]]
-    )
+    out = tmp_path / "out"
+    fake.run("--batch", str(batch), "--outdir", str(out))
+    assert analysed(out) == {"alice"}
+    assert sorted(p.relative_to(out).as_posix()
+                  for p in out.glob("*/significant_*.vcf.gz")) == [
+        "alice/significant_snp-indel_alice.snp.vcf.gz",
+        "alice/significant_sv_alice_SV.vcf.gz",
+        "bob/significant_snp-indel_bob.vcf.gz",
+    ]  # fmt: skip
 
 
 def test_batch_gen_requires_an_existing_directory(tmp_path: Path) -> None:
@@ -878,37 +915,41 @@ def test_batch_gen_requires_an_existing_directory(tmp_path: Path) -> None:
 
 
 def test_configured_batch_file_runs_each_sample_once(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
-    settings["batch_file_path"] = write_batch(
+    fake.settings["batch_file_path"] = write_batch(
         tmp_path / "b.csv", [["name", "input", "vcf"], ["A", bam, ""]]
     )
-    comprehensive("--outdir", str(tmp_path / "out"), "--skip-calling")
-    assert recorded_samples(fake) == {"A": bam}
+    out = tmp_path / "out"
+    fake.run("--outdir", str(out), "--skip-calling")
+    assert analysed(out) == {"A"}
+    assert [c[0] for c in fake.calls].count("info") == 1
 
 
 @needs_bcftools
 def test_batch_sample_without_vcfs_ignores_configured_vcf_input_paths(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
-    settings["vcf_input_paths"] = write_vcf(
+    fake.settings["vcf_input_paths"] = write_vcf(
         tmp_path / "x.vcf.gz", [(1, "x", "50", ".")]
     )
     batch = write_batch(tmp_path / "b.csv", [["name", "input", "vcf"], ["A", bam, ""]])
-    comprehensive("--batch", batch, "--outdir", str(tmp_path / "out"), "--skip-calling")
-    assert fake.annotated() == {}
+    out = tmp_path / "out"
+    fake.run("--batch", batch, "--outdir", str(out), "--skip-calling")
+    assert analysed(out) == {"A"}
+    assert not list(out.glob("**/significant_*"))
 
 
 def test_batch_sample_names_stay_inside_outdir_and_blank_names_differ(
-    fake: FakeSubcommands, bam: str, tmp_path: Path
+    fake: FakeSteps, bam: str, tmp_path: Path
 ) -> None:
     batch = tmp_path / "batch.csv"
     batch.write_text(f"name,input\n../escape,{bam}\n,{bam}\n,{bam}\n")
     out = tmp_path / "out"
-    with pytest.raises(WGSExtractError, match=r"\.\./escape"):
-        comprehensive("--batch", str(batch), "--outdir", str(out))
+    run = fake.run("--batch", str(batch), "--outdir", str(out))
+    assert run.code == 1 and "../escape" in run.error
     assert not (tmp_path / "escape").exists()
-    assert sorted(p.name for p in out.iterdir()) == ["sample2", "sample3"]
+    assert sorted(p.name for p in out.iterdir() if p.is_dir()) == ["sample2", "sample3"]
 
 
 def test_batch_gen_refuses_two_alignments_with_one_sample_name(tmp_path: Path) -> None:

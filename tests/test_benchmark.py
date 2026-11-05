@@ -1,9 +1,18 @@
 import argparse
+import hashlib
+import json
+import subprocess
+import sys
 from argparse import Namespace
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import psutil
 import pytest
 
+from tests.fake_tools import python_tool, require_bare_name_fakes
+from tests.htslib_helpers import needs_tools
 from wgsextract_cli.commands import benchmark as _benchmark_entry
 from wgsextract_cli.commands.benchmark import core as _benchmark_core
 from wgsextract_cli.commands.benchmark import datasets as _benchmark_datasets
@@ -16,7 +25,7 @@ from wgsextract_cli.commands.benchmark import models as _benchmark_models
 from wgsextract_cli.commands.benchmark import qc as _benchmark_qc
 from wgsextract_cli.commands.benchmark import reports as _benchmark_reports
 from wgsextract_cli.commands.benchmark import setup as _benchmark_setup
-from wgsextract_cli.core import native_support
+from wgsextract_cli.core.runtime import default_thread_tuning_profile
 
 
 class _ModuleGroup:
@@ -167,410 +176,115 @@ def test_cpu_frequency_handles_psutil_exception(monkeypatch) -> None:
     assert benchmark._cpu_frequency() is None
 
 
-def test_benchmark_prints_progress_lines_and_base_file_size(
-    tmp_path: Path, capsys, monkeypatch
+needs_benchmark_tools = needs_tools("samtools", "bcftools", "bgzip", "tabix", "bwa")
+
+
+@dataclass
+class BenchmarkRun:
+    stdout: str
+    run_dir: Path
+
+    @property
+    def document(self) -> dict[str, Any]:
+        document: dict[str, Any] = json.loads(
+            (self.run_dir / "benchmark_results.json").read_text()
+        )
+        return document
+
+    @property
+    def results(self) -> dict[str, dict[str, Any]]:
+        return {result["slug"]: result for result in self.document["results"]}
+
+
+def _benchmark(outdir: Path, *argv: str) -> BenchmarkRun:
+    """A real smoke benchmark on generated data, as the user runs it."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "wgsextract_cli.main", "benchmark", "--profile",
+         "smoke", "--dataset", "fake", "--outdir", str(outdir), *argv],
+        capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    (run_dir,) = (outdir / "runs").iterdir()
+    return BenchmarkRun(completed.stdout, run_dir)
+
+
+@pytest.fixture(scope="module")
+def core_run(tmp_path_factory: pytest.TempPathFactory) -> BenchmarkRun:
+    return _benchmark(tmp_path_factory.mktemp("core"), "--suite", "core")
+
+
+@pytest.fixture(scope="module")
+def heavy_run(tmp_path_factory: pytest.TempPathFactory) -> BenchmarkRun:
+    return _benchmark(
+        tmp_path_factory.mktemp("heavy"), "--threads", "1", "--region", "chrM:1-9000"
+    )
+
+
+@needs_benchmark_tools
+def test_benchmark_prints_machine_progress_and_base_file_size(
+    core_run: BenchmarkRun,
 ) -> None:
-    def touch(path: Path, size: int = 1) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"x" * size)
-
-    def fake_cli_step(
-        args: Namespace,
-        name: str,
-        slug: str,
-        command_args: list[str],
-        output_dir: Path,
-        logs_dir: Path,
-        expected_outputs: list[Path],
-        command_label: str | None = None,
-    ) -> benchmark.BenchmarkResult:
-        del args, command_args, logs_dir, command_label
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for output in expected_outputs:
-            touch(output, size=1536 if output.name == "fake.bam" else 1)
-        return benchmark.BenchmarkResult(
-            name=name,
-            slug=slug,
-            status="PASS",
-            seconds=1.25,
-            command=["fake", slug],
-            output_dir=str(output_dir),
-            expected_outputs=[str(output) for output in expected_outputs],
-        )
-
-    def fake_internal_step(
-        name: str,
-        slug: str,
-        output_dir: Path,
-        func,
-        expected_outputs: list[Path],
-    ) -> benchmark.BenchmarkResult:
-        del func
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for output in expected_outputs:
-            touch(output)
-        return benchmark.BenchmarkResult(
-            name=name,
-            slug=slug,
-            status="PASS",
-            seconds=0.5,
-            command=["internal", slug],
-            output_dir=str(output_dir),
-            expected_outputs=[str(output) for output in expected_outputs],
-        )
-
-    monkeypatch.setattr(benchmark, "_run_cli_step", fake_cli_step)
-    monkeypatch.setattr(benchmark, "_run_internal_step", fake_internal_step)
-    monkeypatch.setattr(
-        benchmark,
-        "_run_heavy_processing_steps",
-        lambda **kwargs: (_ for _ in ()).throw(
-            AssertionError("core suite should not run heavy benchmark steps")
-        ),
+    stdout = core_run.stdout
+    assert f"Cores: {psutil.cpu_count(logical=False)} physical / " in stdout
+    samtools = next(
+        tool
+        for tool in core_run.document["metadata"]["external_tools"]
+        if tool["name"] == "samtools"
     )
-    monkeypatch.setattr(
-        benchmark,
-        "_machine_stats",
-        lambda run_dir: {
-            "os": "TestOS 1.0",
-            "python": "Python 3.10",
-            "architecture": "test64",
-            "cpu_model": "Test CPU",
-            "physical_cores": 4,
-            "logical_cores": 8,
-            "cpu_frequency": "3.20 GHz",
-            "ram_total": "16.0 GiB (17,179,869,184 bytes)",
-            "ram_available": "8.0 GiB (8,589,934,592 bytes)",
-            "ram_speed": "3200 MHz",
-            "benchmark_filesystem": str(run_dir),
-            "disk_total": "100.0 GiB (107,374,182,400 bytes)",
-            "disk_free": "50.0 GiB (53,687,091,200 bytes)",
-            "drive_model": "Test Drive",
-            "drive_speed": "NVMe",
-        },
-    )
-    monkeypatch.setattr(
-        benchmark,
-        "_benchmark_external_tools",
-        lambda: [
-            {
-                "name": "samtools",
-                "required": True,
-                "active": True,
-                "status": "active",
-                "purpose": "BAM/CRAM/FASTA indexing and conversion",
-                "path": "/usr/bin/samtools",
-                "runtime": "native",
-                "version": "samtools 1.22",
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        benchmark,
-        "default_thread_tuning_profile",
-        lambda: Namespace(threads=8, label="8", reason="all available cores"),
-    )
+    assert samtools["status"] == "active"
+    assert f"{samtools['runtime']}: {samtools['path']}" in stdout
+    # The thread policy the user didn't override: this machine's default.
+    tuning = default_thread_tuning_profile()
+    assert f"Threads: {tuning.label}" in stdout
+    assert f"Policy: {tuning.reason}" in stdout
 
-    benchmark.run(
-        Namespace(
-            profile="smoke",
-            dataset="fake",
-            coverage=None,
-            full_size=False,
-            build="hg38",
-            seed=1,
-            target_count=None,
-            suite="core",
-            region=None,
-            keep_going=False,
-            outdir=str(tmp_path),
-            _explicit_dests={"outdir"},
-            debug=False,
-            quiet=False,
-            threads=None,
-            memory=None,
-        )
-    )
+    base = core_run.run_dir / "dataset" / "fake.bam"
+    (base_line,) = [
+        line for line in stdout.splitlines() if "Benchmark base file:" in line
+    ]
+    assert str(base) in base_line
+    assert f"({base.stat().st_size:,} bytes)" in base_line
 
-    stdout = capsys.readouterr().out
-    assert "Machine stats:" in stdout
-    assert "OS: TestOS 1.0" in stdout
-    assert "CPU: Test CPU" in stdout
-    assert "Cores: 4 physical / 8 logical" in stdout
-    assert "RAM: 16.0 GiB" in stdout
-    assert "Drive: Test Drive" in stdout
-    assert "External tools used or checked by this benchmark:" in stdout
-    assert "samtools [required, active]" in stdout
-    assert "native: /usr/bin/samtools" in stdout
-    assert "WGSExtract CLI Benchmark Progress" in stdout
-    assert "Thread policy:" in stdout
-    assert "Policy: all available cores" in stdout
-    assert "Benchmark base file:" in stdout
-    assert "Fake BAM generator: fast streaming reference-backed SNP generator" in stdout
-    assert "1.5 KiB (1,536 bytes)" in stdout
-    assert stdout.count("Generate deterministic BAM foundation") == 1
-    assert "PASS" in stdout
-    assert "1.25" in stdout
-    assert "WGSExtract CLI Benchmark Summary" in stdout
+    # One progress line per step, each PASS, then the summary.
+    results = core_run.document["results"]
+    assert results and {r["status"] for r in results} == {"PASS"}
+    for result in results:
+        assert stdout.count(result["name"]) == 1
+    assert f"Passed: {len(results)} | Failed: 0 | Skipped: 0" in stdout
     assert "Suite: core" in stdout
-    assert "Thread policy: all available cores" in stdout
-    assert "Machine: TestOS 1.0 | Test CPU" in stdout
-    assert "External tools: samtools" in stdout
 
 
-def test_heavy_suite_runs_extra_processing_steps(
-    tmp_path: Path, capsys, monkeypatch
+@needs_benchmark_tools
+def test_heavy_suite_adds_processing_steps_on_the_aligned_bam_and_region(
+    core_run: BenchmarkRun, heavy_run: BenchmarkRun
 ) -> None:
-    def touch(path: Path, size: int = 1) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"x" * size)
+    heavy = heavy_run.results
+    assert "Suite: heavy" in heavy_run.stdout
+    assert "Policy: explicit --threads override" in heavy_run.stdout
+    assert {r["status"] for r in heavy.values()} <= {"PASS", "SKIP"}
+    # The core suite's steps, then the heavy ones, among them the commands that
+    # only run locally.
+    extra = heavy.keys() - core_run.results.keys()
+    assert core_run.results.keys() < heavy.keys()
+    assert {"12a-ref-count-ns", "12b-ref-verify", "17a-analyze-batch-fixture",
+            "17b-analyze-batch-gen", "18a-repair-fixtures", "18b-repair-ftdna-bam",
+            "18c-repair-ftdna-vcf"} <= extra  # fmt: skip
+    step_numbers = [r["slug"].split("-", 1)[0] for r in heavy_run.document["results"]]
+    assert len(step_numbers) == len(set(step_numbers))
 
-    def fake_cli_step(
-        args: Namespace,
-        name: str,
-        slug: str,
-        command_args: list[str],
-        output_dir: Path,
-        logs_dir: Path,
-        expected_outputs: list[Path],
-        command_label: str | None = None,
-    ) -> benchmark.BenchmarkResult:
-        del args, command_args, logs_dir, command_label
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for output in expected_outputs:
-            touch(output)
-        return benchmark.BenchmarkResult(
-            name=name,
-            slug=slug,
-            status="PASS",
-            seconds=0.1,
-            command=["fake", slug],
-            output_dir=str(output_dir),
-            expected_outputs=[str(output) for output in expected_outputs],
-        )
-
-    def fake_internal_step(
-        name: str,
-        slug: str,
-        output_dir: Path,
-        func,
-        expected_outputs: list[Path],
-    ) -> benchmark.BenchmarkResult:
-        del func
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for output in expected_outputs:
-            touch(output)
-        return benchmark.BenchmarkResult(
-            name=name,
-            slug=slug,
-            status="PASS",
-            seconds=0.1,
-            command=["internal", slug],
-            output_dir=str(output_dir),
-            expected_outputs=[str(output) for output in expected_outputs],
-        )
-
-    called: dict[str, Path | str | None] = {}
-
-    def fake_heavy_steps(**kwargs) -> None:
-        called["analysis_bam"] = kwargs["analysis_bam"]
-        called["snp_vcf"] = kwargs["snp_vcf"]
-        called["region"] = kwargs["region"]
-        kwargs["record"](
-            benchmark.BenchmarkResult(
-                name="Heavy sentinel benchmark",
-                slug="heavy-sentinel",
-                status="PASS",
-                seconds=0.2,
-                command=["fake", "heavy"],
-                output_dir=str(kwargs["steps_dir"] / "heavy-sentinel"),
-            )
-        )
-
-    monkeypatch.setattr(benchmark, "_run_cli_step", fake_cli_step)
-    monkeypatch.setattr(benchmark, "_run_internal_step", fake_internal_step)
-    monkeypatch.setattr(benchmark, "_run_heavy_processing_steps", fake_heavy_steps)
-    monkeypatch.setattr(
-        benchmark,
-        "_machine_stats",
-        lambda run_dir: {
-            "os": "TestOS 1.0",
-            "python": "Python 3.10",
-            "architecture": "test64",
-            "cpu_model": "Test CPU",
-            "physical_cores": 4,
-            "logical_cores": 8,
-            "cpu_frequency": None,
-            "ram_total": "16.0 GiB (17,179,869,184 bytes)",
-            "ram_available": "8.0 GiB (8,589,934,592 bytes)",
-            "ram_speed": None,
-            "benchmark_filesystem": str(run_dir),
-            "disk_total": "100.0 GiB (107,374,182,400 bytes)",
-            "disk_free": "50.0 GiB (53,687,091,200 bytes)",
-            "drive_model": None,
-            "drive_speed": None,
-        },
+    # Heavy steps read the aligned BAM and SNP calls, over the chosen region.
+    aligned = heavy["04-fastq-align"]["expected_outputs"][0]
+    assert Path(aligned).name == "benchmark_aligned.bam"
+    assert aligned in heavy["14f-custom-extract"]["command"]
+    assert "chrM:1-9000" in heavy["14f-custom-extract"]["command"]
+    snps = next(
+        p for p in heavy["08-vcf-snp"]["expected_outputs"] if p.endswith(".vcf.gz")
     )
-    monkeypatch.setattr(
-        benchmark,
-        "default_thread_tuning_profile",
-        lambda: Namespace(threads=8, label="8", reason="all available cores"),
-    )
-    monkeypatch.setattr(benchmark, "_benchmark_external_tools", lambda: [])
-
-    benchmark.run(
-        Namespace(
-            profile="smoke",
-            dataset="fake",
-            coverage=None,
-            full_size=False,
-            build="hg38",
-            seed=1,
-            target_count=None,
-            suite="heavy",
-            region="chrM",
-            keep_going=False,
-            outdir=str(tmp_path),
-            _explicit_dests={"outdir"},
-            debug=False,
-            quiet=False,
-            threads=1,
-            memory=None,
-        )
-    )
-
-    stdout = capsys.readouterr().out
-    assert "Suite: heavy" in stdout
-    assert "Heavy sentinel benchmark" in stdout
-    assert isinstance(called["analysis_bam"], Path)
-    assert called["analysis_bam"].name == "benchmark_aligned.bam"
-    assert isinstance(called["snp_vcf"], Path)
-    assert called["snp_vcf"].name == "snps.vcf.gz"
-    assert called["region"] == "chrM"
-
-
-def test_heavy_processing_steps_include_local_only_commands(
-    tmp_path: Path, monkeypatch
-) -> None:
-    monkeypatch.setattr(native_support.platform, "machine", lambda: "x86_64")
-
-    def touch(path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"x")
-
-    cli_slugs: list[str] = []
-    pipe_slugs: list[str] = []
-    internal_slugs: list[str] = []
-    records: list[benchmark.BenchmarkResult] = []
-
-    def fake_cli_step(
-        args: Namespace,
-        name: str,
-        slug: str,
-        command_args: list[str],
-        output_dir: Path,
-        logs_dir: Path,
-        expected_outputs: list[Path],
-        command_label: str | None = None,
-    ) -> benchmark.BenchmarkResult:
-        del args, command_args, logs_dir, command_label
-        cli_slugs.append(slug)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for output in expected_outputs:
-            touch(output)
-        return benchmark.BenchmarkResult(
-            name=name,
-            slug=slug,
-            status="PASS",
-            seconds=0.1,
-            command=["fake", slug],
-            output_dir=str(output_dir),
-            expected_outputs=[str(output) for output in expected_outputs],
-        )
-
-    def fake_pipe_step(
-        args: Namespace,
-        name: str,
-        slug: str,
-        command_args: list[str],
-        input_file: Path,
-        output_file: Path,
-        output_dir: Path,
-        logs_dir: Path,
-        expected_outputs: list[Path],
-        command_label: str | None = None,
-    ) -> benchmark.BenchmarkResult:
-        del args, command_args, input_file, output_file, logs_dir, command_label
-        pipe_slugs.append(slug)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for output in expected_outputs:
-            touch(output)
-        return benchmark.BenchmarkResult(
-            name=name,
-            slug=slug,
-            status="PASS",
-            seconds=0.1,
-            command=["fake", slug],
-            output_dir=str(output_dir),
-            expected_outputs=[str(output) for output in expected_outputs],
-        )
-
-    def fake_internal_step(
-        name: str,
-        slug: str,
-        output_dir: Path,
-        func,
-        expected_outputs: list[Path],
-    ) -> benchmark.BenchmarkResult:
-        del func
-        internal_slugs.append(slug)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for output in expected_outputs:
-            touch(output)
-        return benchmark.BenchmarkResult(
-            name=name,
-            slug=slug,
-            status="PASS",
-            seconds=0.1,
-            command=["internal", slug],
-            output_dir=str(output_dir),
-            expected_outputs=[str(output) for output in expected_outputs],
-        )
-
-    monkeypatch.setattr(benchmark, "_run_cli_step", fake_cli_step)
-    monkeypatch.setattr(benchmark, "_run_cli_pipe_step", fake_pipe_step)
-    monkeypatch.setattr(benchmark, "_run_internal_step", fake_internal_step)
-    monkeypatch.setattr(benchmark, "_benchmark_tool_available", lambda tool: False)
-
-    def record(result: benchmark.BenchmarkResult) -> benchmark.BenchmarkResult:
-        records.append(result)
-        return result
-
-    args = Namespace(threads=1, memory=None, debug=False, quiet=False)
-    benchmark._run_heavy_processing_steps(
-        args=args,
-        record=record,
-        analysis_bam=tmp_path / "sample.bam",
-        ref_path=tmp_path / "ref.fa",
-        target_tab_gz=tmp_path / "targets.tab.gz",
-        snp_vcf=tmp_path / "snps.vcf.gz",
-        unalign_r1=tmp_path / "sample_R1.fastq.gz",
-        unalign_r2=tmp_path / "sample_R2.fastq.gz",
-        steps_dir=tmp_path / "steps",
-        logs_dir=tmp_path / "logs",
-        region="chrM",
-    )
-
-    all_slugs = [result.slug for result in records]
-    step_ids = [slug.split("-", 1)[0] for slug in all_slugs]
-    assert len(step_ids) == len(set(step_ids)), "benchmark step numbers must be unique"
-    assert "12a-ref-count-ns" in cli_slugs
-    assert "12b-ref-verify" in cli_slugs
-    assert "17b-analyze-batch-gen" in cli_slugs
-    assert "18b-repair-ftdna-bam" in pipe_slugs
-    assert "18c-repair-ftdna-vcf" in pipe_slugs
-    assert "17a-analyze-batch-fixture" in internal_slugs
-    assert "18a-repair-fixtures" in internal_slugs
+    assert snps in heavy["16a-vcf-filter"]["command"]
+    # contract: --threads reaches every step.
+    for result in heavy.values():
+        if result["command"] and "wgsextract_cli.main" in result["command"]:
+            assert result["command"][-2:] == ["--threads", "1"], result["slug"]
 
 
 def test_200mb_profile_targets_scaled_fake_bam() -> None:
@@ -579,53 +293,6 @@ def test_200mb_profile_targets_scaled_fake_bam() -> None:
     assert profile["coverage"] == 71.0
     assert profile["full_size"] is False
     assert profile["region"] is None
-
-
-def test_macos_benchmark_threads_use_performance_cores(monkeypatch) -> None:
-    args = Namespace(threads=None)
-    monkeypatch.setattr(benchmark.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(benchmark.psutil, "cpu_count", lambda logical=False: 10)
-    monkeypatch.setattr(
-        benchmark,
-        "default_thread_tuning_profile",
-        lambda: Namespace(
-            threads=8,
-            label="8",
-            reason="Apple Silicon performance-core count",
-        ),
-    )
-
-    plan = benchmark._benchmark_thread_plan(args)
-
-    assert plan.label == "8"
-    assert plan.default_threads == 8
-    args._benchmark_thread_plan = plan
-    assert benchmark._benchmark_threads(args) == 8
-
-
-def test_benchmark_keeps_explicit_thread_override(monkeypatch) -> None:
-    args = Namespace(threads=4)
-    monkeypatch.setattr(benchmark.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(benchmark, "_command_output", lambda command: "8")
-
-    plan = benchmark._benchmark_thread_plan(args)
-
-    assert plan.label == "4"
-    assert plan.default_threads == 4
-
-
-def test_cli_command_uses_thread_plan() -> None:
-    args = Namespace(
-        debug=False,
-        quiet=False,
-        memory=None,
-        _benchmark_thread_plan=benchmark.BenchmarkThreadPlan("8", 8, "test policy"),
-    )
-
-    threads = benchmark._benchmark_threads(args)
-
-    assert threads == 8
-    assert benchmark._cli_command(args, ["align"], threads)[-2:] == ["--threads", "8"]
 
 
 def test_command_region_expands_whole_contig_region(tmp_path: Path) -> None:
@@ -675,99 +342,6 @@ def test_direct_real_dataset_manifest_marks_region_safe(tmp_path: Path) -> None:
     assert dataset.bam == bam
 
 
-def test_cached_remote_file_rechecks_verified_md5(monkeypatch, tmp_path: Path) -> None:
-    remote = benchmark.BenchmarkRemoteFile(
-        role="bam",
-        url="https://example.invalid/sample.cram",
-        filename="sample.cram",
-        md5="d41d8cd98f00b204e9800998ecf8427e",
-    )
-    cached = tmp_path / remote.filename
-    cached.write_bytes(b"not empty")
-    benchmark._verified_checksum_path(cached, remote.md5).write_text(
-        remote.md5 + "\n", encoding="ascii"
-    )
-
-    downloads = []
-
-    def fake_download(url: str, destination: Path, **_kwargs) -> None:
-        downloads.append(url)
-        destination.write_bytes(b"")
-
-    monkeypatch.setattr(benchmark, "_download_file", fake_download)
-
-    assert benchmark._cached_remote_dataset_file(remote, tmp_path) == cached
-    assert downloads == [remote.url]
-
-
-def test_cached_remote_file_skips_current_verified_md5(
-    monkeypatch, tmp_path: Path
-) -> None:
-    remote = benchmark.BenchmarkRemoteFile(
-        role="bam",
-        url="https://example.invalid/sample.cram",
-        filename="sample.cram",
-        md5="d41d8cd98f00b204e9800998ecf8427e",
-    )
-    cached = tmp_path / remote.filename
-    cached.write_bytes(b"")
-    benchmark._write_verified_md5_marker(
-        cached,
-        benchmark._verified_checksum_path(cached, remote.md5),
-        remote.md5,
-    )
-    monkeypatch.setattr(
-        benchmark,
-        "_file_digest",
-        lambda path, algorithm: (_ for _ in ()).throw(
-            AssertionError("md5 should be cached")
-        ),
-    )
-
-    assert benchmark._cached_remote_dataset_file(remote, tmp_path) == cached
-
-
-def test_direct_real_dataset_uses_cache_root(monkeypatch, tmp_path: Path) -> None:
-    from wgsextract_cli.core.config import settings
-
-    monkeypatch.setitem(settings, "dev_download_cache", False)
-    spec = benchmark.BenchmarkDatasetSpec(
-        tag="real-test",
-        dataset_id="real-test",
-        description="test direct dataset",
-        build="hg38",
-        sample="HG00096",
-        kind="direct",
-        remote_files=(
-            benchmark.BenchmarkRemoteFile(
-                "ref", "https://example.invalid/ref.fa", "ref.fa"
-            ),
-            benchmark.BenchmarkRemoteFile(
-                "bam", "https://example.invalid/sample.bam", "sample.bam"
-            ),
-        ),
-        region_safe=True,
-    )
-
-    def fake_cache(remote: benchmark.BenchmarkRemoteFile, cache_root: Path) -> Path:
-        path = cache_root / remote.filename
-        path.write_bytes(b"x")
-        return path
-
-    monkeypatch.setattr(benchmark, "_cached_remote_dataset_file", fake_cache)
-
-    dataset = benchmark._prepare_direct_real_benchmark_dataset(
-        argparse.Namespace(dataset_cache_dir=None),
-        tmp_path / "run-dataset",
-        tmp_path,
-        spec,
-    )
-
-    assert dataset.root == tmp_path / "datasets" / spec.dataset_id
-    assert (tmp_path / "run-dataset" / "real-test-cache-root.txt").exists()
-    assert not (tmp_path / "run-dataset" / spec.tag / "sample.bam").exists()
-
-
 @pytest.mark.parametrize(
     ("build", "region", "expected"),
     [
@@ -782,39 +356,32 @@ def test_normalize_region_for_fake_data(build, region, expected) -> None:
     assert benchmark._normalize_region_for_fake_data(region, build) == expected
 
 
-def test_windows_machine_stats_use_powershell_cim(monkeypatch) -> None:
-    commands = []
-
-    def fake_command_output(command, match=None, first_value=False):
-        commands.append(command)
-        assert first_value
-        return benchmark._first_value_line("3200\n3200\n\n2667\n")
-
+def test_windows_ram_speed_comes_from_powershell_cim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    require_bare_name_fakes()
+    log = tmp_path / "powershell.json"
+    python_tool(tmp_path, "powershell", f"""
+import json, sys
+open({str(log)!r}, "w").write(json.dumps(sys.argv[1:]))
+print("3200\\n3200\\n\\n2667")
+""")  # fmt: skip
+    python_tool(tmp_path, "wmic", "raise SystemExit('wmic is gone')")
+    monkeypatch.setenv("PATH", str(tmp_path))
     monkeypatch.setattr(benchmark.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(benchmark, "_command_output", fake_command_output)
 
     assert benchmark._ram_speed() == "3200, 2667 MT/s"
-    assert commands[0][0] == "powershell"
-    assert "Get-CimInstance Win32_PhysicalMemory" in commands[0][-1]
-    assert not any("wmic" in part for command in commands for part in command)
+    # contract: wmic is removed from recent Windows 11; CIM replaces it.
+    assert "Get-CimInstance Win32_PhysicalMemory" in json.loads(log.read_text())[-1]
 
 
-def test_dataset_zip_sha256_is_verified_once(monkeypatch, tmp_path: Path) -> None:
+def test_dataset_zip_sha256_is_verified(tmp_path: Path) -> None:
     zip_path = tmp_path / "dataset.zip"
     zip_path.write_bytes(b"zip")
-    digest = benchmark._file_digest(zip_path, "sha256")
-    calls = []
-    real_digest = benchmark._file_digest
-
-    def counting_digest(path, algorithm):
-        calls.append(algorithm)
-        return real_digest(path, algorithm)
-
-    monkeypatch.setattr(benchmark, "_file_digest", counting_digest)
+    digest = hashlib.sha256(b"zip").hexdigest()
     args = Namespace(dataset_zip=str(zip_path), dataset_sha256=digest)
 
     assert benchmark._real_dataset_zip_path(args, tmp_path) == zip_path.resolve()
-    assert calls == ["sha256"]
     args.dataset_sha256 = "0" * 64
     with pytest.raises(benchmark.WGSExtractError, match="SHA256 mismatch"):
         benchmark._real_dataset_zip_path(args, tmp_path)

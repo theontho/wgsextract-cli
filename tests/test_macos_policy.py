@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import Mock
 
 import pytest
 
@@ -42,80 +41,104 @@ def test_master_switch_alone_does_not_prove_normal_policy(
     assert not policy.standard_policy({})
 
 
+_FAKE_SSH = """
+import json, sys
+replies = json.load(open(sys.argv[1]))
+calls = sys.argv[1] + ".calls"
+with open(calls, "a") as log:
+    log.write(json.dumps({"command": sys.argv[2:], "stdin": sys.stdin.read()}) + "\\n")
+code, out, err = replies[min(len(open(calls).readlines()), len(replies)) - 1]
+sys.stdout.write(out)
+sys.stderr.write(err)
+sys.exit(code)
+"""
+
+
+class FakeSSH:
+    """An `ssh` to the VM that answers each connection with the next of
+    ``replies`` (exit code, stdout, stderr), the last one again after that."""
+
+    def __init__(self, folder: Path, *replies: tuple[int, str, str]) -> None:
+        self.replies = folder / "replies.json"
+        self.replies.write_text(json.dumps(replies))
+        script = folder / "ssh.py"
+        script.write_text(_FAKE_SSH)
+        self.command = [sys.executable, str(script), str(self.replies)]
+
+    def calls(self) -> list[dict[str, object]]:
+        log = Path(str(self.replies) + ".calls")
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in log.read_text().splitlines()]
+
+
+@pytest.fixture
+def no_wait(policy: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The retry back-off is the clock's; don't wait it out."""
+    monkeypatch.setattr(policy.time, "sleep", lambda _seconds: None)
+
+
+def _healthy(policy: ModuleType) -> tuple[int, str, str]:
+    return 0, json.dumps(dict.fromkeys(policy.POLICY_KEYS, True)), ""
+
+
 def test_contradictory_native_evidence_is_an_error(
-    policy: ModuleType, monkeypatch: pytest.MonkeyPatch
+    policy: ModuleType, tmp_path: Path
 ) -> None:
-    result = subprocess.CompletedProcess(
-        ["ssh"], 0, stdout='{"assessments_enabled": true}', stderr=""
-    )
-    monkeypatch.setattr(policy.subprocess, "run", lambda *args, **kwargs: result)
+    ssh = FakeSSH(tmp_path, (0, '{"assessments_enabled": true}', ""))
     with pytest.raises(ValueError, match="Inconsistent Gatekeeper"):
-        policy.check(["ssh", "admin@fixture"])
+        policy.check(ssh.command)
+
+
+def test_policy_probe_runs_the_guest_script_over_ssh(
+    policy: ModuleType, tmp_path: Path
+) -> None:
+    ssh = FakeSSH(tmp_path, _healthy(policy))
+    assert policy.check(ssh.command).returncode == 0
+    [call] = ssh.calls()
+    assert call["command"] == ["/usr/bin/python3 -"]
+    guest = SCRIPTS / "guest" / "macos-policy.py"
+    assert call["stdin"] == guest.read_text()
 
 
 def test_boot_ssh_drop_is_retried(
-    policy: ModuleType, monkeypatch: pytest.MonkeyPatch
+    policy: ModuleType,
+    tmp_path: Path,
+    no_wait: None,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    healthy = subprocess.CompletedProcess(
-        ["ssh"],
-        0,
-        stdout=json.dumps(dict.fromkeys(policy.POLICY_KEYS, True)),
-        stderr="",
-    )
-    run = Mock(
-        side_effect=[
-            subprocess.CompletedProcess(
-                ["ssh"], 255, stdout="", stderr="Connection reset"
-            ),
-            healthy,
-        ]
-    )
-    sleep = Mock()
-    monkeypatch.setattr(policy.subprocess, "run", run)
-    monkeypatch.setattr(policy.time, "sleep", sleep)
-    assert policy.check(["ssh", "admin@fixture"]) is healthy
-    assert run.call_count == 2
-    sleep.assert_called_once_with(10)
+    ssh = FakeSSH(tmp_path, (255, "", "Connection reset"), _healthy(policy))
+    assert policy.check(ssh.command).returncode == 0
+    assert len(ssh.calls()) == 2
+    assert "Connection reset" in capsys.readouterr().err
 
 
 def test_confirmed_nonstandard_policy_is_not_retried(
-    policy: ModuleType, monkeypatch: pytest.MonkeyPatch
+    policy: ModuleType, tmp_path: Path, no_wait: None
 ) -> None:
-    rejected = subprocess.CompletedProcess(
-        ["ssh"], 1, stdout='{"assessments_enabled": true}', stderr="Nonstandard policy"
-    )
-    run = Mock(return_value=rejected)
-    sleep = Mock()
-    monkeypatch.setattr(policy.subprocess, "run", run)
-    monkeypatch.setattr(policy.time, "sleep", sleep)
-    assert policy.check(["ssh", "admin@fixture"]) is rejected
-    assert run.call_count == 1
-    sleep.assert_not_called()
+    ssh = FakeSSH(tmp_path, (1, '{"assessments_enabled": true}', "Nonstandard policy"))
+    rejected = policy.check(ssh.command)
+    assert (rejected.returncode, rejected.stderr) == (1, "Nonstandard policy")
+    assert len(ssh.calls()) == 1
 
 
 def test_persistent_ssh_failure_is_not_a_policy_success(
-    policy: ModuleType, monkeypatch: pytest.MonkeyPatch
+    policy: ModuleType, tmp_path: Path, no_wait: None
 ) -> None:
-    run = Mock(
-        return_value=subprocess.CompletedProcess(
-            ["ssh"], 255, stdout="", stderr="Connection refused"
-        )
-    )
-    monkeypatch.setattr(policy.subprocess, "run", run)
-    monkeypatch.setattr(policy.time, "sleep", Mock())
+    ssh = FakeSSH(tmp_path, (255, "", "Connection refused"))
     with pytest.raises(subprocess.CalledProcessError):
-        policy.check(["ssh", "admin@fixture"])
-    assert run.call_count == 5
+        policy.check(ssh.command)
+    assert len(ssh.calls()) == 5
 
 
 def test_healthy_policy_does_not_reconfigure_settings(
-    policy: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    policy: ModuleType, tmp_path: Path
 ) -> None:
-    state = json.dumps(dict.fromkeys(policy.POLICY_KEYS, True))
-    result = subprocess.CompletedProcess(["ssh"], 0, stdout=state, stderr="")
-    monkeypatch.setattr(policy, "check", lambda ssh: result)
-    policy.restore(["ssh"], tmp_path / "absent-vnc-log", tmp_path)
-    assert (tmp_path / "policy-before.json").read_text() == state
+    ssh = FakeSSH(tmp_path, _healthy(policy))
+    evidence = tmp_path / "evidence"
+    policy.restore(ssh.command, tmp_path / "absent-vnc-log", evidence)
+    assert (evidence / "policy-before.json").read_text() == _healthy(policy)[1]
+    assert len(ssh.calls()) == 1
 
 
 def test_ambiguous_ui_controls_fail_instead_of_clicking(
