@@ -14,7 +14,12 @@ from pathlib import Path, PurePath
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import PathInput, absolute_path, append_suffix
-from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
+from wgsextract_cli.core.results import current_result, manifest_path_for, warn
+from wgsextract_cli.core.utils import (
+    UsageError,
+    WGSExtractError,
+    get_resource_defaults,
+)
 
 MANIFEST_NAME = "SHA256SUMS"
 # ssh-keygen -Y signature namespace, so a signature made for another purpose
@@ -147,7 +152,10 @@ def cmd_create(args: argparse.Namespace) -> None:
         raise WGSExtractError(f"Signing key not found: {key}")
     keygen = _ssh_keygen() if key else None
 
-    files = _collect_files(args.paths, {manifest, signature})
+    # This run's result manifest is rewritten after hashing; never list it.
+    files = _collect_files(
+        args.paths, {manifest, signature, absolute_path(manifest_path_for(manifest))}
+    )
     if not files:
         raise WGSExtractError("No files to sign.")
     base = manifest.parent
@@ -170,12 +178,16 @@ def cmd_create(args: argparse.Namespace) -> None:
         f.writelines(f"{d}  {n}\n" for d, n in zip(digests, names, strict=True))
     tmp.replace(manifest)
     logging.info(f"Checksum manifest written to {manifest}")
+    result = current_result()
+    result.add_output(manifest, "checksums")
+    result.add_metrics(files=len(files), signed=bool(keygen))
 
     if keygen:
         # Inherit the terminal so ssh-keygen can prompt for a key passphrase.
         cmd = [keygen, "-Y", "sign", "-f", str(key), "-n", NAMESPACE, str(manifest)]
         if subprocess.run(cmd).returncode != 0 or not signature.is_file():
             raise WGSExtractError("ssh-keygen could not sign the manifest.")
+        result.add_output(signature, "signature")
         logging.info(
             f"Signature written to {signature}. Share your public key so others "
             f"can run: wgsextract sign verify {MANIFEST_NAME} --public-key KEY.pub"
@@ -208,7 +220,7 @@ def _verify_signature(
             trust = ["verify", "-f", str(allowed), "-I", _SIGNER]
         elif args.allowed_signers:
             if not args.identity:
-                raise WGSExtractError("--allowed-signers needs --identity.")
+                raise UsageError("--allowed-signers needs --identity.")
             trust = ["verify", "-f", args.allowed_signers, "-I", args.identity]
         else:
             trust = ["check-novalidate"]
@@ -260,7 +272,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
     elif args.signature or args.public_key or args.allowed_signers:
         raise WGSExtractError(f"Signature not found: {signature}")
     else:
-        logging.warning("The manifest is not signed; checking file hashes only.")
+        warn("unsigned", "The manifest is not signed; checking file hashes only.")
 
     entries = _read_manifest(manifest)
     base = manifest.parent
@@ -278,6 +290,12 @@ def cmd_verify(args: argparse.Namespace) -> None:
         if digest != actual
     ]
     problems = [f"missing: {n}" for n in missing] + [f"changed: {n}" for n in changed]
+    current_result().add_metrics(
+        files=len(entries),
+        missing_files=len(missing),
+        changed_files=len(changed),
+        signed=signature.is_file(),
+    )
     if problems:
         raise WGSExtractError(
             f"{len(problems)} of {len(entries)} file(s) failed verification:\n  "

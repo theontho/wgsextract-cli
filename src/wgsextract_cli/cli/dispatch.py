@@ -71,6 +71,13 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
         except OSError as e:
             logging.warning(f"Could not write the result manifest: {e}")
         record_last_run(result, log_tail=list(tail.lines), log_file=active_log_path())
+        if result_file := getattr(args, "_result_file", None):
+            try:
+                Path(result_file).write_text(
+                    result.to_json(), encoding="utf-8", newline="\n"
+                )
+            except OSError as e:
+                logging.warning(f"Could not write the result to {result_file}: {e}")
         if as_json:
             stdout.write(result.to_json())
             stdout.flush()

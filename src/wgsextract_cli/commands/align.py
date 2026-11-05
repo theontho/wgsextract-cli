@@ -23,7 +23,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.native_support import require_native_tool
-from wgsextract_cli.core.output_checks import alignment_record_counts
+from wgsextract_cli.core.output_checks import record_alignment_output
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import fastq_input_statistics
 from wgsextract_cli.core.reference_assets import is_fasta_path
@@ -32,7 +32,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
-from wgsextract_cli.core.results import current_result, warn
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.temp_directory import configured_temp_directory
@@ -411,17 +411,11 @@ def _prepare_alignment(
 
 def record_alignment(out_path: str, aligner: str, ref: str) -> None:
     """Register an aligner's BAM/CRAM and its record counts on the result."""
-    counts = alignment_record_counts(out_path)
-    result = current_result()
-    result.set_reference(ref)
-    result.add_output(out_path, "alignment", metrics=dict(counts))
-    result.add_metrics(aligner=aligner, **counts)
-    if counts.get("records") == 0:
-        warn(
-            "no_reads",
-            f"{out_path} has no reads: check that the input reads are not empty.",
-            path=os.path.abspath(out_path),
-        )
+    current_result().set_reference(ref)
+    counts = record_alignment_output(
+        out_path, hint="check that the input reads are not empty."
+    )
+    current_result().add_metrics(aligner=aligner, **counts)
 
 
 def ensure_bwa_index(ref: str) -> None:

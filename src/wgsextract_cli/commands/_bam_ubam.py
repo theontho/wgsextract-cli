@@ -15,6 +15,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.paths import PathInput, absolute_path
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
@@ -221,11 +222,11 @@ def cmd_to_ubam(args: argparse.Namespace) -> None:
     if args.r1 and explicit is not None and "input" not in explicit:
         args.input = None  # a configured default input yields to --r1
     if bool(args.input) == bool(args.r1):
-        raise WGSExtractError(
+        raise UsageError(
             "Pass either --input (aligned BAM/CRAM) or --r1 [--r2] (FASTQ)."
         )
     if args.r2 and not args.r1:
-        raise WGSExtractError("--r2 needs --r1.")
+        raise UsageError("--r2 needs --r1.")
     source = args.input or args.r1
     verify_paths_exist({"input": source, **({"--r2": args.r2} if args.r2 else {})})
     if args.input and not args.input.lower().endswith((".bam", ".cram")):
@@ -266,4 +267,5 @@ def cmd_to_ubam(args: argparse.Namespace) -> None:
                 run_pipeline(stages, description="Unaligned BAM creation")
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Unaligned BAM creation failed: {e}") from e
+    current_result().add_output(out_file, "unaligned_bam")
     logging.info(f"Unaligned BAM written to {out_file}")

@@ -13,6 +13,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.variant_confidence import (
     add_confidence_arguments,
@@ -74,6 +75,11 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 
     outdir = args.outdir if args.outdir else os.getcwd()
     Path(outdir).mkdir(parents=True, exist_ok=True)
+    result = current_result()
+    for vcf in vcf_inputs:
+        result.add_input(vcf, "vcf_input")
+    if not batch_sample:
+        result.set_manifest_stem(Path(outdir, "analyze"))
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     _print(f"\nSTAGE: Starting Comprehensive Analysis ({now})")
@@ -83,7 +89,10 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 
     # 1. BAM/CRAM Analysis (Info, QC, Lineage)
     if input_file:
-        run_bam_chain(args, input_file, outdir)
+        result.add_input(input_file)
+        sex = run_bam_chain(args, input_file, outdir)
+        if not batch_sample:
+            result.add_metrics(sex=sex)
 
     # 2. VCF Processing (Independently per type)
     results = []
@@ -115,6 +124,11 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 
     # 3. Final Summary Report
     generate_summary_report(results, outdir)
+    if not batch_sample:
+        result.add_metrics(
+            vcfs_analyzed=len(results),
+            significant_variants=sum(r["count"] for r in results),
+        )
 
 
 def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
@@ -140,8 +154,13 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
         vcf_col = next((c for c in headers if "vcf" in c.lower()), "vcf")
 
         failed_samples: list[str] = []
+        samples = 0
+        current_result().set_manifest_stem(
+            Path(args.outdir if args.outdir else os.getcwd(), "analyze")
+        )
 
         for row_number, row in enumerate(reader, 1):
+            samples += 1
             # Each sample gets its own folder, so a blank name gets a unique one
             # and a name can't point outside --outdir.
             name = (row.get(name_col) or "").strip() or f"sample{row_number}"
@@ -183,6 +202,9 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
                 logging.error(f"Failed to process sample {name}: {e}")
                 failed_samples.append(name)
 
+        current_result().add_metrics(
+            samples=samples, failed_samples=len(failed_samples)
+        )
         if failed_samples:
             raise WGSExtractError(
                 "Batch analysis failed for sample(s): " + ", ".join(failed_samples)
@@ -278,6 +300,8 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
             vcf_str = ";".join(data["vcfs"])
             writer.writerow([name, data["input"] or "", vcf_str])
 
+    current_result().add_output(output_path, "batch_file")
+    current_result().add_metrics(samples=len(samples))
     _print(f"Generated batch file with {len(samples)} samples.")
 
 

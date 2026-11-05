@@ -14,7 +14,9 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, json_mode
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     _is_sigpipe,
     popen,
@@ -62,6 +64,7 @@ def repair_bam(args: argparse.Namespace) -> None:
         repair_bam_file(args)
         return
     # Pipe mode: samtools view -h in.bam | wgsextract repair ftdna-bam | samtools view -b
+    _refuse_json_in_pipe_mode()
     logging.info(LOG_MESSAGES["repair_bam"])
     repair_bam_stream(sys.stdin, sys.stdout)
 
@@ -71,6 +74,7 @@ def repair_vcf(args: argparse.Namespace) -> None:
         repair_vcf_file(args)
         return
     # Pipe mode: bcftools view in.vcf | wgsextract repair ftdna-vcf > out.vcf
+    _refuse_json_in_pipe_mode()
     logging.info(LOG_MESSAGES["repair_vcf"])
     repair_vcf_stream(sys.stdin, sys.stdout)
 
@@ -111,6 +115,7 @@ def repair_bam_file(args: argparse.Namespace) -> None:
             stderr=write_err,
         )
         assert reader.stdout is not None and writer.stdin is not None
+        counts = (0, 0)
         try:
             try:
                 with (
@@ -119,7 +124,7 @@ def repair_bam_file(args: argparse.Namespace) -> None:
                     ) as sam_in,
                     io.TextIOWrapper(writer.stdin, encoding="utf-8") as sam_out,
                 ):
-                    repair_bam_stream(sam_in, sam_out)
+                    counts = repair_bam_stream(sam_in, sam_out)
             except BrokenPipeError:
                 pass  # The writer exited early; its exit status says why.
             read_code, write_code = reader.wait(), writer.wait()
@@ -140,6 +145,7 @@ def repair_bam_file(args: argparse.Namespace) -> None:
             raise WGSExtractError(
                 f"FTDNA BAM repair failed in {label} (exit {code}): {_tail(err)}"
             )
+    _record_repair(output_path, "repaired_alignment", counts)
     logging.info("Repaired FTDNA BAM written to %s", output_path)
 
 
@@ -163,7 +169,7 @@ def repair_vcf_file(args: argparse.Namespace) -> None:
                     output_path, "w", encoding="utf-8", newline="\n"
                 ) as repaired_output,
             ):
-                repair_vcf_stream(vcf_input, repaired_output)
+                counts = repair_vcf_stream(vcf_input, repaired_output)
         finally:
             try:
                 Path(tmp_path).unlink()
@@ -174,30 +180,58 @@ def repair_vcf_file(args: argparse.Namespace) -> None:
             _open_text_variant_input(input_path) as vcf_input,
             open(output_path, "w", encoding="utf-8", newline="\n") as repaired_output,
         ):
-            repair_vcf_stream(vcf_input, repaired_output)
+            counts = repair_vcf_stream(vcf_input, repaired_output)
+    _record_repair(output_path, "repaired_vcf", counts)
     logging.info("Repaired FTDNA VCF written to %s", output_path)
 
 
-def repair_bam_stream(input_stream: TextIO, output_stream: TextIO) -> None:
+def _refuse_json_in_pipe_mode() -> None:
+    if json_mode():
+        raise UsageError(
+            "--json needs --input: in pipe mode the repaired records go to stdout."
+        )
+
+
+def _record_repair(path: str, role: str, counts: tuple[int, int]) -> None:
+    records, repaired = counts
+    current_result().add_output(path, role, metrics={"records": records})
+    current_result().add_metrics(records=records, repaired_records=repaired)
+
+
+def repair_bam_stream(input_stream: TextIO, output_stream: TextIO) -> tuple[int, int]:
+    """Copy SAM text, replacing spaces in read names; returns the record count
+    and how many records were changed."""
+    records = repaired = 0
     for line in input_stream:
         if line.startswith("@"):
             output_stream.write(line)
             continue
+        records += 1
         fields = line.rstrip("\n").split("\t")
-        if fields:
+        if fields and " " in fields[0]:
             fields[0] = fields[0].replace(" ", ":")
+            repaired += 1
         output_stream.write("\t".join(fields) + "\n")
+    return records, repaired
 
 
-def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> None:
+def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> tuple[int, int]:
+    """Copy VCF text, dropping invalid FILTER characters; returns the record
+    count and how many records were changed."""
+    records = repaired = 0
     for line in input_stream:
         if line.startswith("#"):
             output_stream.write(line)
             continue
+        records += 1
         fields = line.rstrip("\n").split("\t")
         if len(fields) > 6:
-            fields[6] = re.sub(r"[^A-Za-z0-9_.;-]", "", fields[6])
+            cleaned = re.sub(r"[^A-Za-z0-9_.;-]", "", fields[6])
+            if cleaned != fields[6]:
+                fields[6] = cleaned
+                repaired += 1
         output_stream.write("\t".join(fields) + "\n")
+    return records, repaired
 
 
 def _repair_output_path(args: argparse.Namespace, extension: str) -> str:

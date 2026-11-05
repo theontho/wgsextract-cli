@@ -29,7 +29,7 @@ from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.table_writer import (
@@ -115,7 +115,7 @@ def pileup_options(args: argparse.Namespace) -> PileupOptions:
     if combine and context != "cpg":
         # modkit sums strands only at palindromic motifs such as CpG.
         if explicit:
-            raise WGSExtractError(
+            raise UsageError(
                 "--combine-strands needs --context cpg: strands can only be summed "
                 "at palindromic motifs."
             )
@@ -288,9 +288,12 @@ def check_modification_tags(sample: TagSample, platform: str | None) -> None:
         )
     share = sample.tagged / sample.reads
     if share < MIN_TAGGED_SHARE:
-        logging.warning(
+        warn(
+            "few_modification_tags",
             f"Only {sample.tagged} of {sample.reads} sampled reads carry MM/ML tags; "
-            "methylation will come from those reads alone, at lower coverage."
+            "methylation will come from those reads alone, at lower coverage.",
+            tagged_reads=sample.tagged,
+            sampled_reads=sample.reads,
         )
     if not sample.opposite_strand:
         return
@@ -314,10 +317,13 @@ def check_modification_tags(sample: TagSample, platform: str | None) -> None:
             "opposite-strand modification calls, and modkit pileup skips such "
             f"reads entirely. {source}"
         )
-    logging.warning(
+    warn(
+        "opposite_strand_modifications",
         f"{sample.opposite_strand} of {sample.tagged} sampled reads with MM/ML tags "
         "carry opposite-strand modification calls; modkit pileup skips them, so "
-        f"coverage comes from the other reads. {source}"
+        f"coverage comes from the other reads. {source}",
+        opposite_strand_reads=sample.opposite_strand,
+        tagged_reads=sample.tagged,
     )
 
 
@@ -562,10 +568,11 @@ def cmd_pileup(args: argparse.Namespace) -> None:
     platform = input_platform(args.input, ref)
     require_modification_platform(platform)
     if platform == "pacbio" and options.hydroxymethyl:
-        logging.warning(
+        warn(
+            "pacbio_5hmc_limited",
             "Jasmine records most PacBio 5hmC calls as opposite-strand (G-h?) "
             "entries, which modkit cannot use; --5hmc reports only 5hmC on reads "
-            "without them, if any."
+            "without them, if any.",
         )
     region = getattr(args, "region", None)
     regions = [r.strip() for r in region.split(",") if r.strip()] if region else []
@@ -573,9 +580,10 @@ def cmd_pileup(args: argparse.Namespace) -> None:
         sample_modification_tags(args.input, ref, regions), platform
     )
     if platform is None:
-        logging.warning(
+        warn(
+            "unknown_platform",
             "Could not tell the sequencing platform; tabulating the MM/ML tags as "
-            "they are. Only Nanopore and PacBio HiFi data are supported."
+            "they are. Only Nanopore and PacBio HiFi data are supported.",
         )
 
     stem = input_stem(args.input)
@@ -623,10 +631,26 @@ def cmd_pileup(args: argparse.Namespace) -> None:
         logging.info(f"Writing the sites as Parquet to {out_table}")
         sites = bedmethyl_to_parquet(out_bed, out_table, metadata)
         result.add_output(out_table, "bedmethyl_table", metrics={"rows": sites})
+    result.add_metrics(
+        platform=platform,
+        context=options.context,
+        **{
+            f"{summary.modification}_{name}": value
+            for summary in summaries
+            for name, value in (
+                ("sites", summary.sites),
+                ("summary_sites", summary.summary_sites),
+                ("median_coverage", summary.median_coverage),
+                ("weighted_percent_modified", round(summary.weighted_percent, 2)),
+            )
+        },
+    )
     if not any(summary.summary_sites for summary in summaries):
-        logging.warning(
+        warn(
+            "low_coverage",
             f"No site reached {SUMMARY_MIN_COVERAGE} valid calls; the coverage is "
-            "too low for methylation levels."
+            "too low for methylation levels.",
+            threshold=SUMMARY_MIN_COVERAGE,
         )
     for summary in summaries:
         logging.info(

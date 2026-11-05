@@ -513,8 +513,9 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract sign verify results/SHA256SUMS --public-key key.pub",
     ),
     "benchmark": _h(
-        "runs/<timestamp>/ under --outdir (default out/benchmark): timings, "
-        "tool versions and per-step logs.",
+        "runs/<timestamp>/ under --outdir (default out/benchmark): "
+        "benchmark_report.md and benchmark_results.json (timings, tool versions) "
+        "and per-step logs.",
         "wgsextract benchmark --profile smoke",
     ),
 }

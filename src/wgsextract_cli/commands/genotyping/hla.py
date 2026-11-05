@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
 from .common import Alignment, env_tool, open_alignment, write_bed, write_outside_calls
@@ -238,6 +239,11 @@ def cmd_hla(args: argparse.Namespace) -> None:
     if not Path(genotype_tsv).is_file():
         raise WGSExtractError("T1K finished without writing its genotype file.")
     calls = {call.gene: call for call in parse_t1k(genotype_tsv)}
+    result = current_result()
+    roles = ("hla_genotypes", "hla_alleles", "hla_allele_vcf")
+    for role, name in zip(roles, outputs.values(), strict=True):
+        if Path(aln.outdir, name).is_file():
+            result.add_output(Path(aln.outdir, name), role)
     release = _index_release(index)
     logging.info(f"HLA alleles{f' ({release})' if release else ''}:")
     for gene in REPORTED_GENES:
@@ -251,6 +257,7 @@ def cmd_hla(args: argparse.Namespace) -> None:
             else None
         )
         logging.info(f"  {gene:<9} {diplotype or 'no confident call'}")
+        result.add_metrics(**{gene: diplotype})
 
     pharmcat = []
     for gene in PHARMCAT_GENES:
@@ -258,6 +265,10 @@ def cmd_hla(args: argparse.Namespace) -> None:
         if diplotype:
             pharmcat.append((gene, diplotype))
         else:
-            logging.warning(f"No confident {gene} call; it's left out for PharmCAT.")
+            warn(
+                "no_call",
+                f"No confident {gene} call; it's left out for PharmCAT.",
+                gene=gene,
+            )
     write_outside_calls(str(Path(aln.outdir, f"{aln.stem}.hla.pharmcat.tsv")), pharmcat)
     logging.info(f"T1K genotypes: {genotype_tsv}")

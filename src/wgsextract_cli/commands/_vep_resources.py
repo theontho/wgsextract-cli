@@ -10,6 +10,7 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import expand_path
 from wgsextract_cli.core.ref_library import download_file
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -167,6 +168,9 @@ def cmd_vep_download(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vep_extraction_complete"])
     logging.info(LOG_MESSAGES["vep_ready"].format(path=f"{cache_root}/{species}"))
     Path(target_path).unlink()
+    version_dir = Path(cache_root, species, f"{vep_version}_{args.assembly}")
+    current_result().add_output(version_dir, "vep_cache", kind="directory")
+    current_result().set_manifest_stem(version_dir)
 
 
 def _chr_prefixed_standard_chrom(chrom: str) -> str | None:
@@ -222,7 +226,7 @@ def cmd_vep_verify(args: argparse.Namespace) -> None:
     if Path(info_file).exists():
         logging.info(LOG_MESSAGES["vep_info_found"])
     else:
-        logging.warning(LOG_MESSAGES["vep_info_missing"])
+        warn("vep_info_missing", LOG_MESSAGES["vep_info_missing"], path=info_file)
 
     # Check for chromosomal directories
     missing_chrs = []
@@ -231,9 +235,12 @@ def cmd_vep_verify(args: argparse.Namespace) -> None:
         if not Path(chr_dir).exists():
             missing_chrs.append(str(c))
 
+    current_result().add_metrics(missing_chromosomes=len(missing_chrs))
     if missing_chrs:
-        logging.warning(
-            LOG_MESSAGES["vep_chrs_missing"].format(chrs=", ".join(missing_chrs))
+        warn(
+            "chromosomes_missing",
+            LOG_MESSAGES["vep_chrs_missing"].format(chrs=", ".join(missing_chrs)),
+            chromosomes=",".join(missing_chrs),
         )
     else:
         logging.info(LOG_MESSAGES["vep_chrs_ok"])

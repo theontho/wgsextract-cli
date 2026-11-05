@@ -4,6 +4,7 @@ import logging
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
@@ -11,6 +12,7 @@ from typing import TypedDict
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import Scalar, current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -140,6 +142,9 @@ def run_discovery_filter(
             raise WGSExtractError(f"Discovery filter failed for {v_type}: {e}") from e
         count = len(res.stdout.strip().split("\n")) if res.stdout.strip() else 0
         _print(f"Found {count} significant variants.")
+        current_result().add_output(
+            out_vcf, "significant_variants", metrics={"variants": count}
+        )
         return count
 
     columns = tuple(tag for tag in DISCOVERY_COLUMNS if has_info(tag))
@@ -207,12 +212,60 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     if getattr(args, "force", False):
         cmd.append("--force")
 
+    # The step writes its result document to a file rather than with --json,
+    # which would silence the tables and results it prints for the user.
+    outdir = None
+    if "--outdir" in cmd_args:
+        outdir = Path(cmd_args[cmd_args.index("--outdir") + 1])
+        outdir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse-step-") as stage:
+        result_file = Path(stage, "result.json")
+        cmd.extend(["--result-file", str(result_file)])
+        try:
+            run_command(cmd)
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+            record_step_result(result_file)
+            logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
+            raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
+        record_step_result(result_file)
+
+
+def _scalars(values: object) -> dict[str, Scalar]:
+    if not isinstance(values, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in values.items()
+        if value is None or isinstance(value, str | int | float | bool)
+    }
+
+
+def record_step_result(document: Path) -> None:
+    """Carry a step's result document into this run's: its manifest, its
+    outputs with their metrics and its warnings with their details."""
     try:
-        # Not captured, so the subcommand's progress reaches the terminal live.
-        run_command(cmd)
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
-        raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
+        step = json.loads(document.read_text(encoding="utf-8"))
+        command = str(step["command"])
+        outputs = list(step.get("outputs") or [])
+        warnings = list(step.get("warnings") or [])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return
+    result = current_result()
+    if step.get("manifest"):
+        result.add_output(step["manifest"], "step_manifest", kind="json")
+    for output in outputs:
+        if isinstance(output, dict) and output.get("path") and output.get("role"):
+            result.add_output(
+                output["path"],
+                output["role"],
+                kind=output.get("kind"),
+                metrics=_scalars(output.get("metrics")),
+            )
+    for item in warnings:
+        if isinstance(item, dict) and item.get("code"):
+            # The step already logged it; record it without logging it twice.
+            details = {**_scalars(item.get("details")), "step": command}
+            result.warn(str(item["code"]), str(item.get("message", "")), **details)
 
 
 def run_vcf_workflow(
@@ -242,10 +295,14 @@ def run_vcf_workflow(
     available = [a for a in anns.split(",") if not skip_reason(a, lib)]
     if not available:
         # A discovery filter over unannotated variants would report a misleading 0.
-        logging.warning(
+        warn(
+            "annotation_skipped",
             f"Skipping annotation and discovery for {Path(vcf_path).name}: "
             f"no annotation data is installed for {anns}. Download it with "
-            "'wgsextract ref clinvar' (and the other 'ref' annotation commands)."
+            "'wgsextract ref clinvar' (and the other 'ref' annotation commands).",
+            annotation=anns,
+            reason="no annotation data installed",
+            path=str(vcf_path),
         )
         return None
     anns = ",".join(available)
@@ -270,7 +327,11 @@ def run_vcf_workflow(
     # Locate the final annotated file
     actual_ann_vcf = str(Path(work_dir, "chain_annotated.vcf.gz"))
     if not Path(actual_ann_vcf).exists():
-        logging.warning(f"Annotation failed for {vcf_path}")
+        warn(
+            "annotation_failed",
+            f"Annotation failed for {vcf_path}",
+            path=str(vcf_path),
+        )
         return None
 
     # Run Discovery Filter
