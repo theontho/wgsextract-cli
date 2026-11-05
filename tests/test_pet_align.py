@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fake_tools import only_tools, python_tool
 from tests.htslib_helpers import needs_tools, write_fasta, write_read_pairs
 from wgsextract_cli.commands import pet
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -118,8 +119,9 @@ def test_species_reference_comes_from_the_library(tmp_path):
     ("memory", "sort_memory"), [("512M", "256M"), ("128M", "128M")]
 )
 def test_bwa_mem2_aligns_when_the_reference_has_its_index(
-    tmp_path, memory, sort_memory
+    tmp_path, ram, memory, sort_memory
 ):
+    ram(64 * 1024**3)  # bwa-mem2 is only chosen when its pipeline fits
     ref, reads = _dog(tmp_path)
     if not shutil.which("bwa-mem2"):
         pytest.skip("bwa-mem2 missing")
@@ -152,12 +154,36 @@ def test_missing_reads_or_reference_are_reported(tmp_path):
 
 @needs_pet_tools
 def test_alignment_failure_is_reported(tmp_path):
-    ref, _ = _dog(tmp_path)
-    reads = tmp_path / "rex_R1.fq"
-    reads.chmod(0)  # bwa can't read it
+    ref, reads = _dog(tmp_path)
+    for suffix in (".amb", ".ann", ".bwt", ".pac", ".sa"):  # a corrupt index
+        Path(f"{ref}{suffix}").write_text("not an index\n")
     with pytest.raises(WGSExtractError, match="Alignment failed in bwa mem"):
         pet.run(_args(reads, ref, outdir=str(tmp_path / "out")))
     assert list((tmp_path / "out").iterdir()) == []
+
+
+_FAILING_INDEX = """\
+import subprocess, sys
+if sys.argv[1] == "index":  # the disk fills while the index is written
+    open(sys.argv[-1] + ".csi", "wb").write(b"partial")
+    sys.exit(1)
+sys.exit(subprocess.call([{real!r}, *sys.argv[1:]]))
+"""
+
+
+@needs_pet_tools
+def test_failed_vcf_indexing_removes_the_vcf_and_its_partial_index(tmp_path, request):
+    real = shutil.which("bcftools")
+    bindir = only_tools(request, "bwa", "samtools", "bgzip")
+    python_tool(bindir, "bcftools", _FAILING_INDEX.format(real=real))
+    ref, reads = _dog(tmp_path)
+    out = tmp_path / "out"
+    with pytest.raises(WGSExtractError, match="Variant calling error"):
+        pet.run(_args(reads, ref, outdir=str(out)))
+    assert sorted(p.name for p in out.iterdir()) == [
+        "rex_R1_dog.bam",
+        "rex_R1_dog.bam.bai",
+    ]
 
 
 @needs_pet_tools

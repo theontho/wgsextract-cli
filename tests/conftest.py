@@ -1,3 +1,4 @@
+import contextlib
 import os
 import signal
 from collections.abc import Callable, Iterator
@@ -83,12 +84,15 @@ _CHECKOUT_STATE_EXISTED = _CHECKOUT_STATE.exists()
 _HOME_CACHE = wgsextract_cache_root()
 
 
-def _home_cache_entries() -> set[Path]:
-    """The real ~/.cache/wgsextract and its folders' entries."""
-    if not _HOME_CACHE.is_dir():
-        return set()
-    top = set(_HOME_CACHE.iterdir())
-    return top.union(*(set(p.iterdir()) for p in top if p.is_dir()))
+def _home_cache_entries() -> dict[Path, tuple[int, int]]:
+    """Every file under the real ~/.cache/wgsextract, with its size and mtime."""
+    entries = {}
+    for path in _HOME_CACHE.rglob("*") if _HOME_CACHE.is_dir() else ():
+        with contextlib.suppress(OSError):  # another run may remove it meanwhile
+            if not path.is_dir():
+                stat = path.lstat()
+                entries[path] = (stat.st_size, stat.st_mtime_ns)
+    return entries
 
 
 _HOME_CACHE_BEFORE = _home_cache_entries()
@@ -107,7 +111,8 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         print(f"\nA test wrote {_CHECKOUT_STATE}; point state_directory at tmp_path.")
     if hasattr(session.config, "workerinput"):
         return  # the xdist controller checks once all workers are done
-    if new := sorted(map(str, _home_cache_entries() - _HOME_CACHE_BEFORE)):
+    after = _home_cache_entries().items()
+    if new := sorted(str(p) for p, s in after if _HOME_CACHE_BEFORE.get(p) != s):
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
         print(f"\nTests wrote into the real {_HOME_CACHE}: {new}; set XDG_CACHE_HOME.")
 

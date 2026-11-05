@@ -571,16 +571,19 @@ def _paired_cram(work, genome):
 def test_realign_decodes_a_cram_input_with_the_fasta_it_was_encoded_with(
     tmp_path, monkeypatch, decoder
 ):
-    genome = "".join(random.Random(5).choice("ACGT") for _ in range(20_000))
+    rng = random.Random(5)
+    genome = "".join(rng.choice("ACGT") for _ in range(20_000))
     cram, encoded = _paired_cram(tmp_path, genome)
     library = tmp_path / "library"
     write_fasta(library / "genomes" / "other.fa", {"chr1": genome[:5000]})
     if decoder == "library":
         shutil.copy(encoded, library / "genomes" / "match.fa")
         shutil.copy(encoded + ".fai", library / "genomes" / "match.fa.fai")
-        # Realign onto another build: the CRAM's own one plus a contig.
+        # Realign onto another build whose chr1 can't decode the CRAM: the
+        # reads' sequence is chr2 there.
+        unrelated = "".join(rng.choice("ACGT") for _ in range(20_000))
         target = write_fasta(
-            tmp_path / "target" / "ref.fa", {"chr1": genome, "chr2": genome[:3000]}
+            tmp_path / "target" / "ref.fa", {"chr1": unrelated, "chr2": genome}
         )
     else:
         target = Path(encoded)
@@ -593,12 +596,20 @@ def test_realign_decodes_a_cram_input_with_the_fasta_it_was_encoded_with(
     run_wgsextract("realign", "-i", cram, "--ref", str(target), "-o", str(out))
 
     (bam,) = out.glob("*.bam")
-    assert _samtools("view", "-c", "-F", "0x900", str(bam)).strip() == "200"
+    mapped = _samtools("view", "-F", "0x904", str(bam)).splitlines()
+    assert len(mapped) == 200
+    contig = "chr2" if decoder == "library" else "chr1"
+    assert {r.split("\t")[2] for r in mapped} == {contig}
+    fastq = tmp_path.glob("in_R?.fq")
+    inputs = sorted(line for f in fastq for line in f.read_text().splitlines()[1::4])
+    recovered = _samtools("fastq", "-F", "0x900", str(bam)).splitlines()[1::4]
+    assert sorted(recovered) == inputs
 
 
 @needs_tools("samtools")
 def test_realign_cram_input_without_matching_reference_errors(tmp_path, monkeypatch):
-    genome = "".join(random.Random(5).choice("ACGT") for _ in range(3000))
+    rng = random.Random(5)
+    genome = "".join(rng.choice("ACGT") for _ in range(3000))
     sample = snp_sample(tmp_path)
     library = tmp_path / "library"
     write_fasta(library / "genomes" / "other.fa", {"chr1": genome[:1000]})

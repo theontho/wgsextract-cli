@@ -15,7 +15,7 @@ from tests.htslib_helpers import bgzip_index, needs_tools, run_wgsextract
 from wgsextract_cli.api import VcfFreebayesParams
 from wgsextract_cli.commands.vcf.basic import CallerSetup
 from wgsextract_cli.core.dependencies import get_tool_path
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 needs_bcftools = needs_tools("bcftools", "bgzip", "tabix")
 
@@ -380,6 +380,30 @@ def test_filter_with_an_invalid_expression_leaves_no_partial_vcf(tmp_path):
                        "--outdir", str(out))  # fmt: skip
     # Issue #373: bcftools had already created filtered.vcf.gz, left as a result.
     assert list(out.iterdir()) == []
+
+
+@needs_bcftools
+def test_failed_atomic_filter_keeps_the_previous_result(tmp_path):
+    from wgsextract_cli.core.atomic_output import atomic_output_mode
+
+    vcf = _write_vcf(tmp_path / "s.vcf.gz", "chr1\t10\tc\tA\tG\t50\tPASS\t.\n")
+    out = tmp_path / "out"
+    run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--outdir", str(out))
+    before = sorted(p.name for p in out.iterdir())
+    with atomic_output_mode(True), pytest.raises(WGSExtractError):
+        run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--expr", "NOPE>1",
+                       "--outdir", str(out))  # fmt: skip
+    assert sorted(p.name for p in out.iterdir()) == before
+    assert _query(str(out / "filtered.vcf.gz")) == ["c"]
+
+
+@needs_bcftools
+def test_filter_refuses_to_overwrite_its_input(tmp_path):
+    vcf = _write_vcf(tmp_path / "filtered.vcf.gz", "chr1\t10\tc\tA\tG\t50\tPASS\t.\n")
+    with pytest.raises(UsageError, match="overwrite its input"):
+        run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--expr", "NOPE>1",
+                       "--outdir", str(tmp_path))  # fmt: skip
+    assert _query(vcf) == ["c"]
 
 
 def test_filter_unresolved_gene_fails(tmp_path):

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from wgsextract_cli.api.vcf import VcfFilterParams, VcfTrioParams
 from wgsextract_cli.core.alignment_health import warn_about_alignment
-from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled, safe_output
 from wgsextract_cli.core.builds import canonical_build
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -19,6 +19,7 @@ from wgsextract_cli.core.reference_assets import n_count_paths, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     run_command,
 )
@@ -119,6 +120,11 @@ def run_filter(params: VcfFilterParams) -> None:
     expr_args = ["-i", params.expr] if params.expr else []
 
     input_vcf = ensure_vcf_prepared(input_file)
+    if Path(out_vcf).resolve() in {Path(p).resolve() for p in (input_file, input_vcf)}:
+        raise UsageError(
+            f"vcf filter would overwrite its input {input_file}; "
+            "choose another --outdir."
+        )
     logging.info(LOG_MESSAGES["vcf_filtering"].format(input=input_vcf, output=out_vcf))
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_filter_") as work:
         exclude_args = []
@@ -142,13 +148,14 @@ def run_filter(params: VcfFilterParams) -> None:
             with cleanup_files(
                 on_failure=partial, preserve_outputs=atomic_outputs_enabled()
             ):
-                run_command(
-                    ["bcftools", "view"]
-                    + region_args
-                    + expr_args
-                    + exclude_args
-                    + ["-Oz", "-o", out_vcf, input_vcf]
-                )
+                with safe_output(out_vcf) as staged:
+                    run_command(
+                        ["bcftools", "view"]
+                        + region_args
+                        + expr_args
+                        + exclude_args
+                        + ["-Oz", "-o", staged, input_vcf]
+                    )
                 ensure_vcf_indexed(out_vcf)
         except (OSError, subprocess.SubprocessError, RuntimeError) as e:
             raise WGSExtractError(f"VCF filtering failed: {e}") from e
