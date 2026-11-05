@@ -336,7 +336,11 @@ def test_typed_commands_embed_their_input_schema(capsys, root):
     for path, command in typed.items():
         known = cli_help.resolve_command(root, path.split())._option_string_actions
         options = {flag: o for o in command["options"] for flag in o.get("flags", [])}
+        positionals = {o["metavar"] for o in command["options"] if "positional" in o}
         for prop in command["input_schema"]["properties"].values():
+            if "x-cli-positional" in prop:
+                assert prop["x-cli-positional"] in positionals, path
+                continue
             assert prop["x-cli-flag"] in known, path
             kind = prop["type"][0] if isinstance(prop["type"], list) else prop["type"]
             if prop["x-cli-flag"] in options and kind in ("string", *kinds):
@@ -401,7 +405,8 @@ def test_help_stays_token_efficient(capsys):
     main(["help", "--all"])
     assert len(capsys.readouterr().out) <= 12_000
     main(["help", "--all", "--json"])
-    assert len(capsys.readouterr().out) <= 150_000
+    # Grows with each command group moved onto typed Params (input_schema).
+    assert len(capsys.readouterr().out) <= 200_000
     main(["help", "microarray", "--json"])
     assert len(capsys.readouterr().out) <= 15_000
 

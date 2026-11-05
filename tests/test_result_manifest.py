@@ -755,6 +755,22 @@ def test_cli_qc_vcf_metrics_match_bcftools(tmp_path):
     )
 
 
+@needs_htslib
+@pytest.mark.parametrize(
+    ("flag", "role"), [("--input", "input"), ("--vcf-input", "vcf_input")]
+)
+def test_cli_qc_vcf_lists_its_input_once(tmp_path, flag, role):
+    # PR #442 review: --input was listed twice, as input and as vcf_input.
+    ensure_fake_data(str(FAKE_DIR))
+    vcf = str(FAKE_DIR / "fake.vcf.gz")
+    rc, stdout, stderr = run_cli(
+        ["qc", "vcf", flag, vcf, "--outdir", str(tmp_path), "--json"]
+    )
+    assert rc == 0, stderr
+    inputs = json.loads(stdout)["inputs"]
+    assert [(i["path"], i["role"]) for i in inputs] == [(vcf, role)]
+
+
 def test_cli_repair_vcf_counts_only_changed_records(tmp_path):
     vcf = tmp_path / "ftdna.vcf"
     vcf.write_text(

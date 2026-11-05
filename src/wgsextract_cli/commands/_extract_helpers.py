@@ -1,4 +1,3 @@
-import argparse
 import contextlib
 import logging
 import math
@@ -37,20 +36,6 @@ class BaseArgs(NamedTuple):
     outdir: str
     cram_opt: list[str]
     ref: str | None
-
-
-def get_base_args(args: argparse.Namespace) -> BaseArgs:
-    """``base_args`` from parsed CLI arguments."""
-    if not args.input:
-        raise UsageError(LOG_MESSAGES["input_required"])
-    return base_args(
-        args.input,
-        ref=args.ref,
-        outdir=args.outdir,
-        threads=args.threads,
-        memory=args.memory,
-        region=getattr(args, "region", None),
-    )
 
 
 def base_args(
@@ -182,13 +167,6 @@ def cleanup_files(
                 continue
             with contextlib.suppress(FileNotFoundError):
                 Path(path).unlink()
-
-
-def resolve_region_or_gene(
-    args: argparse.Namespace, resolved_ref: str | None
-) -> str | None:
-    """``region_or_gene`` from parsed CLI arguments."""
-    return region_or_gene(args.region, args.gene, args.input, resolved_ref)
 
 
 def region_or_gene(

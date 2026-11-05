@@ -9,6 +9,8 @@ import tempfile
 from os import fspath
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.bam import BamToUbamParams
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -37,20 +39,6 @@ from wgsextract_cli.core.warnings import (
 
 from ._extract_helpers import cleanup_files
 from .info.metrics import determine_sequencer
-
-# SAM-spec @RG PL values.
-UBAM_PLATFORMS = (
-    "ILLUMINA",
-    "DNBSEQ",
-    "ELEMENT",
-    "ULTIMA",
-    "PACBIO",
-    "ONT",
-    "IONTORRENT",
-    "LS454",
-    "SOLID",
-    "CAPILLARY",
-)
 
 # Tags that describe the raw read rather than an alignment (GATK RevertSam keeps
 # these too), and Ultima's (see core.ultima); everything else (AS, MD, NM, XS,
@@ -115,14 +103,12 @@ def _input_stem(path: PathInput) -> str:
     return re.sub(pattern, "", name, flags=re.IGNORECASE) or "sample"
 
 
-def _new_read_group(
-    args: argparse.Namespace, qname: str | None, stem: str
-) -> list[str]:
+def _new_read_group(params: BamToUbamParams, qname: str | None, stem: str) -> list[str]:
     """``@RG`` fields (``KEY:value``) for input that has no read group."""
     unit, platform = read_group_from_name(qname) if qname else (None, None)
-    platform = args.platform or platform
-    sample = args.sample or stem
-    fields = [f"ID:{unit or sample}", f"SM:{sample}", f"LB:{args.library}"]
+    platform = params.platform or platform
+    sample = params.sample or stem
+    fields = [f"ID:{unit or sample}", f"SM:{sample}", f"LB:{params.library}"]
     if unit:
         fields.append(f"PU:{unit}")
     if platform:
@@ -145,11 +131,11 @@ def _sort_cmd(
 
 
 def _bam_stages(
-    args: argparse.Namespace, threads: str, temp_dir: str
+    params: BamToUbamParams, input_path: str, threads: str
 ) -> list[list[str]]:
-    header = get_bam_header(args.input)
+    header = get_bam_header(input_path)
     if not header:
-        raise WGSExtractError(f"Could not read the header of {args.input}.")
+        raise WGSExtractError(f"Could not read the header of {input_path}.")
     reset = ["samtools", "reset", "-@", threads, "--keep-tag", KEEP_TAGS]
     pg_ids = [
         field[3:]
@@ -162,35 +148,37 @@ def _bam_stages(
         # Drops the aligner's @PG chain: the reads are no longer its output.
         reset += ["--reject-PG", pg_ids[0]]
     ref_opt: list[str] = []
-    if args.input.lower().endswith(".cram"):
+    if input_path.lower().endswith(".cram"):
         ref = resolve_reference(
-            args.ref, calculate_bam_md5(args.input, header=header), args.input
+            fspath(params.ref) if params.ref else None,
+            calculate_bam_md5(input_path, header=header),
+            input_path,
         )
         if not (ref and Path(ref).is_file()):
             raise UsageError("--ref is required to read a CRAM file.")
         ref_opt = ["--reference", ref]
     if ultima.is_ultima_header(header):
         # reset turns reverse-strand reads around but not their flow tags.
-        view = ["samtools", "view", "-h", "--no-PG", *ref_opt, args.input]
+        view = ["samtools", "view", "-h", "--no-PG", *ref_opt, input_path]
         stages = [view, ultima.flow_tag_filter()]
         stages.append(reset + ref_opt + ["-O", "BAM,level=0", "-o", "-", "-"])
     else:
-        stages = [reset + ref_opt + ["-O", "BAM,level=0", "-o", "-", args.input]]
+        stages = [reset + ref_opt + ["-O", "BAM,level=0", "-o", "-", input_path]]
 
     if any(line.startswith("@RG") for line in header.splitlines()):
-        if args.sample or args.platform:
+        if params.sample or params.platform:
             logging.warning(
                 "Input already has read groups; --sample/--platform are ignored."
             )
         return stages
 
     first = run_command(
-        ["samtools", "head", "-h", "0", "-n", "1", *ref_opt, args.input],
+        ["samtools", "head", "-h", "0", "-n", "1", *ref_opt, input_path],
         capture_output=True,
         check=False,
     )
     qname = first.stdout.split("\t", 1)[0] if first.stdout else None
-    rg = _new_read_group(args, qname, _input_stem(args.input))
+    rg = _new_read_group(params, qname, _input_stem(input_path))
     logging.info(f"Input has no @RG line; adding @RG {' '.join(rg)}")
     stages.append(
         ["samtools", "addreplacerg", "-m", "overwrite_all", "-O", "BAM,level=0"]
@@ -200,14 +188,16 @@ def _bam_stages(
     return stages
 
 
-def _fastq_stages(args: argparse.Namespace, threads: str) -> list[list[str]]:
-    rg = _new_read_group(args, _first_fastq_name(args.r1), _input_stem(args.r1))
+def _fastq_stages(
+    params: BamToUbamParams, r1: str, r2: str | None, threads: str
+) -> list[list[str]]:
+    rg = _new_read_group(params, _first_fastq_name(r1), _input_stem(r1))
     logging.info(f"Read group: @RG {' '.join(rg)}")
     cmd = ["samtools", "import", "-i", "-@", threads, "-O", "BAM,level=0"]
     cmd += [arg for field in rg for arg in ("-r", field)]
-    cmd += ["-1", args.r1, "-2", args.r2] if args.r2 else ["-0", args.r1]
+    cmd += ["-1", r1, "-2", r2] if r2 else ["-0", r1]
     stages = [cmd + ["-o", "-"]]
-    if not args.r2:
+    if not r2:
         # samtools import reads a /1 name suffix as read 1 of a pair, even
         # from -0; single-end reads have no mate.
         unpair = ["--remove-flags", "PAIRED,MUNMAP,READ1,READ2"]
@@ -217,36 +207,37 @@ def _fastq_stages(args: argparse.Namespace, threads: str) -> list[list[str]]:
     return stages
 
 
-def cmd_to_ubam(args: argparse.Namespace) -> None:
-    explicit = getattr(args, "_explicit_dests", None)
-    if args.r1 and explicit is not None and "input" not in explicit:
-        args.input = None  # a configured default input yields to --r1
-    if bool(args.input) == bool(args.r1):
-        raise UsageError(
-            "Pass either --input (aligned BAM/CRAM) or --r1 [--r2] (FASTQ)."
-        )
-    if args.r2 and not args.r1:
-        raise UsageError("--r2 needs --r1.")
-    source = args.input or args.r1
-    verify_paths_exist({"input": source, **({"--r2": args.r2} if args.r2 else {})})
-    if args.input and not args.input.lower().endswith((".bam", ".cram")):
+def run_to_ubam(params: BamToUbamParams) -> None:
+    input_path = fspath(params.input) if params.input else None
+    r1 = fspath(params.r1) if params.r1 else None
+    r2 = fspath(params.r2) if params.r2 else None
+    source = input_path or r1
+    assert source  # BamToUbamParams requires one
+    verify_paths_exist({"input": source, **({"--r2": r2} if r2 else {})})
+    result = current_result()
+    if input_path:
+        result.add_input(input_path, "input")
+    else:
+        result.add_input(r1, "fastq_r1")
+        result.add_input(r2, "fastq_r2")
+    if input_path and not input_path.lower().endswith((".bam", ".cram")):
         raise WGSExtractError("--input must be a BAM or CRAM file.")
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
 
-    threads, memory = get_resource_defaults(args.threads, args.memory)
-    outdir = Path(args.outdir) if args.outdir else absolute_path(source).parent
+    threads, memory = get_resource_defaults(params.threads, params.memory)
+    outdir = Path(params.outdir) if params.outdir else absolute_path(source).parent
     outdir.mkdir(parents=True, exist_ok=True)
     out_file = outdir / f"{_input_stem(source)}_unaligned.bam"
     if out_file.resolve() == Path(source).resolve():
         raise WGSExtractError(f"Output {out_file} would overwrite the input.")
 
-    size = sum(Path(p).stat().st_size for p in (source, args.r2) if p)
+    size = sum(Path(p).stat().st_size for p in (source, r2) if p)
     temp_gb, final_gb = get_free_space_needed(
         size,
         "Name",
         is_cram=source.lower().endswith(".cram"),
-        reads=indexed_read_count(source, threads) if args.input else None,
+        reads=indexed_read_count(source, threads) if input_path else None,
     )
     if not check_free_space(outdir, temp_gb + final_gb):
         raise WGSExtractError(
@@ -256,9 +247,9 @@ def cmd_to_ubam(args: argparse.Namespace) -> None:
 
     with tempfile.TemporaryDirectory(prefix=".wgse_ubam_", dir=outdir) as temp_dir:
         stages = (
-            _bam_stages(args, threads, temp_dir)
-            if args.input
-            else _fastq_stages(args, threads)
+            _bam_stages(params, input_path, threads)
+            if input_path
+            else _fastq_stages(params, source, r2, threads)
         )
         stages.append(_sort_cmd(out_file, threads, memory, temp_dir))
         logging.info(f"Writing unaligned BAM {out_file}...")
@@ -269,3 +260,13 @@ def cmd_to_ubam(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"Unaligned BAM creation failed: {e}") from e
     current_result().add_output(out_file, "unaligned_bam")
     logging.info(f"Unaligned BAM written to {out_file}")
+
+
+_cli_to_ubam = cli_handler(BamToUbamParams, run_to_ubam)
+
+
+def cmd_to_ubam(args: argparse.Namespace) -> None:
+    explicit = getattr(args, "_explicit_dests", None)
+    if args.r1 and explicit is not None and "input" not in explicit:
+        args.input = None  # a configured default input yields to --r1
+    _cli_to_ubam(args)

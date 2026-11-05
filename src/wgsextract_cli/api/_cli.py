@@ -4,6 +4,7 @@ that turns parsed arguments back into Params."""
 from __future__ import annotations
 
 import argparse
+import typing
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -19,6 +20,14 @@ def add_arguments(parser: argparse.ArgumentParser, cls: type[Params]) -> None:
     for item in param_fields(cls):
         spec = item.spec
         if spec.shared:
+            continue
+        if spec.positional:
+            positional: dict[str, Any] = {"metavar": spec.metavar, "help": spec.help}
+            if typing.get_origin(item.base_type) is tuple:
+                positional["nargs"] = "+" if item.required else "*"
+            elif not item.required:
+                positional.update(nargs="?", default=item.default)
+            parser.add_argument(item.dest, **positional)
             continue
         target: argparse.ArgumentParser | argparse._MutuallyExclusiveGroup = parser
         if spec.exclusive:

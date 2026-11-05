@@ -30,15 +30,16 @@ The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.extract`,
-`api.info`, `api.vcf`, `api.lineage`, `api.microarray`, `api.report`,
-`api.sample`, `api.support`) follow semantic versioning from the 1.0
-release; adding fields with defaults is not a breaking change.
+`api.info`, `api.bam`, `api.qc`, `api.vcf`, `api.lineage`,
+`api.microarray`, `api.report`, `api.sample`, `api.support`) follow
+semantic versioning from the 1.0 release; adding fields with defaults is not
+a breaking change.
 Modules whose names start with `_` are private and may change at any time.
 See docs/api.md.
 
 ## Results, progress and cancellation
 
-`api.Result` is the `CommandResult` model of the [result manifest](result-manifest.md): `status`, `exit_code`, `error`, `inputs`, `outputs`, `metrics`, `warnings`, `details`, `manifest` and `provenance`; `to_dict()` and `to_json()` give the `wgsextract.result/1` document. `api.json_schema(cls)` gives a JSON Schema of a Params class; `wgsextract help --all --json` includes it as each typed command's `input_schema`, with each property's flag as `x-cli-flag`.
+`api.Result` is the `CommandResult` model of the [result manifest](result-manifest.md): `status`, `exit_code`, `error`, `inputs`, `outputs`, `metrics`, `warnings`, `details`, `manifest` and `provenance`; `to_dict()` and `to_json()` give the `wgsextract.result/1` document. `api.json_schema(cls)` gives a JSON Schema of a Params class; `wgsextract help --all --json` includes it as each typed command's `input_schema`, with each property's flag as `x-cli-flag` (a positional argument's metavar as `x-cli-positional`).
 
 ### `api.ProgressEvent`
 
@@ -321,6 +322,304 @@ and holds each read once.
 | `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Region (chrY:10000-20000), comma-separated regions, or a BED file. |
 | `gene` | `str \| None` | `None` | `--gene` | A gene name (e.g. BRCA1) to extract, looked up in the reference library's gene map (hg19/hg38 only); the region wins when both are set. |
+
+## `api.bam`
+
+`bam`: sort, index, convert, merge and unalign BAM/CRAM files.
+
+Outputs are named after the input (`sample.bam` gives `sample_sorted.bam`)
+and written to `outdir`, else beside the input. A CRAM is read with the
+matching reference: `ref`, else the one the input's header names in the
+reference library.
+
+### `api.bam.sort(BamSortParams)`
+
+CLI: `wgsextract bam sort`.
+
+Coordinate-sort and index (output role `sorted_alignment`).
+
+`BamSortParams`: Coordinate-sort and index the input as `<input>_sorted.bam` (or
+`.cram`), optionally limited to a region or gene. A whole-file sort first
+checks that the temporary and final files fit on disk.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region (chrY:10000-20000), comma-separated regions, or a BED file to limit the output to. |
+| `gene` | `str \| None` | `None` | `--gene` | A gene name (e.g. BRCA1) to limit the output to, looked up in the reference library's gene map (hg19/hg38 only); the region wins when both are set. |
+
+### `api.bam.index(BamIndexParams)`
+
+CLI: `wgsextract bam index`.
+
+Index the input (output role `alignment_index`).
+
+`BamIndexParams`: Index the input in place (`.bai` or `.crai`).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+
+### `api.bam.unindex(BamUnindexParams)`
+
+CLI: `wgsextract bam unindex`.
+
+Delete the input's indexes (the `removed_indexes` metric counts them).
+
+`BamUnindexParams`: Delete the input's index files (`.bai`, `.crai`, `.csi`).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+
+### `api.bam.unsort(BamUnsortParams)`
+
+CLI: `wgsextract bam unsort`.
+
+Write the copy marked unsorted (output role `unsorted_alignment`).
+
+`BamUnsortParams`: A copy marked unsorted (`SO:unsorted`) as `<input>_unsorted.bam`
+(or `.cram`); the reads are unchanged.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+
+### `api.bam.to_cram(BamToCramParams)`
+
+CLI: `wgsextract bam to-cram`.
+
+Convert to CRAM (output role `alignment`).
+
+`BamToCramParams`: Convert to an indexed `<input>.cram`, optionally limited to a region
+or gene.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region (chrY:10000-20000), comma-separated regions, or a BED file to limit the output to. |
+| `gene` | `str \| None` | `None` | `--gene` | A gene name (e.g. BRCA1) to limit the output to, looked up in the reference library's gene map (hg19/hg38 only); the region wins when both are set. |
+| `cram_version` | `str` | `'3.0'` | `--cram-version` | CRAM version to output (default: 3.0 for better compatibility) One of: `2.1`, `3.0`, `3.1` |
+
+### `api.bam.to_bam(BamToBamParams)`
+
+CLI: `wgsextract bam to-bam`.
+
+Convert to BAM (output role `alignment`).
+
+`BamToBamParams`: Convert to an indexed `<input>.bam`, optionally limited to a region or
+gene.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region (chrY:10000-20000), comma-separated regions, or a BED file to limit the output to. |
+| `gene` | `str \| None` | `None` | `--gene` | A gene name (e.g. BRCA1) to limit the output to, looked up in the reference library's gene map (hg19/hg38 only); the region wins when both are set. |
+
+### `api.bam.unalign(BamUnalignParams)`
+
+CLI: `wgsextract bam unalign`.
+
+Write FASTQs (output roles `fastq_r1`, `fastq_r2` and, with `se`,
+`fastq_single`; the `read_groups` metric counts the input's).
+
+`BamUnalignParams`: Write the reads back to paired FASTQs, name-sorted so mates line up.
+Reads without a mate go to `se` when set. Warns when the input has more
+than one read group, which FASTQ can't keep apart.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `r1` | `str` | required | `--r1` | Read 1 FASTQ to write: a bare name goes in outdir, a path is used as given. |
+| `r2` | `str` | required | `--r2` | Read 2 FASTQ to write: a bare name goes in outdir, a path is used as given. |
+| `se` | `str \| None` | `None` | `--se` | FASTQ for reads without a mate to write: a bare name goes in outdir, a path is used as given. |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region (chrY:10000-20000), comma-separated regions, or a BED file to limit the output to. |
+| `gene` | `str \| None` | `None` | `--gene` | A gene name (e.g. BRCA1) to limit the output to, looked up in the reference library's gene map (hg19/hg38 only); the region wins when both are set. |
+
+### `api.bam.identify(BamIdentifyParams)`
+
+CLI: `wgsextract bam identify`.
+
+Identify the reference (the `reference_md5_signature` metric).
+
+`BamIdentifyParams`: Identify the reference the input was aligned to: the `reference_md5_signature`
+metric is the MD5 of its sequence names and lengths.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM file. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.bam.merge(BamMergeParams)`
+
+CLI: `wgsextract bam merge`.
+
+Merge the inputs (output role `merged_alignment`; the
+`merged_inputs` metric counts them).
+
+`BamMergeParams`: Merge coordinate-sorted BAM/CRAM files aligned to the same reference
+into one indexed file. Identical `@RG` lines in several inputs are one
+read group; conflicting ones get distinct IDs, with a warning.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `inputs` | `tuple[Path, ...]` | required | `FILE` | Two or more coordinate-sorted BAM/CRAM files aligned to the same reference. |
+| `output` | `str \| None` | `None` | `--output` | Output file name or path; a bare name goes in outdir (default: merged.bam, or merged.cram with cram). |
+| `cram` | `bool` | `False` | `--cram` | Write CRAM instead of BAM. |
+| `attach_rg` | `bool` | `False` | `--attach-rg` | Tag each read with a read group named after its input file, for inputs without @RG lines (so reads stay traceable to their lane). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the first input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.bam.to_ubam(BamToUbamParams)`
+
+CLI: `wgsextract bam to-ubam`.
+
+Write the unaligned BAM (output role `unaligned_bam`).
+
+`BamToUbamParams`: A queryname-sorted unaligned BAM, as GATK's pipelines start from, as
+`<input>_unaligned.bam`: from an aligned `input` (read-describing tags
+kept, alignments dropped) or from FASTQ `r1` and optional `r2`. Input
+without read groups gets one from `sample`, `library` and
+`platform`, with the flowcell and lane parsed from the read names.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | Aligned BAM or CRAM file; set it or r1, not both. |
+| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ (instead of an aligned --input BAM/CRAM). |
+| `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ for paired-end --r1. |
+| `sample` | `str \| None` | `None` | `--sample` | Sample name (SM) for FASTQ input, or for a BAM/CRAM without @RG lines (default: the input file name). |
+| `library` | `str` | `'lib1'` | `--library` | Library name (LB) for a new read group. |
+| `platform` | `str \| None` | `None` | `--platform` | Sequencing platform (PL) for a new read group (default: detected from the read names). One of: `ILLUMINA`, `DNBSEQ`, `ELEMENT`, `ULTIMA`, `PACBIO`, `ONT`, `IONTORRENT`, `LS454`, `SOLID`, `CAPILLARY` |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+
+## `api.qc`
+
+`qc`: quality reports for reads and variants, and fake test data.
+
+`fastp` trims reads; `fastqc`, `vcf` and `multiqc` report on reads,
+variants and earlier results. Outputs go to `outdir`, else beside the
+input.
+
+### `api.qc.fastp(FastpParams)`
+
+CLI: `wgsextract qc fastp`.
+
+Trim the reads (output roles `trimmed_fastq_r1`, `trimmed_fastq_r2`,
+`fastp_report_json` and `fastp_report_html`).
+
+`FastpParams`: Trim and filter reads with fastp into `<reads>_fp_1.fastq.gz` (and
+`_fp_2` for pairs) plus JSON and HTML reports. The read counts, Q30
+rate and duplication rate are metrics.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ (required). |
+| `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, for pairs. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the R1 file's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.qc.fastqc(FastqcParams)`
+
+CLI: `wgsextract qc fastqc`.
+
+Run FastQC (output roles `fastqc_report_html` and `fastqc_report_zip`).
+
+`FastqcParams`: A FastQC report on a FASTQ, BAM or SAM file as `<input>_fastqc.html`
+and `.zip`. Module PASS/WARN/FAIL counts and the read count are metrics.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | FASTQ, BAM or SAM file. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.qc.multiqc(MultiqcParams)`
+
+CLI: `wgsextract qc multiqc`.
+
+Write the MultiQC report (output role `multiqc_report`).
+
+`MultiqcParams`: One MultiQC HTML report, `multiqc_report.html`, from FastQC reports,
+`bcftools stats` files and WGS Extract result manifests. Runs offline,
+with MultiQC's AI summaries off.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | A report or result manifest, or a folder searched for them. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input folder, or the input's folder). |
+| `force` | `bool` | `False` | `--force` | Replace an existing report instead of failing. |
+
+### `api.qc.multiqc_metrics(MultiqcMetricsParams)`
+
+CLI: `wgsextract qc multiqc-metrics`.
+
+Write the custom-content files (output role `multiqc_custom_content`).
+
+`MultiqcMetricsParams`: MultiQC custom-content files (`wgsextract_*_mqc.json`) from the
+metrics in WGS Extract result manifests; MultiQC isn't needed.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | A result manifest, or a folder searched for them. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input folder, or the input's folder). |
+
+### `api.qc.vcf(QcVcfParams)`
+
+CLI: `wgsextract qc vcf`.
+
+Write the VCF statistics (output role `vcf_stats`).
+
+`QcVcfParams`: `bcftools stats` on a VCF as `<vcf>.vcfstats.txt`; record, SNP and
+indel counts and Ts/Tv are metrics. Set `input` or `vcf_input`; the
+latter wins.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | VCF file. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | VCF file. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+
+### `api.qc.fake_data(FakeDataParams)`
+
+CLI: `wgsextract qc fake-data`.
+
+Generate the fake data (output roles `reference`, `alignment`,
+`variants`, `fastq_r1` and `fastq_r2`, by type).
+
+`FakeDataParams`: Generate a small fake genome for tests: reference, reads and calls
+named `fake*`, reproducible from `seed`. Uses the build's installed
+reference when there is one.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `coverage` | `float` | `1.0` | `--coverage` | Coverage depth (e.g. 30.0) |
+| `build` | `str` | `'hg38'` | `--build` | Human genome build naming convention. One of: `grch38`, `hg38`, `hs38`, `hs38d1`, `hs38d1v0`, `hs38dh`, `GRCh38`, `hs38DH`, `grch37`, `hg19`, `hg37`, `hs37`, `hs37d5`, `GRCh37`, `chm13`, `chm13v2`, `chm13v2.0`, `t2t`, `t2tv2`, `t2tv2.0`, `t2tv20`, `T2Tv20`, `T2Tv2`, `T2Tv2.0`, `CHM13`, `CHM13v2.0` |
+| `types` | `str` | `'cram'` | `--type` | Comma-separated list of types to generate (vcf, cram, bam, fastq, all). Default: cram |
+| `full_size` | `bool` | `False` | `--full-size` | Use real human chromosome lengths. The default scaled mode uses shorter chromosomes. |
+| `legacy_bam` | `bool` | `False` | `--legacy-bam` | Use the older scaled fake BAM generator. Slower and unavailable with --full-size, but includes randomized placement and indel CIGARs. |
+| `seed` | `int` | `42` | `--seed` | Random seed for reproducibility |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the current folder). |
 
 ## `api.vcf`
 

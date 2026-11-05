@@ -8,6 +8,7 @@ import logging
 import random
 import shutil
 import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -584,6 +585,22 @@ def test_unalign_failure_removes_partial_fastqs(genome, tmp_path):
             "--r1", "r1.fq", "--r2", str(tmp_path / "missing" / "r2.fq"),
         )  # fmt: skip
     assert not (tmp_path / "r1.fq").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="drive letters are Windows'")
+@pytest.mark.parametrize("command", ["unalign", "merge"])
+def test_a_drive_relative_output_name_is_refused(genome, tmp_path, command):
+    # Review of PR #442: `D:evil.fq` wrote into drive D's working folder,
+    # ignoring --outdir.
+    name = f"{Path.cwd().drive}wgse_drive_relative_{command}.out"
+    args = (
+        ["unalign", "--input", genome["bam"], "--r1", name, "--r2", "r2.fq"]
+        if command == "unalign"
+        else ["merge", *_split(genome, tmp_path), "--output", f"{name}.bam"]
+    )
+    with pytest.raises(WGSExtractError, match="full path"):
+        _bam(*args, "--outdir", str(tmp_path / "out"))
+    assert not list(Path.cwd().glob("wgse_drive_relative_*"))
 
 
 # --- identify -------------------------------------------------------------

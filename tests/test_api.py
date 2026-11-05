@@ -91,10 +91,11 @@ def test_json_schema_describes_every_field(cls):
     assert all(p.get("description") for p in schema["properties"].values())
     for item in api._params.param_fields(cls):
         if item.spec.path:
-            assert schema["properties"][item.name]["type"] in (
-                "string",
-                ["string", "null"],
-            )
+            prop = schema["properties"][item.name]
+            if prop["type"] == "array":  # bam merge's input files
+                prop = prop["items"]
+            assert prop["type"] in ("string", ["string", "null"])
+            assert prop["format"] == "path"
 
 
 def test_json_schema_has_choices_and_required():
@@ -317,6 +318,76 @@ def test_vcf_snp_on_chrm(fake_data, tmp_path):
     assert vcfs and Path(vcfs[0].path).exists()
     assert "bcftools" in result.provenance.tools
     assert result.manifest and Path(result.manifest).exists()
+
+
+def _samtools_view(*args: str) -> list[str]:
+    out = subprocess.run(["samtools", "view", *args], capture_output=True, text=True)
+    return out.stdout.splitlines()
+
+
+def test_bam_merge_takes_its_inputs_as_a_tuple_of_paths(fake_data, tmp_path):
+    bam, _ref = fake_data
+    pieces = []
+    for contig in ("chrM", "chrY"):
+        piece = tmp_path / f"{contig}.bam"
+        subprocess.run(
+            ["samtools", "view", "-b", "-o", str(piece), str(bam), contig], check=True
+        )
+        pieces.append(str(piece))
+    params = api.BamMergeParams(inputs=pieces, output="merged.bam", outdir=tmp_path)  # type: ignore[arg-type]
+    assert params.inputs == tuple(Path(p) for p in pieces)
+    assert api.json_schema(api.BamMergeParams)["properties"]["inputs"]["type"] == (
+        "array"
+    )
+
+    result = api.bam.merge(params)
+    assert_valid(result)
+    merged = tmp_path / "merged.bam"
+    assert [o.role for o in result.outputs if o.path == str(merged)] == [
+        "merged_alignment"
+    ]
+    expected = sum(len(_samtools_view(p)) for p in pieces)
+    assert len(_samtools_view(str(merged))) == expected
+    assert "SO:coordinate" in _samtools_view("-H", str(merged))[0]
+
+
+def test_bam_sort_region_and_to_ubam(fake_data, tmp_path):
+    bam, ref = fake_data
+    sorted_result = api.bam.sort(
+        api.BamSortParams(input=bam, ref=ref, outdir=tmp_path, region="chrM")
+    )
+    assert_valid(sorted_result)
+    sorted_bam = tmp_path / "fake_sorted.bam"
+    contigs = {line.split("\t")[2] for line in _samtools_view(str(sorted_bam))}
+    assert contigs == {"chrM"}
+
+    ubam = api.bam.to_ubam(
+        api.BamToUbamParams(input=sorted_bam, outdir=tmp_path / "u", sample="S1")
+    )
+    assert_valid(ubam)
+    out = Path(next(o.path for o in ubam.outputs if o.role == "unaligned_bam"))
+    records = _samtools_view(str(out))
+    assert records and all(line.split("\t")[2] == "*" for line in records)
+    with pytest.raises(api.UsageError, match="--input .* or --r1"):
+        api.BamToUbamParams()
+
+
+def test_qc_vcf_reports_bcftools_stats(fake_data, tmp_path):
+    if not shutil.which("bcftools"):
+        pytest.skip("bcftools not found in PATH")
+    vcf = FAKE_DIR / "fake.vcf.gz"
+    # PR #442 review: an unused input (here a missing BAM) was still checked.
+    unused = tmp_path / "unused.bam"
+    params = api.QcVcfParams(input=unused, vcf_input=vcf, outdir=tmp_path)
+    result = api.qc.vcf(params)
+    assert_valid(result)
+    assert [Path(i.path).name for i in result.inputs] == ["fake.vcf.gz"]
+    stats = tmp_path / "fake.vcf.gz.vcfstats.txt"
+    assert [o.role for o in result.outputs] == ["vcf_stats"]
+    assert result.metrics["records"] > 0
+    assert stats.read_text().startswith("# This file was produced by bcftools stats")
+    with pytest.raises(api.UsageError, match="--input is required"):
+        api.QcVcfParams()
 
 
 def assert_valid(result: api.Result) -> None:

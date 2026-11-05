@@ -29,7 +29,12 @@ from wgsextract_cli.core.config import get_config_path
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.server.http_api import Server
 from wgsextract_cli.server.jobs import JobManager
-from wgsextract_cli.server.operations import PathGuard, RequestError
+from wgsextract_cli.server.operations import (
+    PathGuard,
+    RequestError,
+    find,
+    params_from_json,
+)
 
 CLI_ROOT = Path(__file__).resolve().parents[1]
 FAKE_DIR = CLI_ROOT / "out" / "fake_30x"
@@ -176,6 +181,38 @@ def test_jobs_writing_to_one_folder_run_one_at_a_time(
             JobManager(tmp_path / "state" / "jobs", config_path=None)
 
 
+@pytest.mark.parametrize(
+    ("op", "into_work"),
+    [
+        (
+            "bam/merge",
+            lambda work, bam: {
+                "inputs": [str(bam), str(bam)],
+                "output": str(work / "m.bam"),
+            },
+        ),
+        ("qc/multiqc", lambda work, bam: {"input": str(work)}),
+    ],
+    ids=["named-output", "folder-input"],
+)
+def test_a_job_writing_into_a_busy_folder_waits(
+    tmp_path, work, fake_data, slow_coverage, op, into_work
+):
+    # PR #445 review: only the outdir was serialised, so a job that writes into
+    # a busy folder by an output path or a folder input ran at the same time.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST", f"/ops/{op}", {**into_work(work, bam), "outdir": str(other)}
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_operations_and_openapi_follow_the_typed_api(client):
     status, body = client.request("GET", "/ops")
     ops = {op["op"]: op["kind"] for op in body["ops"]}
@@ -279,6 +316,9 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
             400,
             "usage",
         ),
+        # PR #442 review: with no input or outdir it saved into the server's
+        # working folder.
+        ("qc/fake-data", {}, 400, "usage"),
         ("nope", {}, 404, "unknown_op"),
         # PR #422 review: these were 500 "internal" errors, or jobs with
         # values the schema forbids.
@@ -356,6 +396,35 @@ def test_path_guard_refuses_network_paths_without_opening_them(path):
     assert flavour.opened == [r"C:\data"]
     guard.check_path("input", "c:/DATA/sub/a.bam")
     assert flavour.opened[-1] == "c:/DATA/sub/a.bam"
+
+
+_IN = r"C:\data\a.bam"
+
+
+@pytest.mark.parametrize(
+    ("op", "body"),
+    [
+        ("bam/merge", {"inputs": [_IN, _IN], "output": "D:evil.bam"}),
+        ("bam/unalign", {"input": _IN, "r1": "D:evil.fq", "r2": "b.fq"}),
+        ("bam/unalign", {"input": _IN, "r1": "a.fq", "r2": "D:evil.fq"}),
+        ("bam/unalign", {"input": _IN, "r1": "a.fq", "r2": "b.fq", "se": "D:e.fq"}),
+    ],
+    ids=["merge-output", "unalign-r1", "unalign-r2", "unalign-se"],
+)
+def test_path_guard_refuses_drive_relative_output_names(op, body):
+    # Review of PR #442: on Windows `D:evil.bam` names a file in drive D's
+    # working folder, outside every allowed root, yet passed as a bare name.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    request = params_from_json(find(op), {**body, "outdir": r"C:\data"})
+    with pytest.raises(RequestError) as refused:
+        guard.check(request)
+    assert (refused.value.status, refused.value.code) == (400, "usage")
+    assert "absolute path" in str(refused.value)
+    # The same names without a drive are bare file names, saved in outdir.
+    bare = {
+        k: v.removeprefix("D:") if isinstance(v, str) else v for k, v in body.items()
+    }
+    guard.check(params_from_json(find(op), {**bare, "outdir": r"C:\data"}))
 
 
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):

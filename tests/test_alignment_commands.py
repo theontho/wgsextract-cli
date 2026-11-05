@@ -9,12 +9,8 @@ import pytest
 
 from tests.htslib_helpers import needs_tools
 from wgsextract_cli.api.extract import MitoVcfParams
-from wgsextract_cli.commands import align, bam, extract, realign, repair
-from wgsextract_cli.commands._extract_helpers import (
-    BaseArgs,
-    alignments_to_fastq,
-    get_base_args,
-)
+from wgsextract_cli.commands import align, extract, realign, repair
+from wgsextract_cli.commands._extract_helpers import BaseArgs, alignments_to_fastq
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5
@@ -94,26 +90,6 @@ def test_streamed_alignment_fails_when_an_upstream_stage_fails(tmp_path, monkeyp
     assert index_calls == []
 
 
-def test_get_base_args_raises_without_input():
-    with pytest.raises(WGSExtractError, match="--input"):
-        get_base_args(Namespace(input=None))
-
-
-def _bam_args(path, **overrides):
-    values = {
-        "input": str(path),
-        "outdir": None,
-        "ref": None,
-        "threads": None,
-        "memory": None,
-        "region": None,
-        "gene": None,
-        "cram_version": "3.0",
-    }
-    values.update(overrides)
-    return Namespace(**values)
-
-
 def _fake_base(outdir, ref=None):
     return BaseArgs("1", "1G", str(outdir), ["-T", ref] if ref else [], ref)
 
@@ -121,49 +97,6 @@ def _fake_base(outdir, ref=None):
 def _no_deps(monkeypatch, module):
     monkeypatch.setattr(module, "verify_dependencies", lambda _tools: None)
     monkeypatch.setattr(module, "log_dependency_info", lambda _tools: None)
-
-
-@pytest.mark.parametrize(
-    ("name", "command"), [("x.cram", bam.cmd_tocram), ("x.bam", bam.cmd_tobam)]
-)
-def test_conversion_refuses_to_overwrite_input(tmp_path, monkeypatch, name, command):
-    source = tmp_path / name
-    source.write_bytes(b"data")
-    _no_deps(monkeypatch, bam)
-    monkeypatch.setattr(bam, "get_base_args", lambda _a: _fake_base(tmp_path))
-    calls = []
-    monkeypatch.setattr(bam, "run_command", calls.append)
-
-    with pytest.raises(WGSExtractError, match="overwrite"):
-        command(_bam_args(source))
-    assert calls == []
-    assert source.read_bytes() == b"data"
-
-
-def test_sorting_cram_writes_cram_with_temp_files_in_outdir(tmp_path, monkeypatch):
-    source = tmp_path / "HG002.chr20.cram"
-    source.write_bytes(b"data")
-    outdir = tmp_path / "out"
-    outdir.mkdir()
-    _no_deps(monkeypatch, bam)
-    monkeypatch.setattr(bam, "print_warning", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        bam, "get_base_args", lambda _a: _fake_base(outdir, str(tmp_path / "ref.fa"))
-    )
-    pipelines = []
-    monkeypatch.setattr(
-        bam, "run_pipeline", lambda stages, **_k: pipelines.append(stages)
-    )
-    commands = []
-    monkeypatch.setattr(bam, "run_command", lambda cmd, **_k: commands.append(cmd))
-
-    bam.cmd_sort(_bam_args(source, outdir=str(outdir)))
-
-    (view_cmd, sort_cmd) = pipelines[0]
-    assert commands[-1][-1] == str(outdir / "HG002.chr20_sorted.cram")  # indexed
-    assert sort_cmd[sort_cmd.index("-o") + 1] == str(outdir / "HG002.chr20_sorted.cram")
-    assert sort_cmd[sort_cmd.index("-O") + 1] == "CRAM"
-    assert sort_cmd[sort_cmd.index("-T") + 1].startswith(str(outdir))
 
 
 def test_fastq_extraction_avoids_dev_null_and_system_temp(tmp_path, monkeypatch):
@@ -530,7 +463,7 @@ def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
 
 
 def test_gene_lookup_uses_detected_build_and_rejects_t2t(monkeypatch):
-    from wgsextract_cli.commands._extract_helpers import resolve_region_or_gene
+    from wgsextract_cli.commands._extract_helpers import region_or_gene
     from wgsextract_cli.core import reference_resolver
 
     class FakeLibrary:
@@ -538,9 +471,8 @@ def test_gene_lookup_uses_detected_build_and_rejects_t2t(monkeypatch):
             self.build = "chm13v2.0"
 
     monkeypatch.setattr(reference_resolver, "ReferenceLibrary", FakeLibrary)
-    args = Namespace(region=None, gene="BRCA1", input="x.bam")
     with pytest.raises(WGSExtractError, match="hg19/hg38"):
-        resolve_region_or_gene(args, "/refs/hg38_named_but_t2t.fa.gz")
+        region_or_gene(None, "BRCA1", "x.bam", "/refs/hg38_named_but_t2t.fa.gz")
 
 
 def _write_indexed_fasta(path, contigs):

@@ -31,6 +31,8 @@ OUTPUT = ROOT / "docs" / "api.md"
 GROUPS = (
     api.info,
     api.extract,
+    api.bam,
+    api.qc,
     api.vcf,
     api.lineage,
     api.microarray,
@@ -155,7 +157,8 @@ def runtime_section() -> Iterator[str]:
         "`wgsextract.result/1` document. `api.json_schema(cls)` gives a JSON "
         "Schema of a Params class; `wgsextract help --all --json` includes it "
         "as each typed command's `input_schema`, with each property's flag "
-        "as `x-cli-flag`."
+        "as `x-cli-flag` (a positional argument's metavar as "
+        "`x-cli-positional`)."
     )
     yield ""
     for obj in RUNTIME:
