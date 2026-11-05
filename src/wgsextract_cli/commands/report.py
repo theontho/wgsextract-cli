@@ -20,7 +20,10 @@ from wgsextract_cli.core.utils import UsageError
 
 
 def _write_text(path: Path, text: str) -> None:
-    with safe_output(path) as staged, open(staged, "w", encoding="utf-8") as stream:
+    with (
+        safe_output(path) as staged,
+        open(staged, "w", encoding="utf-8", newline="\n") as stream,
+    ):
         stream.write(text)
 
 
