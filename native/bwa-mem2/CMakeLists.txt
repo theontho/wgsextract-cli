@@ -118,6 +118,8 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS wgse-bwa-mem2 RUNTIME DESTINATION bin)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" DESTINATION share/licenses/wgse-bwa-mem2
+    RENAME WGSE-LICENSE)
 install(FILES "${mem2_SOURCE_DIR}/LICENSE" DESTINATION share/licenses/wgse-bwa-mem2
     RENAME BWA-MEM2-LICENSE)
 install(FILES "${neon_SOURCE_DIR}/LICENSE" DESTINATION share/licenses/wgse-bwa-mem2

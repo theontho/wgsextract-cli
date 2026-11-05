@@ -30,5 +30,7 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS wgse-bwa RUNTIME DESTINATION bin)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" DESTINATION share/licenses/wgse-bwa
+    RENAME WGSE-LICENSE)
 install(FILES "${bwa_SOURCE_DIR}/COPYING" DESTINATION share/licenses/wgse-bwa
     RENAME BWA-LICENSE)

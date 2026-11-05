@@ -75,8 +75,9 @@ both executables, and publishes them when run with a `macos-aligners-N` tag.
 
 ## Licences
 
-`wgse-bwa` is GPL-3.0 (BWA). `wgse-bwa-mem2` combines BWA-MEM2 (MIT), sse2neon
+`wgse-bwa` is GPL-3.0 (BWA, plus this repository's build glue).
+`wgse-bwa-mem2` combines BWA-MEM2 (MIT), sse2neon
 (MIT) and safestringlib (MIT) with the code in `bwa-mem2/` (GPL-3.0-or-later,
-like this repository). Each package ships its licences under
-`share/licenses/`, and the corresponding source is this directory plus the
+like this repository). Each package ships its licences, including this
+repository's GPL-3.0 text as `WGSE-LICENSE`, under `share/licenses/`, and the corresponding source is this directory plus the
 pinned upstream archives in the CMake files.
