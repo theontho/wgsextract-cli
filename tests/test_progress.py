@@ -1,11 +1,19 @@
 import logging
 import sys
 import time
+from collections.abc import Callable
 
 import pytest
 
 from wgsextract_cli.core import utils
 from wgsextract_cli.core.progress import Heartbeat
+
+
+def _wait_until(condition: Callable[[], bool], timeout: float = 5.0) -> None:
+    """Poll until condition() is true; the heartbeat thread's timing is not guaranteed."""
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.005)
 
 
 def test_pipeline_heartbeat_preserves_binary_data_and_counts_stderr(
@@ -42,7 +50,8 @@ def test_pipeline_heartbeat_preserves_binary_data_and_counts_stderr(
 def test_heartbeat_reports_while_no_shards_complete_and_stops(caplog):
     caplog.set_level(logging.INFO)
     with Heartbeat("GATK scatter", 2, "shards", interval=0.01) as progress:
-        time.sleep(0.04)
+        # The entry report plus at least one report from the background thread.
+        _wait_until(lambda: caplog.text.count("0/2 shards") >= 2)
         progress.advance()
         progress.report()
     assert caplog.text.count("0/2 shards") >= 2
@@ -56,8 +65,10 @@ def test_progress_scan_error_cannot_fail_the_data_pipeline(caplog):
 
     caplog.set_level(logging.INFO)
     with Heartbeat("Extraction", 10, scan=unavailable, interval=0.01):
-        time.sleep(0.03)
-    assert "Progress scan unavailable" in caplog.text
+        # Exit also scans, so wait for the background thread to hit the error first.
+        _wait_until(lambda: "Progress scan unavailable" in caplog.text)
+        background_scan_failed = "Progress scan unavailable" in caplog.text
+    assert background_scan_failed
 
 
 @pytest.mark.parametrize("with_aligner", [False, True])
