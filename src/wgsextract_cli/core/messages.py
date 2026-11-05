@@ -297,7 +297,7 @@ We estimate, on this machine, this will take {time} hours.""",
     "ExpectedWait": "Expected Wait is {time}",
     "YorubaWarning": "Your BAM file uses the Yoruba reference genome for mitochondrial DNA. This is incompatible with the rCRS genome that tools use. We cannot convert this for you at this time.",
     "LowCoverageWarning": "This BAM file has a low mapped average read depth. This can lead to incorrect and fewer variant calls.",
-    "LongReadSequenceWarning": "Input appears to be from a long-read sequencer: ONT detection, CPU minimap2 map-ont alignment/realignment, MM/ML tag retention and x86-64 DeepVariant ONT_R104 small-variant calling (R10.4.1 only) and Sniffles structural-variant calling are supported. ONT methylation analysis and whole-genome accuracy are not yet qualified. PacBio should use its platform-specific aligners/callers; short-read workflows are not validated for long reads.",
+    "LongReadSequenceWarning": "Input appears to be from a long-read sequencer: ONT detection, CPU minimap2 map-ont alignment/realignment, MM/ML tag retention and x86-64 DeepVariant ONT_R104 or Clair3 small-variant calling (R10.4.1 only), Sniffles structural-variant calling and modkit CpG methylation are supported and were validated on GIAB HG002 (see docs/ont.md); whole-genome small-variant accuracy was measured on chr20 only. PacBio should use its platform-specific aligners/callers; short-read workflows are not validated for long reads.",
     "insufficient_disk_title": "EXTRA LARGE WARNING: Insufficient Disk Space Detected!",
     "insufficient_disk_msg": "Detected: {detected} GB available on {path}\nEstimated: {needed} GB needed\nThis operation will likely consume more space than you have available.",
 }
