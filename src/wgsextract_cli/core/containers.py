@@ -196,9 +196,10 @@ def _oom_watch(docker_path: str, name: str) -> Iterator[threading.Event]:
         for _line in events.stdout:
             if killed.is_set():
                 continue
-            killed.set()
             logging.error(f"A process in container {name} ran out of memory.")
             run_command([docker_path, "kill", name], capture_output=True, check=False)
+            # Only now: the caller reports the OOM once this is set.
+            killed.set()
 
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
