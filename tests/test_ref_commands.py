@@ -2,24 +2,35 @@
 
 import gzip
 import hashlib
+import io
 import logging
 import random
+import sys
+import zipfile
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
-from tests.htslib_helpers import needs_tools, vcf_calls, write_fasta
+from tests.htslib_helpers import bgzip_index, needs_tools, vcf_calls, write_fasta
 from tests.http_server import serving
 from wgsextract_cli.commands.ref import core_commands, library_commands
 from wgsextract_cli.core import (
     annotation_resources,
-    bigwig_resources,
     bwa_mem2,
     config,
     constants,
+    gnomad_af,
+    pharmgkb,
 )
-from wgsextract_cli.core.annotation_resources import CLINVAR_URLS
+from wgsextract_cli.core.annotation_resources import (
+    ALPHAMISSENSE_URLS,
+    CLINVAR_URLS,
+    GNOMAD_URLS,
+    REVEL_URLS,
+    SPLICEAI_URLS,
+)
+from wgsextract_cli.core.bigwig_resources import GERP_URLS, PHYLOP_URLS
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.gene_map import GENE_MAP_URLS
 from wgsextract_cli.core.reference_assets import (
@@ -342,8 +353,10 @@ TINY_FA_GZ = gzip.compress("".join(f">{n}\n{s}\n" for n, s in TINY.items()).enco
 
 
 @pytest.fixture
-def server():
-    """Serves server.files; any other path is a 404."""
+def server(monkeypatch):
+    """Serves server.files; any other path is a 404. Downloads take the one
+    non-terminal path even under `pytest -s`, so request counts are stable."""
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
     with serving(None) as srv:
         yield srv
 
@@ -448,6 +461,25 @@ def test_library_install_falls_back_to_the_next_mirror(
         server.files.pop(entry["description"], None)
     with pytest.raises(WGSExtractError, match="hs38.fa.gz from any of its 4 mirrors"):
         _install(tmp_path / "empty", "hs38")
+
+
+@needs_library_tools
+def test_a_later_mirror_replaces_a_corrupt_installed_genome(tmp_path, server, catalog):
+    """The first mirror only re-indexes an installed genome; when that fails,
+    the next one downloads it afresh rather than re-indexing the same file."""
+    catalog += [
+        _genome(server, "hs38", "first/hs38.fa.gz"),
+        _genome(server, "hs38", "second/hs38.fa.gz"),
+    ]
+    genomes = tmp_path / "genomes"
+    genomes.mkdir()
+    (genomes / "hs38.fa.gz").write_bytes(TINY_FA_GZ[: len(TINY_FA_GZ) // 2])
+    (genomes / "hs38.fa.gz.fai").write_text("chr1\t260\t6\t260\t261\n")
+
+    _install(tmp_path, "hs38")
+
+    _assert_installed(tmp_path, "hs38.fa.gz")
+    assert server.paths == ["second/hs38.fa.gz"]
 
 
 def _menu(monkeypatch, lib, answers):
@@ -607,72 +639,173 @@ def test_library_menu_gene_maps(
     assert bool(ucsc.requests) == (not installed)
 
 
-CLINVAR_GZ = gzip.compress(
-    b"##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n"
-    b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-    b"1\t100\t12345\tA\tG\t.\t.\tCLNSIG=Pathogenic\n"
+VCF = (
+    "##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n"
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+    "1\t100\t12345\tA\tG\t.\t.\tCLNSIG=Pathogenic\n"
+)
+REVEL_TSV = "#Chr\tStart\tEnd\tRef\tAlt\tREVEL\n1\t100\t100\tA\tG\t0.5\n"
+ALPHAMISSENSE_TSV = (
+    "#CHROM\tPOS\tREF\tALT\tgenome\tuniprot_id\ttranscript_id\tprotein_variant\t"
+    "am_pathogenicity\tam_class\n"
+    "1\t100\tA\tG\thg38\tP1\tT1\tV1A\t0.9\tlikely_pathogenic\n"
 )
 
 
-@pytest.fixture
-def clinvar(monkeypatch, server):
-    for build in CLINVAR_URLS:
-        server.files[f"clinvar/{build}.vcf.gz"] = CLINVAR_GZ
-        monkeypatch.setitem(
-            CLINVAR_URLS, build, server.url_for(f"clinvar/{build}.vcf.gz")
-        )
-    return server
+def _bgzf(tmp_path: Path, text: str, index: bool) -> dict[str, bytes]:
+    """A BGZF VCF as served, and with index its published .tbi."""
+    vcf = tmp_path / "served.vcf"
+    vcf.write_text(text)
+    served = Path(bgzip_index(vcf))
+    files = {"": served.read_bytes()}
+    if index:
+        files[".tbi"] = Path(f"{served}.tbi").read_bytes()
+    return files
+
+
+@needs_tools("bgzip", "tabix", "bcftools")
+@pytest.mark.parametrize(
+    ("command", "extra", "urls", "dest", "payload"),
+    [
+        ("cmd_clinvar_dl", {}, CLINVAR_URLS, "clinvar_{}.vcf.gz", "vcf-gzip"),
+        ("cmd_revel_dl", {}, REVEL_URLS, "revel_{}.tsv.gz", REVEL_TSV),
+        (
+            "cmd_alphamissense_dl",
+            {},
+            ALPHAMISSENSE_URLS,
+            "alphamissense_{}.tsv.gz",
+            ALPHAMISSENSE_TSV,
+        ),
+        ("cmd_spliceai_dl", {}, SPLICEAI_URLS, "spliceai_{}.vcf.gz", "vcf-indexed"),
+        (
+            "cmd_gnomad_dl",
+            {"release": "2.1.1"},
+            GNOMAD_URLS,
+            "gnomad_{}.vcf.bgz",
+            "vcf-bgzf",
+        ),
+    ],
+    ids=["clinvar", "revel", "alphamissense", "spliceai", "gnomad-2.1.1"],
+)
+def test_resource_commands_install_indexed_files(
+    tmp_path, monkeypatch, server, command, extra, urls, dest, payload
+):
+    if payload == "vcf-gzip":
+        files = {"": gzip.compress(VCF.encode())}
+    elif payload.startswith("vcf-"):
+        files = _bgzf(tmp_path, VCF, index=payload == "vcf-indexed")
+    else:
+        files = {"": gzip.compress(payload.encode())}
+    builds = [build for build, url in urls.items() if url]  # SpliceAI hg19: manual
+    resources = (CLINVAR_URLS, REVEL_URLS, ALPHAMISSENSE_URLS, SPLICEAI_URLS)
+    for other in (*resources, GNOMAD_URLS):
+        for build, url in other.items():
+            if url:  # Any other resource is a 404, never the real network.
+                monkeypatch.setitem(other, build, server.url_for("unserved"))
+    monkeypatch.setattr(gnomad_af, "GNOMAD_V4_URL", server.url_for("{contig}"))
+    for build in builds:
+        for suffix, data in files.items():
+            server.files[f"{build}/source{suffix}"] = data
+        monkeypatch.setitem(urls, build, server.url_for(f"{build}/source"))
+    lib = tmp_path / "library"
+
+    getattr(library_commands, command)(Namespace(ref=str(lib), **extra))
+
+    tabix = get_tool_path("tabix")
+    for build in builds:
+        path = str(lib / "ref" / dest.format(build))
+        listed = run_command([tabix, "-l", path], capture_output=True).stdout
+        assert listed.split() == ["1"]
 
 
 @needs_library_tools
-def test_library_menu_installs_clinvar(tmp_path, monkeypatch, catalog, clinvar):
+def test_library_menu_installs_clinvar(tmp_path, monkeypatch, server, catalog):
+    for build in CLINVAR_URLS:
+        server.files[f"{build}/clinvar.vcf.gz"] = gzip.compress(VCF.encode())
+        monkeypatch.setitem(
+            CLINVAR_URLS, build, server.url_for(f"{build}/clinvar.vcf.gz")
+        )
+
     _menu(monkeypatch, tmp_path, ["c"])
+
     for build in ("hg19", "hg38"):
         vcf = tmp_path / "ref" / f"clinvar_{build}.vcf.gz"
-        assert Path(f"{vcf}.tbi").is_file()
         assert vcf_calls(vcf) == [("1", "100", "A", "G")]
 
 
+@needs_tools("bgzip", "tabix", "bcftools")
+def test_pharmgkb_command_builds_its_table(tmp_path, monkeypatch, server):
+    def archive(member: str, text: str) -> bytes:
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as zf:
+            zf.writestr(member, text)
+        return data.getvalue()
+
+    server.files["clinical.zip"] = archive(
+        "clinical_annotations.tsv",
+        "Clinical Annotation ID\tVariant/Haplotypes\tGene\tLevel of Evidence\t"
+        "Phenotype Category\tDrug(s)\n1\trs200\tVKORC1\t1A\tDosage\twarfarin\n",
+    )
+    server.files["variants.zip"] = archive(
+        "variants.tsv",
+        "Variant ID\tVariant Name\tGene IDs\tGene Symbols\tLocation\tSynonyms\n"
+        "PA1\trs200\tPA8\tVKORC1\tNC_000016.10:31096368\t"
+        "NC_000016.10:g.31096368C>T\n",
+    )
+    monkeypatch.setattr(pharmgkb, "CLINICAL_URL", server.url_for("clinical.zip"))
+    monkeypatch.setattr(pharmgkb, "VARIANTS_URL", server.url_for("variants.zip"))
+
+    library_commands.cmd_pharmgkb_dl(Namespace(ref=str(tmp_path)))
+
+    with gzip.open(tmp_path / "ref" / "pharmgkb_hg38.tsv.gz", "rt") as f:
+        assert "chr16\t31096368\tC\tT\trs200|VKORC1|1A|Dosage|warfarin" in f.read()
+
+
 @needs_tools("bgzip", "tabix")
-def test_resource_download_failure_names_the_resource(tmp_path, clinvar):
-    del clinvar.files["clinvar/hg19.vcf.gz"]
+def test_resource_download_failure_names_the_resource(tmp_path, monkeypatch, server):
+    for build in CLINVAR_URLS:
+        monkeypatch.setitem(CLINVAR_URLS, build, server.url_for(build))
     with pytest.raises(WGSExtractError, match="ClinVar setup failed"):
         library_commands.cmd_clinvar_dl(Namespace(ref=str(tmp_path)))
 
 
+def _cadd_hg19() -> list[str]:
+    return [
+        f"{name}_hg19.tsv.gz{ext}"
+        for name in ("cadd", "cadd_indel")
+        for ext in ("", ".tbi")
+    ]
+
+
 @pytest.mark.parametrize(
-    ("command", "urls", "installed"),
+    ("command", "extra", "installed"),
     [
-        ("cmd_phylop_dl", (bigwig_resources, "PHYLOP_URLS"), ["phylop_hg19.bw"]),
-        ("cmd_gerp_dl", (bigwig_resources, "GERP_URLS"), ["gerp_hg19.bw"]),
+        ("cmd_phylop_dl", {"build": "hg19"}, ["phylop_hg19.bw"]),
+        ("cmd_gerp_dl", {"build": "hg19"}, ["gerp_hg19.bw"]),
+        ("cmd_cadd_dl", {"build": "hg19"}, _cadd_hg19()),
         (
-            "cmd_cadd_dl",
-            (annotation_resources, "CADD_BASE_URL"),
-            [
-                f"{name}{ext}"
-                for name in ("cadd", "cadd_indel")
-                for ext in ("_hg19.tsv.gz", "_hg19.tsv.gz.tbi")
-            ],
+            "cmd_gnomad_dl",
+            {"release": "4.1"},
+            ["gnomad_hg38.tsv.gz", "gnomad_hg38.tsv.gz.tbi"],
         ),
     ],
+    ids=["phylop", "gerp", "cadd", "gnomad-4.1"],
 )
-def test_build_specific_downloads_use_the_requested_build(
-    tmp_path, monkeypatch, server, command, urls, installed
+def test_installed_resources_are_found_for_the_requested_build_or_release(
+    tmp_path, monkeypatch, server, command, extra, installed
 ):
-    """hg19 is already in the library; any other build would be fetched, and
+    """These are already in the library; anything else would be fetched, and
     fail, from the empty server."""
-    module, name = urls
-    value = getattr(module, name)
-    if isinstance(value, dict):
-        for build in value:
-            monkeypatch.setitem(value, build, server.url_for(build))
-    else:
-        monkeypatch.setattr(module, name, server.base)
+    for urls in (PHYLOP_URLS, GERP_URLS, GNOMAD_URLS):
+        for build in urls:
+            monkeypatch.setitem(urls, build, server.url_for(build))
+    monkeypatch.setattr(annotation_resources, "CADD_BASE_URL", server.base)
+    monkeypatch.setattr(gnomad_af, "GNOMAD_V4_URL", server.url_for("{contig}"))
     (tmp_path / "ref").mkdir()
     for file in installed:
         (tmp_path / "ref" / file).write_bytes(b"installed")
 
-    getattr(library_commands, command)(Namespace(ref=str(tmp_path), build="hg19"))
+    getattr(library_commands, command)(Namespace(ref=str(tmp_path), **extra))
 
     assert server.requests == []
 
