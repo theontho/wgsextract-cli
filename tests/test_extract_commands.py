@@ -300,9 +300,6 @@ def test_api_unmapped_fastq_reports_each_fastq_role(genome, tmp_path):
 
 
 def test_api_custom_without_a_region_is_a_usage_error(genome, tmp_path):
-    result = api.extract.custom(
-        api.CustomParams(input=genome["male"], outdir=tmp_path), check=False
-    )
-    assert (result.status, result.exit_code) == ("failed", 2)
-    assert result.error is not None and "--region or --gene" in result.error.message
+    with pytest.raises(api.UsageError, match="--region or --gene"):
+        api.CustomParams(input=genome["male"], outdir=tmp_path)
     assert list(tmp_path.iterdir()) == []

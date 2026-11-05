@@ -13,6 +13,7 @@ from pathlib import Path
 
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.results import CommandResult
+from wgsextract_cli.core.utils import UsageError
 
 from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
@@ -139,6 +140,11 @@ class CustomParams(_ExtractParams):
         doc="Region (chrY:10000-20000), comma-separated regions, or a BED file.",
     )
     gene: str | None = param(None, help=_GENE_HELP, doc=_GENE_DOC)
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not (self.region or self.gene):
+            raise UsageError("--region or --gene is required for custom extraction.")
 
 
 def mito_fasta(

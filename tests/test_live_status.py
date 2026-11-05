@@ -6,6 +6,7 @@ import contextlib
 import io
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -226,5 +227,5 @@ def test_heartbeat_counts_reach_the_line_through_progress_events():
             with Heartbeat("Alignment", 4, interval=60, emit=False) as heartbeat:
                 heartbeat.advance(2)
                 heartbeat.report()
-                _wait_for(lambda: "align, 0s, 2/4 reads" in tty.getvalue())
+                _wait_for(lambda: re.search(r"align, \d+s, 2/4 reads", tty.getvalue()))
     assert _screen(tty.getvalue()) == []
