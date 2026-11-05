@@ -112,7 +112,9 @@ powershell -ExecutionPolicy Bypass -File .\make.ps1 test
 Use Ctrl-C to stop both. The process-scoped execution-policy bypass is required
 on fresh Windows clients where the default policy is Restricted.
 For a fork, push to your fork and open a PR against `WGSExtract/gui-for-cli`.
-Hooks check identity/lint on commit and tests on push. Run `make build-tauri`
+Hooks check identity/lint on commit and tests on push. The commit hook also
+scans staged changes for secrets when [gitleaks](https://github.com/gitleaks/gitleaks#installing)
+is installed, and warns otherwise; CI always scans. Run `make build-tauri`
 after changing the Tauri shell or packaging. `make tauri` runs the desktop UI.
 
 ## Make an AI-directed change

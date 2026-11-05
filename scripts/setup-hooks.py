@@ -39,6 +39,11 @@ run_python() {
   fi
 }
 run_python scripts/verify-dev.py
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact --no-banner .
+else
+  echo "warning: gitleaks not found, so staged changes were not scanned for secrets (CI still scans). Install it: https://github.com/gitleaks/gitleaks#installing" >&2
+fi
 run_python tools/tasks.py lint
 """,
     ),
