@@ -378,6 +378,13 @@ def _run_haplocheck(
             target = outdir / name
             Path(tmp, name).replace(target)
             outputs.append((target, role))
+    if not any(role == "contamination_html" for _, role in outputs):
+        # haplocheck 1.3.3 on Windows can't load its report template, but
+        # still writes the tables and exits 0.
+        warn(
+            "haplocheck_no_html",
+            "haplocheck wrote no HTML report; its text reports hold the result.",
+        )
     return rows[0], outputs
 
 

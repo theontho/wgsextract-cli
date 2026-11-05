@@ -5,6 +5,7 @@ import gzip
 import json
 import logging
 import random
+import sys
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
@@ -619,12 +620,19 @@ def test_contamination_check_reports_haplocheck_status(tmp_path, mini_tree):
     result = _classify(vcf, tmp_path / "o", contamination=True)
     assert result.metrics["mt_contamination"] == "ND"
     roles = {Path(o.path).name: o.role for o in result.outputs}
-    assert roles == {
+    expected = {
         "haplogrep_results.txt": "haplogroup_report",
         "haplocheck_contamination.txt": "contamination_report",
         "haplocheck_contamination.raw.txt": "contamination_details",
-        "haplocheck_contamination.html": "contamination_html",
     }
+    warned = {w.code for w in result.warnings}
+    # haplocheck 1.3.3 can't load its HTML template on Windows (PR #436 CI).
+    if sys.platform == "win32":
+        assert "haplocheck_no_html" in warned
+    else:
+        expected["haplocheck_contamination.html"] = "contamination_html"
+        assert "haplocheck_no_html" not in warned
+    assert roles == expected
     written = sorted(p.name for p in (tmp_path / "o").iterdir())
     assert written == sorted([*roles, "haplogrep_results.txt.manifest.json"])
 
