@@ -278,10 +278,10 @@ def test_detected_ont_runs_the_standard_image_with_owned_temporary_files(
     assert cmd[cmd.index("--model_type") + 1] == "ONT_R104"
     work = cmd[cmd.index("--intermediate_results_dir") + 1]
     for stage in runs.stages:
-        assert f"HOME={work}/.tmp" in stage
-        assert f"TMPDIR={work}/.tmp" in stage
+        assert f"HOME={Path(work, '.tmp')}" in stage
+        assert f"TMPDIR={Path(work, '.tmp')}" in stage
     # Planning, which a --dry-run does beside a running stage, has its own.
-    assert f"TMPDIR={work}/.tmp" not in cmd
+    assert f"TMPDIR={Path(work, '.tmp')}" not in cmd
 
 
 @pytest.mark.parametrize("selection", [{}, {"ont": True}, {"model_type": "ONT_R104"}])
@@ -892,10 +892,10 @@ def test_arm_container_overrides_entrypoint_before_image(files, monkeypatch):
     assert "--platform" not in cmd
     work = cmd[cmd.index("--intermediate_results_dir") + 1]
     for stage in runs.stages:
-        assert f"HOME={work}/.tmp" in stage
-        assert f"TMPDIR={work}/.tmp" in stage
+        assert f"HOME={Path(work, '.tmp')}" in stage
+        assert f"TMPDIR={Path(work, '.tmp')}" in stage
     # Planning, which a --dry-run does beside a running stage, has its own.
-    assert f"TMPDIR={work}/.tmp" not in cmd
+    assert f"TMPDIR={Path(work, '.tmp')}" not in cmd
 
 
 def test_arm_run_reports_deepvariant_preflight_not_bcftools(files, monkeypatch):
