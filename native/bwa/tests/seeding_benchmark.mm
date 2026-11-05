@@ -101,6 +101,83 @@ struct ConcurrentTime {
     size_t fallbacks;
 };
 
+struct CpuLocate {
+    const bwt_t *bwt;
+    const std::vector<uint64_t> &rows;
+    std::vector<uint64_t> &positions;
+    static constexpr long block = 4096;
+    static void work(void *opaque, long i, int) {
+        auto &job = *static_cast<CpuLocate *>(opaque);
+        size_t end = std::min(job.rows.size(), size_t(i + 1) * block);
+        for (size_t j = size_t(i) * block; j < end; ++j)
+            job.positions[j] = bwt_sa(job.bwt, job.rows[j]);
+    }
+    void run(int threads) {
+        positions.resize(rows.size());
+        kt_for(threads, work, this, static_cast<long>((rows.size() + block - 1) / block));
+    }
+};
+
+// Compares GPU suffix-array locate with upstream bwt_sa() for every row
+// mem_chain() would visit, then times both.
+void locate(const char *prefix, bwt_t &bwt, GpuSeeds &gpu, SeedKernel &kernel,
+    const std::vector<Intervals> &seeds, const mem_opt_t &opt, size_t group, size_t repeat,
+    size_t capacity) {
+    std::string sa_path = std::string(prefix) + ".sa";
+    bwt_restore_sa(sa_path.c_str(), &bwt);
+    GpuLocate locator(kernel, capacity);
+    if (!GpuLocate::supported(bwt)) throw std::runtime_error("unsupported suffix-array sampling");
+    locator.sa = gpu.runtime.allocate_pages(bwt.n_sa * sizeof(uint64_t));
+    if (!locator.sa) throw std::runtime_error("page-aligned SA allocation failed");
+    memcpy(locator.sa.contents, bwt.sa, bwt.n_sa * sizeof(uint64_t));
+    free(bwt.sa);
+    bwt.sa = static_cast<uint64_t *>(locator.sa.contents);
+    struct Detach {
+        bwt_t &value;
+        ~Detach() { value.sa = nullptr; }
+    } detach{bwt};
+    locator.configure(bwt);
+    auto check = [&](const std::vector<uint64_t> &rows, std::vector<uint64_t> &expected,
+        std::vector<uint64_t> &actual) {
+        CpuLocate cpu{&bwt, rows, expected};
+        cpu.run(9);
+        locator.run(gpu.index, rows, actual, group);
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (expected[i] != actual[i]) {
+                fprintf(stderr, "row=%llu cpu=%llu gpu=%llu\n", (unsigned long long)rows[i],
+                    (unsigned long long)expected[i], (unsigned long long)actual[i]);
+                throw std::runtime_error("GPU/CPU locate mismatch");
+            }
+        }
+    };
+    std::vector<uint64_t> rows, expected, actual;
+    for (const auto &intervals : seeds) append_rows(intervals, opt.max_occ, rows);
+    check(rows, expected, actual);
+    printf("locate_parity=exact rows=%zu sa_intv=%d\n", rows.size(), bwt.sa_intv);
+    if (bwt.seq_len < (uint64_t(1) << 24)) {
+        // Small indexes: every row, including the primary and seq_len sentinels.
+        std::vector<uint64_t> all(bwt.seq_len + 1), all_expected, all_actual;
+        for (uint64_t k = 0; k <= bwt.seq_len; ++k) all[k] = k;
+        check(all, all_expected, all_actual);
+        printf("locate_all=exact rows=%zu primary=%llu\n", all.size(),
+            static_cast<unsigned long long>(bwt.primary));
+    }
+    CpuLocate cpu{&bwt, rows, expected};
+    for (size_t iteration = 0; iteration < repeat; ++iteration) {
+        auto start = Clock::now();
+        cpu.run(9);
+        double cpu9 = seconds(start);
+        start = Clock::now();
+        locator.run(gpu.index, rows, actual, group);
+        double wall = seconds(start);
+        if (actual != expected) throw std::runtime_error("GPU/CPU locate mismatch");
+        printf("locate_iteration=%zu rows=%zu cpu9_s=%.6f gpu_s=%.6f kernel_s=%.6f "
+            "speedup9=%.3f\n", iteration + 1, rows.size(), cpu9, wall,
+            locator.kernel_seconds, cpu9 / wall);
+        fflush(stdout);
+    }
+}
+
 ConcurrentTime concurrent(GpuSeeds &gpu, Partition &cpu_part, Partition &gpu_part,
     CpuJob &cpu, size_t group, int fallback_threads, const bwt_t *bwt, const mem_opt_t *opt) {
     auto start = Clock::now();
@@ -121,17 +198,19 @@ int benchmark(int argc, char **argv) {
         fprintf(stderr, "Usage: seeding_benchmark <bwa-index-prefix> <fastq> "
             "[--reads N] [--batch N] [--repeat N] [--group N] [--verify-only] "
             "[--scratch-limit N] [--output-limit N] [--fallback-threads N] "
-            "[--concurrent] [--gpu-percent N]\n");
+            "[--concurrent] [--gpu-percent N] [--locate] [--locate-batch N]\n");
         return 1;
     }
     size_t limit = 16384, batch = 8192, repeat = 3, group = 64;
     size_t scratch_limit = seed_scratch_capacity, output_limit = seed_output_capacity;
     size_t fallback_threads = 9;
     size_t gpu_percent = 50;
-    bool verify_only = false, measure_concurrent = false;
+    size_t locate_batch = 1 << 22;
+    bool verify_only = false, measure_concurrent = false, measure_locate = false;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--verify-only") { verify_only = true; continue; }
         if (std::string(argv[i]) == "--concurrent") { measure_concurrent = true; continue; }
+        if (std::string(argv[i]) == "--locate") { measure_locate = true; continue; }
         if (i + 1 == argc) throw std::runtime_error("missing option value");
         size_t value = positive(argv[i + 1]);
         std::string option = argv[i];
@@ -143,6 +222,7 @@ int benchmark(int argc, char **argv) {
         else if (option == "--output-limit") output_limit = value;
         else if (option == "--fallback-threads") fallback_threads = value;
         else if (option == "--gpu-percent") gpu_percent = value;
+        else if (option == "--locate-batch") locate_batch = value;
         else throw std::runtime_error("unknown option: " + option);
         ++i;
     }
@@ -201,6 +281,11 @@ int benchmark(int argc, char **argv) {
         printf("concurrent_parity=exact cpu_reads=%zu gpu_reads=%zu gpu_percent=%zu\n",
             cpu_part.input.reads.size(), gpu_part.input.reads.size(), gpu_percent);
         gpu.run(input, actual, group, int(fallback_threads), bwt.get(), opt.get());
+    }
+    if (measure_locate) {
+        locate(argv[1], *bwt, gpu, kernel, reference, *opt, group, verify_only ? 0 : repeat,
+            locate_batch);
+        return 0;
     }
     if (verify_only) {
         printf("parity=exact intervals=%zu fallback=%zu length=%zu scratch=%zu output=%zu\n",
