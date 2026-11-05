@@ -301,7 +301,9 @@ def _record_facts(data: dict[str, Any], input_file: str, header: str) -> None:
         )
         record_sex(input_file, SexCall(*call))
     ard = (data.get("metrics") or {}).get("ard_mapped")
-    if ard:
+    # Only depths from current bookkeeping: not a cache from before #427, nor
+    # long reads whose depth couldn't be sampled.
+    if ard and data.get("contig_bases"):
         sample_workspace.record(
             "mean_coverage",
             input_file,
@@ -542,7 +544,11 @@ def _detailed_metrics(
         "refined_ns": bool(n_counts),
         "file_content": ", ".join(k for k, v in content.items() if v),
         "depth_method": DEPTH_SAMPLED if mapped_bases else DEPTH_COUNTED,
-        "contig_bases": {row[1]: round(row[8]) for row in chrom_table},
+        # Marks the depths current; left out when long reads couldn't be
+        # sampled, so the next run (or genotype QC) tries again.
+        "contig_bases": {row[1]: round(row[8]) for row in chrom_table}
+        if mapped_bases or avg_len <= LONG_READ_MIN_LEN
+        else None,
         "metrics": {
             "ard_mapped": total_row[8] / eff_len,
             "ard_raw": raw_bases / eff_len,

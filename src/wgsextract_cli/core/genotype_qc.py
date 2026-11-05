@@ -208,9 +208,18 @@ def _counted_depths(
     measured = None
     if read_len > LONG_READ_MIN_LEN:
         # Records x read length overstates long reads' depth (#427), so it is
-        # sampled instead, on every contig a target is made of.
+        # sampled instead: on the targets' contigs with reads, and on all of a
+        # target's contigs when multi-reference containers hide which hold them.
         stats = [
-            IdxStat(**{**s, "mapped": int(bool(contig_target(s["name"])))})
+            IdxStat(
+                **{
+                    **s,
+                    "mapped": int(
+                        (target := contig_target(s["name"])) is not None
+                        and (s["mapped"] > 0 or target in unknown)
+                    ),
+                }
+            )
             for s in stats
         ]
         try:

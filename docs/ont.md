@@ -306,6 +306,8 @@ supplementary record carries the whole read. So on a chr20+chrY slice of that
 CRAM the record estimate gave 85x for chr20 and 185x for chrY, while sampling
 gives 56x and 28x. `samtools coverage` gives 53x over chr20's non-N bases.
 chrY's typical depth is about 26x outside 1 Mb of satellite at up to 8,000x.
+Unplaced, alt and decoy contigs under 1 Mb share one pooled sample, which
+sets the Other row.
 `qc vcf` ran on the chr20 DeepVariant VCF (106,665 PASS SNVs, Ts/Tv 1.74).
 
 Small-variant calling on the whole genome was not run: 32 h of realignment

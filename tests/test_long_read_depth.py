@@ -27,14 +27,17 @@ READ = 2_000
 # aligning 250 bp of its 2 kb read (three in four supplementary), so 2x,
 # though its records x read length make it 16x.
 CHR1_STEP, CHRY_STEP, CHRY_ALIGNED = 100, 125, 250
+# An unplaced contig with chrY's pattern, so also 2x.
+UNPLACED, UNPLACED_LENGTH = "chrUn_KI270742v1", 50_000
 
 
 @pytest.fixture(scope="module")
 def long_reads(tmp_path_factory):
     root = tmp_path_factory.mktemp("longreads")
     rng = random.Random(427)
+    lengths = {"chr1": LENGTH, "chrY": LENGTH, UNPLACED: UNPLACED_LENGTH}
     seqs = {
-        c: "".join(rng.choice("ACGT") for _ in range(LENGTH)) for c in ("chr1", "chrY")
+        c: "".join(rng.choice("ACGT") for _ in range(n)) for c, n in lengths.items()
     }
     ref = write_fasta(root / "ref.fa", seqs)
     qual = "5" * READ
@@ -45,18 +48,19 @@ def long_reads(tmp_path_factory):
             f"a{i}\t0\tchr1\t{pos}\t60\t{READ}M\t*\t0\t0\t{seq}\t{qual}\tRG:Z:ont"
         )
     clip = READ - CHRY_ALIGNED
-    for i, pos in enumerate(range(1, LENGTH - CHRY_ALIGNED + 2, CHRY_STEP)):
-        aligned = seqs["chrY"][pos - 1 : pos - 1 + CHRY_ALIGNED]
-        seq = aligned + "".join(rng.choice("ACGT") for _ in range(clip))
-        flag = 0 if i % 4 == 0 else 2048
-        records.append(
-            f"y{i // 4}\t{flag}\tchrY\t{pos}\t60\t{CHRY_ALIGNED}M{clip}S\t*\t0\t0\t"
-            f"{seq}\t{qual}\tRG:Z:ont"
-        )
+    for contig in ("chrY", UNPLACED):
+        last = lengths[contig] - CHRY_ALIGNED + 2
+        for i, pos in enumerate(range(1, last, CHRY_STEP)):
+            aligned = seqs[contig][pos - 1 : pos - 1 + CHRY_ALIGNED]
+            seq = aligned + "".join(rng.choice("ACGT") for _ in range(clip))
+            flag = 0 if i % 4 == 0 else 2048
+            records.append(
+                f"{contig}.{i // 4}\t{flag}\t{contig}\t{pos}\t60\t"
+                f"{CHRY_ALIGNED}M{clip}S\t*\t0\t0\t{seq}\t{qual}\tRG:Z:ont"
+            )
     header = [
         "@HD\tVN:1.6\tSO:coordinate",
-        f"@SQ\tSN:chr1\tLN:{LENGTH}",
-        f"@SQ\tSN:chrY\tLN:{LENGTH}",
+        *(f"@SQ\tSN:{c}\tLN:{n}" for c, n in lengths.items()),
         "@RG\tID:ont\tSM:HG002\tPL:ONT",
     ]
     bam = sam_to_bam(header + records, root / "ont.bam")
@@ -81,6 +85,28 @@ def test_info_reports_long_reads_aligned_depth_not_record_count(long_reads, tmp_
     # The cached table is what the callers' low-coverage check reads.
     cache = json.loads((tmp_path / "ont.bam.wgse_info.json").read_text())
     assert cache["depth_method"].startswith("depth of sampled")
+
+
+@needs_htslib
+def test_unplaced_contigs_are_sampled_too(long_reads, tmp_path):
+    # #440 review: unplaced contigs kept records x read length in Other.
+    table = _info_table(long_reads["bam"], long_reads["ref"], tmp_path)
+    assert float(table["Other"]["Map ARD"]) == pytest.approx(2, abs=0.5)
+
+
+@needs_htslib
+def test_depth_unsampled_without_an_index_is_measured_once_indexed(
+    long_reads, tmp_path
+):
+    # #440 review: an unindexed BAM's inflated chrY depth was cached as
+    # current, so adding the index didn't correct it.
+    bam = tmp_path / "noindex.bam"
+    bam.write_bytes(open(long_reads["bam"], "rb").read())
+    table = _info_table(str(bam), long_reads["ref"], tmp_path)
+    assert float(table["chrY"]["Map ARD"]) > 10
+    run_command(["samtools", "index", str(bam)])
+    table = _info_table(str(bam), long_reads["ref"], tmp_path)
+    assert float(table["chrY"]["Map ARD"]) == pytest.approx(2, abs=0.5)
 
 
 @needs_htslib
