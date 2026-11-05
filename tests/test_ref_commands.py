@@ -1,6 +1,7 @@
 """`wgsextract ref` index/count-ns/verify/library commands on tiny references."""
 
 import gzip
+import hashlib
 import logging
 import random
 from argparse import Namespace
@@ -8,11 +9,24 @@ from pathlib import Path
 
 import pytest
 
-from tests.htslib_helpers import needs_tools, write_fasta
+from tests.htslib_helpers import needs_tools, vcf_calls, write_fasta
+from tests.http_server import serving
 from wgsextract_cli.commands.ref import core_commands, library_commands
-from wgsextract_cli.core import bwa_mem2, config
+from wgsextract_cli.core import (
+    annotation_resources,
+    bigwig_resources,
+    bwa_mem2,
+    config,
+    constants,
+)
+from wgsextract_cli.core.annotation_resources import CLINVAR_URLS
 from wgsextract_cli.core.dependencies import get_tool_path
-from wgsextract_cli.core.reference_assets import read_fai_lengths, sequence_signature
+from wgsextract_cli.core.gene_map import GENE_MAP_URLS
+from wgsextract_cli.core.reference_assets import (
+    read_fai_lengths,
+    reference_dict_path,
+    sequence_signature,
+)
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
@@ -314,55 +328,129 @@ def test_library_list_reports_genome_status_and_resources(tmp_path, genomes, cap
 
 
 # --- ref library --install / interactive menu -----------------------------------
+# Genomes, gene maps and ClinVar install for real from a local HTTP server; only
+# the catalogue and the resource URLs are pointed at it.
+
+needs_library_tools = needs_tools(
+    "curl", "samtools", "bcftools", "tabix", "bgzip", "htsfile"
+)
+
+TINY = {"chr1": "ACGT" * 60 + "N" * 20, "chr2": "GATTACA" * 30}
+TINY_LENGTHS = {name: len(seq) for name, seq in TINY.items()}
+# The mirrors serve plain gzip; an install recompresses it to BGZF.
+TINY_FA_GZ = gzip.compress("".join(f">{n}\n{s}\n" for n, s in TINY.items()).encode())
 
 
 @pytest.fixture
-def installs(monkeypatch, genomes):
-    """Record genome installs and deletions instead of downloading."""
-    calls: list[tuple] = []
-    monkeypatch.setattr(library_commands, "verify_dependencies", lambda deps: None)
-    monkeypatch.setattr(library_commands, "log_dependency_info", lambda deps: None)
-    monkeypatch.setattr(
-        library_commands,
-        "download_and_process_genome",
-        lambda g, lib, restart: calls.append(("install", g["code"], restart)) or True,
-    )
-    monkeypatch.setattr(
-        library_commands,
-        "delete_genome",
-        lambda final, lib: calls.append(("delete", final)),
-    )
-    return calls
+def server():
+    """Serves server.files; any other path is a 404."""
+    with serving(None) as srv:
+        yield srv
 
 
-@pytest.mark.parametrize("choice", ["t2tv20", "3"])
-def test_library_install_by_code_or_number(tmp_path, installs, choice):
-    reflib = tmp_path / "new-library"
-    library_commands.cmd_library(Namespace(ref=str(reflib), list=False, install=choice))
-    assert installs == [("install", "T2Tv20", False)]
-    assert reflib.is_dir()
+@pytest.fixture
+def catalog(monkeypatch):
+    entries: list[dict[str, str]] = []
+    for module in (core_commands, library_commands):
+        monkeypatch.setattr(module, "get_available_genomes", lambda: entries)
+    return entries
 
 
-@pytest.mark.parametrize("choice", ["nope", "0", "6"])
-def test_library_install_rejects_unknown_genomes(tmp_path, installs, choice):
+def _genome(server, code, path=None, data=TINY_FA_GZ, final=None):
+    """A catalogue entry for the tiny genome, served at path (404 if data is None)."""
+    path = path or f"{code}/{code}.fa.gz"
+    if data is not None:
+        server.files[path] = data
+    return {
+        "code": code,
+        "source": "local",
+        "final": final or f"{code}.fa.gz",
+        "label": f"{code} (local)",
+        "url": server.url_for(path),
+        "description": path,
+        "md5": sequence_signature(TINY_LENGTHS),
+    }
+
+
+def _install(lib, choice):
+    library_commands.cmd_library(Namespace(ref=str(lib), list=False, install=choice))
+
+
+def _assert_installed(lib, final):
+    fasta = lib / "genomes" / final
+    assert read_fai_lengths(fasta) == TINY_LENGTHS
+    assert Path(f"{fasta}.gzi").is_file()  # recompressed to BGZF
+    assert Path(reference_dict_path(fasta)).is_file()
+
+
+def _files(directory: Path) -> dict[str, bytes]:
+    return {p.name: p.read_bytes() for p in directory.iterdir()}
+
+
+@needs_library_tools
+@pytest.mark.parametrize("choice", ["TINY", "2"])
+def test_library_install_by_code_or_number(tmp_path, server, catalog, choice, capsys):
+    catalog += [_genome(server, "other"), _genome(server, "tiny")]
+    lib = tmp_path / "new-library"
+
+    _install(lib, choice)
+
+    _assert_installed(lib, "tiny.fa.gz")
+    assert server.paths == ["tiny/tiny.fa.gz"]
+    capsys.readouterr()
+    library_commands.cmd_library(Namespace(ref=str(lib), list=True))
+    rows = _rows(capsys.readouterr().out)
+    assert rows["tiny (local)"][0] == "INSTALLED"
+    assert rows["other (local)"] == ["MISSING"]
+
+
+@needs_library_tools
+@pytest.mark.parametrize("choice", ["nope", "0", "3"])
+def test_library_install_rejects_unknown_genomes(tmp_path, server, catalog, choice):
+    catalog += [_genome(server, "tiny"), _genome(server, "other")]
     with pytest.raises(WGSExtractError, match=f"Genome '{choice}' not found"):
-        library_commands.cmd_library(
-            Namespace(ref=str(tmp_path), list=False, install=choice)
-        )
-    assert installs == []
+        _install(tmp_path, choice)
+    assert server.requests == []
+    assert not (tmp_path / "genomes").exists()
 
 
-def test_library_install_failure_names_the_genome(tmp_path, installs, monkeypatch):
-    monkeypatch.setattr(
-        library_commands, "download_and_process_genome", lambda *a, **k: False
-    )
-    with pytest.raises(WGSExtractError, match="Failed to install genome hg38.fa.gz"):
-        library_commands.cmd_library(
-            Namespace(ref=str(tmp_path), list=False, install="hg38")
-        )
+@needs_library_tools
+def test_a_genome_unlike_its_catalog_entry_is_not_left_installed(
+    tmp_path, server, catalog
+):
+    """A mirror serving another build or patch level fails its signature check."""
+    catalog.append(_genome(server, "tiny") | {"md5": "0" * 32})
+
+    with pytest.raises(WGSExtractError, match="Failed to install genome tiny.fa.gz"):
+        _install(tmp_path, "tiny")
+
+    assert _files(tmp_path / "genomes") == {}
 
 
-def _menu(monkeypatch, tmp_path, answers):
+@needs_library_tools
+def test_library_install_falls_back_to_the_next_mirror(
+    tmp_path, server, catalog, caplog
+):
+    catalog += [
+        _genome(server, "hs38", "down/hs38.fa.gz", data=None),
+        _genome(server, "hs38", "wrong/hs38.fa.gz", data=gzip.compress(b">x\nAC\n")),
+        _genome(server, "hs38", "good/hs38.fa.gz"),
+        _genome(server, "hs38", "spare/hs38.fa.gz"),
+    ]
+    with caplog.at_level(logging.WARNING):
+        _install(tmp_path / "lib", "hs38")
+
+    _assert_installed(tmp_path / "lib", "hs38.fa.gz")
+    assert "Trying the next mirror: good/hs38.fa.gz" in caplog.text
+    assert "spare/hs38.fa.gz" not in server.paths
+
+    for entry in catalog:
+        server.files.pop(entry["description"], None)
+    with pytest.raises(WGSExtractError, match="hs38.fa.gz from any of its 4 mirrors"):
+        _install(tmp_path / "empty", "hs38")
+
+
+def _menu(monkeypatch, lib, answers):
     replies = iter(answers)
 
     def fake_input(_prompt=""):
@@ -372,197 +460,234 @@ def _menu(monkeypatch, tmp_path, answers):
             raise EOFError from None
 
     monkeypatch.setattr("builtins.input", fake_input)
-    library_commands.cmd_library(Namespace(ref=str(tmp_path), list=False, install=None))
+    library_commands.cmd_library(Namespace(ref=str(lib), list=False, install=None))
 
 
-@pytest.mark.parametrize(
-    ("answers", "expected"),
-    [
-        (["0"], []),
-        ([], []),  # EOF
-        (["1", "n"], []),  # installed: keep it
-        (["1", "y"], [("install", "hg38", True)]),
-        (["2", "c"], []),  # incomplete: cancel
-        (["2", "d"], [("delete", "hs37d5.fa.gz")]),
-        (["2", "r"], [("install", "hs37d5", False)]),
-        (["4"], [("install", "Dog", False)]),
-        (["9"], []),
-        (["x"], []),
-    ],
-)
-def test_library_menu_genome_choices(
-    tmp_path, monkeypatch, capsys, installs, answers, expected
-):
-    gdir = tmp_path / "genomes"
-    gdir.mkdir()
-    for name in ("hg38.fa.gz", "hg38.fa.gz.fai", "hs37d5.fa.gz.partial"):
-        (gdir / name).write_text("")
-
-    _menu(monkeypatch, tmp_path, answers)
-
-    assert installs == expected
-    out = capsys.readouterr().out
-    assert " 1) hg38 (YSEQ) [Installed]" in out
-    assert " 2) hs37d5 (Dante) [Incomplete]" in out
-    assert " 4) Dog GSD\n" in out
-
-
-def test_library_menu_lists_and_runs_resource_downloads(
-    tmp_path, monkeypatch, capsys, installs
-):
-    reflibs = []
-    monkeypatch.setitem(
-        library_commands._MENU_DOWNLOADS,
-        "C",
-        ("ClinVar", lambda lib: reflibs.append(lib) or True),
+@pytest.fixture
+def menu_library(tmp_path, server, catalog):
+    """1) tiny, installed but stale; 2) part, a third downloaded; 3) dog, missing."""
+    catalog += [_genome(server, name) for name in ("tiny", "part", "dog")]
+    genomes = tmp_path / "genomes"
+    genomes.mkdir()
+    (genomes / "tiny.fa.gz").write_bytes(b"stale")
+    (genomes / "tiny.fa.gz.fai").write_text("chrOld\t5\n")
+    partial = genomes / "part.fa.gz.partial"
+    partial.write_bytes(TINY_FA_GZ[: len(TINY_FA_GZ) // 3])
+    Path(f"{partial}.source").write_text(
+        hashlib.sha256(catalog[1]["url"].encode()).hexdigest()
     )
-    _menu(monkeypatch, tmp_path, ["c"])
+    return genomes
 
-    assert reflibs == [str(tmp_path)]
+
+@needs_library_tools
+def test_library_menu_shows_each_genomes_status(
+    tmp_path, monkeypatch, capsys, menu_library
+):
+    _menu(monkeypatch, tmp_path, ["0"])
+
     out = capsys.readouterr().out
+    assert " 1) tiny (local) [Installed]" in out
+    assert " 2) part (local) [Incomplete]" in out
+    assert " 3) dog (local)\n" in out
     assert " C) ClinVar (hg19/hg38)" in out
     assert " P) PhyloP hg38 (~9.9 GB)\n" in out
     assert " K) PharmGKB\n" in out
 
 
+@needs_library_tools
 @pytest.mark.parametrize(
-    ("installed", "answers", "expected"),
-    [
-        (False, ["g"], ["download"]),
-        (True, ["g", "y"], ["delete"]),
-        (True, ["g", "n"], []),
-    ],
+    "answers",
+    [["0"], [], ["9"], ["x"], ["1", "n"], ["2", "c"]],
+    ids=["exit", "eof", "out-of-range", "not-a-number", "keep", "cancel"],
 )
-def test_library_menu_gene_maps(
-    tmp_path, monkeypatch, installs, installed, answers, expected
+def test_library_menu_choices_that_change_nothing(
+    tmp_path, monkeypatch, server, menu_library, answers
 ):
-    calls = []
-    monkeypatch.setattr(
-        library_commands, "are_gene_maps_installed", lambda lib: installed
-    )
-    monkeypatch.setattr(
-        library_commands,
-        "download_gene_maps",
-        lambda lib: calls.append("download") or True,
-    )
-    monkeypatch.setattr(
-        library_commands, "delete_gene_maps", lambda lib: calls.append("delete") or True
-    )
+    before = _files(menu_library)
     _menu(monkeypatch, tmp_path, answers)
-    assert calls == expected
+    assert _files(menu_library) == before
+    assert server.requests == []
+
+
+@needs_library_tools
+def test_library_menu_redownloads_an_installed_genome(
+    tmp_path, monkeypatch, menu_library
+):
+    _menu(monkeypatch, tmp_path, ["1", "y"])
+    _assert_installed(tmp_path, "tiny.fa.gz")
+
+
+@needs_library_tools
+def test_library_menu_deletes_an_incomplete_download(
+    tmp_path, monkeypatch, server, menu_library
+):
+    _menu(monkeypatch, tmp_path, ["2", "d"])
+    assert sorted(_files(menu_library)) == ["tiny.fa.gz", "tiny.fa.gz.fai"]
+    assert server.requests == []
+
+
+@needs_library_tools
+def test_library_menu_resumes_an_incomplete_download(
+    tmp_path, monkeypatch, server, menu_library
+):
+    _menu(monkeypatch, tmp_path, ["2", "r"])
+    _assert_installed(tmp_path, "part.fa.gz")
+    assert server.gets() == [f"bytes={len(TINY_FA_GZ) // 3}-"]
+
+
+@needs_library_tools
+def test_library_menu_installs_a_missing_genome(tmp_path, monkeypatch, menu_library):
+    _menu(monkeypatch, tmp_path, ["3"])
+    _assert_installed(tmp_path, "dog.fa.gz")
 
 
 # --- ref gene-map / resource downloads / bootstrap ------------------------------
 
-
-@pytest.mark.parametrize(
-    ("delete", "func", "ok", "message"),
-    [
-        (False, "download_gene_maps", True, "Successfully downloaded Gene Maps."),
-        (False, "download_gene_maps", False, "Gene Map download cancelled or failed."),
-        (True, "delete_gene_maps", True, "Successfully deleted Gene Maps."),
-        (True, "delete_gene_maps", False, "Failed to delete Gene Maps."),
-    ],
+REFGENE_GZ = gzip.compress(
+    b"0\tNM_007294\tchr17\t-\t43044294\t43125364\t0\t0\t0\t0\t0\t0\tBRCA1\tcmpl\tcmpl\t0,\n"
 )
-def test_gene_map_download_and_delete(
-    tmp_path, monkeypatch, capsys, delete, func, ok, message
+
+
+@pytest.fixture
+def ucsc(monkeypatch, server):
+    for build in GENE_MAP_URLS:
+        server.files[f"{build}/refGene.txt.gz"] = REFGENE_GZ
+        monkeypatch.setitem(
+            GENE_MAP_URLS, build, server.url_for(f"{build}/refGene.txt.gz")
+        )
+    return server
+
+
+def _gene_maps(lib: Path) -> list[str]:
+    return sorted(p.name for p in (lib / "ref").glob("genes_*.tsv"))
+
+
+def test_gene_map_command_installs_and_deletes_both_builds(tmp_path, ucsc, capsys):
+    library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=False))
+    assert "Successfully downloaded Gene Maps." in capsys.readouterr().out
+    assert _gene_maps(tmp_path) == ["genes_hg19.tsv", "genes_hg38.tsv"]
+    assert (
+        "BRCA1\tchr17\t43044295\t43125364"
+        in (tmp_path / "ref" / "genes_hg38.tsv").read_text()
+    )
+
+    library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=True))
+    assert "Successfully deleted Gene Maps." in capsys.readouterr().out
+    assert _gene_maps(tmp_path) == []
+
+
+def test_gene_map_command_reports_failures(tmp_path, ucsc):
+    del ucsc.files["hg19/refGene.txt.gz"]
+    with pytest.raises(WGSExtractError, match="Gene Map download cancelled or failed"):
+        library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=False))
+
+    (tmp_path / "ref" / "genes_hg19.tsv").mkdir()  # can't be unlinked
+    with pytest.raises(WGSExtractError, match="Failed to delete Gene Maps"):
+        library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=True))
+
+
+@needs_library_tools
+@pytest.mark.parametrize(
+    ("installed", "answers", "expected"),
+    [
+        (False, ["g"], ["genes_hg19.tsv", "genes_hg38.tsv"]),
+        (True, ["g", "y"], []),
+        (True, ["g", "n"], ["genes_hg19.tsv", "genes_hg38.tsv"]),
+    ],
+    ids=["install", "delete", "keep"],
+)
+def test_library_menu_gene_maps(
+    tmp_path, monkeypatch, catalog, ucsc, installed, answers, expected
 ):
-    reflibs = []
-    monkeypatch.setattr(library_commands, func, lambda lib: reflibs.append(lib) or ok)
-    args = Namespace(ref=str(tmp_path), delete=delete)
-    if ok:
-        library_commands.cmd_gene_map(args)
-        assert message in capsys.readouterr().out
-    else:
-        with pytest.raises(WGSExtractError, match=message):
-            library_commands.cmd_gene_map(args)
-    assert reflibs == [str(tmp_path)]
+    if installed:
+        library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=False))
+    ucsc.requests.clear()
+    _menu(monkeypatch, tmp_path, answers)
+    assert _gene_maps(tmp_path) == expected
+    assert bool(ucsc.requests) == (not installed)
+
+
+CLINVAR_GZ = gzip.compress(
+    b"##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n"
+    b"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+    b"1\t100\t12345\tA\tG\t.\t.\tCLNSIG=Pathogenic\n"
+)
+
+
+@pytest.fixture
+def clinvar(monkeypatch, server):
+    for build in CLINVAR_URLS:
+        server.files[f"clinvar/{build}.vcf.gz"] = CLINVAR_GZ
+        monkeypatch.setitem(
+            CLINVAR_URLS, build, server.url_for(f"clinvar/{build}.vcf.gz")
+        )
+    return server
+
+
+@needs_library_tools
+def test_library_menu_installs_clinvar(tmp_path, monkeypatch, catalog, clinvar):
+    _menu(monkeypatch, tmp_path, ["c"])
+    for build in ("hg19", "hg38"):
+        vcf = tmp_path / "ref" / f"clinvar_{build}.vcf.gz"
+        assert Path(f"{vcf}.tbi").is_file()
+        assert vcf_calls(vcf) == [("1", "100", "A", "G")]
+
+
+@needs_tools("bgzip", "tabix")
+def test_resource_download_failure_names_the_resource(tmp_path, clinvar):
+    del clinvar.files["clinvar/hg19.vcf.gz"]
+    with pytest.raises(WGSExtractError, match="ClinVar setup failed"):
+        library_commands.cmd_clinvar_dl(Namespace(ref=str(tmp_path)))
 
 
 @pytest.mark.parametrize(
-    ("command", "extra", "downloader", "expected_args"),
+    ("command", "urls", "installed"),
     [
-        ("cmd_clinvar_dl", {}, "download_clinvar", ()),
-        ("cmd_revel_dl", {}, "download_revel", ()),
-        ("cmd_phylop_dl", {"build": "hg19"}, "download_phylop", ("hg19",)),
-        ("cmd_gnomad_dl", {"release": "2.1.1"}, "download_gnomad", ()),
-        ("cmd_gnomad_dl", {"release": "4.1"}, "build_gnomad_af", (6,)),
+        ("cmd_phylop_dl", (bigwig_resources, "PHYLOP_URLS"), ["phylop_hg19.bw"]),
+        ("cmd_gerp_dl", (bigwig_resources, "GERP_URLS"), ["gerp_hg19.bw"]),
         (
-            "cmd_gnomad_dl",
-            {"release": "4.1", "threads": "3"},
-            "build_gnomad_af",
-            (3,),
+            "cmd_cadd_dl",
+            (annotation_resources, "CADD_BASE_URL"),
+            [
+                f"{name}{ext}"
+                for name in ("cadd", "cadd_indel")
+                for ext in ("_hg19.tsv.gz", "_hg19.tsv.gz.tbi")
+            ],
         ),
-        ("cmd_spliceai_dl", {}, "download_spliceai", ()),
-        ("cmd_alphamissense_dl", {}, "download_alphamissense", ()),
-        ("cmd_pharmgkb_dl", {}, "download_pharmgkb", ()),
-        ("cmd_cadd_dl", {"build": "hg38"}, "download_cadd", ("hg38",)),
-        ("cmd_gerp_dl", {"build": "hg38"}, "download_gerp", ("hg38",)),
     ],
 )
-def test_resource_downloads_call_their_downloader(
-    tmp_path, monkeypatch, command, extra, downloader, expected_args
+def test_build_specific_downloads_use_the_requested_build(
+    tmp_path, monkeypatch, server, command, urls, installed
 ):
-    calls = []
-    monkeypatch.setattr(
-        library_commands, downloader, lambda *a: calls.append(a) or True
-    )
-    getattr(library_commands, command)(Namespace(ref=str(tmp_path), **extra))
-    assert calls == [(str(tmp_path), *expected_args)]
+    """hg19 is already in the library; any other build would be fetched, and
+    fail, from the empty server."""
+    module, name = urls
+    value = getattr(module, name)
+    if isinstance(value, dict):
+        for build in value:
+            monkeypatch.setitem(value, build, server.url_for(build))
+    else:
+        monkeypatch.setattr(module, name, server.base)
+    (tmp_path / "ref").mkdir()
+    for file in installed:
+        (tmp_path / "ref" / file).write_bytes(b"installed")
+
+    getattr(library_commands, command)(Namespace(ref=str(tmp_path), build="hg19"))
+
+    assert server.requests == []
 
 
-def test_resource_download_failure_names_the_resource(tmp_path, monkeypatch):
-    monkeypatch.setattr(library_commands, "download_cadd", lambda lib, build: False)
-    with pytest.raises(WGSExtractError, match="CADD hg19 setup failed"):
-        library_commands.cmd_cadd_dl(Namespace(ref=str(tmp_path), build="hg19"))
+def test_failed_bootstrap_does_not_save_the_library(tmp_path, monkeypatch, server):
+    monkeypatch.setattr(constants, "BOOTSTRAP_URL", server.url_for("bootstrap.tar.gz"))
+    reflib = tmp_path / "library"
 
-
-def test_failed_bootstrap_does_not_save_the_library(tmp_path, monkeypatch):
-    saved = []
-    monkeypatch.setattr(config, "save_config", saved.append)
-    monkeypatch.setattr(
-        "wgsextract_cli.core.reference_processing.download_bootstrap", lambda p: False
-    )
     with pytest.raises(WGSExtractError, match="bootstrap failed"):
-        library_commands.cmd_bootstrap(Namespace(ref=str(tmp_path)))
-    assert saved == []
+        library_commands.cmd_bootstrap(Namespace(ref=str(reflib)))
 
-
-def test_library_install_falls_back_to_the_next_mirror(tmp_path, monkeypatch, caplog):
-    mirrors = [
-        {
-            "code": "hs38",
-            "final": "hs38.fa.gz",
-            "url": f"https://{m}/hs38",
-            "description": m,
-        }
-        for m in ("github", "nih", "ebi")
-    ]
-    monkeypatch.setattr(library_commands, "get_available_genomes", lambda: mirrors)
-    monkeypatch.setattr(library_commands, "verify_dependencies", lambda deps: None)
-    monkeypatch.setattr(library_commands, "log_dependency_info", lambda deps: None)
-    tries = []
-
-    def install(genome, _lib, restart):
-        tries.append((genome["description"], restart))
-        return genome["description"] == "nih"
-
-    monkeypatch.setattr(library_commands, "download_and_process_genome", install)
-    with caplog.at_level(logging.WARNING):
-        library_commands.cmd_library(
-            Namespace(ref=str(tmp_path), list=False, install="hs38")
-        )
-    # The second mirror starts afresh rather than resuming the first one's partial.
-    assert tries == [("github", False), ("nih", True)]
-    assert "Trying the next mirror: nih" in caplog.text
-
-    monkeypatch.setattr(
-        library_commands, "download_and_process_genome", lambda *a, **k: False
-    )
-    with pytest.raises(WGSExtractError, match="hs38.fa.gz from any of its 3 mirrors"):
-        library_commands.cmd_library(
-            Namespace(ref=str(tmp_path), list=False, install="hs38")
-        )
+    assert len(server.gets()) == 3  # retried
+    config.reload_settings()
+    assert not config.settings.get("reference_library")
+    assert not (reflib / constants.BOOTSTRAP_FILENAME).exists()
 
 
 def test_library_list_finds_the_build_of_a_genome_from_its_signature(

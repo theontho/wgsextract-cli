@@ -3,18 +3,20 @@ checksums and the dev cache. Nothing here reaches the network."""
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import subprocess
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError
 
 import pytest
 
-from wgsextract_cli.core import dev_download_cache
+from tests.http_server import RangeServer
+from wgsextract_cli.core import dev_download_cache, download_progress
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.download_progress import curl_progress_args
 from wgsextract_cli.core.ref_library import downloads, segmented
 from wgsextract_cli.core.ref_library.segmented import ranged_size
 
@@ -27,89 +29,17 @@ def _write_bound_partial(path: Path, url: str, data: bytes) -> None:
     Path(str(path) + ".source").write_text(hashlib.sha256(url.encode()).hexdigest())
 
 
-class _Server:
-    """Serves DATA with byte ranges and records each request.
-
-    drops: GETs left to cut off half-way. drop_starts: ranged GETs starting at
-    these offsets are always cut off. head_status: answer HEAD with this error.
-    """
-
-    def __init__(self, data: bytes = DATA):
-        self.data = data
-        self.drops = 0
-        self.drop_starts: set[int] = set()
-        self.ignore_ranges = False
-        self.get_status: int | None = None
-        self.head_status: int | None = None
-        self.bare_416 = False  # leave Content-Range out of 416s, as Ensembl does
-        self.requests: list[tuple[str, str | None]] = []
-        server = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
-            def do_HEAD(self):
-                server.requests.append(("HEAD", None))
-                if server.head_status:
-                    self.send_error(server.head_status)
-                    return
-                self.send_response(200)
-                self.send_header("Accept-Ranges", "bytes")
-                self.send_header("Content-Length", str(len(server.data)))
-                self.end_headers()
-
-            def do_GET(self):
-                spec = self.headers.get("Range")
-                server.requests.append(("GET", spec))
-                if server.get_status:
-                    self.send_error(server.get_status)
-                    return
-                data, start = server.data, 0
-                body, code = data, 200
-                if spec and not server.ignore_ranges:
-                    first, _, last = spec.removeprefix("bytes=").partition("-")
-                    start = int(first)
-                    if start >= len(data):
-                        self.send_response(416)
-                        if not server.bare_416:
-                            self.send_header("Content-Range", f"bytes */{len(data)}")
-                        self.send_header("Content-Length", "0")
-                        self.end_headers()
-                        return
-                    end = int(last) + 1 if last else len(data)
-                    body, code = data[start:end], 206
-                cut = server.drops > 0 or (code == 206 and start in server.drop_starts)
-                self.send_response(code)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                if cut:
-                    server.drops = max(0, server.drops - 1)
-                    self.wfile.write(body[: len(body) // 2])
-                    self.close_connection = True
-                    return
-                self.wfile.write(body)
-
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.httpd.server_port}/hs38.fa.gz"
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-    def gets(self) -> list[str | None]:
-        return [spec for method, spec in self.requests if method == "GET"]
-
-
 @pytest.fixture
 def server(monkeypatch):
     """One-connection urllib downloads (no curl, no GitHub lookup, no sleeping)."""
-    srv = _Server()
+    srv = RangeServer(DATA)
     monkeypatch.setattr(
         downloads, "resolve_github_release_asset_sha256", lambda u: None
     )
     monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--silent"])
     monkeypatch.setattr(downloads.time, "sleep", lambda s: None)
     yield srv
-    srv.httpd.shutdown()
-    srv.httpd.server_close()
+    srv.close()
 
 
 @pytest.mark.parametrize("entrypoint", ["benchmark", "examples"])
@@ -627,6 +557,50 @@ def test_a_checksum_mismatch_deletes_the_download(server, tmp_path, monkeypatch)
 
     assert not dest.exists()
     assert not (tmp_path / "hs38.fa.gz.partial").exists()
+
+
+def test_an_unreachable_release_lookup_downloads_without_its_checksum(
+    server, tmp_path, monkeypatch, caplog
+):
+    def rate_limited(url):
+        raise OSError("rate limit exceeded")
+
+    monkeypatch.setattr(downloads, "resolve_github_release_asset_sha256", rate_limited)
+    dest = tmp_path / "hs38.fa.gz"
+
+    assert downloads.download_file(server.url, str(dest))
+
+    assert dest.read_bytes() == DATA
+    assert "Continuing without GitHub asset SHA-256 verification" in caplog.text
+
+
+def test_unusable_release_metadata_fails_before_downloading(
+    server, tmp_path, monkeypatch
+):
+    def no_digest(url):
+        raise ValueError("GitHub release asset hs38.fa.gz did not include a digest.")
+
+    monkeypatch.setattr(downloads, "resolve_github_release_asset_sha256", no_digest)
+    dest = tmp_path / "hs38.fa.gz"
+
+    assert not downloads.download_file(server.url, str(dest))
+
+    assert server.requests == []
+    assert not dest.exists()
+
+
+def test_without_a_terminal_progress_is_logged(server, tmp_path, monkeypatch, caplog):
+    """Non-TTY runs (CI, logs piped to a file) skip curl's progress bar for
+    newline progress messages."""
+    monkeypatch.setattr(downloads, "curl_progress_args", curl_progress_args)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: False)
+    caplog.set_level(logging.INFO)
+    dest = tmp_path / "hs38.fa.gz"
+
+    assert downloads.download_file(server.url, str(dest))
+
+    assert dest.read_bytes() == DATA
+    assert "hs38.fa.gz download progress: 100%" in caplog.text
 
 
 def test_curl_failure_falls_back_to_urllib_and_resumes_its_bytes(

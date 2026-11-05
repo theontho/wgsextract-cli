@@ -103,7 +103,8 @@ def download_gnomad(
 
 # Files made from a genome's FASTA: download state, indexes, aligner indexes.
 _GENOME_SIDECARS = (
-    ".partial", ".partial.segments", ".fai", ".gzi", ".dict", ".alt",
+    ".partial", ".partial.source", ".partial.segments",
+    ".fai", ".gzi", ".dict", ".alt",
     ".amb", ".ann", ".bwt", ".pac", ".sa",  # bwa
     ".0123", ".bwt.2bit.64",  # bwa-mem2
 )  # fmt: skip

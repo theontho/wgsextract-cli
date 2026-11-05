@@ -1,11 +1,12 @@
+"""GitHub release digest lookup (the GitHub API is faked) and SHA-256 checks.
+download_file's use of them is in test_download_file_http.py."""
+
 import hashlib
 import json
-import logging
-from pathlib import Path
 
 import pytest
 
-from wgsextract_cli.core import download_progress, ref_library
+from wgsextract_cli.core import ref_library
 
 
 class _FakeResponse:
@@ -22,47 +23,8 @@ class _FakeResponse:
         return self._data
 
 
-class _FakeDownloadResponse:
-    def __init__(
-        self, payload: bytes, content_length: int | None = None, code: int = 200
-    ):
-        self._data = payload
-        self._offset = 0
-        self._headers = {}
-        if content_length is not None:
-            self._headers["Content-Length"] = str(content_length)
-        self._code = code
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def read(self, size: int = -1):
-        if size < 0:
-            size = len(self._data) - self._offset
-        start = self._offset
-        end = min(len(self._data), start + size)
-        self._offset = end
-        return self._data[start:end]
-
-    def info(self):
-        return self._headers
-
-    def getcode(self):
-        return self._code
-
-
 def _asset_payload(name: str, digest: str) -> dict:
     return {"assets": [{"name": name, "digest": f"sha256:{digest}"}]}
-
-
-@pytest.fixture(autouse=True)
-def disable_dev_download_cache(monkeypatch):
-    from wgsextract_cli.core.config import settings
-
-    monkeypatch.setitem(settings, "dev_download_cache", False)
 
 
 def test_resolve_github_release_asset_sha256_tagged_url(monkeypatch):
@@ -105,189 +67,6 @@ def test_resolve_github_release_asset_sha256_latest_url(monkeypatch):
     assert seen_urls == [
         "https://api.github.com/repos/WGSExtract/wgsextract-cli/releases/latest"
     ]
-
-
-def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatch):
-    payload = b"reference genome test payload"
-    digest = hashlib.sha256(payload).hexdigest()
-    dest = tmp_path / "hs38.fa.gz"
-
-    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
-        assert redact_output_urls
-        output_path = Path(cmd[cmd.index("-o") + 1])
-        output_path.write_bytes(payload)
-
-    def fake_urlopen(request, timeout):
-        return _FakeResponse(_asset_payload("hs38.fa.gz", digest))
-
-    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
-    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
-    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
-
-    assert ref_library.downloads.download_file(
-        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
-        str(dest),
-    )
-    assert dest.read_bytes() == payload
-
-
-def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeypatch):
-    payload = b"resumed reference genome test payload"
-    dest = tmp_path / "hs38.fa.gz"
-    Path(f"{dest}.partial").write_bytes(b"partial")
-    url = (
-        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
-    )
-    Path(f"{dest}.partial.source").write_text(
-        hashlib.sha256(url.encode()).hexdigest() + "\n", encoding="ascii", newline="\n"
-    )
-    seen_commands = []
-    seen_capture_output = []
-
-    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
-        assert redact_output_urls
-        seen_commands.append(cmd)
-        seen_capture_output.append(capture_output)
-        output_path = Path(cmd[cmd.index("-o") + 1])
-        output_path.write_bytes(payload)
-
-    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
-    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
-    monkeypatch.setattr(
-        ref_library.downloads, "resolve_github_release_asset_sha256", lambda url: None
-    )
-
-    assert ref_library.downloads.download_file(
-        url,
-        str(dest),
-    )
-    assert seen_commands == [
-        [
-            "curl",
-            "-L",
-            "--fail",
-            "--progress-bar",
-            "-C",
-            "-",
-            "-o",
-            f"{dest}.partial",
-            url,
-        ]
-    ]
-    assert seen_capture_output == [False]
-    assert dest.read_bytes() == payload
-    assert not Path(f"{dest}.partial").exists()
-
-
-def test_download_file_uses_logged_progress_when_stderr_is_not_tty(
-    tmp_path, monkeypatch, caplog
-):
-    payload = b"x" * 100
-    digest = hashlib.sha256(payload).hexdigest()
-    dest = tmp_path / "hs37.fa.gz"
-
-    def fail_if_curl_runs(cmd, capture_output=False):
-        raise AssertionError("curl path should not be used when stderr is not a tty")
-
-    def fake_urlopen(request, timeout=None):
-        if request.full_url.startswith("https://api.github.com/"):
-            return _FakeResponse(_asset_payload("hs37.fa.gz", digest))
-        return _FakeDownloadResponse(payload, content_length=len(payload))
-
-    monkeypatch.setattr(ref_library.downloads, "run_command", fail_if_curl_runs)
-    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
-    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: False)
-
-    caplog.set_level(logging.INFO)
-
-    assert ref_library.downloads.download_file(
-        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs37.fa.gz",
-        str(dest),
-    )
-    assert dest.read_bytes() == payload
-    assert any(
-        "hs37.fa.gz download progress: 100%" in record.getMessage()
-        for record in caplog.records
-    )
-
-
-def test_download_file_rejects_github_release_asset_digest_mismatch(
-    tmp_path, monkeypatch
-):
-    payload = b"corrupted reference genome test payload"
-    expected_digest = hashlib.sha256(b"expected payload").hexdigest()
-    dest = tmp_path / "hs38.fa.gz"
-
-    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
-        assert redact_output_urls
-        output_path = Path(cmd[cmd.index("-o") + 1])
-        output_path.write_bytes(payload)
-
-    def fake_urlopen(request, timeout):
-        return _FakeResponse(_asset_payload("hs38.fa.gz", expected_digest))
-
-    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
-    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
-    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
-
-    assert not ref_library.downloads.download_file(
-        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
-        str(dest),
-    )
-    assert not dest.exists()
-
-
-def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
-    tmp_path, monkeypatch, caplog
-):
-    payload = b"reference genome payload without digest metadata"
-    dest = tmp_path / "hs38.fa.gz"
-
-    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
-        assert redact_output_urls
-        output_path = Path(cmd[cmd.index("-o") + 1])
-        output_path.write_bytes(payload)
-
-    def fail_resolve(url):
-        raise OSError("rate limit exceeded")
-
-    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
-    monkeypatch.setattr(
-        ref_library.downloads, "resolve_github_release_asset_sha256", fail_resolve
-    )
-    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
-
-    assert ref_library.downloads.download_file(
-        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
-        str(dest),
-    )
-    assert dest.read_bytes() == payload
-    assert "Continuing without GitHub asset SHA-256 verification" in caplog.text
-
-
-def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypatch):
-    dest = tmp_path / "hs38.fa.gz"
-
-    def fail_resolve(url):
-        raise ValueError(
-            "GitHub release asset hs38.fa.gz did not include a sha256 digest."
-        )
-
-    def fail_if_downloaded(cmd, capture_output=False):
-        raise AssertionError(
-            "download should not start when digest metadata is invalid"
-        )
-
-    monkeypatch.setattr(ref_library.downloads, "run_command", fail_if_downloaded)
-    monkeypatch.setattr(
-        ref_library.downloads, "resolve_github_release_asset_sha256", fail_resolve
-    )
-
-    assert not ref_library.downloads.download_file(
-        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
-        str(dest),
-    )
-    assert not dest.exists()
 
 
 @pytest.mark.parametrize(
