@@ -158,6 +158,9 @@ def download_segmented(
                                     f"bytes {pos}-{end - 1}: connection closed"
                                 )
                             f.write(chunk)
+                            # The state may be saved, then the process killed,
+                            # before close: count only what reached the file.
+                            f.flush()
                             pos += len(chunk)
                             with lock:
                                 received[str(start)] = pos - start

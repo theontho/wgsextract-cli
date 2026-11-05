@@ -18,7 +18,10 @@ class _Server:
         self.drop = {}  # piece start -> times left to cut a response in it short
         self.busy = {}  # piece start -> times left to answer it with a status
         self.ignore_ranges = False
-        self.served = 0
+        # (start, end) of each GET, logged before answering it: the client
+        # can't finish a request before its entry exists, whereas a byte count
+        # bumped after the write can land after the client has moved on.
+        self.requests: list[tuple[int, int]] = []
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -34,11 +37,13 @@ class _Server:
             def do_GET(self):
                 spec = self.headers.get("Range")
                 if not spec or server.ignore_ranges:
+                    server.requests.append((0, len(DATA)))
                     body, code = DATA, 200
                 else:
                     first, _, last = spec.removeprefix("bytes=").partition("-")
                     start = int(first)
                     end = int(last) + 1 if last else len(DATA)
+                    server.requests.append((start, end))
                     body, code = DATA[start:end], 206
                     piece = start - start % 1000
                     if server.busy.get(piece):
@@ -51,18 +56,21 @@ class _Server:
                         self.send_header("Content-Length", str(len(body)))
                         self.end_headers()
                         self.wfile.write(body[: len(body) // 2])
-                        server.served += len(body) // 2
                         self.close_connection = True
                         return
                 self.send_response(code)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-                server.served += len(body)
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.httpd.server_port}/big.bin"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    @property
+    def requested(self) -> int:
+        """Bytes asked for so far."""
+        return sum(end - start for start, end in self.requests)
 
 
 @pytest.fixture
@@ -87,7 +95,7 @@ def test_large_file_comes_in_pieces(server, tmp_path):
     assert downloads.download_file(server.url, str(dest))
 
     assert dest.read_bytes() == DATA
-    assert server.served == len(DATA)
+    assert server.requested == len(DATA)
     assert not (tmp_path / "big.bin.partial.segments").exists()
 
 
@@ -135,11 +143,17 @@ def test_a_failed_download_resumes_on_the_next_run(server, tmp_path, monkeypatch
     assert state["received"]["5000"] < 1000
 
     server.drop = {}
-    server.served = 0
+    server.requests = []
     assert downloads.download_file(server.url, str(dest))
     assert dest.read_bytes() == DATA
-    # Only what hadn't arrived is fetched again.
-    assert server.served == len(DATA) - sum(state["received"].values())
+    # Only what hadn't arrived is asked for again, each byte once.
+    missing = {
+        i
+        for start in range(0, len(DATA), 1000)
+        for i in range(start + state["received"][str(start)], start + 1000)
+    }
+    asked = [i for start, end in server.requests for i in range(start, end)]
+    assert sorted(asked) == sorted(missing)
 
 
 def test_a_server_that_ignores_ranges_gets_one_connection(server, tmp_path):
