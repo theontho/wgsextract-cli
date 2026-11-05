@@ -40,10 +40,10 @@ class _SmallVariantParams(Params):
     )
     parallel: bool = param(
         False,
-        help="Call contigs in parallel with up to --threads workers. Faster, but "
-        "calls at sites deeper than 255 reads can differ slightly from the default "
-        "single stream, because bcftools subsamples them with one random stream "
-        "per process.",
+        help="Call contigs in parallel with up to --threads workers. SNP calling "
+        "then recalls the stretches with sites deeper than 255 reads in one "
+        "stream, because bcftools subsamples them with one random stream per "
+        "process, so the calls match the default single stream.",
         action="store_true",
     )
     qc_min_depth: float | None = depth_param()

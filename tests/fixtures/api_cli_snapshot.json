@@ -3660,7 +3660,7 @@
    }
   },
   "vcf indel": {
-   "help": "usage: wgsextract vcf indel [-h] [-r REGION] [--parallel] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel           Call contigs in parallel with up to --threads workers. Faster, but calls at\n                       sites deeper than 255 reads can differ slightly from the default single\n                       stream, because bcftools subsamples them with one random stream per\n                       process.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract vcf indel --help-all' lists them.\n\nexamples:\n  wgsextract vcf indel --input sample.cram\n\noutputs (in the output directory unless noted):\n  indels.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, samtools, tabix; hours on a 30x genome.\n",
+   "help": "usage: wgsextract vcf indel [-h] [-r REGION] [--parallel] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel           Call contigs in parallel with up to --threads workers. SNP calling then\n                       recalls the stretches with sites deeper than 255 reads in one stream,\n                       because bcftools subsamples them with one random stream per process, so the\n                       calls match the default single stream.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract vcf indel --help-all' lists them.\n\nexamples:\n  wgsextract vcf indel --input sample.cram\n\noutputs (in the output directory unless noted):\n  indels.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, samtools, tabix; hours on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -3998,7 +3998,7 @@
       "default": false,
       "dest": "parallel",
       "exclusive_group": null,
-      "help": "Call contigs in parallel with up to --threads workers. Faster, but calls at sites deeper than 255 reads can differ slightly from the default single stream, because bcftools subsamples them with one random stream per process.",
+      "help": "Call contigs in parallel with up to --threads workers. SNP calling then recalls the stretches with sites deeper than 255 reads in one stream, because bcftools subsamples them with one random stream per process, so the calls match the default single stream.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -4050,7 +4050,7 @@
    }
   },
   "vcf snp": {
-   "help": "usage: wgsextract vcf snp [-h] [-r REGION] [--parallel] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel           Call contigs in parallel with up to --threads workers. Faster, but calls at\n                       sites deeper than 255 reads can differ slightly from the default single\n                       stream, because bcftools subsamples them with one random stream per\n                       process.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract vcf snp --help-all' lists them.\n\nexamples:\n  wgsextract vcf snp --input sample.cram\n  wgsextract vcf snp --input sample.cram --region chrM\n\noutputs (in the output directory unless noted):\n  snps.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, samtools, tabix; hours on a 30x genome.\n",
+   "help": "usage: wgsextract vcf snp [-h] [-r REGION] [--parallel] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel           Call contigs in parallel with up to --threads workers. SNP calling then\n                       recalls the stretches with sites deeper than 255 reads in one stream,\n                       because bcftools subsamples them with one random stream per process, so the\n                       calls match the default single stream.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract vcf snp --help-all' lists them.\n\nexamples:\n  wgsextract vcf snp --input sample.cram\n  wgsextract vcf snp --input sample.cram --region chrM\n\noutputs (in the output directory unless noted):\n  snps.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, samtools, tabix; hours on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -4388,7 +4388,7 @@
       "default": false,
       "dest": "parallel",
       "exclusive_group": null,
-      "help": "Call contigs in parallel with up to --threads workers. Faster, but calls at sites deeper than 255 reads can differ slightly from the default single stream, because bcftools subsamples them with one random stream per process.",
+      "help": "Call contigs in parallel with up to --threads workers. SNP calling then recalls the stretches with sites deeper than 255 reads in one stream, because bcftools subsamples them with one random stream per process, so the calls match the default single stream.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
