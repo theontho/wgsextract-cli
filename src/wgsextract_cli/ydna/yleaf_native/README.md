@@ -90,9 +90,32 @@ tables drop C>T and G>A markers, as upstream does.
 3. Benchmark the pack against the previous tree on male WGS with known
    haplogroups (for example 1000 Genomes, Poznik et al. 2016).
 4. Create a draft, non-latest release `yleaf-tree-yfull-v<version>` with the
-   tarball and `SHA256SUMS`, check the assets, then publish it with
+   tarball, `build_info.json`, `LICENSE-YTree.md` and `SHA256SUMS`, check the
+   assets, then publish it with
    `--draft=false --latest=false`.
 5. Rerun with `--write-manifest`, which updates `trees.json`, and commit.
+
+## Engine choice
+
+Native Yleaf is the only Y-haplogroup engine. In November 2026 (#359) it was
+benchmarked on 36 1000 Genomes males (30x and downsampled to about 6x, against
+Poznik et al. 2016) and on GIAB HG002/HG003, against
+[yallhap](https://pypi.org/project/yallhap/) 1.0.1 and
+[ybyra](https://github.com/tpinotti/ybyra) v0.6.0:
+
+- Yleaf with YFull 14.06.0 and ybyra placed all 72 runs consistently with the
+  published calls; yallhap misplaced one Q sample into R-M269 at both depths.
+- Call depth was similar. yallhap or ybyra went one level deeper on 2-3
+  samples, where Yleaf's 0.95 QC2 rule rejects a node whose YFull equivalents
+  include SNPs that YBrowse assigns to an unsplit subclade. Yleaf was deeper on
+  more samples than either.
+- Yleaf was about 8x faster than yallhap and 10-15x faster than ybyra, and used
+  0.5 GB against yallhap's 3.9 GB.
+- yallhap is PolyForm Noncommercial and cannot ship with this GPL code. ybyra
+  is a Snakemake workflow with an older bundled YFull 13 tree.
+
+Neither is a clear improvement, so no optional `--engine` was added. The full
+results are in the issue.
 
 ## Data cache
 
