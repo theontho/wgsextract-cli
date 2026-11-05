@@ -10,6 +10,7 @@ minimap2, samtools and Sniffles run for real; DeepVariant is stood in for.
 import gzip
 import json
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -127,6 +128,10 @@ def deepvariant_plan(tmp_path, monkeypatch) -> Path:
     clear_tool_caches()
 
 
+@pytest.mark.skipif(
+    platform.machine().lower() not in ("x86_64", "amd64"),
+    reason="DeepVariant's ONT_R104 model is x86-64 only (docs/ont.md)",
+)
 def test_deepvariant_plans_the_ont_model_for_the_aligned_reads(
     aligned, deepvariant_plan, tmp_path
 ):
