@@ -81,3 +81,15 @@ collect evidence; **windows-judge** checks it (and the negative controls), so
 the evidence the release works is the pinned jobs and windows-judge passing. See [install_testing.md](install_testing.md)
 for what the lab checks, and for trying an app fix before releasing it
 (`gh workflow run install_lab.yml -f app_run=<Distribution run id>`).
+
+## Optional tool releases
+
+Native tool builds are released separately from the CLI, as prereleases that
+never become the latest release:
+
+- **Windows tools** (`windows-tools-N`): Actions > Windows Tools > Run
+  workflow. See [windows.md](windows.md).
+- **macOS aligners** (`macos-aligners-N`): Actions > macOS Aligners > Run
+  workflow. It publishes the Apple Silicon `wgse-bwa` and `wgse-bwa-mem2`
+  tarballs built from `native/` (see [native/README.md](../native/README.md)).
+  The CLI does not use them yet.

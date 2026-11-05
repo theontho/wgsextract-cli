@@ -1,0 +1,4 @@
+#pragma once
+inline constexpr const char *wgse_kernel_source = R"wgse_metal(
+@kernel_source@
+)wgse_metal";
