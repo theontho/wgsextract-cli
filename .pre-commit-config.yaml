@@ -21,6 +21,8 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
+        # gitleaks' go.mod minimum; pre-commit downloads it instead of using an older system Go.
+        language_version: 1.24.11
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
     hooks:
