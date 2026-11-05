@@ -80,8 +80,12 @@ minimap2 builds its index from the reference FASTA in memory on every run;
 WGSExtract keeps no `.mmi` file. Its preflight therefore counts the index for
 the selected preset, plus the larger of the build's scratch and mapping's
 batches and per-thread buffers, plus the sort and a fixed overhead (and
-samblaster for paired `sr` reads). Only samblaster depends on the read count; a
-read file smaller than about 30 MB fills one smaller batch. It was calibrated with minimap2 2.31 on hs38 (3.10 Gbases),
+samblaster for paired `sr` reads). Only samblaster depends on the read count.
+The batches, the threads' buffers and the sort's buffers fill only as reads
+arrive, so each is capped at 96 bytes per byte of read file (at least one
+thread's buffers stay): a read file smaller than about 30 MB fills one smaller
+batch, and a few-MB FASTQ at many threads is not budgeted gigabytes of sort
+memory. It was calibrated with minimap2 2.31 on hs38 (3.10 Gbases),
 4 threads:
 
 | Measurement | Measured peak | Estimate |

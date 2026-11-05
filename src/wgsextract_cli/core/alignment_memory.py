@@ -59,8 +59,9 @@ _MINIMAP2_INDEX_BYTES_PER_BASE = {
 _MINIMAP2_BATCH_BYTES = 5 * _GIB // 2
 # That is about 5.4 bytes per batched base. Even reference-compressed CRAM with
 # binned qualities holds fewer than 16 bases per byte, so read files smaller
-# than about 30 MB fill one smaller batch.
-_MINIMAP2_BATCH_BYTES_PER_INPUT_BYTE = 96
+# than about 30 MB fill one smaller batch. The same bound caps samtools sort's
+# buffers and the threads' work, which only grow as reads arrive.
+_DECODED_BYTES_PER_INPUT_BYTE = 96
 # gzip/BGZF stores a FASTA's bases in at least 0.2 bytes each.
 _FASTA_GZ_BASES_PER_BYTE = 5
 _MINIMAP2_THREAD_BYTES = _GIB // 2
@@ -211,9 +212,13 @@ def _minimap2_memory(
         * _MINIMAP2_BUILD_BYTES_PER_BASE.get(preset or "", _MINIMAP2_BUILD_DEFAULT)
     )
     batch = _MINIMAP2_BATCH_BYTES
+    thread_work = threads * _MINIMAP2_THREAD_BYTES
     if input_bytes is not None:
-        batch = min(batch, max(0, input_bytes) * _MINIMAP2_BATCH_BYTES_PER_INPUT_BYTE)
-    mapping = batch + threads * _MINIMAP2_THREAD_BYTES
+        decoded = max(0, input_bytes) * _DECODED_BYTES_PER_INPUT_BYTE
+        batch = min(batch, decoded)
+        # One long read can still need a whole thread's alignment buffers.
+        thread_work = min(thread_work, max(_MINIMAP2_THREAD_BYTES, decoded))
+    mapping = batch + thread_work
     return index, max(build - index, mapping)
 
 
@@ -267,6 +272,9 @@ def estimate_mapping_memory(
     input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
     if aligner == "minimap2":
         index, working = _minimap2_memory(bases, preset, int(threads), input_bytes)
+        if input_bytes is not None:
+            # samtools sort fills its buffers only with the reads it receives.
+            sort = min(sort, max(0, input_bytes) * _DECODED_BYTES_PER_INPUT_BYTE)
         if reads is None and input_bytes is not None:
             # A compressed short read takes at least 8 bytes.
             input_reads = min(input_reads, max(0, input_bytes) // 8)
