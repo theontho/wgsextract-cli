@@ -279,6 +279,9 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
             400,
             "usage",
         ),
+        # PR #442 review: with no input or outdir it saved into the server's
+        # working folder.
+        ("qc/fake-data", {}, 400, "usage"),
         ("nope", {}, 404, "unknown_op"),
         # PR #422 review: these were 500 "internal" errors, or jobs with
         # values the schema forbids.

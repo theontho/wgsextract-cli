@@ -214,6 +214,12 @@ def run_to_ubam(params: BamToUbamParams) -> None:
     source = input_path or r1
     assert source  # BamToUbamParams requires one
     verify_paths_exist({"input": source, **({"--r2": r2} if r2 else {})})
+    result = current_result()
+    if input_path:
+        result.add_input(input_path, "input")
+    else:
+        result.add_input(r1, "fastq_r1")
+        result.add_input(r2, "fastq_r2")
     if input_path and not input_path.lower().endswith((".bam", ".cram")):
         raise WGSExtractError("--input must be a BAM or CRAM file.")
     verify_dependencies(["samtools"])

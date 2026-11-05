@@ -480,9 +480,9 @@ class Reported(Exception):
 @pytest.mark.parametrize(
     ("module", "command", "operation"),
     [
-        (bam, bam.cmd_sort, "sort"),
-        (bam, bam.cmd_tocram, "to-cram"),
-        (bam, bam.cmd_tobam, "to-bam"),
+        pytest.param(bam, bam.cmd_sort, "sort", marks=needs_tools("samtools")),
+        pytest.param(bam, bam.cmd_tocram, "to-cram", marks=needs_tools("samtools")),
+        pytest.param(bam, bam.cmd_tobam, "to-bam", marks=needs_tools("samtools")),
         (basic, basic.cmd_snp, "snp"),
         (basic, basic.cmd_indel, "indel"),
         (callers, callers.cmd_gatk, "gatk"),

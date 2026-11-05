@@ -376,8 +376,12 @@ def test_qc_vcf_reports_bcftools_stats(fake_data, tmp_path):
     if not shutil.which("bcftools"):
         pytest.skip("bcftools not found in PATH")
     vcf = FAKE_DIR / "fake.vcf.gz"
-    result = api.qc.vcf(api.QcVcfParams(vcf_input=vcf, outdir=tmp_path))
+    # PR #442 review: an unused input (here a missing BAM) was still checked.
+    unused = tmp_path / "unused.bam"
+    params = api.QcVcfParams(input=unused, vcf_input=vcf, outdir=tmp_path)
+    result = api.qc.vcf(params)
     assert_valid(result)
+    assert [Path(i.path).name for i in result.inputs] == ["fake.vcf.gz"]
     stats = tmp_path / "fake.vcf.gz.vcfstats.txt"
     assert [o.role for o in result.outputs] == ["vcf_stats"]
     assert result.metrics["records"] > 0

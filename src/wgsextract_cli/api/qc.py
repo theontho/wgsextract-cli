@@ -6,6 +6,7 @@ input."""
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -231,6 +232,9 @@ def vcf(
     """Write the VCF statistics (output role ``vcf_stats``)."""
     from wgsextract_cli.commands.qc.commands import run_vcf_qc
 
+    if params.vcf_input is not None:
+        # Only the chosen VCF is read, recorded and checked.
+        params = dataclasses.replace(params, input=params.vcf_input, vcf_input=None)
     return execute(params, run_vcf_qc, progress=progress, cancel=cancel, check=check)
 
 

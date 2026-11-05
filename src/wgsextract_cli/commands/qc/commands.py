@@ -50,6 +50,8 @@ def run_fastp(params: FastpParams) -> None:
     if r2:
         paths["--r2"] = r2
     verify_paths_exist(paths)
+    current_result().add_input(r1, "fastq_r1")
+    current_result().add_input(r2, "fastq_r2")
 
     verify_dependencies(["fastp"])
     log_dependency_info(["fastp"])
@@ -355,6 +357,7 @@ def run_vcf_qc(params: QcVcfParams) -> None:
     from wgsextract_cli.core.variant_files import verify_paths_exist
 
     verify_paths_exist({"--input": input_file})
+    current_result().add_input(input_file, "vcf_input" if params.vcf_input else "input")
 
     verify_dependencies(["bcftools"])
     log_dependency_info(["bcftools"])

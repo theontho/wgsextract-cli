@@ -222,6 +222,20 @@ class JobManager:
             kind=op.kind,
             params=dict(params),
         )
+        names = {f.name for f in op.fields()}
+        # With no input to save beside, outputs would go to the working folder.
+        if (
+            op.kind != "query"
+            and "outdir" in names
+            and not names & set(_INPUT_NAMES)
+            and not self._output_folder(job)
+        ):
+            raise RequestError(
+                400,
+                "usage",
+                "'outdir' is required: with no input or configured output "
+                "folder, this job would save into the server's working folder.",
+            )
         with self._lock:
             if self._stopping:
                 raise RequestError(503, "stopping", "The server is stopping.")
@@ -302,10 +316,10 @@ class JobManager:
 
     def _output_folder(self, job: Job) -> str:
         """Where a job saves its files: its outdir, else the configured output
-        folder, else its input's folder."""
+        folder, else its first input's folder."""
         folder = job.params.get("outdir") or self.default_outdir
-        if not folder and isinstance(job.params.get("input"), str):
-            folder = os.path.dirname(job.params["input"])
+        if not folder:
+            folder = os.path.dirname(_first_input(job.params))
         if not folder:
             return ""
         folder = os.path.expanduser(folder)
@@ -480,3 +494,17 @@ def write_private_json(path: Path, data: Mapping[str, Any]) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, indent=1)
+
+
+_INPUT_NAMES = ("vcf_input", "input", "inputs", "r1")
+
+
+def _first_input(params: Mapping[str, Any]) -> str:
+    """The input a job's outputs go beside when it names no folder."""
+    for name in _INPUT_NAMES:
+        value = params.get(name)
+        if isinstance(value, list) and value:
+            value = value[0]
+        if isinstance(value, str) and value:
+            return value
+    return ""
