@@ -39,6 +39,7 @@ from wgsextract_cli.core.table_writer import (
     table_path,
     write_table,
 )
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.ultima import read_groups
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.variant_files import (
@@ -48,6 +49,9 @@ from wgsextract_cli.core.variant_files import (
 )
 
 from .metrics import (
+    DEPTH_COUNTED,
+    DEPTH_SAMPLED,
+    LONG_READ_MIN_LEN,
     SEX_INFERENCE_VERSION,
     SexCall,
     contig_key,
@@ -65,6 +69,7 @@ from .render import (
     render_info,
     run_full_coverage,
     run_sampled_coverage,
+    sampled_mapped_bases,
 )
 
 COVERAGE_COMMANDS = ("calculate-coverage", "coverage-sample")
@@ -247,7 +252,13 @@ def _print_fast(data: dict[str, Any], sample: tuple[str, str]) -> None:
 
 
 # Cache bookkeeping that isn't a result.
-_PRIVATE_KEYS = {"chrom_table_csv", "input_signature", "first_qname", "sex_call"}
+_PRIVATE_KEYS = {
+    "chrom_table_csv",
+    "contig_bases",
+    "input_signature",
+    "first_qname",
+    "sex_call",
+}
 
 
 def _record_facts(data: dict[str, Any], input_file: str, header: str) -> None:
@@ -295,7 +306,7 @@ def _record_facts(data: dict[str, Any], input_file: str, header: str) -> None:
             "mean_coverage",
             input_file,
             round(float(ard), 2),
-            method="mapped reads x mean read length / effective genome length",
+            method=data.get("depth_method") or DEPTH_COUNTED,
             confidence="high",
         )
 
@@ -331,7 +342,7 @@ def _record_info(data: dict[str, Any]) -> None:
                 "sex_unknown",
                 "The sample's sex could not be inferred from its chrX/chrY reads.",
             )
-        if data.get("avg_read_len", 0) > 410:
+        if data.get("avg_read_len", 0) > LONG_READ_MIN_LEN:
             result.warn(
                 "long_reads",
                 SYSTEM_MESSAGES["LongReadSequenceWarning"],
@@ -459,6 +470,7 @@ def _detailed_metrics(
     total_unmapped: int,
     coverage_map: dict[str, str],
     n_counts: dict[str, int],
+    mapped_bases: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     total_reads = sum(s["mapped"] + s["unmapped"] for s in idx_stats)
     avg_len = data["avg_read_len"]
@@ -474,11 +486,26 @@ def _detailed_metrics(
     gender = call.sex
 
     chrom_table = generate_chrom_table(
-        idx_stats, avg_len, gender, ref_model_name, coverage_map, n_counts=n_counts
+        idx_stats,
+        avg_len,
+        gender,
+        ref_model_name,
+        coverage_map,
+        n_counts=n_counts,
+        mapped_bases=mapped_bases,
     )
     total_row = next(r for r in chrom_table if r[1] == "Total")
-    mapped_segs = total_row[4] + next((r[4] for r in chrom_table if r[1] == "Other"), 0)
+    other_row = next((r for r in chrom_table if r[1] == "Other"), None)
+    mapped_segs = total_row[4] + (other_row[4] if other_row else 0)
+    total_bases = total_row[8] + (other_row[8] if other_row else 0)
     eff_len = total_row[2] - total_row[3] + 0.0001
+    # Measured mapped bases exclude soft clips, so the unmapped reads are added
+    # to them, rather than every record counted at the mean read length.
+    raw_bases = (
+        total_bases + total_unmapped * avg_len
+        if mapped_bases
+        else total_reads * avg_len
+    )
 
     present = {k for k, v in mapped_by_key.items() if v > 0}
     content = {
@@ -514,11 +541,13 @@ def _detailed_metrics(
         "sex_inference_version": SEX_INFERENCE_VERSION,
         "refined_ns": bool(n_counts),
         "file_content": ", ".join(k for k, v in content.items() if v),
+        "depth_method": DEPTH_SAMPLED if mapped_bases else DEPTH_COUNTED,
+        "contig_bases": {row[1]: round(row[8]) for row in chrom_table},
         "metrics": {
-            "ard_mapped": (total_row[4] * avg_len) / eff_len,
-            "ard_raw": (total_reads * avg_len) / eff_len,
-            "gbases_mapped": (mapped_segs * avg_len) / (10**9),
-            "gbases_raw": (total_reads * avg_len) / (10**9),
+            "ard_mapped": total_row[8] / eff_len,
+            "ard_raw": raw_bases / eff_len,
+            "gbases_mapped": total_bases / (10**9),
+            "gbases_raw": raw_bases / (10**9),
             "reads_mapped_m": mapped_segs / 1_000_000,
             "reads_raw_m": total_reads / 1_000_000,
             "reads_mapped_pct": (mapped_segs / total_reads * 100)
@@ -655,9 +684,11 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
             return
         # The chromosome table hides chrY for a Female, so it is redone along
         # with the sex when the cached call came from an older infer_sex.
+        # Likewise a table from before long reads' depth was measured.
         if (
             detailed
             and data.get("chrom_table_csv")
+            and data.get("contig_bases")
             and data.get("sex_inference_version") == SEX_INFERENCE_VERSION
         ):
             logging.debug("Cache hit for detailed metrics.")
@@ -685,13 +716,32 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     coverage_map = _coverage_map(
         info_cmd, input_file, resolved_ref, idx_stats, outdir, region
     )
+    mapped_bases = None
+    if data.get("avg_read_len", 0) > LONG_READ_MIN_LEN:
+        try:
+            mapped_bases = sampled_mapped_bases(
+                input_file,
+                resolved_ref,
+                idx_stats,
+                configured_temp_directory() or outdir,
+            )
+        except (OSError, WGSExtractError) as e:
+            logging.warning(
+                f"Could not sample the depth of {Path(input_file).name}, so long "
+                f"reads' depth is estimated from their records and overstated: {e}"
+            )
     data.update(
         _detailed_metrics(
-            data, idx_stats, total_unmapped, coverage_map, load_n_counts(resolved_ref)
+            data,
+            idx_stats,
+            total_unmapped,
+            coverage_map,
+            load_n_counts(resolved_ref),
+            mapped_bases,
         )
     )
 
-    if data.get("avg_read_len", 0) > 410:
+    if data.get("avg_read_len", 0) > LONG_READ_MIN_LEN:
         print_warning("LongReadSequenceWarning")
     if data["metrics"]["ard_mapped"] < 10:
         print_warning("LowCoverageWarning")

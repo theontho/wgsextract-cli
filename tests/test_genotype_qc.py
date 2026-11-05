@@ -207,7 +207,9 @@ def test_chrY_only_cram_keeps_the_assembly_n_adjustment(tmp_path):
     cram.touch()
     with (
         patch.object(
-            genotype_qc, "cram_container_totals", return_value={1: (1, 236_363_550)}
+            genotype_qc,
+            "cram_container_totals",
+            return_value={1: (1_575_757, 236_363_550)},
         ),
         patch(
             "wgsextract_cli.core.alignment_metadata.get_bam_header",

@@ -367,29 +367,27 @@ def _sample_windows(
     return windows
 
 
-def run_sampled_coverage(
-    input_p: str,
-    ref_p: str | None,
-    idx_stats: Sequence[IdxStat],
-    out_p: str,
-    region: str | None = None,
-) -> dict[str, str]:
-    """Estimate breadth of coverage from evenly spaced 1 kb windows."""
-    targets = _resolve_sample_targets(idx_stats, region)
-    if not targets:
-        raise WGSExtractError(
-            "No primary chromosomes found to sample; use --region to choose one."
-        )
-    windows = _sample_windows(targets)
-    logging.info(
-        f"Estimating breadth of coverage from {len(windows)} sampled windows..."
-    )
-
+def _sampled_bp(
+    targets: Sequence[tuple[str, int, int]], windows: Sequence[tuple[str, int, int]]
+) -> dict[str, int]:
     sampled = {name: 0 for name, _s, _e in targets}
     for name, start, end in windows:
         sampled[name] += end - start
-    covered_bp = dict.fromkeys(sampled, 0)
-    with tempfile.TemporaryDirectory(dir=str(absolute_path(out_p).parent)) as tmp:
+    return sampled
+
+
+def _window_depths(
+    input_p: str,
+    ref_p: str | None,
+    windows: Sequence[tuple[str, int, int]],
+    temp_parent: str | None,
+) -> dict[str, tuple[int, int]]:
+    """(covered positions, summed depth) per contig inside BED-style windows.
+
+    Depth is samtools depth's: secondary, duplicate, QC-failed and unmapped
+    records are skipped, and only aligned bases count (not soft clips)."""
+    found: dict[str, tuple[int, int]] = {}
+    with tempfile.TemporaryDirectory(dir=temp_parent) as tmp:
         bed_p = str(Path(tmp, "windows.bed"))
         depth_p = str(Path(tmp, "depth.tsv"))
         with open(bed_p, "w", newline="\n") as f:
@@ -418,14 +416,77 @@ def run_sampled_coverage(
         with open(depth_p) as f:
             for line in f:
                 parts = line.split("\t")
-                if len(parts) >= 3 and parts[0] in covered_bp and int(parts[2]) > 0:
-                    covered_bp[parts[0]] += 1
+                if len(parts) >= 3 and (depth := int(parts[2])) > 0:
+                    covered, total = found.get(parts[0], (0, 0))
+                    found[parts[0]] = (covered + 1, total + depth)
+    return found
 
+
+def sampled_mapped_bases(
+    input_p: str,
+    ref_p: str | None,
+    idx_stats: Sequence[IdxStat],
+    temp_parent: str | None = None,
+) -> dict[str, float]:
+    """Aligned bases per primary contig with reads, estimated from the depth
+    of evenly spaced 1 kb windows and scaled to the contig's length.
+
+    Long reads need this: a supplementary or secondary record carries the
+    whole read (soft-clipped) but aligns only part of it, so records x read
+    length overstates their depth, most on repetitive contigs like chrY."""
+    targets = [
+        (s["name"], 1, s["length"])
+        for s in idx_stats
+        if s["mapped"]
+        and s["length"] > 0
+        and (is_primary_contig(s["name"]) or contig_key(s["name"]) == "M")
+    ]
+    if not targets:
+        return {}
+    windows = _sample_windows(targets)
+    logging.info(f"Estimating mean depth from {len(windows)} sampled windows...")
+    sampled = _sampled_bp(targets, windows)
+    depths = _window_depths(input_p, ref_p, windows, temp_parent)
+    return {
+        name: depths.get(name, (0, 0))[1] / sampled[name] * length
+        for name, _start, length in targets
+        if sampled[name]
+    }
+
+
+def run_sampled_coverage(
+    input_p: str,
+    ref_p: str | None,
+    idx_stats: Sequence[IdxStat],
+    out_p: str,
+    region: str | None = None,
+) -> dict[str, str]:
+    """Estimate breadth of coverage from evenly spaced 1 kb windows."""
+    targets = _resolve_sample_targets(idx_stats, region)
+    if not targets:
+        raise WGSExtractError(
+            "No primary chromosomes found to sample; use --region to choose one."
+        )
+    windows = _sample_windows(targets)
+    logging.info(
+        f"Estimating breadth of coverage from {len(windows)} sampled windows..."
+    )
+
+    sampled = _sampled_bp(targets, windows)
+    covered_bp = {
+        name: covered
+        for name, (covered, _depth) in _window_depths(
+            input_p, ref_p, windows, str(absolute_path(out_p).parent)
+        ).items()
+    }
     # Scale each contig's sampled fraction to its full span so the total is
     # length-weighted rather than window-weighted.
     spans = {name: end - start + 1 for name, start, end in targets}
     covered = {
-        name: (round(covered_bp[name] / sampled[name] * spans[name]), spans[name])
+        name: (
+            round(covered_bp.get(name, 0) / sampled[name] * spans[name]),
+            spans[name],
+        )
         for name in sampled
     }
     final_map = _breadth_map(covered, with_total=not region, approx=True)

@@ -298,13 +298,15 @@ about 51x, GRCh38 analysis set), without realigning it:
 | `vcf sv`, 4 threads | 25,672 SVs; recall 0.758, precision 0.939 against 28,123 v5.0q SVs (table above) | 24 min | 5.6 GB |
 | `methylation --region chr20` | 65.5% of 746,117 CpGs methylated (>= 5 calls) | 43 s | 1.7 GB |
 
-`info --detailed` overstates long-read depth: it reported 73x overall and 82x
-for chr20, while `samtools coverage` gives 55x on that CRAM's chr20. The
-estimate multiplies index record counts, which include secondary and
-supplementary alignments, by the mean read length
-([#427](https://github.com/WGSExtract/wgsextract-cli/issues/427)). On the
-realigned chr20 BAM it gave 80x, where `samtools coverage` gives 51x. `qc vcf`
-ran on the chr20 DeepVariant VCF (106,665 PASS SNVs, Ts/Tv 1.74).
+`info --detailed` estimates short-read depth as mapped records x mean read
+length. For long reads it instead samples 1 kb windows with `samtools depth`
+([#427](https://github.com/WGSExtract/wgsextract-cli/issues/427)). Index
+record counts include secondary and supplementary alignments, and an ONT
+supplementary record carries the whole read. So on a chr20+chrY slice of that
+CRAM the record estimate gave 85x for chr20 and 185x for chrY, while sampling
+gives 56x and 28x. `samtools coverage` gives 53x over chr20's non-N bases.
+chrY's typical depth is about 26x outside 1 Mb of satellite at up to 8,000x.
+`qc vcf` ran on the chr20 DeepVariant VCF (106,665 PASS SNVs, Ts/Tv 1.74).
 
 Small-variant calling on the whole genome was not run: 32 h of realignment
 plus 25 h of DeepVariant on 4 shared cores would not show anything that chr20

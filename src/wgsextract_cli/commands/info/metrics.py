@@ -41,6 +41,12 @@ def contig_key(name: str) -> str:
     return "M" if key == "MT" else key
 
 
+# Reads longer than this on average are long reads (ONT, PacBio).
+LONG_READ_MIN_LEN = 410
+DEPTH_COUNTED = "mapped reads x mean read length / effective genome length"
+DEPTH_SAMPLED = "depth of sampled 1 kb windows / effective genome length"
+
+
 def is_primary_contig(name: str) -> bool:
     key = contig_key(name)
     return key.isdigit() or key in {"X", "Y"}
@@ -366,8 +372,13 @@ def generate_chrom_table(
     ref_model_name: str,
     coverage_map: Mapping[str, str] | None = None,
     n_counts: Mapping[str, int] | None = None,
+    mapped_bases: Mapping[str, float] | None = None,
 ) -> list[list[Any]]:
-    """Build the detailed per-chromosome metrics table."""
+    """Build the detailed per-chromosome metrics table: [key, name, length,
+    N count, mapped segments, mapped Gbases, mean depth, breadth, mapped bases].
+
+    A contig's mapped bases are its segments x `avg_len`, unless
+    `mapped_bases` (by contig name) measures them, as long reads need."""
     valid_autos, valid_somal, valid_mito = (
         [str(i) for i in range(1, 23)],
         ["X", "Y"],
@@ -423,8 +434,9 @@ def generate_chrom_table(
     if n_counts:
         n_adjust_map.update(n_counts)
 
-    stats_total: list[Any] = ["T", "Total", 0, 0, 0, 0.0, 0.0, ""]
-    stats_altcont: list[Any] = ["O", "Other", 0, 0, 0, 0.0, 0.0, ""]
+    stats_total: list[Any] = ["T", "Total", 0, 0, 0, 0.0, 0.0, "", 0.0]
+    stats_altcont: list[Any] = ["O", "Other", 0, 0, 0, 0.0, 0.0, "", 0.0]
+    measured = mapped_bases or {}
 
     for s in idx_stats:
         if s["mapped"] == 0:
@@ -436,7 +448,8 @@ def generate_chrom_table(
         map_seg, mod_len = s["mapped"], s["length"]
         n_count = n_adjust_map.get(chromnum, 0)
         cvg = coverage_map.get(chromnum, "")
-        row = [chromnum, chromosome, mod_len, n_count, map_seg, 0.0, 0.0, cvg]
+        bases = float(measured.get(chromosome, map_seg * avg_len))
+        row = [chromnum, chromosome, mod_len, n_count, map_seg, 0.0, 0.0, cvg, bases]
 
         if chromnum in valid_autos:
             stats_autos.append(row)
@@ -447,6 +460,7 @@ def generate_chrom_table(
         elif chromnum != "*":
             stats_altcont[2] += mod_len
             stats_altcont[4] += map_seg
+            stats_altcont[8] += bases
 
     if build == "Cat":
         stats_autos.sort(key=lambda x: x[0])
@@ -462,6 +476,7 @@ def generate_chrom_table(
         stats_total[2] += row[2]
         stats_total[3] += row[3]
         stats_total[4] += row[4]
+        stats_total[8] += row[8]
 
     final_table.append(stats_total)
     if int(stats_altcont[4]) > 0:
@@ -469,7 +484,7 @@ def generate_chrom_table(
 
     for i in range(len(final_table)):
         eff_len = final_table[i][2] - final_table[i][3] + 0.0001
-        temp_mapped_gbases = float(final_table[i][4] * avg_len)
+        temp_mapped_gbases = final_table[i][8]
         final_table[i][5] = round(temp_mapped_gbases / (10**9), 2)
         final_table[i][6] = round(temp_mapped_gbases / eff_len)
         if final_table[i][1] in ["Total", "Other"]:
