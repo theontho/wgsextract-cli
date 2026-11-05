@@ -35,11 +35,15 @@ it.
    [packaging/windows/README.md](../packaging/windows/README.md)).
 
    Check the *Release* run on the merge commit. The tag isn't created until
-   the checks pass, so if it fails, merge a fix and then retry from main with
-   *Run workflow* on the Release workflow (`gh workflow run release.yml`).
+   the checks pass. If the run fails, fix the cause and retry from main with
+   *Run workflow* on the Release workflow (`gh workflow run release.yml`): it
+   picks up where it stopped, publishing from the existing tag if one was
+   already created. A release only becomes the latest if no newer version
+   already is.
 
 Without a notes file the release is left as a **draft** with generated notes.
-Edit and publish it with
+Edit and publish it on the release's GitHub page (**Edit**, then **Publish
+release**), or with
 `gh release edit vX.Y.Z --notes-file notes.md --draft=false --latest`.
 Pushing a `vX.Y.Z` tag by hand still works too, and also uses the notes file
 if the tagged commit has one.
