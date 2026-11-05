@@ -1,36 +1,56 @@
-"""Version probes, dependency verification, Pixi tool resolution and the
-`deps check` report, run against small fake executables."""
+"""Version probes, dependency verification and the `deps check` report, run
+against small fake tools on the host's PATH and the fake pixi from
+tests/fake_tools.py."""
 
-import ast
-import json
+import io
 import logging
 import os
-import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
-from tests.fake_tools import python_tool
+from tests.fake_tools import FakePixi, python_tool
 from wgsextract_cli.commands import _deps_status
 from wgsextract_cli.core import dependency_checks, pixi_tools, windows_arm64
-from wgsextract_cli.core.tool_catalog import JAVA_JAR
+from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.dependency_checks import (
+    check_all_dependencies,
+    get_tool_version,
+    verify_dependencies,
+)
+from wgsextract_cli.core.tool_catalog import required_dependency_tools
 from wgsextract_cli.core.utils import MissingDependencyError, WGSExtractError
+
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="NTSTATUS codes")
+# Probing another environment sends pixi a multi-line `python -c` argument,
+# which a batch-file pixi stand-in can't pass on.
+posix_pixi = pytest.mark.skipif(
+    sys.platform == "win32", reason="a batch file can't take a multi-line argument"
+)
 
 
 @pytest.fixture(autouse=True)
-def _outside_a_pixi_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests simulate the Pixi environment probe; under `pixi run` the CLI
-    would look in its own environment first instead."""
-    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+def _x64_host(monkeypatch: pytest.MonkeyPatch) -> None:
     # The fake CMD tools exercise probe parsing, not native ARM64 qualification.
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
 
 
+@pytest.fixture
+def host(fake_pixi: FakePixi, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The host's programs folder, alone on PATH. The CLI runs in the
+    workspace's default environment, which has none of them; its lockfile has
+    minimap2 and bwa."""
+    prefix = fake_pixi.env("default", locked=("minimap2", "bwa"))
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    return fake_pixi.host_bin
+
+
 _PRELUDE = """\
-import os, signal, sys
+import os, signal, sys, time
 args = sys.argv[1:]  # the probe argument (--version, --help), if any
 def err(text):
     print(text, file=sys.stderr)
@@ -49,28 +69,27 @@ CRASHED = (
     if sys.platform == "win32"
     else {"SIGILL": "crashed (SIGILL)", "SIGSEGV": "crashed (SIGSEGV)"}
 )
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
 
 
-def _tool(tmp_path: Path, name: str, body: str) -> str:
-    """A fake tool running the Python body after _PRELUDE."""
-    return str(python_tool(tmp_path / "bin", name, _PRELUDE + body + "\n"))
+def _tool(host: Path, name: str, body: str) -> str:
+    """A fake tool on PATH running the Python body after _PRELUDE."""
+    return str(python_tool(host, name, _PRELUDE + body + "\n"))
 
 
-def _use_tools(monkeypatch, tools: dict[str, str | None]) -> list[tuple]:
-    calls: list[tuple] = []
+def _same_path(a: str | None, b: str) -> bool:
+    return a is not None and os.path.normcase(a) == os.path.normcase(b)
 
-    def get_tool_path(tool):
-        calls.append((tool,))
-        return tools.get(tool)
 
-    monkeypatch.setattr(dependency_checks, "get_tool_path", get_tool_path)
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
-    monkeypatch.setattr(pixi_tools, "_locked_package_available", lambda *args: True)
-    monkeypatch.setattr(
-        pixi_tools, "_pixi_manifest_args", lambda: ["--manifest-path", "/app/pixi.toml"]
-    )
-    return calls
+def _runs(log: Path) -> int:
+    return len(log.read_text().splitlines()) if log.exists() else 0
+
+
+def _logging_runs(log: Path) -> str:
+    """Tool body: record each start in log."""
+    return f"open({str(log)!r}, 'a').write('run\\n')\n"
+
+
+# Version probes.
 
 
 @pytest.mark.parametrize(
@@ -113,176 +132,224 @@ def _use_tools(monkeypatch, tools: dict[str, str | None]) -> list[tuple]:
         ),
     ],
 )
-def test_version_probe_reads_each_tools_way_of_reporting(
-    tmp_path, monkeypatch, tool, body, expected
-):
-    _use_tools(monkeypatch, {tool: _tool(tmp_path, tool, body)})
+def test_version_probe_reads_each_tools_way_of_reporting(host, tool, body, expected):
+    _tool(host, tool, body)
 
-    assert dependency_checks.get_tool_version(tool) == expected
+    assert get_tool_version(tool) == expected
+
+
+def test_version_probe_without_the_tool(host):
+    assert get_tool_version("samtools") is None
 
 
 @posix_only
-def test_a_loader_abort_is_a_crash(tmp_path, monkeypatch):
-    body = 'err("dyld[1]: Library not loaded: @rpath/libhts.3.dylib"); sys.exit(134)'
-    _use_tools(monkeypatch, {"samtools": _tool(tmp_path, "samtools", body)})
-
-    # macOS' loader aborts the process: SIGABRT, reported as a crash.
-    assert dependency_checks.get_tool_version("samtools") == (
-        "Error: samtools crashed (SIGABRT)"
+def test_a_loader_abort_is_a_crash(host):
+    _tool(
+        host,
+        "samtools",
+        'err("dyld[1]: Library not loaded: @rpath/libhts.3.dylib"); sys.exit(134)',
     )
 
+    # macOS' loader aborts the process: SIGABRT, reported as a crash.
+    assert get_tool_version("samtools") == "Error: samtools crashed (SIGABRT)"
 
-def test_version_probe_reports_a_missing_library(tmp_path, monkeypatch):
+
+@pytest.mark.parametrize(
+    ("body", "crashed"),
+    [
+        pytest.param(
+            "os.kill(os.getpid(), signal.SIGABRT)", "SIGABRT", marks=posix_only
+        ),
+        # A wrapper shell reports its child's death by signal N as 128 + N.
+        pytest.param("sys.exit(132)", "SIGILL", marks=posix_only),
+        pytest.param(
+            "os.kill(os.getpid(), 35)",
+            "signal 35",
+            marks=pytest.mark.skipif(
+                not sys.platform.startswith("linux"), reason="Linux's real-time signals"
+            ),
+        ),
+        ('crash("SIGSEGV")', CRASHED["SIGSEGV"].removeprefix("crashed (")[:-1]),
+        pytest.param(
+            "os._exit(0xC0000135 - (1 << 32))",
+            "a DLL it needs was not found",
+            marks=windows_only,
+        ),
+        pytest.param(
+            "os._exit(0xC0000417 - (1 << 32))",
+            "NTSTATUS 0xC0000417",
+            marks=windows_only,
+        ),
+    ],
+)
+def test_a_tool_that_dies_is_reported_crashed(host, body, crashed):
+    _tool(host, "samtools", body)
+
+    assert get_tool_version("samtools") == f"Error: samtools crashed ({crashed})"
+
+
+@pytest.mark.parametrize("code", [0, 1, 127, 128, 160, 255])
+def test_ordinary_exit_codes_are_not_crashes(host, code):
+    _tool(host, "samtools", f'print("samtools 1.21"); sys.exit({code})')
+
+    version = get_tool_version("samtools")
+
+    assert version is not None and "crashed" not in version
+
+
+def test_version_probe_reports_a_missing_library(host):
     body = 'err("dyld[1]: Library not loaded: @rpath/libhts.3.dylib"); sys.exit(1)'
-    _use_tools(monkeypatch, {"samtools": _tool(tmp_path, "samtools", body)})
-    assert dependency_checks.get_tool_version("samtools") == (
+    _tool(host, "samtools", body)
+
+    assert get_tool_version("samtools") == (
         "Error: dyld[1]: Library not loaded: @rpath/libhts.3.dylib"
     )
 
 
-def test_a_wrapper_whose_target_is_not_found_is_an_error(tmp_path, monkeypatch):
-    body = 'err("/env/bin/tabix: 2: exec: tabix.real: not found"); sys.exit(127)'
-    _use_tools(monkeypatch, {"tabix": _tool(tmp_path, "tabix", body)})
-
-    assert dependency_checks.get_tool_version("tabix") == (
-        "Error: /env/bin/tabix: 2: exec: tabix.real: not found"
-    )
-
-
-def test_not_found_in_help_text_is_no_error(tmp_path, monkeypatch):
-    help_text = 'print("usage: fastp"); print("  exits 3 if the adapter is not found")'
-    _use_tools(
-        monkeypatch, {"fastp": _tool(tmp_path, "fastp", f"{help_text}; sys.exit(1)")}
-    )
-
-    assert dependency_checks.get_tool_version("fastp") == "Available"
-
-
-def test_version_probe_reports_a_missing_shared_library_on_linux(tmp_path, monkeypatch):
+def test_version_probe_reports_a_missing_shared_library_on_linux(host):
     body = (
         'err("samtools: error while loading shared libraries: libhts.so.3: '
         'cannot open shared object file: No such file or directory"); sys.exit(127)'
     )
-    _use_tools(monkeypatch, {"samtools": _tool(tmp_path, "samtools", body)})
+    _tool(host, "samtools", body)
 
-    version = dependency_checks.get_tool_version("samtools")
+    version = get_tool_version("samtools")
 
-    assert version is not None and version.startswith("Error:")
-
-
-def test_version_probe_without_the_tool(monkeypatch):
-    _use_tools(monkeypatch, {})
-    assert dependency_checks.get_tool_version("samtools") is None
+    assert version is not None and version.startswith("Error: samtools: error while")
 
 
-def test_a_timed_out_probe_is_retried_with_a_longer_limit(tmp_path, monkeypatch):
-    samtools = _tool(tmp_path, "samtools", 'print("samtools 1.21")')
-    _use_tools(monkeypatch, {"samtools": samtools})
-    run = subprocess.run
-    timeouts = []
+def test_a_wrapper_whose_target_is_not_found_is_an_error(host):
+    body = 'err("/env/bin/tabix: 2: exec: tabix.real: not found"); sys.exit(127)'
+    _tool(host, "tabix", body)
 
-    def slow_first_start(cmd, **kwargs):
-        timeouts.append(kwargs["timeout"])
-        assert kwargs["stdin"] is subprocess.DEVNULL
-        if len(timeouts) == 1:
-            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
-        return run(cmd, **kwargs)
+    assert get_tool_version("tabix") == (
+        "Error: /env/bin/tabix: 2: exec: tabix.real: not found"
+    )
 
-    monkeypatch.setattr(dependency_checks.subprocess, "run", slow_first_start)
 
-    assert dependency_checks.get_tool_version("samtools") == "samtools 1.21"
-    assert timeouts == [
-        dependency_checks.VERSION_PROBE_TIMEOUT,
-        dependency_checks.VERSION_PROBE_RETRY_TIMEOUT,
-    ]
+def test_not_found_in_help_text_is_no_error(host):
+    help_text = 'print("usage: fastp"); print("  exits 3 if the adapter is not found")'
+    _tool(host, "fastp", f"{help_text}; sys.exit(1)")
+
+    assert get_tool_version("fastp") == "Available"
+
+
+def test_a_timed_out_probe_is_retried_with_a_longer_limit(host, tmp_path, monkeypatch):
+    """A tool's first start on a fresh Windows PC can take far longer than
+    later ones; this one takes longer than the first limit, but not the
+    second, every time."""
+    log = tmp_path / "runs.log"
+    _tool(
+        host, "samtools", _logging_runs(log) + 'time.sleep(4); print("samtools 1.21")'
+    )
+    # The clock: the real limits are a minute, then three.
+    monkeypatch.setattr(dependency_checks, "VERSION_PROBE_TIMEOUT", 2)
+    monkeypatch.setattr(dependency_checks, "VERSION_PROBE_RETRY_TIMEOUT", 60)
+
+    assert get_tool_version("samtools") == "samtools 1.21"
+    assert _runs(log) == 2
     # Cached: a second probe in the same process runs nothing.
-    assert dependency_checks.get_tool_version("samtools") == "samtools 1.21"
-    assert len(timeouts) == 2
+    assert get_tool_version("samtools") == "samtools 1.21"
+    assert _runs(log) == 2
 
 
-def test_a_probe_that_times_out_twice_is_slow_to_start(tmp_path, monkeypatch):
-    samtools = _tool(tmp_path, "samtools", "")
-    _use_tools(monkeypatch, {"samtools": samtools})
-    monkeypatch.setattr(dependency_checks, "check_dependencies", lambda tools: [])
-    calls = []
+def test_a_probe_that_times_out_twice_is_slow_to_start(host, monkeypatch):
+    _tool(host, "samtools", "time.sleep(3)")
+    monkeypatch.setattr(dependency_checks, "VERSION_PROBE_TIMEOUT", 1)
+    monkeypatch.setattr(dependency_checks, "VERSION_PROBE_RETRY_TIMEOUT", 2)
 
-    def hang(cmd, **kwargs):
-        calls.append(cmd)
-        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
-
-    monkeypatch.setattr(dependency_checks.subprocess, "run", hang)
-
-    expected = (
-        f"samtools is slow to start: {subprocess.list2cmdline([samtools, '--version'])}"
-        " did not finish in 60 seconds, nor in 180 on a retry"
-    )
-    assert dependency_checks.get_tool_version("samtools") == f"Error: {expected}"
-    assert len(calls) == 2
-    # Not cached: the next probe tries again.
     with pytest.raises(MissingDependencyError) as error:
-        dependency_checks.verify_dependencies(["samtools"])
-    assert str(error.value) == expected
-    assert len(calls) == 4
+        verify_dependencies(["samtools"])
+
+    assert str(error.value).startswith("samtools is slow to start: ")
+    assert str(error.value).endswith("did not finish in 1 seconds, nor in 2 on a retry")
+    # Not cached: once the tool starts promptly, the same process finds it.
+    _tool(host, "samtools", 'print("samtools 1.21")')
+    assert get_tool_version("samtools") == "samtools 1.21"
 
 
-@pytest.mark.parametrize(
-    ("returncode", "expected"),
-    [
-        pytest.param(-6, "crashed (SIGABRT)", marks=posix_only),
-        pytest.param(132, "crashed (SIGILL)", marks=posix_only),
-        pytest.param(-77, "crashed (signal 77)", marks=posix_only),
-        (0xC0000005, "crashed (access violation)"),
-        (0xC0000135, "crashed (a DLL it needs was not found)"),
-        (0xC0000417, "crashed (NTSTATUS 0xC0000417)"),
-    ],
-)
-def test_crash_description(returncode, expected):
-    assert dependency_checks._crash_description(returncode) == expected
+@posix_only
+def test_a_probe_gives_the_tool_no_input(host, monkeypatch):
+    """A tool that reads its input must not wait on the user's terminal: here,
+    a pipe that never closes."""
+    _tool(host, "samtools", 'sys.stdin.read(); print("samtools 1.21")')
+    monkeypatch.setattr(dependency_checks, "VERSION_PROBE_TIMEOUT", 2)
+    monkeypatch.setattr(dependency_checks, "VERSION_PROBE_RETRY_TIMEOUT", 2)
+    read_end, write_end = os.pipe()
+    stdin = os.dup(0)
+    os.dup2(read_end, 0)
+    try:
+        version = get_tool_version("samtools")
+    finally:
+        os.dup2(stdin, 0)
+        for fd in (stdin, read_end, write_end):
+            os.close(fd)
+
+    assert version == "samtools 1.21"
 
 
-@pytest.mark.parametrize("returncode", [0, 1, 127, 128, 160, 255])
-def test_ordinary_exit_codes_are_not_crashes(returncode):
-    assert dependency_checks._crash_description(returncode) is None
+# Tools in another Pixi environment.
 
 
-def test_verify_rejects_a_pre_1_0_samtools(tmp_path, monkeypatch):
+@posix_pixi
+def test_a_tool_in_another_installed_environment_is_probed_there(host, fake_pixi):
+    prefix = fake_pixi.env("pacbio", locked=("sniffles",))
+    python_tool(prefix / "bin", "sniffles", 'print("Sniffles2 2.6.3")')
+
+    assert get_tool_version("sniffles") == "Sniffles2 2.6.3"
+
+
+@posix_pixi
+@pytest.mark.parametrize("change", ["uninstalled", "unreadable pixi info"])
+def test_a_probe_never_installs_an_environment(host, fake_pixi, tmp_path, change):
+    """An environment can go after the tool was found: the probe reports it,
+    and the command that installs it, without running the tool (which
+    `pixi run` would install the environment for)."""
+    log = tmp_path / "runs.log"
+    prefix = fake_pixi.env("pacbio", locked=("sniffles",))
+    python_tool(prefix / "bin", "sniffles", _logging_runs(log) + 'print("2.6.3")')
+    assert get_tool_path("sniffles") is not None
+    if change == "uninstalled":
+        fake_pixi.uninstall("pacbio")
+    else:
+        fake_pixi.set(info_stdout="WARN pixi is updating")
+
+    version = get_tool_version("sniffles")
+
+    assert version is not None
+    assert version.startswith("Error: Pixi env 'pacbio' is not installed. Run: ")
+    assert "install --locked" in version and version.endswith("-e pacbio")
+    assert _runs(log) == 0
+    assert fake_pixi.installed("pacbio") == (change != "uninstalled")
+
+
+# Verifying dependencies.
+
+
+def test_verify_rejects_a_pre_1_0_samtools(host):
     old = 'print("Program: samtools"); print("Version: 0.1.19-44428cd"); sys.exit(1)'
-    _use_tools(
-        monkeypatch,
-        {
-            "samtools": _tool(tmp_path, "samtools", old),
-            "bcftools": _tool(tmp_path, "bcftools", 'print("bcftools 1.21")'),
-        },
-    )
-    monkeypatch.setattr(dependency_checks, "check_dependencies", lambda tools: [])
+    _tool(host, "samtools", old)
+    _tool(host, "bcftools", 'print("bcftools 1.21")')
 
-    dependency_checks.verify_dependencies(["bcftools"])
+    verify_dependencies(["bcftools"])
     with pytest.raises(WGSExtractError, match=r"samtools version Version: 0\.1\.19"):
-        dependency_checks.verify_dependencies(["samtools", "bcftools"])
+        verify_dependencies(["samtools", "bcftools"])
 
 
-def test_verify_rejects_a_samtools_that_crashes(tmp_path, monkeypatch):
-    _use_tools(
-        monkeypatch, {"samtools": _tool(tmp_path, "samtools", 'crash("SIGILL")')}
-    )
-    monkeypatch.setattr(dependency_checks, "check_dependencies", lambda tools: [])
+def test_verify_rejects_a_samtools_that_crashes(host):
+    _tool(host, "samtools", 'crash("SIGILL")')
 
-    with pytest.raises(WGSExtractError):
-        dependency_checks.verify_dependencies(["samtools"])
+    with pytest.raises(WGSExtractError) as error:
+        verify_dependencies(["samtools"])
+    assert str(error.value) == f"samtools does not run: samtools {CRASHED['SIGILL']}"
 
 
-def test_check_all_dependencies_marks_crashing_tools_missing(tmp_path, monkeypatch):
-    samtools = _tool(tmp_path, "samtools", 'print("samtools 1.21")')
-    calls = _use_tools(
-        monkeypatch,
-        {
-            "samtools": samtools,
-            "bcftools": _tool(tmp_path, "bcftools", 'crash("SIGSEGV")'),
-            "sniffles": _tool(tmp_path, "sniffles", 'print("Sniffles2 2.6.3")'),
-        },
-    )
+def test_check_all_dependencies_marks_crashing_tools_missing(host):
+    samtools = _tool(host, "samtools", 'print("samtools 1.21")')
+    _tool(host, "bcftools", 'crash("SIGSEGV")')
+    _tool(host, "sniffles", 'print("Sniffles2 2.6.3")')
 
-    results = dependency_checks.check_all_dependencies(
+    results = check_all_dependencies(
         ["python3", "samtools", "bcftools"], ["sniffles", "minimap2"]
     )
 
@@ -295,106 +362,127 @@ def test_check_all_dependencies_marks_crashing_tools_missing(tmp_path, monkeypat
         "minimap2",
     ]
     assert by_name["Python Runtime"]["path"] == sys.executable
-    assert by_name["samtools"] == {
-        "name": "samtools",
-        "path": samtools,
-        "runtime": "native",
-        "version": "samtools 1.21",
-        "alt_env": None,
-    }
+    assert _same_path(by_name["samtools"]["path"], samtools)
+    assert by_name["samtools"]["runtime"] == "native"
+    assert by_name["samtools"]["version"] == "samtools 1.21"
     assert by_name["bcftools"]["path"] is None
-    assert by_name["bcftools"]["version"] == f"Error: bcftools {CRASHED['SIGSEGV']}"
     assert by_name["bcftools"]["runtime"] == "missing"
-    assert by_name["minimap2"]["version"].startswith("Run: pixi install --locked")
-    assert {tool for (tool,) in calls} == {
-        "samtools",
-        "bcftools",
-        "sniffles",
-        "minimap2",
-    }
+    assert by_name["bcftools"]["version"] == f"Error: bcftools {CRASHED['SIGSEGV']}"
+    assert by_name["sniffles"]["version"] == "Sniffles2 2.6.3"
+    assert by_name["minimap2"]["path"] is None
+    assert by_name["minimap2"]["version"].startswith("Run: ")
+    assert "install --locked" in by_name["minimap2"]["version"]
 
 
-def test_log_dependency_info(tmp_path, monkeypatch, caplog):
-    samtools = _tool(tmp_path, "samtools", 'print("samtools 1.21")')
-    _use_tools(monkeypatch, {"samtools": samtools})
+def test_log_dependency_info(host, caplog):
+    samtools = _tool(host, "samtools", 'print("samtools 1.21")')
     caplog.set_level(logging.DEBUG)
 
     dependency_checks.log_dependency_info(["samtools", "bwa"])
 
-    assert f"samtools -> {samtools} (samtools 1.21)" in caplog.text
+    assert f"samtools -> {get_tool_path('samtools')} (samtools 1.21)" in caplog.text
+    assert _same_path(get_tool_path("samtools"), samtools)
     assert "bwa -> NOT FOUND" in caplog.text
 
 
-# Version probes of tools in an optional Pixi environment.
+# `deps check`
 
 
-def _fake_pixi(tmp_path: Path, prefix: Path, info_stdout: str | None = None) -> Path:
-    """A pixi that logs its argv; `info --json` lists the pacbio env at prefix."""
-    info = info_stdout or json.dumps(
-        {"environments_info": [{"name": "pacbio", "prefix": str(prefix)}]}
+def test_deps_check_tool_prints_its_path(host, capsys):
+    samtools = _tool(host, "samtools", "")
+
+    _deps_status.run(Namespace(tool="samtools", debug=False))
+    assert _same_path(capsys.readouterr().out.removesuffix("\n"), samtools)
+
+    _deps_status.run(Namespace(tool="samtools", debug=True))
+    assert capsys.readouterr().out == ""
+
+    with pytest.raises(WGSExtractError) as error:
+        _deps_status.run(Namespace(tool="bwa", debug=False))
+    assert str(error.value).startswith("Tool not found: bwa. Run: ")
+
+
+# The report lists these, but a user can run most commands without them.
+OPTIONAL_TOOLS = ("fastqc", "fastp", "curl")
+
+
+def _mandatory_tools(host: Path, *, without: tuple[str, ...] = ()) -> None:
+    for tool in required_dependency_tools():
+        if tool not in without + OPTIONAL_TOOLS:
+            _tool(host, tool, f'print("{tool} 1.21")')
+
+
+def _report(monkeypatch, encoding: str | None) -> tuple[dict[str, str], str | None]:
+    """Run `deps check` with stdout in this encoding (None: a StringIO, which
+    has none). Returns its rows by tool name, and the error it ends with."""
+    stdout = (
+        io.StringIO()
+        if encoding is None
+        else io.TextIOWrapper(io.BytesIO(), encoding=encoding)
     )
-    (tmp_path / "info.json").write_text(info)
-    return python_tool(
-        tmp_path,
-        "pixi",
-        "import sys\n"
-        f"open({str(tmp_path / 'argv.log')!r}, 'a').write(repr(sys.argv[1:]) + '\\n')\n"
-        "if sys.argv[1] == 'info':\n"
-        f"    print(open({str(tmp_path / 'info.json')!r}).read())\n"
-        "else:\n"
-        "    print('sniffles 2.6.3')\n",
-    )
-
-
-def _pixi_calls(tmp_path: Path) -> list[list[str]]:
-    log = tmp_path / "argv.log"
-    if not log.exists():
-        return []
-    return [ast.literal_eval(line) for line in log.read_text().splitlines()]
+    monkeypatch.setattr(sys, "stdout", stdout)
+    error = None
+    try:
+        _deps_status.run(Namespace(tool=None, debug=False))
+    except MissingDependencyError as raised:
+        error = str(raised)
+    stdout.flush()
+    if isinstance(stdout, io.StringIO):
+        text = stdout.getvalue()
+    else:
+        text = stdout.buffer.getvalue().decode(stdout.encoding)
+    rows = {line.split()[1]: line for line in text.splitlines() if " " in line}
+    return rows, error
 
 
 @pytest.mark.parametrize(
-    "manifest",
-    [["--manifest-path", "/app/pixi.toml"], ["--manifest-path=/app/pixi.toml"]],
+    ("encoding", "found", "warning", "missing"),
+    [
+        ("utf-8", "✅", "⚠️ ", "❌"),
+        (None, "✅", "⚠️ ", "❌"),
+        # A Windows console in a legacy code page.
+        ("ascii", "OK", "WARN", "MISS"),
+    ],
+    ids=["utf-8", "no encoding", "ascii"],
 )
-def test_installed_pixi_env_is_probed_with_its_manifest(
-    tmp_path, monkeypatch, manifest
-):
-    prefix = tmp_path / "envs" / "pacbio"
-    (prefix / "conda-meta").mkdir(parents=True)
-    (prefix / "conda-meta" / "pixi").write_text("{}")
-    pixi = _fake_pixi(tmp_path, prefix)
-    command = " ".join([str(pixi), "run", *manifest, "-e", "pacbio", "sniffles"])
-    _use_tools(monkeypatch, {"sniffles": command})
+def test_deps_check_report(host, monkeypatch, encoding, found, warning, missing):
+    _mandatory_tools(host, without=("bwa",))
+    _tool(host, "fastp", 'print("fastp 0.24.0")')
 
-    assert dependency_checks.get_tool_version("sniffles") == "sniffles 2.6.3"
+    rows, error = _report(monkeypatch, encoding)
 
-    calls = _pixi_calls(tmp_path)
-    assert calls[0] == ["info", "--json", *manifest]
-    assert calls[1] == [
-        "run",
-        "--no-install",
-        *manifest,
-        "-e",
-        "pacbio",
-        "sniffles",
-        "--version",
-    ]
-
-
-def test_unreadable_pixi_info_counts_the_env_as_not_installed(tmp_path, monkeypatch):
-    pixi = _fake_pixi(tmp_path, tmp_path, info_stdout="WARN pixi is updating")
-    _use_tools(monkeypatch, {"sniffles": f"{pixi} run -e pacbio sniffles"})
-
-    version = dependency_checks.get_tool_version("sniffles")
-    assert version.startswith(
-        "Error: Pixi env 'pacbio' is not installed. Run: pixi install --locked"
+    assert rows["samtools"].startswith(f"{found} ")
+    assert rows["samtools"].endswith("[native] (samtools 1.21)")
+    assert rows["fastp"].startswith(f"{found} ")
+    assert rows["bwa"].startswith(f"{missing} ")
+    assert rows["minimap2"].startswith(f"{warning} ")
+    for tool in ("bwa", "minimap2"):
+        assert "[missing] (Run: " in rows[tool]
+        assert rows[tool].endswith("-e default)")
+    assert error == (
+        "Missing mandatory tool(s): bwa. Install them to ensure full functionality."
     )
-    assert version.endswith("-e pacbio")
-    assert [c[0] for c in _pixi_calls(tmp_path)] == ["info"]
 
 
-# pixi_tools: telling Pixi commands and paths apart, finding pixi, probing envs.
+@posix_pixi
+@pytest.mark.parametrize(
+    ("encoding", "marker"), [("utf-8", "🔵"), ("ascii", "ALT")], ids=["utf-8", "ascii"]
+)
+def test_deps_check_report_marks_a_tool_from_another_environment(
+    host, fake_pixi, monkeypatch, encoding, marker
+):
+    _mandatory_tools(host)
+    prefix = fake_pixi.env("pacbio", locked=("sniffles",))
+    python_tool(prefix / "bin", "sniffles", 'print("Sniffles2 2.6.3")')
+
+    rows, error = _report(monkeypatch, encoding)
+
+    assert rows["sniffles"].startswith(f"{marker} ")
+    assert rows["sniffles"].endswith("[pixi alt env: pacbio] (Sniffles2 2.6.3)")
+    assert error is None  # every mandatory tool is there
+
+
+# pixi_tools: telling Pixi commands and paths apart.
 
 
 @pytest.mark.parametrize(
@@ -432,252 +520,3 @@ def test_is_pixi_tool_path_needs_an_active_pixi_env(tmp_path, monkeypatch):
     monkeypatch.delenv("PIXI_PROJECT_ROOT")
     monkeypatch.setenv("PIXI_PREFIX", str(env))
     assert pixi_tools.is_pixi_tool_path(str(tool))
-
-
-def test_resolve_pixi_command_falls_back_to_the_users_pixi(monkeypatch):
-    if any(Path(p).exists() for p in ("/opt/homebrew/bin/pixi", "/usr/local/bin/pixi")):
-        pytest.skip("a system pixi is installed")
-    monkeypatch.setattr(pixi_tools.shutil, "which", lambda name: None)
-    monkeypatch.setattr(pixi_tools.runtime, "source_checkout_root", lambda: None)
-
-    assert pixi_tools._resolve_pixi_command() is None
-    assert pixi_tools.pixi_env_prefix("gatk") is None
-
-    own = Path.home() / ".pixi" / "bin" / "pixi"
-    own.parent.mkdir(parents=True)
-    own.write_text("")
-    assert pixi_tools._resolve_pixi_command() == str(own)
-
-
-def test_manifest_args_point_at_the_checkout(tmp_path, monkeypatch):
-    monkeypatch.setattr(pixi_tools.runtime, "source_checkout_root", lambda: tmp_path)
-    assert pixi_tools._pixi_manifest_args() == []
-
-    (tmp_path / "pixi.toml").write_text("")
-    assert pixi_tools._pixi_manifest_args() == [
-        "--manifest-path",
-        str(tmp_path / "pixi.toml"),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("result", "error"),
-    [
-        (MagicMock(returncode=1, stdout='[{"name": "gatk4"}]'), None),
-        (MagicMock(returncode=0, stdout="not json"), None),
-        (None, OSError("pixi vanished")),
-    ],
-)
-def test_lockfile_lookup_failures_mean_unavailable(monkeypatch, result, error):
-    def run(cmd, **kwargs):
-        if error:
-            raise error
-        return result
-
-    monkeypatch.setattr(pixi_tools.subprocess, "run", run)
-    assert not pixi_tools._locked_package_available("/usr/bin/pixi", "gatk", "gatk")
-
-
-@pytest.mark.parametrize(
-    "stdout",
-    ["", "not json", '{"version": "0.40"}', '{"environments_info": [{"name": "vep"}]}'],
-)
-def test_pixi_env_prefix_without_a_usable_answer(monkeypatch, stdout):
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "/usr/bin/pixi")
-    monkeypatch.setattr(
-        pixi_tools.subprocess, "run", lambda cmd, **kw: MagicMock(stdout=stdout)
-    )
-    assert pixi_tools.pixi_env_prefix("gatk") is None
-
-
-# Windows environments keep programs in Library\\bin and Scripts; see
-# test_tool_resolution for those.
-posix_env_layout = pytest.mark.skipif(
-    sys.platform == "win32", reason="a POSIX environment's bin/ layout"
-)
-
-
-@pytest.fixture(scope="module")
-def pixi_env(tmp_path_factory):
-    """A real Python environment standing in for a Pixi env's prefix."""
-    root = tmp_path_factory.mktemp("pixi-env")
-    prefix = root / "env"
-    subprocess.run(
-        [sys.executable, "-m", "venv", "--without-pip", str(prefix)], check=True
-    )
-    return prefix
-
-
-def _probing_pixi(tmp_path: Path, prefix: Path, path_dir: Path) -> str:
-    """A pixi whose `run ... -e ENV python -c PROBE NAMES` runs the probe in
-    prefix's Python, with only path_dir on PATH."""
-    script = tmp_path / "pixi"
-    script.write_text(
-        f"#!{sys.executable}\n"
-        "import os, subprocess, sys\n"
-        "args = sys.argv[1:]\n"
-        "assert args[0] == 'run' and '--no-install' in args, args\n"
-        "cmd = args[args.index('-e') + 2:]\n"
-        f"cmd[0] = {str(prefix / 'bin' / 'python')!r}\n"
-        f"env = dict(os.environ, PATH={str(path_dir)!r})\n"
-        "sys.exit(subprocess.run(cmd, env=env).returncode)\n"
-    )
-    script.chmod(0o755)
-    return str(script)
-
-
-@posix_env_layout
-def test_probe_finds_a_tool_on_the_envs_path(tmp_path, monkeypatch, pixi_env):
-    _tool(tmp_path, "samtools", "")
-    pixi = _probing_pixi(tmp_path, pixi_env, tmp_path / "bin")
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: pixi)
-    monkeypatch.setattr(pixi_tools, "_pixi_manifest_args", lambda: [])
-
-    assert (
-        pixi_tools.pixi_env_tool("samtools")
-        == f"{pixi} run --no-install -e default samtools"
-    )
-
-
-@pytest.mark.parametrize(
-    ("tool", "env_file", "expected_tail"),
-    [
-        ("haplogrep", "bin/haplogrep.jar", [*JAVA_JAR, "{file}"]),
-        ("gatk", "bin/gatk", ["python", "{file}"]),
-        ("delly", "bin/delly", ["{file}"]),
-    ],
-)
-@posix_env_layout
-def test_probe_finds_tools_inside_the_env_prefix(
-    tmp_path, monkeypatch, pixi_env, tool, env_file, expected_tail
-):
-    file = pixi_env / env_file
-    file.write_text("")
-    empty_path = tmp_path / "empty"
-    empty_path.mkdir()
-    pixi = _probing_pixi(tmp_path, pixi_env, empty_path)
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: pixi)
-    monkeypatch.setattr(pixi_tools, "_pixi_manifest_args", lambda: [])
-    try:
-        command = pixi_tools.pixi_env_tool(tool)
-    finally:
-        file.unlink()
-
-    env = pixi_tools.PIXI_TOOL_ENVS[tool]
-    tail = [part.format(file=file.resolve()) for part in expected_tail]
-    assert command == " ".join([pixi, "run", "--no-install", "-e", env, *tail])
-
-
-@pytest.mark.parametrize("stdout", ["", "no separator", "script:"])
-def test_probe_output_without_a_location_is_no_tool(monkeypatch, stdout):
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "/usr/bin/pixi")
-    monkeypatch.setattr(
-        pixi_tools.subprocess,
-        "run",
-        lambda cmd, **kw: MagicMock(returncode=0, stdout=stdout),
-    )
-    assert pixi_tools.pixi_env_tool("samtools") is None
-
-
-def test_probe_that_cannot_start_pixi_is_no_tool(monkeypatch):
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "/usr/bin/pixi")
-
-    def run(cmd, **kwargs):
-        raise subprocess.TimeoutExpired(cmd, 10)
-
-    monkeypatch.setattr(pixi_tools.subprocess, "run", run)
-    assert pixi_tools.pixi_env_tool("samtools") is None
-    assert pixi_tools.pixi_env_tool("not-a-pixi-tool") is None
-
-
-# `deps check`
-
-
-def test_deps_check_tool_prints_its_path(monkeypatch, capsys):
-    from wgsextract_cli.core import dependencies
-
-    monkeypatch.setattr(
-        dependencies,
-        "get_tool_path",
-        lambda tool: {"samtools": "/env/bin/samtools"}.get(tool),
-    )
-
-    _deps_status.run(Namespace(tool="samtools", debug=False))
-    assert capsys.readouterr().out == "/env/bin/samtools\n"
-
-    _deps_status.run(Namespace(tool="samtools", debug=True))
-    assert capsys.readouterr().out == ""
-
-    with pytest.raises(WGSExtractError, match="Tool not found: bwa"):
-        _deps_status.run(Namespace(tool="bwa", debug=False))
-
-
-def test_deps_check_report(tmp_path, monkeypatch, capsys):
-    _use_tools(
-        monkeypatch,
-        {
-            "samtools": _tool(tmp_path, "samtools", 'print("samtools 1.21")'),
-            "bcftools": _tool(tmp_path, "bcftools", 'print("bcftools 1.21")'),
-            "sniffles": f"{_fake_pixi(tmp_path, tmp_path / 'none')} run -e pacbio sniffles",
-        },
-    )
-    monkeypatch.setattr(
-        dependency_checks, "required_dependency_tools", lambda: ["samtools", "bcftools"]
-    )
-    monkeypatch.setattr(
-        dependency_checks, "optional_dependency_tools", lambda: ["sniffles", "minimap2"]
-    )
-
-    _deps_status.run(Namespace(tool=None, debug=False))
-
-    lines = capsys.readouterr().out.splitlines()
-    row = {line.split()[1]: line for line in lines if line and line[0] in "✅⚠🔵❌"}
-    assert (
-        row["samtools"].startswith("✅")
-        and "[native] (samtools 1.21)" in row["samtools"]
-    )
-    assert row["sniffles"].startswith("⚠️ ")
-    assert (
-        "[missing] (Error: Pixi env 'pacbio' is not installed. Run: pixi install --locked"
-        in row["sniffles"]
-    )
-    assert (
-        row["minimap2"].startswith("⚠️ ")
-        and "[missing] (Run: pixi install --locked" in row["minimap2"]
-    )
-
-
-def test_deps_check_report_in_ascii(monkeypatch, capsys):
-    monkeypatch.setattr(
-        _deps_status,
-        "check_all_dependencies",
-        lambda: {
-            "mandatory": [
-                {"name": "samtools", "path": "/s", "runtime": "native", "version": None}
-            ],
-            "optional": [
-                {
-                    "name": "minimap2",
-                    "path": None,
-                    "runtime": "missing",
-                    "version": None,
-                }
-            ],
-        },
-    )
-    ascii_out = open(os.devnull, "w", encoding="ascii")
-    monkeypatch.setattr(sys, "stdout", ascii_out)
-    try:
-        assert _deps_status._status_text("/s") == "OK"
-        assert _deps_status._status_text(None) == "MISS"
-        assert _deps_status._status_text(None, optional=True) == "WARN"
-        _deps_status.run(
-            Namespace(tool=None, debug=False)
-        )  # prints without UnicodeEncodeError
-    finally:
-        ascii_out.close()
-
-
-def test_stdout_without_an_encoding_takes_emoji(monkeypatch):
-    monkeypatch.setattr(sys, "stdout", object())
-    assert _deps_status._status_text("/s") == "✅"

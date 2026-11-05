@@ -3,10 +3,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.fake_tools import FakePixi
 from tests.smoke_utils import ensure_fake_data, isolate_home, state_directory_setting
 from wgsextract_cli.core.config import get_config_path, reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
-from wgsextract_cli.core.runtime import repo_root
+from wgsextract_cli.core.runtime import repo_root, source_checkout_root
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -174,3 +175,16 @@ def _fresh_tool_caches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     clear_tool_caches()
     yield
     clear_tool_caches()
+
+
+@pytest.fixture
+def fake_pixi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakePixi:
+    """The pixi running the CLI (as `pixi run` exports PIXI_EXE), outside any
+    of its environments, for this checkout's workspace. PATH holds only
+    ``host_bin``: the host's own programs."""
+    root = source_checkout_root()
+    pixi = FakePixi(tmp_path / "pixi", root / "pixi.toml" if root else None)
+    monkeypatch.setenv("PIXI_EXE", str(pixi.exe))
+    monkeypatch.setenv("PATH", str(pixi.host_bin))
+    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+    return pixi
