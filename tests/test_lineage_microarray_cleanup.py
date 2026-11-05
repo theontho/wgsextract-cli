@@ -277,7 +277,7 @@ def test_infer_sex_from_x_and_y_reads(x_reads, y_reads, sex):
     assert infer_sex(_idx(x_reads, y_reads)) == sex
 
 
-def _sex_bam(path: Path, x_reads: int, y_reads: int) -> str:
+def _xy_bam(path: Path, x_reads: int, y_reads: int) -> str:
     """A BAM with hg38's chrX/chrY lengths and this many reads on each."""
     read = "\t60\t50M\t*\t0\t0\t" + "A" * 50 + "\t" + "I" * 50
     return sam_to_bam(
@@ -292,18 +292,18 @@ def _sex_bam(path: Path, x_reads: int, y_reads: int) -> str:
 def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
     """A female genome's mismapped chrY reads made Yleaf "predict" BT* with a full
     QC score; the command must say there is no Y instead."""
-    bam = _sex_bam(tmp_path / "sample.bam", x_reads=30, y_reads=1)
+    bam = _xy_bam(tmp_path / "sample.bam", x_reads=30, y_reads=1)
 
     with pytest.raises(WGSExtractError, match="appears female"):
         run_wgsextract("lineage", "y-haplogroup", "--input", bam)
     assert not (tmp_path / "yleaf").exists()
 
 
-def _info_cache(bam: str, sex: str, size_delta: int = 0) -> None:
+def _info_cache(bam: str, call: str, size_delta: int = 0) -> None:
     st = Path(bam).stat()
     Path(f"{bam}.wgse_info.json").write_text(
         json.dumps({
-            "md5_signature": calculate_bam_md5(bam, None), "gender": sex,
+            "md5_signature": calculate_bam_md5(bam, None), "gender": call,
             "sex_inference_version": metrics.SEX_INFERENCE_VERSION,
             "input_signature": {
                 "size": st.st_size + size_delta, "mtime_ns": st.st_mtime_ns
@@ -314,11 +314,11 @@ def _info_cache(bam: str, sex: str, size_delta: int = 0) -> None:
 
 @needs_htslib
 def test_sample_sex_trusts_only_this_files_info_cache(tmp_path):
-    this_file = _sex_bam(tmp_path / "a.bam", x_reads=30, y_reads=10)
+    this_file = _xy_bam(tmp_path / "a.bam", x_reads=30, y_reads=10)
     _info_cache(this_file, "Female")
     assert metrics.sample_sex(this_file) == "Female"
 
     # A cache for another file of the same name is ignored.
-    other_file = _sex_bam(tmp_path / "b.bam", x_reads=30, y_reads=10)
+    other_file = _xy_bam(tmp_path / "b.bam", x_reads=30, y_reads=10)
     _info_cache(other_file, "Female", size_delta=1)
     assert metrics.sample_sex(other_file) == "Male"
