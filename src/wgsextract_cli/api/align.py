@@ -14,6 +14,7 @@ from pathlib import Path
 
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.results import CommandResult
+from wgsextract_cli.core.utils import UsageError
 
 from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
@@ -100,6 +101,12 @@ class AlignParams(Params):
     outdir: Path | None = outdir_param("the input's folder, else the reads'")
     threads: int | None = threads_param()
     memory: str | None = memory_param()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.r1 is None:
+            # Optional on the command line, where --genome may find the reads.
+            raise UsageError("--r1 is required unless --genome resolves read inputs.")
 
 
 @dataclass(frozen=True, kw_only=True)

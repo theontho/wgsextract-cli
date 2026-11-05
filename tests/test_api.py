@@ -445,6 +445,12 @@ def test_each_force_step_is_checked():
         api.RealignParams(input=Path("x.bam"), force_steps=("align", "sort"))
 
 
+def test_align_without_reads_is_refused_before_it_runs():
+    # PR #445 review: a server job without r1 was accepted and then failed late.
+    with pytest.raises(api.UsageError, match="--r1 is required"):
+        api.AlignParams(ref=Path("ref.fa"))
+
+
 def assert_valid(result: api.Result) -> None:
     document = json.loads(json.dumps(result.to_dict()))
     errors = sorted(VALIDATOR.iter_errors(document), key=lambda e: list(e.path))
