@@ -15,7 +15,16 @@ import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from os import PathLike
 from pathlib import Path
-from typing import IO, Concatenate, Literal, ParamSpec, TypeAlias, TypeVar, overload
+from typing import (
+    IO,
+    Any,
+    Concatenate,
+    Literal,
+    ParamSpec,
+    TypeAlias,
+    TypeVar,
+    overload,
+)
 
 from wgsextract_cli.core import live_status
 from wgsextract_cli.core.download_progress import CancelEvent, redact_urls
@@ -443,6 +452,33 @@ def run_command(
             stderr_thread.join(timeout=0.1)
 
 
+class _RelayedPopen(subprocess.Popen[Any]):
+    """A tool whose output to the terminal is relayed by threads: it is not
+    finished, for wait() and poll(), until they have copied all of it."""
+
+    relays: Sequence[threading.Thread] = ()
+
+    def poll(self) -> int | None:
+        returncode = super().poll()
+        if returncode is None or any(relay.is_alive() for relay in self.relays):
+            return None
+        return returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        returncode = super().wait(timeout)
+        if timeout is None:
+            for relay in self.relays:
+                while relay.is_alive():
+                    relay.join(0.5)  # an endless join defers Ctrl-C on Windows
+            return returncode
+        deadline = time.monotonic() + timeout
+        for relay in self.relays:
+            relay.join(max(0.0, deadline - time.monotonic()))
+            if relay.is_alive():
+                raise subprocess.TimeoutExpired(self.args, timeout)
+        return returncode
+
+
 @overload
 def popen(
     cmd: PathInput | Sequence[object],
@@ -489,7 +525,7 @@ def popen(
 
     relays: list[_Relay] = []
     try:
-        process = subprocess.Popen(
+        process = _RelayedPopen(
             cmd_list,
             stdout=_relay_if_terminal(_child_stdout(stdout), 1, "stdout", relays),
             stderr=_relay_if_terminal(stderr, 2, "stderr", relays),
@@ -506,7 +542,7 @@ def popen(
             f"Could not start {Path(cmd_list[0]).name}: {error.strerror or error}. "
             "Run 'wgsextract deps check' to validate installed tools."
         ) from error
-    _start_relays(relays, launched=True)
+    process.relays = _start_relays(relays, launched=True)
     proc_registry.register_process(cmd_str, process)
 
     def _unregister_finished_process() -> None:

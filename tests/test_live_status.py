@@ -14,8 +14,8 @@ from collections.abc import Iterator
 import pytest
 
 from wgsextract_cli.cli import dispatch
-from wgsextract_cli.core import live_status
-from wgsextract_cli.core.utils import popen, run_command
+from wgsextract_cli.core import live_status, utils
+from wgsextract_cli.core.utils import popen, run_command, wait_with_cancel
 
 
 class _Tty(io.StringIO):
@@ -89,10 +89,10 @@ def test_the_line_names_the_running_tool():
     assert "vcf snp: python" in tty.getvalue()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
-def test_tools_writing_to_the_terminal_do_not_overwrite_the_line():
-    """A tool's own stdout and stderr, inherited or given the terminal, go
-    through the line-clearing streams too."""
+@contextlib.contextmanager
+def _pty_terminal() -> Iterator[tuple[io.TextIOWrapper, int, bytearray]]:
+    """fds 1 and 2, sys.stdout and sys.stderr on a pseudo-terminal; yields the
+    terminal stream, its fd, and what has reached the screen so far."""
     import pty
 
     main, side = pty.openpty()
@@ -104,16 +104,11 @@ def test_tools_writing_to_the_terminal_do_not_overwrite_the_line():
     terminal = open(side, "w", buffering=1, closefd=False)  # noqa: SIM115
     saved = [os.dup(fd) for fd in (1, 2)]
     saved_streams = sys.stdout, sys.stderr
-    write = "import sys; sys.stdout.write('out\\n'); sys.stderr.write('err\\n')"
     try:
         for fd in (1, 2):
             os.dup2(side, fd)
         sys.stdout = sys.stderr = terminal
-        with live_status.LiveStatus("vcf snp", terminal, delay=0, interval=0.01):
-            _wait_for(lambda: b"vcf snp" in received)
-            run_command([sys.executable, "-c", write], check=False)
-            popen([sys.executable, "-c", write], stdout=side, stderr=side).wait()
-            _wait_for(lambda: received.count(b"err") == 2)
+        yield terminal, side, received
     finally:
         sys.stdout, sys.stderr = saved_streams
         for fd, copy in zip((1, 2), saved, strict=True):
@@ -123,7 +118,43 @@ def test_tools_writing_to_the_terminal_do_not_overwrite_the_line():
         os.close(side)
         reader.join(timeout=5)
         os.close(main)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
+def test_tools_writing_to_the_terminal_do_not_overwrite_the_line():
+    """A tool's own stdout and stderr, inherited or given the terminal, go
+    through the line-clearing streams too."""
+    write = "import sys; sys.stdout.write('out\\n'); sys.stderr.write('err\\n')"
+    with _pty_terminal() as (terminal, side, received):
+        with live_status.LiveStatus("vcf snp", terminal, delay=0, interval=0.01):
+            _wait_for(lambda: b"vcf snp" in received)
+            run_command([sys.executable, "-c", write], check=False)
+            popen([sys.executable, "-c", write], stdout=side, stderr=side).wait()
+        # Everything is on the terminal; wait for the pty to deliver it.
+        _wait_for(lambda: received.count(b"out") == received.count(b"err") == 2)
     assert sorted(_screen(received.decode())) == ["err", "err", "out", "out"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
+@pytest.mark.parametrize("finish", [lambda p: p.wait(), wait_with_cancel])
+def test_a_started_tool_has_written_everything_once_it_has_finished(
+    finish, monkeypatch
+):
+    """Once wait() or poll() says a popen'd tool is done, its relayed output
+    is on the terminal, ahead of whatever is written next."""
+    relay = utils._tee_stderr
+
+    def slow_relay(*args):  # as on a loaded machine
+        time.sleep(0.3)
+        relay(*args)
+
+    monkeypatch.setattr(utils, "_tee_stderr", slow_relay)
+    with _pty_terminal() as (terminal, _side, received):
+        with live_status.LiveStatus("vcf snp", terminal, delay=0, interval=0.01):
+            finish(popen([sys.executable, "-c", "print('done')"]))
+            sys.stdout.write("next\n")
+        _wait_for(lambda: b"next" in received and b"done" in received)
+    assert _screen(received.decode()) == ["done", "next"]
 
 
 def _read(fd: int) -> bytes:
