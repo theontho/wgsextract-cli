@@ -57,9 +57,12 @@ _MINIMAP2_INDEX_BYTES_PER_BASE = {
 # index, plus each thread's alignment buffers, which grow with read length:
 # 40k HG002 ONT reads (20 kb mean) at -t 4 peaked 4.2 GiB above the index.
 _MINIMAP2_BATCH_BYTES = 5 * _GIB // 2
-# That is about 5.4 bytes per batched base; read files hold no more than 4 bases
-# per byte (compressed), so smaller inputs fill one smaller batch.
-_MINIMAP2_BATCH_BYTES_PER_INPUT_BYTE = 24
+# That is about 5.4 bytes per batched base. Even reference-compressed CRAM with
+# binned qualities holds fewer than 16 bases per byte, so read files smaller
+# than about 30 MB fill one smaller batch.
+_MINIMAP2_BATCH_BYTES_PER_INPUT_BYTE = 96
+# gzip/BGZF stores a FASTA's bases in at least 0.2 bytes each.
+_FASTA_GZ_BASES_PER_BYTE = 5
 _MINIMAP2_THREAD_BYTES = _GIB // 2
 
 
@@ -214,6 +217,16 @@ def _minimap2_memory(
     return index, max(build - index, mapping)
 
 
+def _fasta_bases_bound(ref: str | None) -> int:
+    """At most how many bases a FASTA without a .fai holds, from its size."""
+    try:
+        size = Path(ref).stat().st_size if ref else 0
+    except OSError:
+        return 0
+    gz = str(ref).lower().endswith((".gz", ".bgz", ".bgzf"))
+    return size * _FASTA_GZ_BASES_PER_BYTE if gz else size
+
+
 def reference_bases(ref: str | None) -> int:
     if not ref:
         return 0
@@ -243,7 +256,11 @@ def estimate_mapping_memory(
 ) -> MappingMemory:
     """Peak memory of the alignment pipeline. ``preset`` is minimap2's, and
     ``input_bytes`` (the read files' size) bounds its batches."""
-    bases = reference_bases(ref) or _HUMAN_REFERENCE_BASES
+    bases = (
+        reference_bases(ref)
+        or (_fasta_bases_bound(ref) if aligner == "minimap2" else 0)
+        or _HUMAN_REFERENCE_BASES
+    )
     amount, unit = parse_memory(memory)
     per_thread = amount * (1024**3 if unit == "G" else 1024**2)
     sort = int(int(threads) * per_thread * 1.25)
@@ -251,8 +268,8 @@ def estimate_mapping_memory(
     if aligner == "minimap2":
         index, working = _minimap2_memory(bases, preset, int(threads), input_bytes)
         if reads is None and input_bytes is not None:
-            # A compressed short read takes at least 16 bytes.
-            input_reads = min(input_reads, max(0, input_bytes) // 16)
+            # A compressed short read takes at least 8 bytes.
+            input_reads = min(input_reads, max(0, input_bytes) // 8)
         return MappingMemory(
             index,
             working,

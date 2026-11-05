@@ -282,3 +282,15 @@ def test_minimap2_small_short_read_input_does_not_get_the_genome_fallback():
     )
     unknown = alignment_memory.estimate_mapping_memory(None, "minimap2", **options)
     assert small.samblaster < 10 * 1024**2 < GIB < unknown.samblaster
+
+
+@pytest.mark.parametrize("name", ["ref.fa", "ref.fa.gz"])
+def test_minimap2_tiny_reference_without_fai_is_not_budgeted_as_human(tmp_path, name):
+    """minimap2 needs no .fai, so a small FASTA without one is bounded by its
+    size rather than given the 3.2-gigabase human fallback."""
+    ref = tmp_path / name
+    ref.write_bytes(b">chr1\n" + b"ACGT" * 25_000 + b"\n")
+    estimate = alignment_memory.estimate_mapping_memory(
+        str(ref), "minimap2", threads="1", memory="256M", samblaster=False
+    )
+    assert estimate.index_resident < 10 * 1024**2

@@ -1103,10 +1103,17 @@ def align_minimap2(args: argparse.Namespace) -> None:
     logging.info("Using minimap2 preset %s for %s reads.", preset, args.platform)
     duplicates = duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
     read_files = [path for path in (args.r1, args.r2) if path]
-    try:
-        input_bytes: int | None = sum(os.path.getsize(path) for path in read_files)
-    except OSError:
-        input_bytes = None
+    input_bytes: int | None = None
+    # Pipes and devices report no size; only regular files bound the batches.
+    if all(Path(path).is_file() for path in read_files):
+        try:
+            input_bytes = sum(os.path.getsize(path) for path in read_files)
+        except OSError:
+            input_bytes = None
+    read_count = getattr(args, "_input_read_count", None)
+    if read_count is None and duplicates == "samblaster":
+        statistics = fastq_input_statistics(args.r1, args.r2)
+        read_count = statistics.reads if statistics is not None else None
     preflight_resources(
         lambda: estimate_resources(
             "align",
@@ -1119,6 +1126,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
             aligner="minimap2",
             preset=preset,
             samblaster=duplicates == "samblaster",
+            reads=read_count,
             platform=args.platform,
             output_format=args.format,
         )
@@ -1129,6 +1137,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
         threads=setup.threads,
         memory=setup.memory,
         samblaster=duplicates == "samblaster",
+        reads=read_count,
         platform=args.platform,
         preset=preset,
         input_bytes=input_bytes,
