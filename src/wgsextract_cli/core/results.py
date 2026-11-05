@@ -392,6 +392,7 @@ class CommandResult:
     def __post_init__(self) -> None:
         self._lock = threading.Lock()
         self._tools: set[str] = set()
+        self._tool_versions: dict[str, str] = {}
         self._manifest_stem: Path | None = None
         self._clock = time.monotonic()
 
@@ -468,6 +469,13 @@ class CommandResult:
         with self._lock:
             self._tools.update(tools)
 
+    def record_tool_version(self, tool: str, version: str) -> None:
+        """Record the version of the tool that ran, as when an override path
+        isn't the installation a probe by name would find."""
+        with self._lock:
+            self._tools.add(tool)
+            self._tool_versions[tool] = version
+
     # --- finishing -------------------------------------------------------
 
     def fail(self, kind: ErrorKind, message: str, exit_code: int) -> None:
@@ -498,7 +506,7 @@ class CommandResult:
             self.provenance.tools = {
                 tool: version
                 for tool in sorted(self._tools)
-                if (version := tool_version(tool))
+                if (version := self._tool_versions.get(tool) or tool_version(tool))
             }
         self.provenance.finished = _utc(time.time())
         self.provenance.elapsed_s = round(time.monotonic() - self._clock, 3)

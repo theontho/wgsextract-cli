@@ -4,6 +4,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -147,7 +148,9 @@ class _SlowToStart(Exception):
     pass
 
 
-def _run_probe(tool: str, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_probe(
+    tool: str, cmd: list[str], cwd: str | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run a probe command, retrying once with a longer limit on a timeout."""
     for timeout in (VERSION_PROBE_TIMEOUT, VERSION_PROBE_RETRY_TIMEOUT):
         try:
@@ -158,6 +161,7 @@ def _run_probe(tool: str, cmd: list[str]) -> subprocess.CompletedProcess[str]:
                 text=True,
                 errors="replace",
                 timeout=timeout,
+                cwd=cwd,
             )
         except subprocess.TimeoutExpired:
             logging.debug(f"{cmd} timed out after {timeout} seconds")
@@ -230,10 +234,22 @@ def get_tool_version(tool: str) -> str | None:
 
 
 def _probe_version(tool: str, full_cmd: list[str]) -> str:
+    if tool != "haplogrep3":
+        return _probe_version_in(tool, full_cmd, None)
+    from wgsextract_cli.core.haplogrep_trees import write_config
+
+    # Without a configuration in its working directory, Haplogrep 3 loads the
+    # one beside its jar and downloads that file's trees into the install.
+    with tempfile.TemporaryDirectory(prefix="wgse_haplogrep3_") as home:
+        write_config(None, Path(home))
+        return _probe_version_in(tool, full_cmd, home)
+
+
+def _probe_version_in(tool: str, full_cmd: list[str], cwd: str | None) -> str:
     try:
         # 1. Try --version first (standard)
         version_arg = VERSION_ARGS.get(tool, "--version")
-        res = _run_probe(tool, full_cmd + [version_arg])
+        res = _run_probe(tool, full_cmd + [version_arg], cwd)
         if crashed := _crash_description(res.returncode):
             return f"Error: {tool} {crashed}"
         output = _version_output(res.stdout, res.stderr)
@@ -246,7 +262,7 @@ def _probe_version(tool: str, full_cmd: list[str]) -> str:
                 return lines[0]
 
         # 2. Fallback for tools that use bare command or --help
-        res = _run_probe(tool, full_cmd)
+        res = _run_probe(tool, full_cmd, cwd)
         if crashed := _crash_description(res.returncode):
             return f"Error: {tool} {crashed}"
         output = _version_output(res.stdout, res.stderr)

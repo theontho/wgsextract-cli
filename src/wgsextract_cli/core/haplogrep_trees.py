@@ -9,6 +9,7 @@ configuration file, so the Pixi environment is never modified.
 import hashlib
 import json
 import logging
+import os
 import shutil
 import tempfile
 import zipfile
@@ -16,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from wgsextract_cli.core.dev_download_cache import process_umask
 from wgsextract_cli.core.file_lock import build_lock
 from wgsextract_cli.core.ref_library.downloads import download_file
 from wgsextract_cli.core.reference_assets import resolve_reference_library
@@ -90,6 +92,16 @@ def _extract(archive: Path, root: Path, files: dict[str, Any]) -> None:
         raise WGSExtractError("Haplogrep tree failed SHA-256 verification.")
 
 
+def configured_tree_spec() -> str:
+    """``id@version`` of the tree a run without --tree uses: config.toml's
+    haplogrep_tree, else the default, at its pinned version."""
+    from wgsextract_cli.core.config import settings
+
+    tree_id = str(settings.get("haplogrep_tree") or DEFAULT_TREE)
+    meta = MANIFEST["trees"].get(tree_id, {})
+    return f"{tree_id}@{meta.get('version', '')}"
+
+
 def ensure_tree(tree_id: str, library: str | Path | None = None) -> HaplogrepTree:
     """The pinned tree, downloaded into the reference library if missing."""
     meta = MANIFEST["trees"].get(tree_id)
@@ -124,6 +136,9 @@ def ensure_tree(tree_id: str, library: str | Path | None = None) -> HaplogrepTre
             staging = Path(tempfile.mkdtemp(prefix="unpack-", dir=root.parent))
             try:
                 _extract(archive, staging, files)
+                # mkdtemp makes 0700; publish readable to a shared library's users.
+                if os.name != "nt":
+                    os.chmod(staging, 0o777 & ~process_umask())
                 shutil.rmtree(root, ignore_errors=True)
                 staging.replace(root)
             finally:
@@ -137,15 +152,17 @@ def ensure_tree(tree_id: str, library: str | Path | None = None) -> HaplogrepTre
     return tree
 
 
-def write_config(tree: HaplogrepTree, home: Path) -> None:
-    """Write a Haplogrep 3 configuration that loads only ``tree`` into ``home``.
+def write_config(tree: HaplogrepTree | None, home: Path) -> None:
+    """Write a Haplogrep 3 configuration that loads only ``tree`` (or, for a
+    version probe, no tree and no tree repository) into ``home``.
 
-    Haplogrep reads ``haplogrep3.yaml`` from its working directory before the
-    one beside its jar, and loads a tree listed by the path of its tree.yaml.
+    Haplogrep reads ``haplogrep3.yaml`` from its working directory, else the
+    one beside its jar, whose trees it downloads at startup; it loads a tree
+    listed by the path of its tree.yaml.
     """
-    tree_yaml = json.dumps(tree.path.absolute().as_posix())
+    trees = f"\n  - {json.dumps(tree.path.absolute().as_posix())}" if tree else " []"
     (home / CONFIG_FILENAME).write_text(
-        f"repositories: []\nphylotrees:\n  - {tree_yaml}\n",
+        f"repositories: []\nphylotrees:{trees}\n",
         encoding="utf-8",
         newline="\n",
     )

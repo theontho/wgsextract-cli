@@ -204,16 +204,17 @@ def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str
             ]
         )
 
-    for tool in tool_names:
-        if shutil.which(tool):
-            return "direct-name:" + tool
-
-    # Java tools whose Bioconda launchers are Bash scripts, unusable on Windows.
+    # Java tools whose Bioconda launchers are Bash scripts, unusable on Windows
+    # and opaque elsewhere: haplocheck's jar locates its sibling mutserve.jar.
     for tool in tool_names:
         if tool in ("haplogrep3", "haplocheck"):
             jar = root / "bin" / (tool + ".jar")
             if jar.exists():
                 return "jar:" + str(jar.resolve())
+
+    for tool in tool_names:
+        if shutil.which(tool):
+            return "direct-name:" + tool
 
     for tool in tool_names:
         # noarch packages keep the real script beside its data, in share/<pkg>/

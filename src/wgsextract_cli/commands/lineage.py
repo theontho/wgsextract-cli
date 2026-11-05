@@ -59,6 +59,8 @@ from ._lineage_ydna import (
 from ._lineage_ystr import add_ystr_parser
 
 HAPLOGREP_BANNER = re.compile(r"Haplogrep 3 (\d\S*)")
+HAPLOCHECK_BANNER = re.compile(r"haplocheck (\d\S*)")
+MUTSERVE_BANNER = re.compile(r"mtDNA Variant Detection v(\d\S*)")
 
 
 def _jar_command(path: str, jar_name: str) -> list[str]:
@@ -66,7 +68,8 @@ def _jar_command(path: str, jar_name: str) -> list[str]:
     unquoted, so they fail whenever the install path has a space (the GUI's
     runtime lives in "Application Support"); run the jar beside them instead."""
     if Path(path).is_file():
-        parts = [path]
+        # Absolute: the tools run with a temporary working directory.
+        parts = [str(absolute_path(path))]
     else:
         parts = _tool_command_parts(path)
     if len(parts) > 1:
@@ -122,6 +125,27 @@ def _banner_version(cmd: list[str], pattern: re.Pattern[str], home: str) -> str 
     return match.group(1) if match else None
 
 
+def _record_banner_version(
+    cmd: list[str], tool: str, pattern: re.Pattern[str], home: str
+) -> None:
+    """Record the version of the command that runs, not of one found by name."""
+    version = _banner_version([*cmd, "--version"], pattern, home)
+    if version:
+        current_result().record_tool_version(tool, version)
+    else:
+        current_result().record_tool_command([tool])
+
+
+def _require_one_sample(header: str) -> None:
+    """haplocheck pools an alignment's reads, so they must be one sample's."""
+    samples = set(re.findall(r"^@RG\t(?:.*\t)?SM:([^\t\n]+)", header, re.MULTILINE))
+    if len(samples) > 1:
+        raise WGSExtractError(
+            "--contamination needs a single-sample alignment; this one has read "
+            f"groups of {len(samples)} samples ({', '.join(sorted(samples))})."
+        )
+
+
 def _reference_library(ref: Path | None) -> str:
     return resolve_reference_library(ref if ref is not None and ref.is_dir() else None)
 
@@ -155,7 +179,6 @@ def run_mt_haplogroup(params: MtHaplogroupParams, *, tree_links: bool = False) -
     log_dependency_info(tools)
 
     cmd = _jar_command(haplogrep_path, "haplogrep3.jar")
-    current_result().record_tool_command(["haplogrep3"])
 
     outdir = outdir_arg or str(absolute_path(input_file).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
@@ -168,12 +191,18 @@ def run_mt_haplogroup(params: MtHaplogroupParams, *, tree_links: bool = False) -
     contamination_outputs: list[tuple[Path, str]] = []
 
     with tempfile.TemporaryDirectory(prefix=".wgse_haplogrep_", dir=outdir) as tmp:
+        # Without a configuration here, Haplogrep loads the one beside its jar
+        # and downloads that file's trees into the installation.
+        write_config(None, Path(tmp))
         version = _banner_version(cmd, HAPLOGREP_BANNER, tmp)
         if version is None:
             raise WGSExtractError(
                 f"{haplogrep_path} is not Haplogrep 3; mtDNA haplogroups need "
                 "Haplogrep 3 (the haplogrep3 package)."
             )
+        current_result().record_tool_version("haplogrep3", version)
+        if haplocheck_cmd:
+            _record_banner_version(haplocheck_cmd, "haplocheck", HAPLOCHECK_BANNER, tmp)
         temp_vcf = str(Path(tmp, "mtdna.vcf.gz"))
         if is_alignment:
             logging.info(
@@ -195,6 +224,8 @@ def run_mt_haplogroup(params: MtHaplogroupParams, *, tree_links: bool = False) -
             cram_opt = ["-T", lib.fasta] if input_lower.endswith(".cram") else []
             chr_m = get_chr_name(input_file, "MT", cram_opt)
             _require_rcrs(input_file, chr_m, cram_opt)
+            if haplocheck_cmd:
+                _require_one_sample(get_bam_header(input_file, cram_opt))
             warn_low_depth(
                 str(params.input),
                 {MTDNA},
@@ -275,11 +306,10 @@ def _call_heteroplasmies(
     workflow does: bcftools calls have no heteroplasmy levels. Returns the
     calls' file name in ``tmp``."""
     mutserve = _mutserve_command(haplocheck_cmd)
-    # mutserve names the sample after the BAM file.
-    sample = Path(alignment).name
-    for suffix in (".bam", ".cram"):
-        sample = sample.removesuffix(suffix)
-    chrm_bam = f"{sample}.bam"
+    _record_banner_version(mutserve, "mutserve", MUTSERVE_BANNER, str(tmp))
+    # mutserve names the sample after the BAM file, and haplocheck splits sample
+    # names at "_maj"; a fixed name keeps user file names out of both.
+    chrm_bam = "sample.bam"
     run_command(
         ["samtools", "view", "-b", "-T", fasta, "-o", str(tmp / chrm_bam)]
         + [alignment, chr_m]
@@ -329,25 +359,25 @@ def _run_haplocheck(
 ) -> tuple[dict[str, str], list[tuple[Path, str]]]:
     """Run haplocheck on ``vcf`` (a file in ``tmp``); its first row and outputs."""
     logging.info("Checking mtDNA contamination with haplocheck...")
-    current_result().record_tool_command(["haplocheck"])
     report = _HAPLOCHECK_OUTPUTS[0][0]
     try:
         # Relative paths, as for mutserve: it derives the other outputs' names.
         run_command([*haplocheck_cmd, "--raw", "--out", report, vcf], cwd=tmp)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"haplocheck failed: {e}") from e
+    # Read this run's reports before publishing them: haplocheck can exit 0
+    # without writing one, and outdir may hold an earlier run's.
+    raw = Path(tmp, _HAPLOCHECK_OUTPUTS[1][0])
+    rows = _read_tsv(raw, "haplocheck") if raw.is_file() else []
+    rows = rows or _read_tsv(Path(tmp, report), "haplocheck")
+    if not rows:
+        raise WGSExtractError("haplocheck wrote no contamination result.")
     outputs = []
     for name, role in _HAPLOCHECK_OUTPUTS:
         if Path(tmp, name).is_file():
             target = outdir / name
             Path(tmp, name).replace(target)
             outputs.append((target, role))
-    rows = _read_tsv(outdir / report, "haplocheck")
-    raw = outdir / _HAPLOCHECK_OUTPUTS[1][0]
-    if raw.is_file():
-        rows = _read_tsv(raw, "haplocheck") or rows
-    if not rows:
-        raise WGSExtractError(f"haplocheck wrote no result to {outdir / report}.")
     return rows[0], outputs
 
 
@@ -441,7 +471,8 @@ def _print_haplogrep_result(
 
 def _report_contamination(row: dict[str, str]) -> None:
     status = (row.get("Contamination Status") or "").strip()
-    level = (row.get("Contamination Level") or "").strip()
+    # Java formats it in the default locale: 0,021 in comma-decimal ones.
+    level = (row.get("Contamination Level") or "").strip().replace(",", ".")
     result = current_result()
     result.add_metrics(
         mt_contamination=status or None,

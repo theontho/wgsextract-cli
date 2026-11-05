@@ -475,12 +475,15 @@ def test_mt_haplogroup_haplogrep_failure_cleans_up(tmp_path):
     ]
 
 
-def _mito_bam(tmp_path: Path, mt_length: int) -> tuple[str, Path]:
+def _mito_bam(
+    tmp_path: Path, mt_length: int, read_groups: tuple[str, ...] = ()
+) -> tuple[str, Path]:
     """A BAM with 12 reads carrying ALT C at chrM:150 (and none elsewhere)."""
     rng = random.Random(3)
     mito = "".join(rng.choice("AGT") for _ in range(mt_length))
     ref = write_fasta(tmp_path / "ref.fa", {"chr1": mito[:500], "chrM": mito})
     header = ["@SQ\tSN:chr1\tLN:500", f"@SQ\tSN:chrM\tLN:{mt_length}"]
+    header += [f"@RG\tID:{sample}\tSM:{sample}" for sample in read_groups]
     reads = _reads("chrM", mito, 12, start=120, snp=149) + _reads("chr1", mito, 5)
     return sam_to_bam(header + reads, tmp_path / "kit.bam"), ref
 
@@ -624,6 +627,42 @@ def test_contamination_check_reports_haplocheck_status(tmp_path, mini_tree):
     }
     written = sorted(p.name for p in (tmp_path / "o").iterdir())
     assert written == sorted([*roles, "haplogrep_results.txt.manifest.json"])
+
+
+@needs_haplogrep3
+@needs_tools("haplocheck")
+def test_contamination_check_detects_a_mixture(tmp_path):
+    # Issue #361: mutserve's calls on NA12878 chrM reads with 5% of HG01112's.
+    body = (Path(__file__).parent / "fixtures" / "mt_mixture_5pct.tsv").read_text()
+    vcf = _mt_vcf(tmp_path / "mix.vcf.gz", body, af=True)
+    result = _classify(vcf, tmp_path / "o", contamination=True)
+    assert result.metrics["mt_contamination"] == "YES"
+    assert result.metrics["mt_contamination_level"] == pytest.approx(0.05, abs=0.01)
+    (warning,) = (w for w in result.warnings if w.code == "mt_contamination")
+    assert warning.details["major_haplogroup"].startswith("H13")
+    assert warning.details["minor_haplogroup"].startswith("A2")
+
+
+def test_contamination_check_refuses_reads_of_several_samples(tmp_path):
+    two, ref = _mito_bam(tmp_path, 16_569, read_groups=("mother", "child"))
+    with pytest.raises(WGSExtractError, match="single-sample.*child, mother"):
+        run_wgsextract(
+            "lineage", "mt-haplogroup", "--input", two, "--ref", str(ref),
+            "--contamination", "--haplogrep-path", _haplogrep(tmp_path),
+            "--haplocheck-path", _haplogrep(tmp_path),
+        )  # fmt: skip
+
+
+def test_relative_tool_paths_survive_the_temporary_working_directory(
+    tmp_path, monkeypatch
+):
+    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
+    _haplogrep(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = _classify(vcf, tmp_path, haplogrep_path="haplogrep.py")
+    assert result.metrics["haplogroup"] == "H1c"
+    # The override that ran is the version recorded, not one found by name.
+    assert result.provenance.tools["haplogrep3"] == "3.2.2"
 
 
 def test_contamination_check_needs_heteroplasmy_levels(tmp_path):

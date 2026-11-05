@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from tests.haplogrep_helpers import mini_tree as mini_tree
 from tests.htslib_helpers import needs_htslib
 from tests.smoke_utils import ensure_fake_data, run_cli
 from tests.test_trio_vcfs import _trio
@@ -883,13 +882,11 @@ def test_analyze_carries_each_steps_manifest_outputs_and_warnings(tmp_path):
 
 
 @needs_htslib
-@pytest.mark.usefixtures("mini_tree")
 def test_analyze_steps_show_their_output_and_keep_their_results(tmp_path, capfd):
-    from tests.test_lineage_haplogroups import _HG38, _KIT_BODY, _haplogrep, _vcf
     from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand
 
+    ensure_fake_data(str(FAKE_DIR))
     bam = _write_small_bam(tmp_path, "a", reads_per_contig=3)
-    kit = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
     out = tmp_path / "out"
     args = argparse.Namespace(ref=None, input=None, threads=1, debug=False)
     result = results.CommandResult("analyze comprehensive")
@@ -898,18 +895,17 @@ def test_analyze_steps_show_their_output_and_keep_their_results(tmp_path, capfd)
             ["info", "--detailed", "--input", str(bam), "--outdir", str(out)], args
         )
         run_cli_subcommand(
-            ["lineage", "mt-haplogroup", "--input", kit, "--outdir", str(out),
-             "--haplogrep-path", _haplogrep(tmp_path)],
+            ["qc", "vcf", "--vcf-input", str(FAKE_DIR / "fake.vcf.gz")]
+            + ["--outdir", str(out)],
             args,
-        )  # fmt: skip
+        )
     shown = capfd.readouterr().out
     assert "By Reference Sequence Name" in shown  # info's chromosome table
-    assert "Haplogroup      : H1c" in shown
     # info writes no manifest, yet its warnings, with their details, survive.
     assert not list(out.glob("info*.manifest.json"))
     (low,) = (w for w in result.warnings if w.code == "low_coverage")
     assert low.details["step"] == "info"
     assert len(low.details) > 1  # depth and threshold survive, not just the step
     roles = {o.role: o for o in result.outputs}
-    assert roles["haplogroup_report"].path == str(out / "haplogrep_results.txt")
+    assert roles["vcf_stats"].path == str(out / "fake.vcf.gz.vcfstats.txt")
     assert not [p for p in out.iterdir() if p.name.startswith(".wgse-step-")]
