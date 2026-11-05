@@ -576,6 +576,60 @@ def test_caller_paths_cover_every_file():
     )
 
 
+@pytest.mark.parametrize("op", ["vcf/deepvariant", "vcf/gatk"])
+def test_path_guard_checks_every_file_in_a_region_list(op, tmp_path, monkeypatch):
+    # Review of PR #454: DeepVariant reads every whitespace-separated BED file
+    # in its region, and Parabricks every comma-separated one, but the guard
+    # checked the region as one path: an allowed BED hid an outside file, and
+    # a bare name after a region read the server's working folder.
+    allowed, outside = tmp_path / "allowed", tmp_path / "outside"
+    for folder in (allowed, outside):
+        folder.mkdir()
+        (folder / "a.bed").write_text("chr1\t0\t9\n")
+    (outside / "b,c.bed").write_text("chr1\t0\t9\n")
+    monkeypatch.chdir(outside)
+    guard = PathGuard([allowed])
+    body = {"input": str(allowed / "a.bam"), "outdir": str(allowed)}
+    inside = str(allowed / "a.bed")
+    for region in (f"{inside} chr1", f"chr1,{inside}", "chr1:1-9 chr2"):
+        guard.check(params_from_json(find(op), {**body, "region": region}))
+    for region, code in (
+        (f"{inside} {outside / 'a.bed'}", "path_not_allowed"),
+        (f"{inside},{outside / 'a.bed'}", "path_not_allowed"),
+        ("chr1 a.bed", "usage"),
+        ("chr1,a.bed", "usage"),
+        ("chr1 b,c.bed", "usage"),
+    ):
+        with pytest.raises(RequestError) as refused:
+            guard.check(params_from_json(find(op), {**body, "region": region}))
+        assert refused.value.code == code, region
+
+
+@pytest.mark.parametrize(
+    "region",
+    [
+        r"C:\data\a.bed D:\evil.bed",
+        r"C:\data\a.bed,D:evil.bed",
+        "chr1 D:evil.bed",
+        r"chr1 \\host\share\evil.bed",
+        r"C:\data\a.bed sub\evil.bed",
+    ],
+)
+def test_path_guard_checks_every_windows_file_in_a_region_list(region):
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    body = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(
+        params_from_json(
+            find("vcf/deepvariant"), {**body, "region": r"C:\data\a.bed chr1"}
+        )
+    )
+    with pytest.raises(RequestError) as refused:
+        guard.check(
+            params_from_json(find("vcf/deepvariant"), {**body, "region": region})
+        )
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):
     # Security review of PR #422: read-only `info` created the folders named
     # by outdir, and saved its metrics cache next to the input.

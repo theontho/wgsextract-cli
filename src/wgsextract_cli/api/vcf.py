@@ -963,7 +963,14 @@ class VcfGatkParams(_CallerParams):
 
     COMMAND = "vcf gatk"
 
-    region: str | None = _region_param("Chromosomal region (e.g. chrM)")
+    region: str | None = param(
+        None,
+        help="Chromosomal region (e.g. chrM)",
+        flags=("-r", "--region"),
+        doc="Comma-separated region(s) to call (e.g. chrM); with gpu, an item "
+        "may be a BED file of them.",
+        splits=True,
+    )
     scatter: bool = param(
         False,
         help="Opt-in Ultima flow-mode interval scattering, bounded by --threads "
@@ -996,8 +1003,9 @@ class VcfDeepvariantParams(_CallerParams):
         None,
         help="Chromosomal region (e.g. chrM)",
         flags=("-r", "--region"),
-        doc="Region(s) to call (e.g. chrM), or a BED file of them.",
-        may_name_file=True,
+        doc="Region(s) to call (e.g. chrM) or BED files of them, separated by "
+        "spaces (commas with gpu).",
+        splits=True,
     )
     wes: bool = param(
         False, help="Set model type to WES (default: WGS)", action="store_true"

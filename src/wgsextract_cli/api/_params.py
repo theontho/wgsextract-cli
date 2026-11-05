@@ -41,7 +41,9 @@ class ParamSpec:
     otherwise only reads save files, unless they hold their ``safe_value``
     (default: the field's default); a read-only server leaves them out and
     uses that value. ``may_name_file`` text fields (a region) may instead
-    name a file; the server path-checks values written like a path.
+    name a file; the server path-checks values written like a path. A
+    ``splits`` one is a list the command splits on whitespace or commas, any
+    item of which may name a file; the server checks every item.
     ``expression`` text fields are bcftools expressions, which read the file
     an ``@FILE`` operand names; the server refuses those.
     A ``positional`` field is a positional CLI argument named by ``metavar``;
@@ -66,6 +68,7 @@ class ParamSpec:
     writes: bool = False
     safe_value: Any = UNSET
     may_name_file: bool = False
+    splits: bool = False
     expression: bool = False
     positional: bool = False
     group: tuple[str, str | None] | None = None
@@ -96,6 +99,7 @@ def param(
     writes: bool = False,
     safe_value: Any = UNSET,
     may_name_file: bool = False,
+    splits: bool = False,
     expression: bool = False,
     positional: bool = False,
     group: tuple[str, str | None] | None = None,
@@ -122,7 +126,8 @@ def param(
         local_only=local_only,
         writes=writes or safe_value is not UNSET,
         safe_value=safe_value,
-        may_name_file=may_name_file,
+        may_name_file=may_name_file or splits,
+        splits=splits,
         expression=expression,
         positional=positional,
         group=group,

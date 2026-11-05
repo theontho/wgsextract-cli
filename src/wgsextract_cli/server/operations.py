@@ -8,6 +8,7 @@ import functools
 import inspect
 import ntpath
 import os
+import re
 import typing
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -308,6 +309,8 @@ class PathGuard:
             for path in value if isinstance(value, tuple) else (value,):
                 if isinstance(path, Path):
                     self.check_path(item.name, path)
+                elif isinstance(path, str) and item.spec.splits:
+                    self._check_items(item.name, path)
                 elif isinstance(path, str) and item.spec.may_name_file:
                     self._check_text(item.name, path)
                 elif isinstance(path, str) and item.spec.expression and "@" in path:
@@ -317,6 +320,28 @@ class PathGuard:
                         f"{item.name!r}: a server request can't read a file "
                         "with an @FILE operand.",
                     )
+
+    def _check_items(self, name: str, text: str) -> None:
+        """A list of regions and files: DeepVariant splits it on whitespace,
+        Parabricks on commas. Each item between either is checked as a text
+        value; an item of one split that holds the other separator is a file
+        only as a whole, so it must be an allowed path or not exist."""
+        items = [t for t in re.split(r"[\s,]+", text) if t]
+        for item in items:
+            self._check_text(name, item)
+        pathmod = self.pathmod
+        compound = {*text.split(), *(t.strip() for t in text.split(","))}
+        for item in compound - {"", *items}:
+            if (
+                pathmod.isabs(pathmod.expanduser(item))
+                or pathmod.splitdrive(item)[0]
+                or is_network_path(item)
+            ):
+                self.check_path(name, item)
+            elif pathmod.exists(item):
+                raise RequestError(
+                    400, "usage", f"{name!r}: name a file by its absolute path."
+                )
 
     def _check_text(self, name: str, text: str) -> None:
         """A text value that names a file when one exists there (a BED file

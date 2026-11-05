@@ -1162,7 +1162,7 @@ Call with GATK; output role `variants`.
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
-| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM) |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Comma-separated region(s) to call (e.g. chrM); with gpu, an item may be a BED file of them. |
 | `scatter` | `bool` | `False` | `--scatter` | Opt-in Ultima flow-mode interval scattering, bounded by --threads and available RAM (6 GiB per worker, 4 GiB Java heap). Can change genotypes/annotations away from interval boundaries; default: one unscattered process. |
 | `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README). |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
@@ -1186,7 +1186,7 @@ Parabricks in one step.
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
-| `region` | `str \| None` | `None` | `-r`, `--region` | Region(s) to call (e.g. chrM), or a BED file of them. |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region(s) to call (e.g. chrM) or BED files of them, separated by spaces (commas with gpu). |
 | `wes` | `bool` | `False` | `--wes` | Set model type to WES (default: WGS) |
 | `model_type` | `str \| None` | `None` | `--model-type` | DeepVariant model type (default: ONT_R104 for detected ONT, ULTIMA for Ultima reads with their flow tags, else WGS). ONT_R104 supports R10.4.1 only and requires x86-64; Linux ARM64 supports WGS only. Use PACBIO for PacBio HiFi/CCS alignments. One of: `WGS`, `WES`, `PACBIO`, `HYBRID_PACBIO_ILLUMINA`, `ULTIMA`, `ONT_R104` |
 | `ont` | `bool` | `False` | `--ont` | Alias for --model-type ONT_R104 (R10.4.1 only; x86-64). |
