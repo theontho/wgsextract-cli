@@ -283,7 +283,7 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
     assert max(len(str(path.absolute())) for path in library.rglob("*")) < 260
 
 
-def test_chm13_cache_is_reused_and_replaces_full_digest_caches(
+def test_chm13_cache_is_reused_and_ignores_full_digest_caches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fasta = _native_library(tmp_path, monkeypatch)
@@ -292,7 +292,8 @@ def test_chm13_cache_is_reused_and_replaces_full_digest_caches(
     expected, _result = _run_gvcf(tmp_path, fasta, tmp_path / "uncached-check")
     shutil.rmtree(library)
     # Issue #419: caches named by whole SHA-256 digests (before the fix) are
-    # never served, even when they look valid, and are removed.
+    # never served, even when they look valid. An older release may still be
+    # using them, so they are left alone.
     digest = "ab" * 32
     legacy = library / "microarray" / "chm13" / digest
     legacy.mkdir(parents=True)
@@ -300,15 +301,10 @@ def test_chm13_cache_is_reused_and_replaces_full_digest_caches(
     (legacy / "markers.tsv.json").write_text("{}")
     stale_sites = library / "microarray" / "chm13" / f"sites-v1-little-{digest}.bin"
     stale_sites.write_bytes(b"stale")
-    coordinates = library / "microarray" / "hg19-coordinates"
-    coordinates.mkdir()
-    (coordinates / f"{digest}.bin").write_bytes(b"stale")
-    (coordinates / f"{digest}.bin.lock.guard").touch()
     calls, _result = _run_gvcf(tmp_path, fasta, tmp_path / "first")
     assert calls == expected
-    assert not legacy.exists()
-    assert not stale_sites.exists()
-    assert not list(coordinates.iterdir())
+    assert (legacy / "markers.tsv").read_text() == "chr1\t20\trsStale\n"
+    assert stale_sites.read_bytes() == b"stale"
     cached = {
         path: path.stat().st_mtime_ns for path in library.rglob("*") if path.is_file()
     }

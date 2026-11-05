@@ -170,7 +170,8 @@ usable.
 
 Cache names use 20-hex-digit (80-bit) key prefixes, so no cached file lies more
 than 84 characters below the library. Windows tools such as htslib cannot open
-paths of 260 characters or more, whatever the `LongPathsEnabled` setting says,
-so on Windows a reference library deeper than 175 characters runs uncached with
-a `cache_path_too_long` warning. Caches named by full 64-digit SHA-256 keys,
-from earlier releases, are never read and are deleted on the next run.
+paths of 260 characters (UTF-16 code units) or more, whatever the
+`LongPathsEnabled` setting says, so on Windows a reference library deeper than
+175 characters runs uncached with a `cache_path_too_long` warning. Caches named
+by full 64-digit SHA-256 keys, from earlier releases, are never read; delete
+them to reclaim their space when no older release is running.

@@ -1,11 +1,14 @@
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
+from wgsextract_cli.core import library_cache
 from wgsextract_cli.core import microarray_chm13_cache as cache
 from wgsextract_cli.core.microarray_chm13 import load_chm13_catalogue
+from wgsextract_cli.core.results import CommandResult, collecting
 
 
 def test_marker_cache_roundtrips_and_rebuilds_corruption(tmp_path: Path) -> None:
@@ -161,3 +164,22 @@ def test_cache_key_tracks_templates_chain_catalogue_and_library(
         tmp_path / "other", catalogue, args[2]
     ) != cache.cache_directory(*args)
     assert cache.cache_directory(None, catalogue, args[2]) is None
+
+
+def test_windows_library_depth_counts_utf16_code_units(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #419 review: Windows measures MAX_PATH in UTF-16 code units, so a
+    # character outside the BMP takes two of the 175 a library may use.
+    monkeypatch.setattr(library_cache, "sys", SimpleNamespace(platform="win32"))
+    pad = 175 - len(str(tmp_path.absolute())) - 1
+    narrow = tmp_path / ("d" * pad)
+    wide = tmp_path / ("\U0001f600" + "d" * (pad - 1))
+    result = CommandResult(command="microarray")
+    with collecting(result):
+        assert library_cache.microarray_cache_root(str(narrow)) == Path(
+            narrow, "microarray"
+        )
+        assert library_cache.microarray_cache_root(str(wide)) is None
+    assert [warning.code for warning in result.warnings] == ["cache_path_too_long"]
+    assert result.warnings[0].details["length"] == 176
