@@ -6,6 +6,7 @@ missing.
 """
 
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -77,6 +78,19 @@ def run_pbrun(tool: str, args: list[str], paths: Iterable[str | None]) -> None:
         raise WGSExtractError(f"Parabricks {tool} failed: {e}") from e
 
 
+def _link_chain(path: str) -> list[str]:
+    """``path`` and, if it is a symlink, each file it leads to. pbrun takes an
+    interval file's format from its name, so a link (``panel.bed`` to a store's
+    ``dataset_7.dat``) is passed as itself, and every folder on the way to its
+    target is mounted so the link still opens in the container."""
+    chain = [path]
+    while Path(chain[-1]).is_symlink() and len(chain) <= 40:
+        link = chain[-1]
+        chain.append(host_path(os.path.join(os.path.dirname(link), os.readlink(link))))
+    target = str(Path(path).resolve())
+    return chain if target in chain else [*chain, target]
+
+
 def call_variants(
     tool: str,
     input_path: str,
@@ -89,9 +103,8 @@ def call_variants(
     a comma-separated --region becomes one interval each, and a BED file in
     it an --interval-file (pbrun's -L takes only literal intervals)."""
     require_native_tool("parabricks")
-    # A BED is mounted by its target, so a link to another folder still opens.
     regions = [
-        str(Path(r).resolve()) if Path(r).is_file() else r
+        host_path(r) if Path(r).is_file() else r
         for r in (r.strip() for r in (region or "").split(","))
         if r
     ]
@@ -110,5 +123,5 @@ def call_variants(
             + ["--out-variants", host_path(out_vcf), "--tmp-dir", host_path(tmp)]
             + intervals
             + (extra or []),
-            [ref, input_path, out_vcf, tmp, *beds],
+            [ref, input_path, out_vcf, tmp, *(p for b in beds for p in _link_chain(b))],
         )

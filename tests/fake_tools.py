@@ -894,6 +894,11 @@ elif tool in ("deepvariant", "haplotypecaller"):
         chrom, _, span = interval.partition(":")
         starts.append((chrom, int(span.split("-")[0]) if span else 1))
     for bed in every("--interval-file"):
+        # pbrun takes an interval file's format from its name.
+        kinds = (".bed",) if tool == "deepvariant" else (
+            ".bed", ".interval_list", ".list", ".intervals")
+        if not bed.endswith(kinds):
+            sys.exit(f"pbrun {tool}: unknown interval file format: {bed}")
         with open(bed) as source:
             for line in source:
                 chrom, start = line.split()[:2]

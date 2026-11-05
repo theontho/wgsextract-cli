@@ -268,11 +268,12 @@ def test_gpu_calling_runs_the_parabricks_caller_over_each_region(
 @pytest.mark.parametrize("linked", [False, True])
 def test_gpu_calling_reads_a_bed_region_from_its_own_folder(tmp_path, gpu, linked):
     """A BED --region is an interval file Parabricks can see, not an -L
-    interval, and its folder (or a link's target) is mounted into the
-    container."""
+    interval, and its folder (and a link's target's) is mounted into the
+    container. A link is passed by its own name, since pbrun takes the format
+    from the name and a store's target (Galaxy's dataset_7.dat) has none."""
     (tmp_path / "sample").mkdir()
     sample = snp_sample(tmp_path / "sample")
-    bed = tmp_path / "targets" / "panel.bed"
+    bed = tmp_path / "targets" / ("dataset_7.dat" if linked else "panel.bed")
     bed.parent.mkdir()
     bed.write_text("chr1\t1499\t1600\nchr1\t2199\t2300\n")
     if linked:
