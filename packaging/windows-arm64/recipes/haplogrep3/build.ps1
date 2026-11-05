@@ -10,10 +10,17 @@ if ($LASTEXITCODE) { throw "Native-only Haplogrep 3 archive preparation failed" 
     --root $env:PREFIX --report "$evidence\archives.json"
 if ($LASTEXITCODE) { throw "Haplogrep 3 contains foreign native Java resources" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $sdk -Report "$evidence\sdk-pe.json"
-# Haplogrep 3 prints its version banner when run without a command.
+# Haplogrep 3 prints its version banner when run without a command. Like the
+# CLI, give it its own tree-free configuration instead of the one beside the jar.
+$probeHome = Join-Path $evidence "version-home"
+New-Item -ItemType Directory -Force -Path $probeHome | Out-Null
+[IO.File]::WriteAllText((Join-Path $probeHome "haplogrep3.yaml"), "repositories: []`nphylotrees: []`n")
+Push-Location $probeHome
 & "$sdk\bin\java.exe" -jar "$env:PREFIX\bin\haplogrep3.jar" 2>&1 |
     Tee-Object "$evidence\version.log"
-if ($LASTEXITCODE) { throw "Native Haplogrep 3 version qualification failed" }
+$versionExit = $LASTEXITCODE
+Pop-Location
+if ($versionExit) { throw "Native Haplogrep 3 version qualification failed" }
 & python "$repo\packaging\windows-arm64\tests\haplogrep_smoke.py" `
     --java "$sdk\bin\java.exe" --original "$env:SRC_DIR\haplogrep3\haplogrep3.jar" `
     --restricted "$env:PREFIX\bin\haplogrep3.jar" --tree "$env:SRC_DIR\tree" `
