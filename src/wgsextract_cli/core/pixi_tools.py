@@ -243,10 +243,14 @@ def _probe_environment_with_pixi(
     # Discovery must not start an unqualified environment's emulated Python.
     if windows_native_machine() == IMAGE_FILE_MACHINE_ARM64:
         return None
+    # `pixi run --no-install` runs a missing environment's command with the
+    # host's Python and PATH; only a finished install has conda-meta/pixi.
     script = (
         inspect.getsource(_probe_environment)
         + "\nimport os, sys\n"
-        + "found = _probe_environment(sys.prefix, sys.argv[1:], os.name == 'nt')\n"
+        + "env = os.environ.get('CONDA_PREFIX', sys.prefix)\n"
+        + "found = os.path.isfile(os.path.join(env, 'conda-meta', 'pixi')) and "
+        + "_probe_environment(sys.prefix, sys.argv[1:], os.name == 'nt')\n"
         + "print(found or '')\n"
         + "raise SystemExit(0 if found else 1)\n"
     )

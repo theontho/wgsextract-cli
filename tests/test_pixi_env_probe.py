@@ -1,123 +1,319 @@
 """Finding a tool in a Pixi environment: in this process when the CLI already
-runs in that environment (`pixi run` takes seconds on Windows), else inside it."""
+runs in that environment (`pixi run` takes seconds on Windows), else inside it
+through pixi. Pixi is the fake from tests/fake_tools.py."""
 
-import json
 import shlex
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from wgsextract_cli.core import pixi_tools
+from tests.fake_tools import FakePixi, python_tool
+from wgsextract_cli.core import dependency_checks, pixi_tools, runtime, windows_arm64
+from wgsextract_cli.core.tool_commands import _tool_command_parts
+from wgsextract_cli.core.utils import WGSExtractError
+
+# The probe sent to another environment is a multi-line `python -c` argument,
+# which a batch-file pixi stand-in can't pass on.
+posix_pixi = pytest.mark.skipif(
+    sys.platform == "win32", reason="a batch file can't take a multi-line argument"
+)
 
 
-def _prefix(tmp_path: Path) -> Path:
-    (tmp_path / "opt" / "fastqc-0.13.0").mkdir(parents=True)
-    (tmp_path / "opt" / "fastqc-0.13.0" / "fastqc").write_text(
-        "#!/usr/bin/env python3\n"
+@pytest.fixture(autouse=True)
+def _x64_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Windows ARM64 hosts skip probing other environments.
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
+
+
+def _run(command: str, *args: str) -> str:
+    """Run a resolved command, split as the CLI splits it, returning its output."""
+    argv = [*_tool_command_parts(command), *args]
+    return subprocess.run(argv, capture_output=True, text=True, check=True).stdout
+
+
+def _broken_pixi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PIXI_EXE that can't be started."""
+    pixi = tmp_path / "broken" / "pixi"
+    pixi.parent.mkdir()
+    pixi.write_text("not a program")
+    monkeypatch.setenv("PIXI_EXE", str(pixi))
+
+
+def _in_environment(monkeypatch, name: str, prefix: Path, *, windows: bool) -> None:
+    """Run the CLI inside the Pixi environment `name` at prefix."""
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", name)
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    monkeypatch.setattr(runtime, "is_windows_host", lambda: windows)
+
+
+# Through pixi, in another environment.
+
+
+@posix_pixi
+def test_a_tool_on_its_environments_path_runs_through_pixi(fake_pixi):
+    prefix = fake_pixi.env("default")
+    python_tool(prefix / "bin", "samtools", 'print("samtools 1.21")')
+
+    command = pixi_tools.pixi_env_tool("samtools")
+
+    assert command is not None
+    assert _run(command, "--version") == "samtools 1.21\n"
+
+
+@posix_pixi
+def test_haplogrep_runs_its_jar_with_the_environments_java(fake_pixi):
+    prefix = fake_pixi.env("default")
+    python_tool(prefix / "bin", "java", "import sys; print(sys.argv[1:])")
+    jar = prefix / "bin" / "haplogrep.jar"
+    jar.write_bytes(b"PK")
+
+    command = pixi_tools.pixi_env_tool("haplogrep")
+
+    assert command is not None
+    args = eval(_run(command, "classify"))
+    # contract: haplogrep ships as a jar, run by its environment's Java.
+    assert args[args.index("-jar") + 1 :] == [str(jar.resolve()), "classify"]
+
+
+@posix_pixi
+def test_a_script_off_the_path_runs_with_the_environments_python(fake_pixi):
+    """GATK's launcher is a Python script; run it with the environment's
+    Python when it isn't an executable on PATH."""
+    prefix = fake_pixi.env("gatk")
+    (prefix / "bin" / "gatk").write_text("import sys; print(sys.prefix)")
+
+    command = pixi_tools.pixi_env_tool("gatk")
+
+    assert command is not None
+    assert _run(command) == f"{prefix}\n"
+
+
+@posix_pixi
+@pytest.mark.parametrize("windows", [False, True])
+@pytest.mark.parametrize(
+    ("tool", "env", "package"),
+    [
+        ("gatk", "gatk", "gatk4"),
+        ("vep", "vep", "ensembl-vep"),
+        ("freebayes", "freebayes", "freebayes"),
+        ("pbmm2", "pacbio", None),  # not in this platform's lockfile
+        ("cyrius", "cyrius", "cyrius"),  # licensed: installed only on request
+        ("cyrius_python", "cyrius", "cyrius"),
+        ("pharmcat_python", "pharmcat", "pandas"),
+    ],
+)
+def test_an_uninstalled_environment_is_unavailable_and_stays_uninstalled(
+    fake_pixi, monkeypatch, windows, tool, env, package
+):
+    """A probe never installs an environment. `pixi run --no-install` runs a
+    missing environment's command with the host's programs: this host has the
+    tool and Python, and they must not pass for the environment's."""
+    monkeypatch.setattr(runtime, "is_windows_host", lambda: windows)
+    fake_pixi.env(env, locked=(package,) if package else (), installed=False)
+    if not tool.endswith("_python"):  # the host's Python is this one
+        python_tool(fake_pixi.host_bin, tool, 'print("host copy")')
+
+    assert pixi_tools.pixi_env_tool(tool) is None
+    assert not fake_pixi.installed(env)
+
+
+@posix_pixi
+def test_an_installed_environment_without_the_tool_is_unavailable(fake_pixi):
+    fake_pixi.env("gatk", locked=("gatk4",))
+    assert pixi_tools.pixi_env_tool("gatk") is None
+
+
+@posix_pixi
+@pytest.mark.parametrize(
+    ("tool", "env", "package"),
+    [("cyrius_python", "cyrius", "cyrius"), ("pharmcat_python", "pharmcat", "pandas")],
+)
+@pytest.mark.parametrize("current", ["default", "dev"])
+def test_interpreter_alias_runs_its_dedicated_environments_python(
+    fake_pixi, monkeypatch, tool, env, package, current
+):
+    """cyrius_python needs the cyrius environment's packages, even from `dev`
+    (which has every tool of `default`, and a Python of its own)."""
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", current)
+    prefix = fake_pixi.env(env, locked=(package,))
+
+    command = pixi_tools.pixi_env_tool(tool)
+
+    assert command is not None
+    assert _run(command, "-c", "import sys; print(sys.prefix)") == f"{prefix}\n"
+
+
+@pytest.mark.parametrize("tool", ["cyrius_python", "pharmcat_python"])
+def test_interpreter_alias_in_its_own_environment_is_this_python(
+    tmp_path, monkeypatch, tool
+):
+    _broken_pixi(tmp_path, monkeypatch)
+    env = tool.removesuffix("_python")
+    _in_environment(monkeypatch, env, tmp_path, windows=sys.platform == "win32")
+
+    command = pixi_tools.pixi_env_tool(tool)
+
+    assert command is not None
+    assert _run(command, "-c", "import sys; print(sys.executable)") == (
+        f"{sys.executable}\n"
     )
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin" / "haplogrep.jar").write_bytes(b"PK")
-    (tmp_path / "bin" / "tool.sh").write_text("#!/bin/sh\n")
-    return tmp_path
 
 
-def test_probe_finds_scripts_jars_and_bin(tmp_path, monkeypatch):
-    monkeypatch.setattr("shutil.which", lambda name: None)
-    prefix = str(_prefix(tmp_path))
-    probe = pixi_tools._probe_environment
-    fastqc = tmp_path / "opt" / "fastqc-0.13.0" / "fastqc"
-    assert probe(prefix, ["fastqc"], windows=True) == f"script:{fastqc}"
-    assert probe(prefix, ["haplogrep"], windows=False).startswith("haplogrep:")
-    assert probe(prefix, ["tool.sh"], windows=False).endswith("tool.sh")
-    assert probe(prefix, ["no-such-tool-anywhere"], windows=False) is None
+@pytest.mark.parametrize("stdout", ["", "no separator", "script:"])
+def test_probe_output_without_a_location_is_no_tool(fake_pixi, stdout):
+    fake_pixi.env("default")
+    fake_pixi.set(run_stdout=stdout)
+    assert pixi_tools.pixi_env_tool("samtools") is None
 
 
-def test_the_probe_runs_inside_another_environment(tmp_path, monkeypatch):
-    # The source sent to the other environment's Python must run on its own.
-    run = subprocess.run
+def test_a_pixi_that_cannot_start_finds_nothing(tmp_path, monkeypatch):
+    """Nor offers to install with it, or raises."""
+    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+    _broken_pixi(tmp_path, monkeypatch)
+    assert pixi_tools.pixi_env_tool("samtools") is None
+    assert pixi_tools.pixi_env_tool("not-a-pixi-tool") is None
+    assert pixi_tools.pixi_env_prefix("gatk") is None
+    assert pixi_tools.pixi_install_command("gatk") is None
 
-    def fake_pixi(cmd, **kwargs):
-        script, names = cmd[cmd.index("-c") + 1], cmd[cmd.index("-c") + 2 :]
-        return run([sys.executable, "-c", script, *names], **kwargs)
 
-    monkeypatch.setattr(pixi_tools.subprocess, "run", fake_pixi)
-    found = pixi_tools._probe_environment_with_pixi("pixi", "default", ["python"])
-    assert found is not None and found.stdout.strip() == "direct-name:python"
-    missing = pixi_tools._probe_environment_with_pixi(
-        "pixi", "default", ["no-such-tool-anywhere"]
-    )
-    assert missing is not None and missing.returncode == 1
+# In the CLI's own environment: no pixi at all.
 
 
 @pytest.mark.parametrize("windows", [True, False])
-def test_in_its_own_environment_the_cli_skips_pixi(tmp_path, monkeypatch, windows):
-    prefix = _prefix(tmp_path)
-    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
-    monkeypatch.setattr(pixi_tools.sys, "prefix", str(prefix))
-    monkeypatch.setattr(pixi_tools.runtime, "is_windows_host", lambda: windows)
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
-    monkeypatch.setattr("shutil.which", lambda name: None)
+def test_in_its_own_environment_the_cli_runs_tools_without_pixi(
+    tmp_path, monkeypatch, windows
+):
+    """FastQC is a noarch script in opt/<package>/; Windows gets no usable
+    link to it in bin/, so it runs the script with Python."""
+    script = tmp_path / "env" / "opt" / "fastqc-0.13.0" / "fastqc"
+    script.parent.mkdir(parents=True)
+    script.write_text('print("FastQC v0.13.0")')
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    _broken_pixi(tmp_path, monkeypatch)
+    _in_environment(monkeypatch, "default", tmp_path / "env", windows=windows)
 
-    def no_subprocess(*args, **kwargs):
-        raise AssertionError("ran a subprocess")
+    command = pixi_tools.pixi_env_tool("fastqc")
 
-    monkeypatch.setattr(pixi_tools.subprocess, "run", no_subprocess)
-    command = pixi_tools._host_pixi_tool_command("fastqc")
     if windows:
-        assert command is not None and " run " not in command
-        assert command.startswith(sys.executable) and "fastqc-0.13.0" in command
+        assert command is not None
+        assert _run(command) == "FastQC v0.13.0\n"
     else:
         assert command is None  # Unix links the script into bin/; nothing here
 
 
-@pytest.mark.parametrize(
-    "tool,env", [("cyrius_python", "cyrius"), ("pharmcat_python", "pharmcat")]
-)
-@pytest.mark.parametrize("current", ["default", "dev", "dedicated"])
+# Finding pixi, and the repair command it offers.
+
+
+@posix_pixi
+def test_the_pixi_running_the_cli_is_preferred(fake_pixi, tmp_path):
+    """Over a system pixi on PATH, which may be another version with other
+    global config: here it doesn't know this workspace."""
+    system = FakePixi(tmp_path / "system", Path("/elsewhere/pixi.toml"))
+    (fake_pixi.host_bin / "pixi").symlink_to(system.exe)
+    prefix = fake_pixi.env("default")
+    python_tool(prefix / "bin", "samtools", 'print("samtools 1.21")')
+
+    assert pixi_tools.pixi_env_tool("samtools") is not None
+
+
+@posix_pixi
 @pytest.mark.parametrize("installed", [True, False])
-def test_interpreter_alias_uses_its_dedicated_environment(
-    monkeypatch, tool, env, current, installed
+def test_embedded_pixi_is_used_only_in_an_install_layout(
+    tmp_path, monkeypatch, installed
 ):
-    current = env if current == "dedicated" else current
-    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", current)
-    monkeypatch.setattr(pixi_tools.runtime, "is_windows_host", lambda: False)
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
-    monkeypatch.setattr(pixi_tools, "_pixi_manifest_args", lambda: [])
-    monkeypatch.setattr(
-        "shutil.which", lambda name: sys.executable if name == "python" else None
-    )
-    probes = []
+    """install.sh puts pixi in <install>/.pixi beside app/; next to a plain
+    checkout (~/wgsextract-cli) that path is the user's own ~/.pixi."""
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "pixi.toml").write_text("")
+    if installed:
+        (tmp_path / "install-manifest.json").write_text("{}")
+    monkeypatch.setattr(runtime, "source_checkout_root", lambda: app)
+    embedded = FakePixi(tmp_path / "e", app / "pixi.toml", tmp_path / ".pixi" / "bin")
+    on_path = FakePixi(tmp_path / "p", app / "pixi.toml")
+    for pixi in (embedded, on_path):
+        pixi.env("gatk", locked=("gatk4",), installed=False)
+    monkeypatch.setenv("PATH", str(on_path.exe.parent))
 
-    def probe(pixi_cmd, target_env, names):
-        probes.append((target_env, names))
-        return subprocess.CompletedProcess(
-            [], 0 if installed else 1, "direct-name:python\n" if installed else ""
-        )
+    command = pixi_tools.pixi_install_command("gatk")
 
-    monkeypatch.setattr(pixi_tools, "_probe_environment_with_pixi", probe)
-    command = pixi_tools.pixi_env_tool(tool)
-    if current == env:
-        assert command is not None and shlex.split(command) == [sys.executable]
-        assert not probes
-    else:
-        assert probes == [(env, ["python"])]
-        if installed:
-            assert command is not None and shlex.split(command) == [
-                "pixi",
-                "run",
-                "--no-install",
-                "-e",
-                env,
-                "python",
-            ]
-        else:
-            assert command is None
+    assert command is not None
+    expected = embedded if installed else on_path
+    assert shlex.split(command)[0] == str(expected.exe)
 
 
-def _gatk_prefix(tmp_path: Path) -> Path:
+@posix_pixi
+def test_without_another_pixi_the_users_own_is_used(tmp_path, monkeypatch):
+    if any(Path(p).exists() for p in ("/opt/homebrew/bin/pixi", "/usr/local/bin/pixi")):
+        pytest.skip("a system pixi is installed")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(runtime, "source_checkout_root", lambda: None)
+    assert pixi_tools.pixi_env_prefix("gatk") is None
+
+    own = FakePixi(tmp_path / "own", None, Path.home() / ".pixi" / "bin")
+    own.env("gatk", locked=("gatk4",), installed=False)
+    command = pixi_tools.pixi_install_command("gatk")
+    assert command is not None and shlex.split(command)[0] == str(own.exe)
+
+
+@posix_pixi
+@pytest.mark.parametrize("checkout", [True, False])
+def test_the_repair_command_installs_from_any_directory(
+    tmp_path, monkeypatch, checkout
+):
+    """It names the app's manifest, when the app runs from a checkout (an
+    installed wheel has none)."""
+    app = tmp_path / "app"
+    app.mkdir()
+    if checkout:
+        (app / "pixi.toml").write_text("")
+    monkeypatch.setattr(runtime, "source_checkout_root", lambda: app)
+    pixi = FakePixi(tmp_path / "pixi", app / "pixi.toml" if checkout else None)
+    pixi.env("gatk", locked=("gatk4",), installed=False)
+    monkeypatch.setenv("PIXI_EXE", str(pixi.exe))
+
+    command = pixi_tools.pixi_install_command("gatk")
+    assert command is not None
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    subprocess.run(shlex.split(command), cwd=elsewhere, check=True)
+
+    assert pixi.installed("gatk")
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout"), [(1, '[{"name": "gatk4"}]'), (0, "not json")]
+)
+def test_without_a_readable_lockfile_no_install_command_is_offered(
+    fake_pixi, returncode, stdout
+):
+    fake_pixi.env("gatk", locked=("gatk4",), installed=False)
+    fake_pixi.set(list_stdout=stdout, list_returncode=returncode)
+    assert pixi_tools.pixi_install_command("gatk") is None
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    ["", "not json", '{"version": "0.40"}', '{"environments_info": [{"name": "vep"}]}'],
+)
+def test_pixi_env_prefix_without_a_usable_answer(fake_pixi, stdout):
+    fake_pixi.env("gatk")
+    assert pixi_tools.pixi_env_prefix("gatk") == fake_pixi.root / "envs" / "gatk"
+
+    fake_pixi.set(info_stdout=stdout)
+    assert pixi_tools.pixi_env_prefix("gatk") is None
+
+
+# GATK on Windows: java with the native GKL sidecar on its classpath.
+
+GKL = ("gkl_utils", "gkl_pairhmm", "gkl_pairhmm_omp", "gkl_smithwaterman")
+
+
+def _gatk_prefix(tmp_path: Path, natives: tuple[str, ...] = GKL) -> Path:
     prefix = tmp_path / "profile with spaces"
     package = prefix / "share" / "gatk4-4.6.2.0-1"
     package.mkdir(parents=True)
@@ -125,12 +321,7 @@ def _gatk_prefix(tmp_path: Path) -> Path:
     sidecar = prefix / "Library" / "share" / "gkl"
     sidecar.mkdir(parents=True)
     with zipfile.ZipFile(sidecar / "gkl-native-wgse.jar", "w") as native:
-        for name in (
-            "gkl_utils",
-            "gkl_pairhmm",
-            "gkl_pairhmm_omp",
-            "gkl_smithwaterman",
-        ):
+        for name in natives:
             native.writestr(f"com/intel/gkl/native/{name}.dll", b"MZ")
     java = prefix / "Library" / "bin"
     java.mkdir(parents=True)
@@ -138,14 +329,26 @@ def _gatk_prefix(tmp_path: Path) -> Path:
     return prefix
 
 
-def test_windows_gatk_uses_sidecar_classpath_and_environment_java(
-    tmp_path, monkeypatch
-):
+def _windows_gatk(tmp_path, monkeypatch, prefix: Path) -> str | None:
+    """pixi_env_tool("gatk") on Windows, in the gatk environment at prefix,
+    with an unrelated gatk on PATH."""
+    python_tool(tmp_path / "host", "gatk", "")
+    monkeypatch.setenv("PATH", str(tmp_path / "host"))
+    _broken_pixi(tmp_path, monkeypatch)
+    _in_environment(monkeypatch, "gatk", prefix, windows=True)
+    return pixi_tools.pixi_env_tool("gatk")
+
+
+def test_windows_gatk_runs_java_with_the_native_sidecar(tmp_path, monkeypatch):
     prefix = _gatk_prefix(tmp_path)
-    monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
-    found = pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True)
-    assert found is not None
-    args = json.loads(found.removeprefix("gatk:"))
+
+    command = _windows_gatk(tmp_path, monkeypatch, prefix)
+
+    assert command is not None
+    # The path has spaces: the command line must split back into these args.
+    args = _tool_command_parts(command)
+    # contract: the upstream launcher's `-jar` ignores an added classpath, so
+    # the environment's Java runs GATK's Main with the GKL sidecar first.
     assert args[0] == str(prefix / "Library/bin/java.exe")
     assert "-jar" not in args
     assert args[-1] == "org.broadinstitute.hellbender.Main"
@@ -153,6 +356,7 @@ def test_windows_gatk_uses_sidecar_classpath_and_environment_java(
         str(prefix / "Library/share/gkl/gkl-native-wgse.jar"),
         str(prefix / "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar"),
     ]
+    # contract: GATK's packaged JVM options, and Java's default heap sizing.
     assert "-Dsamjdk.use_async_io_write_samtools=true" in args
     assert not any(arg.startswith("-Xmx") for arg in args)
 
@@ -164,22 +368,22 @@ def test_windows_gatk_uses_sidecar_classpath_and_environment_java(
         "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar",
     ],
 )
-def test_windows_gatk_missing_native_jar_has_repair_advice(
-    tmp_path, monkeypatch, missing_jar
+def test_windows_gatk_missing_a_jar_has_repair_advice(
+    tmp_path, monkeypatch, fake_pixi, missing_jar
 ):
-    from wgsextract_cli.core import dependency_checks
-    from wgsextract_cli.core.utils import WGSExtractError
-
     prefix = _gatk_prefix(tmp_path)
     (prefix / missing_jar).unlink()
-    monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
-    assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
-    assert (
-        pixi_tools._probe_environment(str(prefix), ["gatk"], windows=False)
-        == "direct-name:gatk"
-    )
-    monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(dependency_checks, "check_dependencies", lambda tools: ["gatk"])
+    assert _windows_gatk(tmp_path, monkeypatch, prefix) is None
+
+    # Elsewhere the gatk on PATH would do.
+    monkeypatch.setattr(runtime, "is_windows_host", lambda: False)
+    assert pixi_tools.pixi_env_tool("gatk") is not None
+
+    monkeypatch.setattr(runtime, "is_windows_host", lambda: True)
+    monkeypatch.setenv("PIXI_EXE", str(fake_pixi.exe))
+    monkeypatch.setenv("PATH", str(fake_pixi.host_bin))
+    fake_pixi.env("gatk", locked=("gatk4",))
+    monkeypatch.setattr(dependency_checks, "sys", SimpleNamespace(platform="win32"))
     with pytest.raises(WGSExtractError) as exc:
         dependency_checks.verify_dependencies(["gatk"])
     assert "install_windows.bat" in str(exc.value)
@@ -190,54 +394,10 @@ def test_windows_gatk_rejects_an_unqualified_jar_abi(tmp_path, monkeypatch):
     prefix = _gatk_prefix(tmp_path)
     jar = prefix / "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar"
     jar.rename(jar.with_name("gatk-package-4.7.0-local.jar"))
-    monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
-    assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
+    assert _windows_gatk(tmp_path, monkeypatch, prefix) is None
 
 
 @pytest.mark.parametrize("missing", ["gkl_pairhmm_omp", "gkl_smithwaterman"])
-def test_windows_gatk_rejects_incomplete_older_sidecar(tmp_path, missing):
-    prefix = _gatk_prefix(tmp_path)
-    with zipfile.ZipFile(
-        prefix / "Library/share/gkl/gkl-native-wgse.jar", "w"
-    ) as native:
-        for name in (
-            "gkl_utils",
-            "gkl_pairhmm",
-            "gkl_pairhmm_omp",
-            "gkl_smithwaterman",
-        ):
-            if name != missing:
-                native.writestr(f"com/intel/gkl/native/{name}.dll", b"MZ")
-    assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
-
-
-def test_windows_gatk_command_quotes_classpath_without_a_script(tmp_path, monkeypatch):
-    prefix = _gatk_prefix(tmp_path)
-    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "gatk")
-    monkeypatch.setattr(pixi_tools.sys, "prefix", str(prefix))
-    monkeypatch.setattr(pixi_tools.runtime, "is_windows_host", lambda: True)
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
-    monkeypatch.setattr("shutil.which", lambda name: None)
-    found = pixi_tools.pixi_env_tool("gatk")
-    assert found is not None
-    probed = pixi_tools._probe_environment(str(prefix), ["gatk"], True)
-    assert probed is not None
-    args = json.loads(probed.removeprefix("gatk:"))
-    assert found == subprocess.list2cmdline(args)
-
-
-def test_windows_gatk_does_not_install_or_launch_a_first_use_script(monkeypatch):
-    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
-    monkeypatch.setattr(pixi_tools.runtime, "is_windows_host", lambda: True)
-    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
-    monkeypatch.setattr(
-        pixi_tools,
-        "_probe_environment_with_pixi",
-        lambda *_: subprocess.CompletedProcess([], 1, ""),
-    )
-
-    def no_install_probe(*_):
-        raise AssertionError("Tried optional-environment first-use installation")
-
-    monkeypatch.setattr(pixi_tools, "_locked_package_available", no_install_probe)
-    assert pixi_tools.pixi_env_tool("gatk") is None
+def test_windows_gatk_rejects_incomplete_older_sidecar(tmp_path, monkeypatch, missing):
+    prefix = _gatk_prefix(tmp_path, tuple(n for n in GKL if n != missing))
+    assert _windows_gatk(tmp_path, monkeypatch, prefix) is None
