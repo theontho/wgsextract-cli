@@ -1105,7 +1105,7 @@ class _Engine:
 
     def __init__(self, monkeypatch, running=None, ps_rc=0):
         self.running, self.ps_rc, self.calls = running or {}, ps_rc, []
-        monkeypatch.setattr(containers, "_engine", self)
+        monkeypatch.setattr(containers, "engine_call", self)
 
     def __call__(self, cmd):
         self.calls.append(cmd[1:])

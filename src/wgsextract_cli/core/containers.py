@@ -134,15 +134,16 @@ def run_container(
                 raise
     except (KeyboardInterrupt, SystemExit):
         # Stopping `docker run` leaves its container running, and a shell as
-        # the container's PID 1 ignores the signals it forwards. _engine works
-        # where the process registry, once cancelled, refuses new processes.
+        # the container's PID 1 ignores the signals it forwards. engine_call works
+        # after the cancelled process registry refuses new ones.
         with suppress(OSError, subprocess.SubprocessError):
-            _engine([cmd[0], "kill", name])
+            engine_call([cmd[0], "kill", name])
         raise
 
 
-def _engine(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    """A quick engine query or command, bounded in case the daemon hangs."""
+def engine_call(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """A quick container engine query or command, bounded in case the daemon
+    hangs. Unlike run_command, it works once the run has been cancelled."""
     return subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
 
 
@@ -155,7 +156,7 @@ def tagged_containers(tags: Iterable[str]) -> list[str]:
     found: list[str] = []
     for tag in sorted(tags):
         try:
-            listed = _engine(
+            listed = engine_call(
                 [docker_path, "ps", "--filter", f"label={STEP_LABEL}={tag}",
                  "--format", "{{.Names}}"]
             )  # fmt: skip
