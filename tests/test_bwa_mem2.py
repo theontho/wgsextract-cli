@@ -1,13 +1,22 @@
 import gzip
 import hashlib
+import logging
+import os
 import random
+import re
 from argparse import Namespace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from tests.htslib_helpers import needs_tools, write_fasta
+from tests.fake_tools import python_tool, require_bare_name_fakes
+from tests.htslib_helpers import (
+    needs_tools,
+    run_wgsextract,
+    sam_to_bam,
+    write_fasta,
+    write_read_pairs,
+)
 from wgsextract_cli.commands import align
 from wgsextract_cli.core import alignment_memory, bwa_mem2
 from wgsextract_cli.core.read_counts import fastq_input_reads
@@ -29,6 +38,37 @@ def _reference(tmp_path, bases=1000, index=False):
     return str(ref)
 
 
+def _genome(tmp_path, pairs=200):
+    """A 20 kb chr1 with ``pairs`` 100 bp read pairs from it."""
+    rng = random.Random(7)
+    genome = "".join(rng.choice("ACGT") for _ in range(20_000))
+    (tmp_path / "ref").mkdir()
+    ref = write_fasta(tmp_path / "ref" / "ref.fa", {"chr1": genome})
+    r1, r2 = tmp_path / "reads_R1.fq", tmp_path / "reads_R2.fq"
+    starts = [rng.randrange(0, len(genome) - 400) for _ in range(pairs)]
+    write_read_pairs(genome, r1, r2, starts, frag=400)
+    return str(ref), str(r1), str(r2)
+
+
+def _align(ref, r1, r2, out, *options):
+    run_wgsextract(
+        "align", "--r1", r1, "--r2", r2, "--ref", ref, "--outdir", str(out),
+        "--threads", "2", *options,
+    )  # fmt: skip
+    (bam,) = out.glob("*_aligned.bam")
+    return str(bam)
+
+
+def _header(bam):
+    return run_command(["samtools", "view", "-H", bam], capture_output=True).stdout
+
+
+def _mem2_index(ref):
+    """The files beside ``ref`` but its (persistent) build lock."""
+    files = Path(ref).parent.glob(Path(ref).name + ".*")
+    return sorted(p.name for p in files if not p.name.endswith(".lock.guard"))
+
+
 @pytest.mark.parametrize(
     ("installed", "index", "memory", "expected"),
     [
@@ -39,30 +79,25 @@ def _reference(tmp_path, bases=1000, index=False):
     ],
 )
 def test_auto_takes_bwa_mem2_when_its_index_is_there_and_fits(
-    tmp_path, monkeypatch, installed, index, memory, expected
+    tmp_path, monkeypatch, ram, installed, index, memory, expected
 ):
     ref = _reference(tmp_path, bases=3_000_000_000, index=index)
     monkeypatch.setattr(
         align, "get_tool_path", lambda tool: tool if installed else None
     )
-    monkeypatch.setattr(bwa_mem2, "available_memory", lambda: memory)
+    ram(128 * GB, memory)
     assert align.short_read_aligner("auto", ref) == expected
     assert align.short_read_aligner("bwa", ref) == "bwa"
 
 
 def test_auto_memory_budget_counts_sort_threads_and_available_not_total(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, ram
 ):
     ref = _reference(tmp_path, bases=3_000_000_000, index=True)
     low = bwa_mem2.mapping_memory(ref, threads="6", memory="256M")
     high = bwa_mem2.mapping_memory(ref, threads="6", memory="2G")
     assert high > low
-    monkeypatch.setattr(
-        alignment_memory.psutil,
-        "virtual_memory",
-        lambda: SimpleNamespace(total=128 * GB, available=low),
-    )
-    monkeypatch.setattr(alignment_memory, "_cgroup_available_memory", lambda: None)
+    ram(128 * GB, low)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     assert (
         align.short_read_aligner("auto", ref, threads="6", memory="256M") == "bwa-mem2"
@@ -71,74 +106,64 @@ def test_auto_memory_budget_counts_sort_threads_and_available_not_total(
     assert align.short_read_aligner("auto", ref, threads="48", memory="256M") == "bwa"
 
 
+def _mem2_budget_between_256m_and_512m(ref, reads):
+    def need(memory):
+        return alignment_memory.estimate_mapping_memory(
+            ref, "bwa-mem2", threads="2", memory=memory, reads=reads
+        ).total
+
+    return (need("256M") + need("512M")) // 2
+
+
+def _preflight_memory_warnings(caplog):
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and r.getMessage().startswith("Preflight")
+    ]
+
+
+@needs_tools("bwa-mem2", "samtools")
 @pytest.mark.parametrize("requested", ["auto", "bwa-mem2"])
-def test_mem2_effective_sort_budget_reaches_selection_guard_and_preflight(
-    tmp_path, monkeypatch, requested
+def test_mem2_sorts_in_256m_per_thread_and_budgets_ram_for_that(
+    tmp_path, ram, caplog, requested
 ):
-    ref = _reference(tmp_path, index=True)
-    reads = 300
-    budget = alignment_memory.estimate_mapping_memory(
-        ref, "bwa-mem2", threads="6", memory="256M", reads=reads
-    ).total
-    monkeypatch.setattr(
-        alignment_memory.psutil,
-        "virtual_memory",
-        lambda: SimpleNamespace(total=128 * GB, available=budget),
-    )
-    monkeypatch.setattr(alignment_memory, "_cgroup_available_memory", lambda: None)
-    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
-    setup = align._AlignSetup("6", "512M", str(tmp_path), ref, "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
-    monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
-    monkeypatch.setattr(align, "print_warning", lambda *_a, **_kw: None)
-    estimates, pipelines = [], []
-    monkeypatch.setattr(
-        align, "preflight_resources", lambda build: estimates.append(build())
-    )
-    monkeypatch.setattr(
-        align,
-        "run_streamed_alignment",
-        lambda command, *_a, **kw: pipelines.append((command, kw)),
-    )
-    align.align_bwa(
-        Namespace(
-            aligner=requested,
-            r1="r1.fq",
-            r2="r2.fq",
-            format="BAM",
-            _input_read_count=reads,
-        )
-    )
-    assert pipelines[0][0][:2] == ["bwa-mem2", "mem"]
-    assert pipelines[0][1]["memory"] == "256M"
-    assert estimates[0].resources[0].estimated_bytes == budget
+    ref, r1, r2 = _genome(tmp_path)
+    run_wgsextract("ref", "index", "--ref", ref, "--aligner", "bwa-mem2")
+    # Enough RAM for MEM2 sorting in 256M a thread, not in the 512M asked for:
+    # auto still takes it, and neither the guard nor the preflight objects.
+    ram(64 * GB, _mem2_budget_between_256m_and_512m(ref, 400))
+    caplog.clear()
+    caplog.set_level(logging.INFO)
+
+    bam = _align(ref, r1, r2, tmp_path / "out", "--aligner", requested, "-m", "512M")
+
+    header = _header(bam)
+    assert "\tID:bwa-mem2\t" in header
+    (sort,) = [line for line in header.splitlines() if "CL:samtools sort" in line]
+    # contract: the sort budget is what the memory guard counted
+    assert " -m 256M " in sort
+    assert not _preflight_memory_warnings(caplog)
 
 
-def test_realign_preflight_uses_effective_mem2_budget(tmp_path, monkeypatch):
-    from wgsextract_cli.commands import realign
+@needs_tools("bwa-mem2", "samtools")
+def test_realign_budgets_mem2_ram_for_its_256m_sort(tmp_path, ram, caplog):
+    ref, r1, r2 = _genome(tmp_path)
+    run_wgsextract("ref", "index", "--ref", ref, "--aligner", "bwa-mem2")
+    ram(64 * GB)
+    source = _align(ref, r1, r2, tmp_path / "first", "--aligner", "bwa")
+    ram(64 * GB, _mem2_budget_between_256m_and_512m(ref, 400))
+    caplog.clear()
+    caplog.set_level(logging.INFO)
 
-    ref = _reference(tmp_path, index=True)
-    estimates = []
-    monkeypatch.setattr(
-        realign, "preflight_resources", lambda build: estimates.append(build())
-    )
-    realign._report_resource_estimates(
-        Namespace(
-            aligner="bwa-mem2", platform="illumina", format="BAM", keep_fastq=False
-        ),
-        ref,
-        str(tmp_path),
-        "6",
-        "512M",
-        300,
-        input_paths=["r1.fq"],
-        need_extract=True,
-        paired=False,
-    )
-    expected = alignment_memory.estimate_mapping_memory(
-        ref, "bwa-mem2", threads="6", memory="256M", reads=300, samblaster=False
-    )
-    assert estimates[0].resources[0].estimated_bytes == expected.total
+    run_wgsextract(
+        "realign", "--input", source, "--ref", ref, "--outdir", str(tmp_path / "out"),
+        "--aligner", "bwa-mem2", "--threads", "2", "--memory", "512M",
+    )  # fmt: skip
+
+    (bam,) = (tmp_path / "out").glob("*_aligned.bam")
+    assert "\tID:bwa-mem2\t" in _header(str(bam))
+    assert not _preflight_memory_warnings(caplog)
 
 
 @pytest.mark.parametrize(
@@ -169,12 +194,12 @@ def test_mapping_estimate_uses_resident_files_and_index_length_without_fai(
     assert grown.total == after.total + 4096
 
 
-def test_samblaster_allowance_only_applies_when_that_stage_runs(tmp_path, monkeypatch):
+def test_samblaster_allowance_only_applies_when_that_stage_runs(tmp_path, ram):
     ref = _reference(tmp_path, bases=3_000_000_000, index=True)
     without = alignment_memory.estimate_mapping_memory(
         ref, "bwa-mem2", threads="2", memory="100M", samblaster=False
     )
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: without.total)
+    ram(128 * GB, without.total)
     alignment_memory.check_mapping_memory(
         ref, "bwa-mem2", threads="2", memory="100M", samblaster=False
     )
@@ -184,35 +209,24 @@ def test_samblaster_allowance_only_applies_when_that_stage_runs(tmp_path, monkey
         )
 
 
+@needs_tools("bwa", "bwa-mem2", "samtools")
 @pytest.mark.parametrize("tool", ["bwa", "bwa-mem2"])
 def test_low_available_memory_refuses_mem2_but_bwa_warns_and_runs(
-    tmp_path, monkeypatch, caplog, tool
+    tmp_path, ram, caplog, tool
 ):
-    ref = _reference(tmp_path, bases=3_000_000_000, index=True)
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: GB)
-    setup = align._AlignSetup("6", "512M", str(tmp_path), ref, "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
-    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
-    monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
-    monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)
-    pipelines = []
-    monkeypatch.setattr(
-        align, "run_streamed_alignment", lambda *_a, **_k: pipelines.append(True)
-    )
-    args = Namespace(aligner=tool, r1="r1.fq", r2="r2.fq", format="BAM")
+    ref, r1, r2 = _genome(tmp_path)
+    before = _mem2_index(ref)
+    ram(64 * GB, 1024**2)
+    out = tmp_path / "out"
     if tool == "bwa-mem2":
-        monkeypatch.setattr(
-            bwa_mem2,
-            "ensure_index",
-            lambda *_a, **_k: pytest.fail("index work started"),
-        )
         with pytest.raises(WGSExtractError, match="--memory.*--aligner bwa"):
-            align.align_bwa(args)
-        assert not pipelines
+            _align(ref, r1, r2, out, "--aligner", tool)
+        # Refused before building an index or writing anything.
+        assert _mem2_index(ref) == before
+        assert not out.exists() or not list(out.iterdir())
     else:
-        align.align_bwa(args)
-        assert pipelines == [True]
+        bam = _align(ref, r1, r2, out, "--aligner", tool)
+        assert "\tID:bwa\t" in _header(bam)
         assert "Continuing with bwa" in caplog.text
         assert "--memory" in caplog.text
 
@@ -227,12 +241,10 @@ def test_low_available_memory_refuses_mem2_but_bwa_warns_and_runs(
     ],
 )
 def test_full_human_budget_accounts_for_final_h2_paged_working_set(
-    tmp_path, monkeypatch, caplog, tool, available_gib, refused, warned
+    tmp_path, ram, caplog, tool, available_gib, refused, warned
 ):
     ref = _reference(tmp_path, bases=3_217_346_917)
-    monkeypatch.setattr(
-        alignment_memory, "available_memory", lambda: int(available_gib * GB)
-    )
+    ram(64 * GB, int(available_gib * GB))
     kwargs = {
         "threads": "6",
         "memory": "256M",
@@ -247,17 +259,11 @@ def test_full_human_budget_accounts_for_final_h2_paged_working_set(
     assert ("Continuing with bwa" in caplog.text) is warned
 
 
-def test_default_bwa_sort_budget_warns_below_18g_available(
-    tmp_path, monkeypatch, caplog
-):
+def test_default_bwa_sort_budget_warns_below_18g_available(tmp_path, ram, caplog):
     from wgsextract_cli.core.utils import get_resource_defaults
 
     ref = _reference(tmp_path, bases=3_217_346_917)
-    monkeypatch.setattr(
-        alignment_memory.psutil,
-        "virtual_memory",
-        lambda: SimpleNamespace(total=32 * GB, available=17 * GB),
-    )
+    ram(32 * GB, 17 * GB)
     threads, memory = get_resource_defaults("6", None)
     alignment_memory.check_mapping_memory(
         ref, "bwa", threads=threads, memory=memory, samblaster=True
@@ -265,68 +271,72 @@ def test_default_bwa_sort_budget_warns_below_18g_available(
     assert "Continuing with bwa" in caplog.text
 
 
-def test_small_input_does_not_inherit_full_genome_transient_allowance(
-    tmp_path, monkeypatch
-):
+def test_small_input_does_not_inherit_full_genome_transient_allowance(tmp_path, ram):
     ref = _reference(tmp_path, bases=20_000, index=True)
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 4 * GB)
+    ram(16 * GB, 4 * GB)
     alignment_memory.check_mapping_memory(
         ref, "bwa-mem2", threads="2", memory="100M", samblaster=True, reads=300
     )
 
 
+def _bam_on(ref, path, length):
+    """A sorted, indexed BAM of one read pair on ``ref``'s chr1 of ``length``
+    bases."""
+    seq = "ACGT" * 25
+    return sam_to_bam(
+        [
+            f"@SQ\tSN:chr1\tLN:{length}",
+            "@RG\tID:rg\tSM:s\tPL:ILLUMINA",
+            f"p\t99\tchr1\t1\t60\t100M\t=\t201\t300\t{seq}\t{'I' * 100}\tRG:Z:rg",
+            f"p\t147\tchr1\t201\t60\t100M\t=\t1\t-300\t{seq}\t{'I' * 100}\tRG:Z:rg",
+        ],
+        path,
+    )
+
+
+def _fastqs(folder):
+    return [p for p in folder.rglob("*") if re.search(r"\.f(ast)?q(\.gz)?$", p.name)]
+
+
+@needs_tools("samtools")
 @pytest.mark.parametrize("reference_source", ["fasta", "library", "configured"])
 def test_realign_refuses_mem2_memory_before_extracting(
-    tmp_path, monkeypatch, reference_source
+    tmp_path, monkeypatch, ram, reference_source
 ):
-    from wgsextract_cli.commands import realign
     from wgsextract_cli.core.config import settings
-    from wgsextract_cli.core.reference_assets import fasta_signature
 
     library = tmp_path / "library"
     library.mkdir()
-    ref = _reference(library, bases=3_000_000_000, index=True)
+    ref = _reference(library, bases=2_000_000_000, index=True)
+    # MEM2 maps its index into RAM; a sparse one is as big without the disk.
+    os.truncate(ref + ".bwt.2bit.64", 8 * GB)
+    # A small genome the input wasn't aligned to: it would fit.
     (library / "hg19.fa").write_text(">chr2\nA\n")
     (library / "hg19.fa.fai").write_text("chr2\t1\t6\t1\t2\n")
-    source = tmp_path / "source.bam"
-    source.write_bytes(b"input")
+    small = alignment_memory.estimate_mapping_memory(
+        str(library / "hg19.fa"), "bwa-mem2", threads="6", memory="256M", reads=2
+    )
+    ram(64 * GB, small.total + GB)
     monkeypatch.setitem(settings, "reference_library", str(library))
-    monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: fasta_signature(ref))
-    targets = []
+    out = tmp_path / "out"
+    source = _bam_on(ref, tmp_path / "source.bam", 2_000_000_000)
+    where = {"fasta": ["--ref", ref], "library": ["--ref", str(library)]}
 
-    def check_target(target, *args, **kwargs):
-        targets.append(target)
-        assert kwargs["memory"] == "256M"
-        alignment_memory.check_mapping_memory(target, *args, **kwargs)
+    with pytest.raises(WGSExtractError, match="bwa-mem2 alignment is estimated") as e:
+        run_wgsextract(
+            "realign", "--input", source, *where.get(reference_source, []),
+            "--outdir", str(out), "--aligner", "bwa-mem2",
+            "--threads", "6", "--memory", "512M",
+        )  # fmt: skip
 
-    monkeypatch.setattr(realign, "check_mapping_memory", check_target)
-    monkeypatch.setattr(realign, "indexed_read_count", lambda *_: 679_639_896)
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: GB)
-    monkeypatch.setattr(
-        realign,
-        "alignments_to_fastq",
-        lambda *_a, **_k: pytest.fail("extraction started"),
+    # The input's own reference was checked, with MEM2's 256M sort budget.
+    needed = alignment_memory.estimate_mapping_memory(
+        ref, "bwa-mem2", threads="6", memory="256M", reads=2
     )
-    args = Namespace(
-        input=str(source),
-        ref={"fasta": ref, "library": str(library), "configured": None}[
-            reference_source
-        ],
-        r1=None,
-        r2=None,
-        platform="illumina",
-        aligner="bwa-mem2",
-        long_read=False,
-        preset=None,
-        threads="6",
-        memory="512M",
-        outdir=str(tmp_path),
-        force_extract=False,
-        keep_fastq=False,
-    )
-    with pytest.raises(WGSExtractError, match="bwa-mem2 alignment is estimated"):
-        realign.run(args)
-    assert targets == [ref]
+    total = float(re.search(r"need ([\d.]+) GiB", str(e.value))[1]) * GB
+    # A 512M sort budget would add 1.5 GiB over six threads.
+    assert needed.total - 0.01 * GB <= total < needed.total + GB
+    assert not _fastqs(tmp_path)
 
 
 def test_same_reference_budget_grows_with_sampled_fastq_input(tmp_path):
@@ -348,10 +358,8 @@ def test_same_reference_budget_grows_with_sampled_fastq_input(tmp_path):
 
 
 def test_input_count_scales_memory_auto_selection_and_sort_disk(
-    tmp_path, monkeypatch, caplog
+    tmp_path, monkeypatch, ram, caplog
 ):
-    from wgsextract_cli.core import warnings
-
     ref = _reference(tmp_path, bases=3_217_346_917, index=True)
     count = 679_639_896
     low = alignment_memory.estimate_mapping_memory(
@@ -362,18 +370,21 @@ def test_input_count_scales_memory_auto_selection_and_sort_disk(
     )
     assert high.samblaster == 2 * low.samblaster
     assert high.total > low.total
-    monkeypatch.setattr(bwa_mem2, "available_memory", lambda: low.total)
+    ram(128 * GB, low.total)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     kwargs = {"threads": "6", "memory": "256M"}
     assert align.short_read_aligner("auto", ref, reads=count, **kwargs) == "bwa-mem2"
     assert align.short_read_aligner("auto", ref, reads=count * 2, **kwargs) == "bwa"
-    asked = []
-    monkeypatch.setattr(
-        warnings, "check_free_space", lambda _path, size: asked.append(size)
-    )
+    caplog.set_level(logging.INFO)
     warn_alignment_sort_space(tmp_path, count)
     warn_alignment_sort_space(tmp_path, count * 2)
-    assert asked[1] > asked[0]
+    low_disk, high_disk = (
+        float(m[1])
+        for m in re.finditer(r"sort temporary disk estimate: ([\d.]+) GiB", caplog.text)
+    )
+    # A 30x run of this many reads spilled 74 bytes a read (47 GiB) to sort.
+    assert 47 <= low_disk < 60
+    assert high_disk == pytest.approx(2 * low_disk, rel=0.01)
 
 
 def test_h2_read_count_calibration_is_about_18_gib_for_bwa(tmp_path):
@@ -383,78 +394,6 @@ def test_h2_read_count_calibration_is_about_18_gib_for_bwa(tmp_path):
     )
     assert 18 <= budget.total / GB < 18.5
     assert budget.samblaster >= 6_015_033_344
-
-
-@pytest.mark.parametrize("reads", [800_000_000, None])
-def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
-    tmp_path, monkeypatch, reads
-):
-    ref = _reference(tmp_path, bases=3_217_346_917)
-    setup = align._AlignSetup("6", "256M", str(tmp_path), ref, "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
-    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(
-        align,
-        "fastq_input_statistics",
-        lambda *_: pytest.fail("resampled indexed input"),
-    )
-    budgets = []
-
-    def select(*_args, **kwargs):
-        budgets.append(kwargs["reads"])
-        return "bwa"
-
-    monkeypatch.setattr(align, "short_read_aligner", select)
-    monkeypatch.setattr(
-        align, "check_mapping_memory", lambda *_a, **k: budgets.append(k["reads"])
-    )
-    monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
-    monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
-    monkeypatch.setattr(
-        align, "warn_alignment_sort_space", lambda _out, count: budgets.append(count)
-    )
-    align._bwa_setup(
-        Namespace(aligner="auto", r1="r1.fq", r2="r2.fq", _input_read_count=reads),
-        "alignment",
-    )
-    assert budgets == [reads] * 3
-
-
-def test_bwa_setup_rejects_stream_overlap_without_downgrading_auto(
-    tmp_path, monkeypatch
-):
-    ref = _reference(tmp_path)
-    setup = align._AlignSetup("8", "2G", str(tmp_path), ref, "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_kw: setup)
-    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(bwa_mem2, "has_index", lambda *_a: True)
-    monkeypatch.setattr(
-        bwa_mem2,
-        "can_map",
-        lambda *_a, **kw: kw.get("additional_ram_bytes", 0) == 0,
-    )
-    selected = []
-
-    def insufficient(_ref, tool, **_kw):
-        selected.append(tool)
-        return False
-
-    monkeypatch.setattr(align, "streaming_mapping_fits", insufficient)
-    monkeypatch.setattr(
-        align, "run_command", lambda *_a, **_kw: pytest.fail("pipeline started")
-    )
-    with pytest.raises(align.StreamingMemoryUnavailable):
-        align._bwa_setup(
-            Namespace(
-                aligner="auto",
-                r1="r1.fq",
-                r2="r2.fq",
-                _input_read_count=680_000_000,
-            ),
-            "alignment",
-            additional_ram_bytes=1024**3,
-        )
-    assert selected == ["bwa-mem2"]
 
 
 def test_select_aligner_accepts_bwa_mem2_for_short_reads():
@@ -497,10 +436,11 @@ def test_hs38dh_has_a_prebuilt_index():
     assert all(len(sha) == 64 for _size, sha in prebuilt.files.values())
 
 
-def test_missing_index_without_memory_to_build_says_what_to_do(tmp_path, monkeypatch):
+def test_missing_index_without_memory_to_build_says_what_to_do(
+    tmp_path, monkeypatch, ram
+):
     ref = _reference(tmp_path, bases=3_000_000_000)
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 32 * GB)
-    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
+    ram(32 * GB)
     with pytest.raises(WGSExtractError, match="needs 78 GB of memory.*--aligner bwa"):
         bwa_mem2.ensure_index(ref, download=True)
 
@@ -511,54 +451,55 @@ def test_missing_index_without_memory_to_build_says_what_to_do(tmp_path, monkeyp
         bwa_mem2.ensure_index(ref, download=False)
 
 
-def test_index_is_built_when_it_fits_in_memory(tmp_path, monkeypatch):
-    ref = _reference(tmp_path)
-    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
-    commands = []
+@needs_tools("samtools", "bwa-mem2")
+def test_align_indexes_a_bare_fasta_for_mem2(tmp_path):
+    ref, r1, r2 = _genome(tmp_path)
+    Path(ref + ".fai").unlink()
 
-    def build(cmd, **kwargs):
-        commands.append(cmd)
-        for suffix in bwa_mem2.INDEX_SUFFIXES:
-            Path(cmd[3] + suffix).write_text("index")
+    bam = _align(ref, r1, r2, tmp_path / "out", "--aligner", "bwa-mem2")
 
-    monkeypatch.setattr(bwa_mem2, "run_command", build)
-    bwa_mem2.ensure_index(ref, download=True)
-    assert commands[0][:3] == ["bwa-mem2", "index", "-p"]
-    assert commands[0][-1] == ref
+    assert Path(ref + ".fai").read_text().split("\t")[:2] == ["chr1", "20000"]
     assert bwa_mem2.has_index(ref)
+    assert "\tID:bwa-mem2\t" in _header(bam)
+
+
+_FAKE_MEM2_INDEX = """\
+import sys
+assert sys.argv[1:3] == ["index", "-p"], sys.argv
+for suffix in {suffixes!r}:
+    open(sys.argv[3] + suffix, "w").write("index")
+"""
 
 
 @pytest.mark.parametrize("bases", [2**31 - 1, 2**31, 3_217_346_917])
 @pytest.mark.parametrize("entry", ["build_index", "ensure_index"])
 def test_large_mem2_index_can_be_built_on_every_platform(
-    tmp_path, monkeypatch, bases, entry
+    tmp_path, monkeypatch, ram, bases, entry
 ):
+    require_bare_name_fakes()
     ref = _reference(tmp_path, bases=bases)
-    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 128 * GB)
-    commands = []
-
-    def build(command):
-        commands.append(command)
-        for suffix in bwa_mem2.INDEX_SUFFIXES:
-            Path(command[3] + suffix).write_bytes(b"index")
-
-    monkeypatch.setattr(bwa_mem2, "run_command", build)
+    ram(128 * GB)
+    # Building a human index takes an hour: a stand-in writes its files.
+    python_tool(
+        tmp_path / "bin",
+        "bwa-mem2",
+        _FAKE_MEM2_INDEX.format(suffixes=list(bwa_mem2.INDEX_SUFFIXES)),
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
     bwa_mem2.check_index(ref)
     if entry == "ensure_index":
         bwa_mem2.ensure_index(ref, download=False)
     else:
         bwa_mem2.build_index(ref)
-    assert commands[0][:3] == ["bwa-mem2", "index", "-p"]
-    assert commands[0][-1] == ref
     assert bwa_mem2.has_index(ref)
     assert not Path(ref + ".bwa-mem2.pending").exists()
 
 
+@needs_tools("bwa-mem2")
 @pytest.mark.parametrize("metadata", [None, "chr1\t10\t6\t60\t61\nchr2\n"])
 @pytest.mark.parametrize("entry", ["build_index", "check_index", "ensure_index"])
 def test_unknown_or_incomplete_length_cannot_bypass_build_memory_preflight(
-    tmp_path, monkeypatch, metadata, entry
+    tmp_path, ram, metadata, entry
 ):
     ref = _reference(tmp_path)
     fai = Path(ref + ".fai")
@@ -566,93 +507,49 @@ def test_unknown_or_incomplete_length_cannot_bypass_build_memory_preflight(
         fai.unlink()
     else:
         fai.write_text(metadata)
-    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda *_a: None)
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
-    monkeypatch.setattr(
-        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
-    )
+    ram(8 * GB)
+    before = _mem2_index(ref)
     with pytest.raises(WGSExtractError, match="reference length.*samtools faidx"):
         if entry == "ensure_index":
             bwa_mem2.ensure_index(ref, download=False)
         else:
             getattr(bwa_mem2, entry)(ref)
-    assert not Path(ref + ".bwa-mem2.pending").exists()
+    assert _mem2_index(ref) == before
 
 
-def test_ann_length_can_protect_large_build_without_a_fai(tmp_path, monkeypatch):
+@needs_tools("bwa-mem2")
+def test_ann_length_can_protect_large_build_without_a_fai(tmp_path, ram):
     ref = _reference(tmp_path, bases=3_217_346_917)
     Path(ref + ".fai").unlink()
     Path(ref + ".ann").write_text("3217346917 3366 11\n")
-    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda *_a: None)
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
-    monkeypatch.setattr(
-        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
-    )
+    ram(8 * GB)
     with pytest.raises(WGSExtractError, match="needs.*memory"):
         bwa_mem2.ensure_index(ref, download=False)
+    assert _mem2_index(ref) == ["ref.fa.ann"]
 
 
 @needs_tools("samtools", "bwa-mem2")
-def test_align_prepares_missing_fai_before_mem2_memory_and_index(tmp_path, monkeypatch):
-    ref = tmp_path / "ref.fa"
-    ref.write_text(">chr1\n" + "ACGT" * 1500 + "\n")
-    assert not Path(str(ref) + ".fai").exists()
-    assert not Path(str(ref) + ".ann").exists()
-    setup = align._AlignSetup("1", "100M", str(tmp_path), str(ref), "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_kw: setup)
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GB)
-    monkeypatch.setattr(align, "print_warning", lambda *_a, **_kw: None)
-    args = Namespace(
-        aligner="bwa-mem2",
-        r1="r1.fq",
-        r2=None,
-        format="BAM",
-        _input_read_count=1,
-    )
+def test_ref_index_builds_the_mem2_index(tmp_path):
+    ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 1500})
+    Path(str(ref) + ".fai").unlink()
 
-    _, tool = align._bwa_setup(args, "test")
+    run_wgsextract("ref", "index", "--ref", str(ref), "--aligner", "bwa-mem2")
 
-    assert tool == "bwa-mem2"
-    assert Path(str(ref) + ".fai").read_text().split("\t")[:2] == ["chr1", "6000"]
+    assert (tmp_path / "ref.fa.fai").is_file()
+    assert (tmp_path / "ref.dict").is_file()
     assert bwa_mem2.has_index(str(ref))
 
 
-def test_ref_index_starts_supported_large_mem2_build(tmp_path, monkeypatch):
-    from wgsextract_cli.commands.ref import core_commands
-
-    ref = _reference(tmp_path, bases=2**31)
-    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 128 * GB)
-    monkeypatch.setattr(core_commands, "verify_dependencies", lambda *_a: None)
-    monkeypatch.setattr(core_commands, "log_dependency_info", lambda *_a: None)
-    commands = []
-    monkeypatch.setattr(core_commands, "run_command", commands.append)
-    index_commands = []
-
-    def build(command):
-        index_commands.append(command)
-        for suffix in bwa_mem2.INDEX_SUFFIXES:
-            Path(command[3] + suffix).write_bytes(b"index")
-
-    monkeypatch.setattr(bwa_mem2, "run_command", build)
-    core_commands.cmd_index(Namespace(ref=ref, aligner="bwa-mem2"))
-    assert [command[:2] for command in commands] == [
-        ["samtools", "faidx"],
-        ["samtools", "dict"],
-    ]
-    assert index_commands[0][:3] == ["bwa-mem2", "index", "-p"]
-    assert index_commands[0][-1] == ref
-    assert bwa_mem2.has_index(ref)
-
-
-def test_large_existing_index_remains_usable(tmp_path, monkeypatch):
+@needs_tools("bwa-mem2")
+def test_large_existing_index_remains_usable(tmp_path, ram):
     ref = _reference(tmp_path, bases=2**31, index=True)
-    monkeypatch.setattr(
-        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
-    )
+    ram(16 * GB)
     bwa_mem2.check_index(ref)
     bwa_mem2.ensure_index(ref, download=False)
+    # Kept as it is, not rebuilt.
+    assert all(
+        Path(ref + suffix).read_text() == "x" for suffix in bwa_mem2.INDEX_SUFFIXES
+    )
 
 
 def test_prebuilt_index_downloads_and_is_checked(tmp_path, monkeypatch):
@@ -685,43 +582,14 @@ def test_prebuilt_index_downloads_and_is_checked(tmp_path, monkeypatch):
 
 @needs_tools("bwa", "bwa-mem2", "samtools")
 @pytest.mark.parametrize("memory", ["100M", "512M"])
-def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch, memory):
-    rng = random.Random(7)
-    genome = "".join(rng.choice("ACGT") for _ in range(20_000))
-    ref = str(write_fasta(tmp_path / "ref.fa", {"chr1": genome}))
-    comp = str.maketrans("ACGT", "TGCA")
-    with open(tmp_path / "r1.fq", "w") as r1, open(tmp_path / "r2.fq", "w") as r2:
-        for i in range(200):
-            start = rng.randrange(0, len(genome) - 400)
-            frag = genome[start : start + 400]
-            r1.write(f"@p{i}\n{frag[:100]}\n+\n{'I' * 100}\n")
-            r2.write(f"@p{i}\n{frag[-100:].translate(comp)[::-1]}\n+\n{'I' * 100}\n")
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 64 * GB)
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 64 * GB)
+def test_bwa_mem2_aligns_like_bwa(tmp_path, memory):
+    ref, r1, r2 = _genome(tmp_path)
     positions = {}
     for aligner in ("bwa", "bwa-mem2"):
-        outdir = tmp_path / aligner
-        align.run(
-            Namespace(
-                aligner=aligner,
-                r1=str(tmp_path / "r1.fq"),
-                r2=str(tmp_path / "r2.fq"),
-                ref=ref,
-                input=None,
-                outdir=str(outdir),
-                format="BAM",
-                threads="2",
-                memory=memory,
-                platform="illumina",
-                long_read=False,
-                preset=None,
-                gpu=False,
-                sample=None,
-            )
+        bam = _align(
+            ref, r1, r2, tmp_path / aligner, "--aligner", aligner, "-m", memory
         )
-        (bam,) = (str(p) for p in outdir.glob("*_aligned.bam"))
-        header = run_command(["samtools", "view", "-H", bam], capture_output=True)
-        assert f"ID:{aligner}\t" in header.stdout
+        assert f"ID:{aligner}\t" in _header(bam)
         reads = run_command(["samtools", "view", bam], capture_output=True)
         positions[aligner] = sorted(
             tuple(line.split("\t")[:6]) for line in reads.stdout.splitlines()
@@ -730,32 +598,15 @@ def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch, memory):
     assert positions["bwa"] == positions["bwa-mem2"]
 
 
-def test_realign_checks_the_bwa_mem2_index_before_extracting(tmp_path, monkeypatch):
-    from wgsextract_cli.commands import realign
-
-    ref = _reference(tmp_path, bases=3_000_000_000)
-    source = tmp_path / "x.bam"
-    source.write_bytes(b"data")
-    extracted = []
-    monkeypatch.setattr(realign, "alignments_to_fastq", extracted.append)
-    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 32 * GB)
-    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
-    args = Namespace(
-        input=str(source),
-        ref=ref,
-        outdir=str(tmp_path),
-        threads=None,
-        memory=None,
-        r1=None,
-        r2=None,
-        force_extract=False,
-        no_preflight=True,
-        keep_fastq=False,
-        aligner="bwa-mem2",
-        platform="illumina",
-        long_read=False,
-        preset=None,
-    )
+@needs_tools("samtools")
+def test_realign_checks_the_bwa_mem2_index_before_extracting(tmp_path, ram):
+    # BAM holds contigs below 2**31 bases.
+    ref = _reference(tmp_path, bases=2_000_000_000)
+    source = _bam_on(ref, tmp_path / "x.bam", 2_000_000_000)
+    ram(32 * GB)
     with pytest.raises(WGSExtractError, match="no bwa-mem2 index"):
-        realign.run(args)
-    assert extracted == []
+        run_wgsextract(
+            "realign", "--input", source, "--ref", ref, "--outdir", str(tmp_path),
+            "--aligner", "bwa-mem2", "--no-preflight", "--keep-fastq",
+        )  # fmt: skip
+    assert not _fastqs(tmp_path)

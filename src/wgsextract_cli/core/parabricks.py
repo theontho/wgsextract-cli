@@ -86,9 +86,16 @@ def call_variants(
     extra: list[str] | None = None,
 ) -> None:
     """GPU variant calling (pbrun deepvariant or haplotypecaller) into out_vcf;
-    a comma-separated --region becomes one interval each."""
+    a comma-separated --region becomes one interval each, and a BED file in
+    it an --interval-file (pbrun's -L takes only literal intervals)."""
     require_native_tool("parabricks")
-    intervals = [arg for r in (region or "").split(",") if r for arg in ("-L", r)]
+    regions = [r.strip() for r in (region or "").split(",") if r.strip()]
+    beds = [r for r in regions if Path(r).is_file()]
+    intervals = [
+        arg
+        for r in regions
+        for arg in (("--interval-file", host_path(r)) if r in beds else ("-L", r))
+    ]
     with tempfile.TemporaryDirectory(
         dir=str(Path(out_vcf).parent), prefix=".wgse_pb_"
     ) as tmp:
@@ -98,5 +105,5 @@ def call_variants(
             + ["--out-variants", host_path(out_vcf), "--tmp-dir", host_path(tmp)]
             + intervals
             + (extra or []),
-            [ref, input_path, out_vcf, tmp],
+            [ref, input_path, out_vcf, tmp, *beds],
         )
