@@ -882,18 +882,32 @@ def test_analyze_carries_each_steps_manifest_outputs_and_warnings(tmp_path):
 
 
 @needs_htslib
-def test_analyze_keeps_warnings_of_steps_that_write_no_manifest(tmp_path):
+def test_analyze_steps_show_their_output_and_keep_their_results(tmp_path, capfd):
+    from tests.test_lineage_haplogroups import _HG38, _KIT_BODY, _haplogrep, _vcf
     from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand
 
     bam = _write_small_bam(tmp_path, "a", reads_per_contig=3)
+    kit = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
+    out = tmp_path / "out"
     args = argparse.Namespace(ref=None, input=None, threads=1, debug=False)
     result = results.CommandResult("analyze comprehensive")
     with results.collecting(result):
         run_cli_subcommand(
-            ["info", "--detailed", "--input", str(bam), "--outdir", str(tmp_path)],
-            args,
+            ["info", "--detailed", "--input", str(bam), "--outdir", str(out)], args
         )
-    assert not list(tmp_path.glob("*.manifest.json"))
+        run_cli_subcommand(
+            ["lineage", "mt-haplogroup", "--input", kit, "--outdir", str(out),
+             "--haplogrep-path", _haplogrep(tmp_path)],
+            args,
+        )  # fmt: skip
+    shown = capfd.readouterr().out
+    assert "By Reference Sequence Name" in shown  # info's chromosome table
+    assert "Haplogroup      : H1c" in shown
+    # info writes no manifest, yet its warnings, with their details, survive.
+    assert not list(out.glob("info*.manifest.json"))
     (low,) = (w for w in result.warnings if w.code == "low_coverage")
     assert low.details["step"] == "info"
     assert len(low.details) > 1  # depth and threshold survive, not just the step
+    roles = {o.role: o for o in result.outputs}
+    assert roles["haplogroup_report"].path == str(out / "haplogrep_results.txt")
+    assert not [p for p in out.iterdir() if p.name.startswith(".wgse-step-")]

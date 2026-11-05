@@ -9,7 +9,6 @@ import argparse
 import csv
 import json
 import shutil
-import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -459,20 +458,20 @@ def test_subcommand_forwards_ref_threads_debug_force_and_config(
     monkeypatch.setattr(
         wf,
         "run_command",
-        lambda cmd, **_: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, b""),
+        lambda cmd, **_: seen.append(cmd),
     )
     own = tmp_path / "own.toml"
     monkeypatch.setattr(config, "_config_path_override", own)
     monkeypatch.setitem(config.settings, "keep_awake", configured)
     args = _args(ref="/refs", threads=2, debug=True, force=True, keep_awake=keep_awake)
     wf.run_cli_subcommand(["info", "--input", "x.bam"], args)
-    assert seen[0][1:] == [
+    assert seen[0][-2] == "--result-file"
+    assert seen[0][1:-2] == [
         "-m",
         "wgsextract_cli.main",
         "--config",
         str(own),
         *([flag] if flag else []),
-        "--json",
         "info",
         "--input",
         "x.bam",
@@ -492,13 +491,13 @@ def test_subcommand_without_ref_uses_the_configured_library(
     monkeypatch.setattr(
         wf,
         "run_command",
-        lambda cmd, **_: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, b""),
+        lambda cmd, **_: seen.append(cmd),
     )
     settings["reference_library"] = str(tmp_path)
     wf.run_cli_subcommand(["vcf", "snp"], _args(input="calls.vcf.gz"))
     del settings["reference_library"]
     wf.run_cli_subcommand(["vcf", "snp"], _args(input="calls.vcf.gz"))
-    assert seen[0][-2:] == ["--ref", str(tmp_path)]
+    assert seen[0][-4:-2] == ["--ref", str(tmp_path)]
     assert "--ref" not in seen[1]
 
 

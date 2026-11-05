@@ -277,8 +277,12 @@ def cmd_sort(args: argparse.Namespace) -> None:
     view_cmd += [region] if region else []
 
     logging.info(LOG_MESSAGES["sorting_file"].format(input=args.input, output=out_file))
-    # sambamba writes the index beside the BAM as it sorts.
-    partial = [out_file, *(out_file + ext for ext in _INDEX_SUFFIXES)]
+    # An index left by an earlier run would describe the old file: drop it, so
+    # the one used below is the one sambamba writes as it sorts, or ours.
+    indexes = _index_files(out_file)
+    for index in indexes:
+        index.unlink(missing_ok=True)
+    partial = [out_file, *map(str, indexes)]
     with (
         cleanup_files(on_failure=partial),
         tempfile.TemporaryDirectory(

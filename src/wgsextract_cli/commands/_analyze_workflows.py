@@ -4,6 +4,7 @@ import logging
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
@@ -185,7 +186,6 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
         "-m",
         "wgsextract_cli.main",
         *config_args(keep_awake=getattr(args, "keep_awake", None)),
-        "--json",
         *cmd_args,
     ]
 
@@ -212,15 +212,22 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     if getattr(args, "force", False):
         cmd.append("--force")
 
-    try:
-        # Only the result document is captured: the step's progress goes to
-        # stderr, which still reaches the terminal live.
-        proc = run_command(cmd, stdout=subprocess.PIPE)
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        record_step_result(getattr(e, "stdout", None))
-        logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
-        raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
-    record_step_result(proc.stdout)
+    # The step writes its result document to a file rather than with --json,
+    # which would silence the tables and results it prints for the user.
+    outdir = None
+    if "--outdir" in cmd_args:
+        outdir = Path(cmd_args[cmd_args.index("--outdir") + 1])
+        outdir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse-step-") as stage:
+        result_file = Path(stage, "result.json")
+        cmd.extend(["--result-file", str(result_file)])
+        try:
+            run_command(cmd)
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+            record_step_result(result_file)
+            logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
+            raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
+        record_step_result(result_file)
 
 
 def _scalars(values: object) -> dict[str, Scalar]:
@@ -233,15 +240,15 @@ def _scalars(values: object) -> dict[str, Scalar]:
     }
 
 
-def record_step_result(document: str | bytes | None) -> None:
-    """Carry a step's ``--json`` result into this run's: its manifest, its
+def record_step_result(document: Path) -> None:
+    """Carry a step's result document into this run's: its manifest, its
     outputs with their metrics and its warnings with their details."""
     try:
-        step = json.loads(document or "")
+        step = json.loads(document.read_text(encoding="utf-8"))
         command = str(step["command"])
         outputs = list(step.get("outputs") or [])
         warnings = list(step.get("warnings") or [])
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return
     result = current_result()
     if step.get("manifest"):

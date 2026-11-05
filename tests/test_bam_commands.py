@@ -15,7 +15,7 @@ import pytest
 
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands import bam as bam_module
-from wgsextract_cli.core import samtools_commands
+from wgsextract_cli.core import results, samtools_commands
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.samtools_commands import _use_sambamba
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -204,6 +204,32 @@ def test_sort_region_keeps_only_that_contig(genome, tmp_path):
     records = _records(tmp_path / "s_sorted.bam")
     assert {r[2] for r in records} == {"chr2"}
     assert [r[0] for r in records] == ["p0", "p2", "p2", "p0", "p3", "p3"]
+
+
+@pytest.mark.parametrize(
+    "sambamba",
+    [False, pytest.param(True, marks=with_sambamba)],
+    ids=["samtools", "sambamba"],
+)
+def test_sort_rerun_replaces_the_index_of_the_previous_output(
+    genome, tmp_path, monkeypatch, sambamba
+):
+    monkeypatch.setattr(samtools_commands, "_use_sambamba", lambda: sambamba)
+    _bam("sort", "--input", genome["bam"], "--outdir", str(tmp_path))
+    result = results.CommandResult("bam sort")
+    with results.collecting(result):
+        _bam("sort", "--input", genome["bam"], "--outdir", str(tmp_path), "-r", "chr2")
+
+    out = tmp_path / "s_sorted.bam"
+    chr2 = len(_records(out))
+    assert {r[2] for r in _records(out)} == {"chr2"}
+    # The index describes the new file: region queries and its totals agree.
+    region = run_command(
+        ["samtools", "view", "-c", str(out), "chr2"], capture_output=True
+    )
+    assert int(region.stdout) == chr2
+    (output,) = result.outputs
+    assert output.metrics["records"] == chr2
 
 
 def test_sort_cram_writes_cram_against_the_reference(genome, tmp_path):
