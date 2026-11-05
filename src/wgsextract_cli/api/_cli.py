@@ -17,6 +17,7 @@ P = TypeVar("P", bound=Params)
 def add_arguments(parser: argparse.ArgumentParser, cls: type[Params]) -> None:
     """Add an option for every non-shared field of ``cls``, in field order."""
     groups: dict[str, argparse._MutuallyExclusiveGroup] = {}
+    sections: dict[str, argparse._ArgumentGroup] = {}
     for item in param_fields(cls):
         spec = item.spec
         if spec.shared:
@@ -29,16 +30,21 @@ def add_arguments(parser: argparse.ArgumentParser, cls: type[Params]) -> None:
                 positional.update(nargs="?", default=item.default)
             parser.add_argument(item.dest, **positional)
             continue
-        target: argparse.ArgumentParser | argparse._MutuallyExclusiveGroup = parser
+        target: argparse._ActionsContainer = parser
+        if spec.group:
+            title, description = spec.group
+            if title not in sections:
+                sections[title] = parser.add_argument_group(title, description)
+            target = sections[title]
         if spec.exclusive:
             if spec.exclusive not in groups:
-                groups[spec.exclusive] = parser.add_mutually_exclusive_group()
+                groups[spec.exclusive] = target.add_mutually_exclusive_group()
             target = groups[spec.exclusive]
         kwargs: dict[str, Any] = {"dest": item.dest, "help": spec.help}
         if item.required:
             kwargs["required"] = True
         elif spec.action == "append":
-            kwargs["default"] = list(item.default)
+            kwargs["default"] = None if item.default is None else list(item.default)
         else:
             kwargs["default"] = item.default
         if spec.action == "store_true":

@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from wgsextract_cli.core.resource_policy import parse_thread_count
+from wgsextract_cli.core.steps import (
+    DRY_RUN_HELP,
+    RESTART_HELP,
+    RESUME_GROUP,
+    force_step_help,
+)
 from wgsextract_cli.core.table_writer import FORMATS, table_format_type
 
 from ._params import param
@@ -90,4 +96,39 @@ def table_format_param(help: str, *, hint: str = "", doc: str | None = None) -> 
         choices=FORMATS,
         cli_type=table_format_type(hint),
         writes=True,
+    )
+
+
+def restart_param() -> Any:
+    """``--force``/``--no-resume`` of a step workflow (``core.steps``)."""
+    return param(
+        False,
+        help=RESTART_HELP,
+        flags=("--force", "--no-resume"),
+        action="store_true",
+        group=RESUME_GROUP,
+    )
+
+
+def force_steps_param(steps: tuple[str, ...]) -> Any:
+    return param(
+        None,
+        help=force_step_help(steps),
+        doc="Steps to rerun with the steps that use their outputs; None reruns "
+        f"none. Steps: {', '.join(steps)}.",
+        flags=("--force-step",),
+        metavar="STEP",
+        choices=steps,
+        action="append",
+        group=RESUME_GROUP,
+    )
+
+
+def dry_run_param() -> Any:
+    return param(
+        False,
+        help=DRY_RUN_HELP,
+        doc="Log which steps would run or be skipped, and why, and run none.",
+        action="store_true",
+        group=RESUME_GROUP,
     )

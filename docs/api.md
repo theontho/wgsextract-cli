@@ -30,8 +30,9 @@ The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.extract`,
-`api.info`, `api.bam`, `api.qc`, `api.vcf`, `api.lineage`,
-`api.microarray`, `api.report`, `api.sample`, `api.support`) follow
+`api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
+`api.lineage`, `api.microarray`, `api.report`, `api.sample`,
+`api.support`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -620,6 +621,84 @@ reference when there is one.
 | `seed` | `int` | `42` | `--seed` | Random seed for reproducibility |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the current folder). |
+
+## `api.align`
+
+`align` and `realign`: map reads to a reference as a sorted, indexed,
+duplicate-marked BAM or CRAM.
+
+Short reads go through bwa-mem2 or bwa and samblaster, long reads through
+pbmm2 (PacBio) or minimap2, and Ultima reads through their own pipeline. The
+output is named after the reads (`sample_R1.fastq.gz` and
+`sample_R2.fastq.gz` give `sample_aligned.bam`) and written to
+`outdir`, else beside the reads.
+
+### `api.align.align(AlignParams)`
+
+CLI: `wgsextract align`.
+
+Align reads to a reference (see `AlignParams`).
+
+`AlignParams`: Align FASTQ reads (or an unaligned BAM) to `ref` as
+`<reads stem>_aligned.bam` (or `.cram`) with its index. `r1` is
+required; the CLI's `--genome` may fill it in from a sample workspace.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ (or an unaligned BAM/CRAM of the reads). |
+| `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, for pairs. |
+| `preset` | `str \| None` | `None` | `--preset` | minimap2 preset for non-BWA alignment. Defaults to map-hifi for PacBio and map-ont for ONT. One of: `sr`, `map-pb`, `map-hifi`, `map-ont`, `ccs`, `subread` |
+| `platform` | `str \| None` | `None` | `--platform` | Sequencing platform; selects platform-specific alignment tooling (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
+| `aligner` | `str` | `'auto'` | `--aligner` | Aligner to use. Auto uses bwa-mem2 for short reads when the reference has its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio when installed, otherwise minimap2. One of: `auto`, `bwa`, `bwa-mem2`, `minimap2`, `pbmm2` |
+| `gpu` | `bool` | `False` | `--gpu` | Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags. |
+| `sample` | `str \| None` | `None` | `--sample` | Sample name for the read group (default: the reads' file name). |
+| `long_read` | `bool` | `False` | `--long-read` | Treat the reads as long reads (PacBio/ONT) and align them with pbmm2 or minimap2. |
+| `format` | `str` | `'BAM'` | `--format` | Output format: BAM or CRAM (written with the target reference). One of: `BAM`, `CRAM` |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | An aligned BAM/CRAM of the same sample whose header picks the reference from the library when ref is unset. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder, else the reads'). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+
+### `api.align.realign(RealignParams)`
+
+CLI: `wgsextract realign`.
+
+Re-align a BAM/CRAM to a reference (see `RealignParams`).
+
+`RealignParams`: Re-align a BAM/CRAM to `ref` (possibly a different build) as
+`<input stem>_aligned.bam` (or `.cram`) with its index.
+
+The reads are extracted to FASTQ first, or streamed into the aligner when
+the machine has the memory; FASTQs from an earlier extraction (beside the
+input or in `outdir`) or given as `r1`/`r2` are reused. Free disk
+space is checked first. Completed steps (extract, align, index) are
+recorded in `<output>.steps.json` and skipped on a rerun whose inputs,
+settings and tools are unchanged.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ already extracted from the input, to align instead of extracting it. |
+| `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, with r1. |
+| `aligner` | `str` | `'auto'` | `--aligner` | Aligner: auto, bwa, bwa-mem2, minimap2 or pbmm2, chosen as for align. One of: `auto`, `bwa`, `bwa-mem2`, `minimap2`, `pbmm2` |
+| `gpu` | `bool` | `False` | `--gpu` | Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags. |
+| `platform` | `str \| None` | `None` | `--platform` | Sequencing platform (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
+| `preset` | `str \| None` | `None` | `--preset` | minimap2/pbmm2 preset. One of: `sr`, `map-pb`, `map-hifi`, `map-ont`, `ccs`, `subread` |
+| `input_ref` | `Path \| None` | `None` | `--input-ref` | Reference FASTA the input CRAM was encoded with (default: --ref when its sequence names, lengths and MD5s match the CRAM, else the FASTA in the reference library whose sequence dictionary matches). --ref is the reference to realign to. |
+| `sample` | `str \| None` | `None` | `--sample` | Sample name to embed in read-group metadata. |
+| `long_read` | `bool` | `False` | `--long-read` | Treat input as long-read data (PacBio/ONT). |
+| `format` | `str` | `'BAM'` | `--format` | Output format: BAM or CRAM (written with the target reference). One of: `BAM`, `CRAM` |
+| `keep_fastq` | `bool` | `False` | `--keep-fastq` | Keep the FASTQs extracted from --input after alignment (default: delete them). FASTQs passed with --r1/--r2 or reused from an earlier extraction are never deleted. |
+| `force_extract` | `bool` | `False` | `--force-extract` | Re-extract FASTQs even if a matching pair already exists next to the BAM. |
+| `no_preflight` | `bool` | `False` | `--no-preflight` | Skip the up-front disk space check (not recommended). |
+| `restart` | `bool` | `False` | `--force`, `--no-resume` | Rerun every step, ignoring the steps an earlier run completed. |
+| `force_steps` | `tuple[str, ...] \| None` | `None` | `--force-step` | Steps to rerun with the steps that use their outputs; None reruns none. Steps: extract, align, index. One of: `extract`, `align`, `index` |
+| `dry_run` | `bool` | `False` | `--dry-run` | Log which steps would run or be skipped, and why, and run none. |
+| `input` | `Path` | required | `--input`, `-i` | The aligned BAM or CRAM to realign. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
 
 ## `api.vcf`
 

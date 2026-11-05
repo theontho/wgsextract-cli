@@ -25,6 +25,9 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._params import to_namespace
+from wgsextract_cli.api.align import RealignParams
 from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import available_memory, check_mapping_memory
 from wgsextract_cli.core.alignment_metadata import get_bam_header
@@ -57,7 +60,6 @@ from wgsextract_cli.core.steps import (
     Decision,
     Step,
     StepJournal,
-    add_resume_arguments,
     resume_policy,
 )
 from wgsextract_cli.core.temp_directory import configured_temp_directory
@@ -103,65 +105,14 @@ def register(
         parents=[base_parser],
         help=CLI_HELP["cmd_realign"],
     )
-    parser.add_argument("--r1", help=CLI_HELP["arg_r1"])
-    parser.add_argument("--r2", help=CLI_HELP["arg_r2"])
-    parser.add_argument(
-        "--aligner",
-        choices=align_cmd.ALIGNERS,
-        default="auto",
-        help="Aligner to use (matches the 'align' command).",
-    )
-    align_cmd.add_gpu_argument(parser)
-    parser.add_argument(
-        "--platform",
-        choices=align_cmd.PLATFORMS,
-        help="Sequencing platform (default: detected from read groups or read "
-        "names, else illumina).",
-    )
-    parser.add_argument(
-        "--preset",
-        choices=["sr", "map-pb", "map-hifi", "map-ont", "ccs", "subread"],
-        help="minimap2/pbmm2 preset.",
-    )
-    parser.add_argument(
-        "--input-ref",
-        help="Reference FASTA the input CRAM was encoded with (default: --ref "
-        "when its sequence names, lengths and MD5s match the CRAM, else the "
-        "FASTA in the reference library whose sequence dictionary matches). "
-        "--ref is the reference to realign to.",
-    )
-    parser.add_argument("--sample", help="Sample name to embed in read-group metadata.")
-    parser.add_argument(
-        "--long-read",
-        action="store_true",
-        help="Treat input as long-read data (PacBio/ONT).",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["BAM", "CRAM"],
-        default="BAM",
-        help="Output format.",
-    )
-    parser.add_argument(
-        "--keep-fastq",
-        action="store_true",
-        help="Keep the FASTQs extracted from --input after alignment (default: "
-        "delete them). FASTQs passed with --r1/--r2 or reused from an earlier "
-        "extraction are never deleted.",
-    )
-    parser.add_argument(
-        "--force-extract",
-        action="store_true",
-        help="Re-extract FASTQs even if a matching pair already exists "
-        "next to the BAM.",
-    )
-    parser.add_argument(
-        "--no-preflight",
-        action="store_true",
-        help="Skip the up-front disk space check (not recommended).",
-    )
-    add_resume_arguments(parser, ["extract", "align", "index"])
-    parser.set_defaults(func=run)
+    add_arguments(parser, RealignParams)
+    parser.set_defaults(func=cli_handler(RealignParams, run_realign))
+
+
+def run_realign(params: RealignParams) -> None:
+    """The ``realign`` operation (``api.align.realign``)."""
+    align_cmd.add_read_inputs(params.r1, params.r2)
+    run(to_namespace(params))
 
 
 def _find_existing_fastqs(input_path: str, outdir: str) -> tuple[str, str] | None:
