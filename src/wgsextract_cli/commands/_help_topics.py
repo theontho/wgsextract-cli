@@ -132,7 +132,10 @@ details removed, for you to review before sending.
 'help --all --json' lists every command with its options, examples and
 outputs (schema wgsextract.help/1); 'help <command> --json' gives one. The
 commands of the typed Python API also carry a JSON Schema of their
-parameters ("input_schema"; "x-cli-flag" names each flag). New fields may
+parameters ("input_schema"; "x-cli-flag" names each flag). "tools" are the
+external tools a command checks for ('wgsextract deps check' shows which
+are installed) and "runtime" is instant, seconds, minutes, hours or
+download (on a 30x genome unless "runtime_text" says otherwise). New fields may
 appear under the same schema, so ignore keys you don't know; a renamed or
 removed field gets a new schema version.
   wgsextract help --all --json

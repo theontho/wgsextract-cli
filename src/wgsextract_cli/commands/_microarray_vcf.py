@@ -577,7 +577,16 @@ def _prepare_microarray_vcf(
             logging.info(f"Merging {len(vcf_chunks)} chromosome VCFs...")
             # Alignment order, as one stream writes it.
             run_command(
-                ["bcftools", "concat", "-Oz", "-o", out_vcf, *vcf_chunks.values()]
+                [
+                    "bcftools",
+                    "concat",
+                    "--verbosity",
+                    "0",
+                    "-Oz",
+                    "-o",
+                    out_vcf,
+                    *vcf_chunks.values(),
+                ]  # fmt: skip
             )
         ensure_vcf_indexed(out_vcf)
         logging.info(
