@@ -21,6 +21,7 @@ import gzip
 import html
 import json
 import os
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1206,7 +1207,7 @@ def _html_findings(
     for f in items:
         v = f["variant"] or {}
         call = (
-            f"{v.get('ref')}&gt;{_h(v.get('alt'))} {_h(v.get('genotype'))} "
+            f"{_h(v.get('ref'))}&gt;{_h(v.get('alt'))} {_h(v.get('genotype'))} "
             f"{_h(v.get('zygosity'))}, DP {_h(v.get('depth'))}, GQ "
             f"{_h(v.get('genotype_quality'))}"
             if v
@@ -1230,13 +1231,42 @@ def _html_findings(
     return "".join(out)
 
 
+# Kept as is in Markdown link destinations; anything else is percent-encoded.
+_URL_SAFE = ":/?#[]@!$&'()*+,;=%~"
+_MD_ESCAPES = str.maketrans(
+    {
+        **{c: f"\\{c}" for c in "\\`*_[]|"},
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\r": " ",
+        "\n": " ",
+    }
+)
+
+
 def _md(value: Any) -> str:
-    text = "" if value is None else str(value)
-    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+    """Text for Markdown (and a table cell): its markup, links and any HTML
+    show as typed rather than being rendered."""
+    return ("" if value is None else str(value)).translate(_MD_ESCAPES)
+
+
+def _md_code(value: Any, *, cell: bool = False) -> str:
+    """An inline code span (which shows its text as typed) that a backtick or
+    line break, or in a table ``cell`` a pipe, in ``value`` cannot end."""
+    text = " ".join(("" if value is None else str(value)).split())
+    longest = max((len(run) for run in re.findall("`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    if cell:
+        text = text.replace("|", "\\|")
+    return f"{fence}{pad}{text}{pad}{fence}"
 
 
 def _md_link(text: str, href: str | None) -> str:
-    return f"[{_md(text)}](<{href}>)" if href else _md(text)
+    if not href:
+        return _md(text)
+    return f"[{_md(text)}](<{quote(href, safe=_URL_SAFE)}>)"
 
 
 def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
@@ -1246,14 +1276,15 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
     out = [
         f"# {_md(sample['name'])}: WGS Extract report",
         "",
-        f"Generated {report['generated']} by wgsextract "
-        f"{report['wgsextract_version']} from the results in `{sample['folder']}`. "
-        "Evidence links are relative to that folder.",
+        f"Generated {_md(report['generated'])} by wgsextract "
+        f"{_md(report['wgsextract_version'])} from the results in "
+        f"{_md_code(sample['folder'])}. Evidence links are relative to that folder.",
         "",
-        f"> **{NOT_DIAGNOSIS}** {report['disclaimer']}",
+        f"> **{_md(NOT_DIAGNOSIS)}** {_md(report['disclaimer'])}",
     ]
     for name, section in report["sections"].items():
-        out += ["", f"## {section['title']} ({section['status'].replace('_', ' ')})"]
+        status = section["status"].replace("_", " ")
+        out += ["", f"## {_md(section['title'])} ({_md(status)})"]
         if section.get("summary"):
             out += ["", _md(section["summary"])]
         if section.get("error"):
@@ -1277,8 +1308,8 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
             gl = section["gene_list"]
             out += [
                 "",
-                f"Gene list: {gl['name']} ({gl['genes']} genes; {gl['citation']}, "
-                f"[Table 1](<{gl['url']}>)).",
+                f"Gene list: {_md(gl['name'])} ({_md(gl['genes'])} genes; "
+                f"{_md(gl['citation'])}, {_md_link('Table 1', gl['url'])}).",
             ]
             if section.get("all_calls"):
                 href = _href(section["all_calls"], base)
@@ -1319,14 +1350,17 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
                 target = evidence["file"] or evidence["manifest"]
                 out.append(
                     f"| {_md(f['label'])} | {_md(f['value'])} {links} | {_md(detail)} | "
-                    f"{_md(call)} | **{f['confidence']}**"
+                    f"{_md(call)} | **{_md(f['confidence'])}**"
                     f"{' (' + _md(why) + ')' if why else ''} | "
                     f"{_md_link(evidence['file'] or 'manifest', _href(target, base))} "
-                    f"`{_md(evidence['region'])}` | {_md(f['disclaimer'])} |"
+                    f"{_md_code(evidence['region'], cell=True)} | {_md(f['disclaimer'])} |"
                 )
         if section["missing"]:
             out += ["", "Not run yet (run in the sample folder):", ""]
-            out += [f"- {_md(m['what'])}: `{m['command']}`" for m in section["missing"]]
+            out += [
+                f"- {_md(m['what'])}: {_md_code(m['command'])}"
+                for m in section["missing"]
+            ]
         if section["warnings"]:
             out.append("")
             out += [f"- ⚠ {_md(w['message'])}" for w in section["warnings"]]
@@ -1336,7 +1370,10 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
                 for s in section["sources"]
             )
             out += ["", f"Sources: {links}"]
-    out += ["", f"Confidence labels: {report['guide']} and docs/variant-confidence.md."]
+    out += [
+        "",
+        f"Confidence labels: {_md(report['guide'])} and docs/variant-confidence.md.",
+    ]
     return "\n".join(out) + "\n"
 
 

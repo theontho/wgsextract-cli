@@ -11,12 +11,14 @@ import shutil
 import socket
 import sys
 from contextlib import redirect_stdout
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import jsonschema
 import pytest
+from markdown_it import MarkdownIt
 
 from wgsextract_cli import api
 from wgsextract_cli.core import personal_report as pr
@@ -378,6 +380,74 @@ def test_every_finding_carries_evidence_and_the_disclaimer_and_json_is_valid(
     # One disclaimer per finding plus the banner at the top.
     assert html.count("Technical result, not diagnosis.") == len(findings) + 1
     assert markdown.count("Technical result, not diagnosis.") == len(findings) + 1
+
+
+HOSTILE = '<img src=x onerror="alert(1)">&amp;[x](javascript:alert(1))|`*_'
+
+
+class _Page(HTMLParser):
+    """The tags, attributes, links and visible text of an HTML page."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: set[str] = set()
+        self.attributes: set[str] = set()
+        self.hrefs: list[str] = []
+        self.text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.add(tag)
+        self.attributes.update(name for name, _ in attrs)
+        self.hrefs += [value or "" for name, value in attrs if name == "href"]
+
+    def handle_data(self, data: str) -> None:
+        self.text.append(data)
+
+
+def _assert_shown_not_rendered(page_html: str, tags: set[str]) -> None:
+    page = _Page()
+    page.feed(page_html)
+    assert page.tags <= tags
+    assert not {a for a in page.attributes if a.startswith("on")}
+    assert not [h for h in page.hrefs if h.lower().startswith("javascript:")]
+    assert HOSTILE in "".join(page.text)
+
+
+def _hostile(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _hostile(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_hostile(v) for v in value]
+    return HOSTILE if isinstance(value, str) else value
+
+
+def test_text_from_results_is_shown_as_text_in_html_and_markdown(sample):
+    pos = _mid("BRCA2")
+    rows = [*pos, *[HOSTILE] * 4, "high", "", 30, 99, 0.5, f"Pathogenic{HOSTILE}"]
+    rows.append(HOSTILE)
+    table = sample / "clinvar_pathogenic.confidence.tsv"
+    table.write_text(TSV_HEADER + "\t".join(map(str, rows)) + "\n")
+    haplogrep = json.loads((sample / "haplogrep.manifest.json").read_text())
+    haplogrep["metrics"]["haplogroup"] = HOSTILE
+    (sample / "haplogrep.manifest.json").write_text(json.dumps(haplogrep))
+    report = pr.build_report(sample)
+    (clinvar,) = report["sections"]["clinvar"]["findings"]
+    assert {clinvar["variant"][k] for k in ("ref", "alt", "genotype", "zygosity")} == {
+        HOSTILE
+    }
+    assert HOSTILE.replace("_", " ") in clinvar["detail"]
+    assert report["sections"]["lineage"]["findings"][0]["value"] == HOSTILE
+
+    # Every other string (sample name, folder, files, regions, labels...) too.
+    report = _hostile(report)
+    html_tags = {"html", "head", "meta", "title", "style", "body", "h1", "h2"}
+    html_tags |= {"p", "b", "i", "br", "code", "span", "a", "ul", "li"}
+    html_tags |= {"table", "tr", "th", "td"}
+    _assert_shown_not_rendered(pr.render_html(report), html_tags)
+    markdown = MarkdownIt("commonmark", {"html": True}).enable("table")
+    md_tags = {"h1", "h2", "p", "blockquote", "strong", "em", "code", "a", "ul"}
+    md_tags |= {"li", "table", "thead", "tbody", "tr", "th", "td"}
+    _assert_shown_not_rendered(markdown.render(pr.render_markdown(report)), md_tags)
 
 
 def test_a_moved_sample_folder_still_finds_its_evidence(sample, tmp_path):
