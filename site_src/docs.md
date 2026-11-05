@@ -4,7 +4,7 @@ title: 'GUI for CLI documentation map'
 description: 'Documentation map for GUI for CLI: the app, bundles, distribution, and static site generation.'
 eyebrow: 'Documentation'
 heading: 'Where to go next.'
-lede: 'Start with v0.6.5 downloads or one-command developer setup. Workflow details, distribution, and schemas live close to the code.'
+lede: 'Start with v0.6.6 downloads or one-command developer setup. Workflow details, distribution, and schemas live close to the code.'
 actions: 'Open README|https://github.com/theontho/gui-for-cli/blob/main/README.md|primary; Architecture|architecture.html'
 footer_title: 'Documentation map'
 footer_text: 'Product docs stay short; detailed engineering notes stay close to the code.'
@@ -33,7 +33,7 @@ Setup prepares missing user-level uv, Node, and Rust tools, locked dependencies,
 
 ::: card
 {{ kicker: Releases }}
-### Current app and CLI: v0.6.5
+### Current app and CLI: v0.6.6
 Download installers and read the complete GUI and bundled CLI release notes. The changelog tracks the move to one Tauri app, native Windows setup, macOS notarization, and bundle improvements.
 
 {{ link: Open releases|https://github.com/theontho/gui-for-cli/releases|inline-link }}
@@ -42,8 +42,8 @@ Download installers and read the complete GUI and bundled CLI release notes. The
 
 ::: card
 {{ kicker: WGSExtract }}
-### New workflow controls
-MultiQC, expanded microarray/AADR exports, targeted Y analysis, and resource requirements. New selections are opt-in and preserve existing command defaults.
+### Current workflows
+Nanopore handling in existing actions, plus opt-in MultiQC, expanded microarray/AADR exports, targeted Y analysis, and resource requirements. See what is in the app and what is still CLI only.
 
 {{ link: WGSExtract workflows|wgsextract.html|inline-link }}
 {{ link: Post-v0.6.3 feature details|https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md|inline-link }}

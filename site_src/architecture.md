@@ -40,9 +40,9 @@ Tauri wraps the Web UI in a native window, bundles the Node runtime, and adds na
 
 - `app/shared` holds shared rendering, localization, and types; `app/web/src/client` is the browser UI and `app/web/src/server` owns loading, setup, actions, and config.
 - Every bundle load validates its manifest and pages. **Load Bundle...** opens a `manifest.json` or a `.zip`, `.tar`, `.tar.gz`/`.tgz`, or gzipped manifest archive on all three platforms.
-- Bundle scripts resolve by host platform, with distro-specific Linux folders and a POSIX fallback. WGSExtract CLI v0.6.5 runs natively on Windows without WSL or MSYS2.
+- Bundle scripts resolve by host platform, with distro-specific Linux folders and a POSIX fallback. WGSExtract CLI v0.6.6 runs natively on Windows without WSL or MSYS2.
 - Configuration and workspaces stay in platform-standard app data directories. WGSExtract settings preserve TOML boolean and numeric types; invalid saved types warn and use defaults without rewriting the file.
-- `app/web/packagers/tauri` supplies the Rust desktop shell. Installers take their app name and version from the embedded bundle; the current WGSExtract app and CLI are v0.6.5.
+- `app/web/packagers/tauri` supplies the Rust desktop shell. Installers take their app name and version from the embedded bundle; the current WGSExtract app and CLI are v0.6.6.
 
 Tagged releases build on Windows, macOS, and Linux with a signed Tauri updater feed. macOS has separate signed, notarized Apple Silicon and Intel builds, not a universal DMG. Windows and Linux packages are x64; native ARM64 packaging for those platforms is still a follow-up.
 

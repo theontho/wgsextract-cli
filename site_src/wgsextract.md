@@ -1,7 +1,7 @@
 ---
 output: 'wgsextract.html'
 title: 'WGSExtract and GUI for CLI'
-description: 'WGSExtract v0.6.5 workflows and how the first real app shaped GUI for CLI.'
+description: 'WGSExtract v0.6.6 workflows and how the first real app shaped GUI for CLI.'
 eyebrow: 'First real app'
 heading: 'WGSExtract made GUI for CLI prove itself.'
 lede: 'The WGSExtract bundle is the first real application built through GUI for CLI. It pushed the project beyond demo controls into setup, command execution, data state, localization, and packaged releases.'
@@ -42,9 +42,32 @@ WGSExtract exercises data sources, state-dependent actions, persisted settings, 
 
 ::: section
 ::: wrap
-## What v0.6.5 exposes
+## What v0.6.6 exposes
 
-The desktop app bundles **WGSExtract CLI v0.6.5**, including the post-v0.6.3 controls added in [GUI #171](https://github.com/theontho/gui-for-cli/pull/171). Existing actions and selected microarray formats are unchanged. New options start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.
+The desktop app bundles **WGSExtract CLI v0.6.6**. This update adds no new app controls: v0.6.6 reaches you through the actions already in the app, with no settings to change.
+
+### Oxford Nanopore in existing actions
+
+Nanopore (ONT) reads are detected from `PL:ONT` read groups or UUID read names.
+
+- **Align and Realign:** use minimap2's `map-ont` preset and keep MM/ML methylation tags through alignment and sorting. Realign refuses its keep-FASTQ option for ONT input rather than lose those tags. FASTQs renamed without platform metadata, such as SRA downloads, are treated as Illumina, and the app has no platform override.
+- **DeepVariant:** selects the ONT_R104 model. It supports R10.4.1 chemistry only and needs x86-64, so ONT calling is refused on Apple Silicon and ARM64. DeepVariant itself is still a separate install.
+- **SV Call:** runs Sniffles2 instead of Delly. App setup does not install Sniffles; install it separately before running this action on ONT data.
+
+### Other improvements in existing actions
+
+- **DeepVariant:** CRAM 3.1 input is converted to a temporary CRAM 3.0 copy, and whole-genome postprocessing memory is estimated and capped.
+- **Realign:** paired reads stream through collation at whole-genome scale, and single-end input is refused before extraction instead of being dropped.
+- **BAM Info:** sex is inferred when chrX or chrY is missing, and depth binning is faster.
+- **Microarray:** coordinate projections and catalogues are cached for faster runs.
+
+### CLI only for now
+
+v0.6.6 also adds Clair3 calling, CpG methylation pileups, Y-STR panels, queryable variant tables (TSV/SQLite/Parquet), `report-issue`, vendor chip detection, and JSON result manifests. None of these has an app action yet, so run them from the CLI. Native Linux ARM64 DeepVariant is CLI only too, because Linux ARM64 desktop installers are not published.
+
+### Controls from earlier releases
+
+These came with [GUI #171](https://github.com/theontho/gui-for-cli/pull/171). They start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.
 
 - **FASTQ:** aggregate existing FastQC reports into offline MultiQC HTML, with file and directory pickers and explicit report replacement. MultiQC must already be available; this action neither installs it nor runs FastQC.
 - **Extract and Library:** optional Poz Y-BAM regions (GRCh37/38), unmapped FASTQs, and allele-annotated yBrowse Y-SNP calling on matching indexed GRCh38. Install the pinned yBrowse resource explicitly from Library first.
@@ -55,9 +78,9 @@ The desktop app bundles **WGSExtract CLI v0.6.5**, including the post-v0.6.3 con
 
 AADR 2M is excluded from `all`: explicitly install its pinned metadata from Library first. It supports GRCh37/38 only; GRCh38 also needs an already-installed forward chain. It does not support CHM13/T2T, and extraction never downloads missing metadata or chains. Use non-identifying AADR sample labels.
 
-CLI setup is native on Windows, without WSL or MSYS2. v0.6.5 fixes fresh Windows installation and warns about invalid configuration values; GUI settings save real TOML booleans and numbers, including `false`. Earlier CLI releases also improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.
+CLI setup is native on Windows, without WSL or MSYS2, and GUI settings save real TOML booleans and numbers, including `false`. Earlier CLI releases also fixed fresh Windows installation, added warnings for invalid configuration values, and improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.
 
-[Download v0.6.5](index.html), read the [full release notes](https://github.com/theontho/gui-for-cli/releases), or see the [workflow details and prerequisites](https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md).
+[Download v0.6.6](index.html), read the [CLI v0.6.6 release notes](https://github.com/theontho/wgsextract-cli/releases/tag/v0.6.6) and [ONT limitations](https://github.com/theontho/wgsextract-cli/blob/v0.6.6/docs/ont.md), or see the [workflow details and prerequisites](https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md).
 :::
 :::
 

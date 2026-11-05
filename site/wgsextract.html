@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="WGSExtract v0.6.5 workflows and how the first real app shaped GUI for CLI." />
+    <meta name="description" content="WGSExtract v0.6.6 workflows and how the first real app shaped GUI for CLI." />
     <title>WGSExtract and GUI for CLI</title>
     <meta property="og:site_name" content="GUI for CLI" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="WGSExtract and GUI for CLI" />
-    <meta property="og:description" content="WGSExtract v0.6.5 workflows and how the first real app shaped GUI for CLI." />
+    <meta property="og:description" content="WGSExtract v0.6.6 workflows and how the first real app shaped GUI for CLI." />
     <meta property="og:url" content="https://theontho.github.io/gui-for-cli/wgsextract.html" />
     <meta property="og:image" content="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
     <meta property="og:image:secure_url" content="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
@@ -72,8 +72,26 @@
 </section>
 <section>
 <div class="wrap">
-<h2>What v0.6.5 exposes</h2>
-<p>The desktop app bundles <strong>WGSExtract CLI v0.6.5</strong>, including the post-v0.6.3 controls added in <a href="https://github.com/theontho/gui-for-cli/pull/171">GUI #171</a>. Existing actions and selected microarray formats are unchanged. New options start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.</p>
+<h2>What v0.6.6 exposes</h2>
+<p>The desktop app bundles <strong>WGSExtract CLI v0.6.6</strong>. This update adds no new app controls: v0.6.6 reaches you through the actions already in the app, with no settings to change.</p>
+<h3>Oxford Nanopore in existing actions</h3>
+<p>Nanopore (ONT) reads are detected from <code>PL:ONT</code> read groups or UUID read names.</p>
+<ul>
+<li><strong>Align and Realign:</strong> use minimap2's <code>map-ont</code> preset and keep MM/ML methylation tags through alignment and sorting. Realign refuses its keep-FASTQ option for ONT input rather than lose those tags. FASTQs renamed without platform metadata, such as SRA downloads, are treated as Illumina, and the app has no platform override.</li>
+<li><strong>DeepVariant:</strong> selects the ONT_R104 model. It supports R10.4.1 chemistry only and needs x86-64, so ONT calling is refused on Apple Silicon and ARM64. DeepVariant itself is still a separate install.</li>
+<li><strong>SV Call:</strong> runs Sniffles2 instead of Delly. App setup does not install Sniffles; install it separately before running this action on ONT data.</li>
+</ul>
+<h3>Other improvements in existing actions</h3>
+<ul>
+<li><strong>DeepVariant:</strong> CRAM 3.1 input is converted to a temporary CRAM 3.0 copy, and whole-genome postprocessing memory is estimated and capped.</li>
+<li><strong>Realign:</strong> paired reads stream through collation at whole-genome scale, and single-end input is refused before extraction instead of being dropped.</li>
+<li><strong>BAM Info:</strong> sex is inferred when chrX or chrY is missing, and depth binning is faster.</li>
+<li><strong>Microarray:</strong> coordinate projections and catalogues are cached for faster runs.</li>
+</ul>
+<h3>CLI only for now</h3>
+<p>v0.6.6 also adds Clair3 calling, CpG methylation pileups, Y-STR panels, queryable variant tables (TSV/SQLite/Parquet), <code>report-issue</code>, vendor chip detection, and JSON result manifests. None of these has an app action yet, so run them from the CLI. Native Linux ARM64 DeepVariant is CLI only too, because Linux ARM64 desktop installers are not published.</p>
+<h3>Controls from earlier releases</h3>
+<p>These came with <a href="https://github.com/theontho/gui-for-cli/pull/171">GUI #171</a>. They start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.</p>
 <ul>
 <li><strong>FASTQ:</strong> aggregate existing FastQC reports into offline MultiQC HTML, with file and directory pickers and explicit report replacement. MultiQC must already be available; this action neither installs it nor runs FastQC.</li>
 <li><strong>Extract and Library:</strong> optional Poz Y-BAM regions (GRCh37/38), unmapped FASTQs, and allele-annotated yBrowse Y-SNP calling on matching indexed GRCh38. Install the pinned yBrowse resource explicitly from Library first.</li>
@@ -83,8 +101,8 @@
 <li><strong>Ancestry and Settings:</strong> optional lineage-tree links, persistent logs, an existing temporary-workload volume, atomic main-output publication, and best-effort keep-awake.</li>
 </ul>
 <p>AADR 2M is excluded from <code>all</code>: explicitly install its pinned metadata from Library first. It supports GRCh37/38 only; GRCh38 also needs an already-installed forward chain. It does not support CHM13/T2T, and extraction never downloads missing metadata or chains. Use non-identifying AADR sample labels.</p>
-<p>CLI setup is native on Windows, without WSL or MSYS2. v0.6.5 fixes fresh Windows installation and warns about invalid configuration values; GUI settings save real TOML booleans and numbers, including <code>false</code>. Earlier CLI releases also improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.</p>
-<p><a href="index.html">Download v0.6.5</a>, read the <a href="https://github.com/theontho/gui-for-cli/releases">full release notes</a>, or see the <a href="https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md">workflow details and prerequisites</a>.</p>
+<p>CLI setup is native on Windows, without WSL or MSYS2, and GUI settings save real TOML booleans and numbers, including <code>false</code>. Earlier CLI releases also fixed fresh Windows installation, added warnings for invalid configuration values, and improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.</p>
+<p><a href="index.html">Download v0.6.6</a>, read the <a href="https://github.com/theontho/wgsextract-cli/releases/tag/v0.6.6">CLI v0.6.6 release notes</a> and <a href="https://github.com/theontho/wgsextract-cli/blob/v0.6.6/docs/ont.md">ONT limitations</a>, or see the <a href="https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md">workflow details and prerequisites</a>.</p>
 </div>
 </section>
 <section>
