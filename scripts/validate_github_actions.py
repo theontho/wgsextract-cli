@@ -31,7 +31,6 @@ ALLOWED_ACTIONS = {
     "actions/upload-pages-artifact",
     "github/codeql-action/analyze",
     "github/codeql-action/init",
-    "gitleaks/gitleaks-action",
     "msys2/setup-msys2",
     "prefix-dev/setup-pixi",
     "softprops/action-gh-release",

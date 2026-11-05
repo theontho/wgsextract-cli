@@ -117,7 +117,7 @@ case "$last_arg" in
             printf 'expected curl -w %%{url_effective} for latest release lookup\n' >&2
             exit 2
         fi
-        printf 'https://github.com/theontho/wgsextract-cli/releases/tag/%s' "$tag"
+        printf 'https://github.com/WGSExtract/wgsextract-cli/releases/tag/%s' "$tag"
         ;;
     */archive/"$tag".tar.gz)
         if [ -z "$output_path" ]; then

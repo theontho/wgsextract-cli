@@ -55,7 +55,7 @@ if the tagged commit has one.
    `cli-vX.Y.Z` branch. GitHub Actions isn't allowed to open PRs there, so the
    job then fails once with a link to open the PR: that failure email is the
    notification. To start it by hand instead:
-   `gh workflow run wgsextract-cli-release-watch.yml -R theontho/gui-for-cli`.
+   `gh workflow run wgsextract-cli-release-watch.yml -R WGSExtract/gui-for-cli`.
 
    Open the PR, replace its CHANGELOG entry's link with a line on what users
    get, and merge once CI is green. CI runs normally, since a person opened the

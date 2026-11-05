@@ -17,7 +17,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-REPO = "theontho/wgsextract-cli"
+REPO = "WGSExtract/wgsextract-cli"
 MANIFEST = Path(__file__).resolve().parents[2] / "pixi.toml"
 BLOCK = re.compile(r"(# windows-tools-begin[^\n]*\n).*?(# windows-tools-end)", re.S)
 GKL_BLOCK = re.compile(

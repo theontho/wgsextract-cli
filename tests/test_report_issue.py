@@ -421,7 +421,7 @@ def test_print_never_opens_the_browser_and_open_does(
 ) -> None:
     code, out, _ = _cli(capfd, "report-issue", "--print")
     assert code == 0 and _this_computer == []
-    assert "https://github.com/theontho/wgsextract-cli/issues/new?" in out
+    assert "https://github.com/WGSExtract/wgsextract-cli/issues/new?" in out
 
     code, out, _ = _cli(capfd, "report-issue", "--open", "--json")
     assert code == 0
