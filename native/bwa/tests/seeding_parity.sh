@@ -71,6 +71,26 @@ awk 'BEGIN {
 "$benchmark" tiny.fa tiny.fq --reads 1000 --batch 257 --verify-only > tiny-parity.log 2>&1
 cat tiny-parity.log
 
+# Regression (PR #444 review): a chunk whose GPU reads overflow, followed by a
+# chunk with no GPU-eligible reads (all over 512 bp), must not reuse the first
+# chunk's failed-read indices.
+awk 'BEGIN {
+    for (r = 1; r <= 3; ++r) {
+        read = ""; quality = ""
+        for (i = 1; i <= 900; ++i) { read = read "A"; quality = quality "I" }
+        printf "@long%d\n%s\n+\n%s\n", r, read, quality
+    }
+}' | cat tiny.fq - > chunks.fq
+tiny_bases=$(awk 'NR % 4 == 2 { n += length($0) } END { print n }' tiny.fq)
+"$aligner" mem -t 1 -K "$tiny_bases" tiny.fa chunks.fq > cpu-chunks.sam 2> cpu-chunks.log
+"$aligner" --gpu-policy all --metal mem -t 1 -K "$tiny_bases" tiny.fa chunks.fq \
+    > metal-chunks.sam 2> metal-chunks.log
+same cpu-chunks.sam metal-chunks.sam
+test "$(grep -c 'Processed' metal-chunks.log)" -eq 2
+# More fallbacks than the three long reads: some first-chunk GPU reads overflowed.
+fallbacks=$(sed -n 's/.*fallback_reads=\([0-9]*\).*/\1/p' metal-chunks.log)
+test "$fallbacks" -gt 3
+
 "$benchmark" reference.fa reads.fq --reads 2048 --batch 257 --verify-only \
     --concurrent --scratch-limit 1 --output-limit 1 > concurrent-parity.log 2>&1
 cat concurrent-parity.log

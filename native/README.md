@@ -17,6 +17,10 @@ printed by `--version`.
 
 ## Installing
 
+The `macos-aligners-2` prerelease has `wgse-bwa` 0.2.0 and `wgse-bwa-mem2`
+0.1.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
+later; `macos-aligners-1` has `wgse-bwa` 0.1.0, which aligns on the CPU only.
+
 Download into an empty directory with `gh` (or `curl`), which avoids the
 browser quarantine flag that Gatekeeper applies to these ad-hoc-signed
 executables, and check the archives against the SHA-256 digests GitHub
@@ -24,8 +28,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-1 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-1 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-2 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-2 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -44,7 +48,8 @@ wgse-bwa-mem2 capabilities --json
 
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
-`xattr -dr com.apple.quarantine wgse-bwa-0.2.0-macos-arm64`.
+`xattr -dr com.apple.quarantine wgse-bwa-0.2.0-macos-arm64` (and
+`wgse-bwa-mem2-0.1.0-macos-arm64`).
 
 ## Usage
 

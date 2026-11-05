@@ -119,8 +119,8 @@ void map(const mem_opt_t *opt, const bwt_t *bwt, int n, bseq1_t *seqs,
         });
         try {
             if (inject_failure) throw std::runtime_error("injected GPU failure (test)");
-            if (!input.reads.empty())
-                gpu->run(input, output, threadgroup_size, 0, bwt, opt);
+            // Always run, even with no reads, so the previous chunk's failures are cleared.
+            gpu->run(input, output, threadgroup_size, 0, bwt, opt);
         } catch (const std::exception &error) {
             failure = error.what();
         }

@@ -55,6 +55,9 @@ target_link_libraries(wgse-bwa PRIVATE wgse_bwa_core)
 if(BUILD_TESTING)
     # Hidden routing and failure-injection flags for tests and benchmarks only.
     target_compile_definitions(wgse-bwa PRIVATE WGSE_METAL_BENCHMARK_TOOLS=1)
+    # Bounds-checked libc++ containers make out-of-range indexing in the backend trap.
+    target_compile_definitions(wgse_bwa_core PRIVATE
+        $<$<COMPILE_LANGUAGE:OBJCXX>:_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST>)
     add_test(NAME bwa_capabilities COMMAND wgse-bwa capabilities --json)
     set_tests_properties(bwa_capabilities PROPERTIES
         PASS_REGULAR_EXPRESSION "\"engine\":\"bwa\".*\"metal_hardware_supported\":")
