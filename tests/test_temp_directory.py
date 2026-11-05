@@ -8,6 +8,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import psutil
 import pytest
 
 from tests.disk_volumes import GIB, Volumes
@@ -155,8 +156,14 @@ def test_bam_sort_budgets_spills_on_the_tmp_dir_volume_separately(
 )
 @pytest.mark.parametrize("short", [None, "scratch", "output"])
 def test_realign_budgets_output_and_staging_volumes_separately(
-    capsys, volumes, paired_bam, folders, options, budgets, short
+    capsys, monkeypatch, volumes, paired_bam, folders, options, budgets, short
 ):
+    # Streaming needs RAM for a collate bucket beside BWA; give every runner
+    # (a 7 GB macOS one too) plenty, so only disk space decides.
+    real_memory = psutil.virtual_memory
+    monkeypatch.setattr(
+        psutil, "virtual_memory", lambda: real_memory()._replace(available=64 * GIB)
+    )
     # Collate always spills, however few the reads.
     ref, bam = paired_bam(2_000)
     output, scratch = folders
