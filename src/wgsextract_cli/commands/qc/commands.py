@@ -424,5 +424,10 @@ def cmd_vcf_qc(args: argparse.Namespace) -> None:
     explicit: set[str] = getattr(args, "_explicit_dests", set())
     if args.vcf_input is None and "vcf_input" not in explicit:
         args.vcf_input = settings.get("default_input_vcf")
-    args.vcf_input = _select_vcf_input(args)
+    selected = _select_vcf_input(args)
+    # Keep an --input pick as input: dispatch has recorded it under that role.
+    if selected is not None and selected == args.input:
+        args.vcf_input = None
+    else:
+        args.vcf_input = selected
     _cli_vcf_qc(args)
