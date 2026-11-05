@@ -29,8 +29,9 @@ exactly one GRCh38 chrY single-base substitution in YBrowse. Rows are
 - also written to ``new_positions_ancient.txt`` unless the mutation is C->T or
   G->A (post-mortem deamination; Yleaf v4.1.6's ancient-DNA rule).
 
-The pack is a reproducible tar.gz plus SHA256SUMS for a draft GitHub release
-``yleaf-tree-yfull-v<version>``; --write-manifest pins it in trees.json.
+The pack is a reproducible tar.gz; it, build_info.json, LICENSE-YTree.md and
+their SHA256SUMS are the assets of the GitHub release
+``yleaf-tree-yfull-v<version>``. --write-manifest pins the pack in trees.json.
 """
 
 from __future__ import annotations
@@ -340,9 +341,13 @@ def main() -> None:
     name = f"yfull-{args.version}.tar.gz"
     archive = args.output / name
     listing = write_pack(files, archive)
-    (args.output / "build_info.json").write_bytes(files["build_info.json"])
+    released = [name, "build_info.json", "LICENSE-YTree.md"]
+    for extra in released[1:]:
+        (args.output / extra).write_bytes(files[extra])
     (args.output / "SHA256SUMS").write_text(
-        f"{sha256_file(archive)}  {name}\n", encoding="utf-8", newline="\n"
+        "".join(f"{sha256_file(args.output / n)}  {n}\n" for n in released),
+        encoding="utf-8",
+        newline="\n",
     )
     entry = {
         "name": "YFull YTree",
