@@ -1,16 +1,19 @@
 import gzip
 import logging
+import os
 import random
 import re
+import shutil
+import time
 from pathlib import Path
-from threading import Event
-from unittest.mock import Mock
 
+import psutil
 import pytest
 
+from tests.fake_tools import python_tool
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
-from wgsextract_cli.commands.info import metrics
 from wgsextract_cli.commands.vcf import contig_calling
+from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
 
@@ -65,6 +68,17 @@ def _call(
     return str(output / f"{kind}s.vcf.gz")
 
 
+def _female(sample: tuple[str, str], root: Path) -> tuple[str, str]:
+    """The sample with all but two of its chrY reads dropped: a woman's few
+    mismapped chrY reads (its 48 chrY reads to 48 chrX make it a man)."""
+    bam, ref = sample
+    sam = run_command(["samtools", "view", "-h", bam], capture_output=True).stdout
+    lines = sam.splitlines()
+    kept = [line for line in lines if line.split("\t")[2:3] != ["chrY"]]
+    kept += [line for line in lines if line.split("\t")[2:3] == ["chrY"]][:2]
+    return sam_to_bam(kept, root / "female.bam"), ref
+
+
 @needs_htslib
 @pytest.mark.parametrize("kind", ["snp", "indel"])
 @pytest.mark.parametrize("sex", ["Male", "Female"])
@@ -72,14 +86,16 @@ def _call(
 def test_parallel_calls_match_serial_body_and_headers(
     multicontig_sample: tuple[str, str],
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     sex: str,
     kind: str,
     fmt: str,
 ) -> None:
-    infer_sex = Mock(return_value=sex)
-    monkeypatch.setattr(metrics, "sample_sex", infer_sex)
-    bam, ref = multicontig_sample
+    caplog.set_level(logging.INFO)
+    sample = multicontig_sample
+    if sex == "Female":
+        sample = _female(sample, tmp_path)
+    bam, ref = sample
     if fmt == "cram":
         cram = str(tmp_path / "sample.cram")
         run_command(["samtools", "view", "-C", "-T", ref, "-o", cram, bam])
@@ -102,7 +118,8 @@ def test_parallel_calls_match_serial_body_and_headers(
     assert [line for line in headers[0].splitlines() if line.startswith(relevant)] == [
         line for line in headers[1].splitlines() if line.startswith(relevant)
     ]
-    assert infer_sex.call_count == 2  # Once per command, not once per worker.
+    # The sex is read from the reads once per command, not once per worker.
+    assert caplog.text.count("Checking chrX/chrY coverage") == 2
     assert Path(parallel + ".tbi").is_file()
     assert not list((tmp_path / "parallel").glob(".wgse_call_*"))
 
@@ -345,60 +362,82 @@ def test_iupac_indels_are_valid_without_changing_other_contigs(
     ]
 
 
+_FAULTY_BCFTOOLS = """\
+import os, subprocess, sys, time
+
+args = sys.argv[1:]
+contigs = []
+if "-R" in args:
+    contigs = [line.split("\\t")[0] for line in open(args[args.index("-R") + 1])]
+for target, action in {rules!r}.items():
+    if target not in (args[:1] + contigs):
+        continue
+    if action == "hang":
+        open({pids!r}, "w").write(str(os.getpid()))
+        time.sleep(60)
+    if "hang" in {rules!r}.values():
+        while not os.path.exists({pids!r}):
+            time.sleep(0.05)
+    if "-o" in args:
+        open(args[args.index("-o") + 1], "wb").write(b"partial output")
+    sys.exit(f"bcftools {{target}} failed")
+sys.exit(subprocess.run([{real!r}, *args]).returncode)
+"""
+
+
+def _faulty_bcftools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **rules: str
+) -> Path:
+    """bcftools that, for a subcommand or a contig of its -R regions, fails
+    (writing "partial output" to its -o) or hangs, after writing its PID to
+    the returned file; once something hangs, failures wait for it to start."""
+    real = shutil.which("bcftools")
+    assert real
+    pids = tmp_path / "bin" / "hanging.pid"
+    python_tool(pids.parent, "bcftools", _FAULTY_BCFTOOLS.format(
+        rules=rules, pids=str(pids), real=real
+    ))  # fmt: skip
+    monkeypatch.setenv("PATH", f"{pids.parent}{os.pathsep}{os.environ['PATH']}")
+    clear_tool_caches()
+    return pids
+
+
+def _gone(pid: int) -> bool:
+    try:
+        return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return True
+
+
 @needs_htslib
-def test_worker_failure_cleans_parts_without_concatenating(
+def test_worker_failure_leaves_no_parts_or_output(
     multicontig_sample: tuple[str, str],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pipeline = Mock(side_effect=WGSExtractError("worker failed"))
-    concat = Mock(side_effect=AssertionError("must not concatenate failed parts"))
-    monkeypatch.setattr(contig_calling, "run_pipeline", pipeline)
-    monkeypatch.setattr(contig_calling, "run_command", concat)
+    _faulty_bcftools(tmp_path, monkeypatch, chr21="fail")
     bam, ref = multicontig_sample
-    with pytest.raises(WGSExtractError, match="worker failed"):
-        contig_calling.call_small_variants(
-            bam, ref, str(tmp_path / "result.vcf.gz"), threads="3", region=None,
-            profile=[], call_args=["--ploidy", "2"], parallel=True,
-        )  # fmt: skip
-    concat.assert_not_called()
-    assert list(tmp_path.iterdir()) == []
+    outdir = tmp_path / "out"
+    with pytest.raises(WGSExtractError, match="chr21"):
+        _call((bam, ref), outdir, "snp", 3, "--parallel")
+    assert list(outdir.iterdir()) == []
 
 
-def test_worker_failure_cancels_running_sibling_before_cleanup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@needs_htslib
+def test_worker_failure_stops_a_running_sibling_before_cleanup(
+    multicontig_sample: tuple[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    started, stopped = Event(), Event()
-    monkeypatch.setattr(
-        contig_calling,
-        "_parallel_contigs",
-        Mock(return_value={"chr20": 1000, "chr21": 1000}),
-    )
-
-    monkeypatch.setattr(
-        contig_calling, "get_bam_header", Mock(return_value="@RG\tID:a\tSM:one\n")
-    )
-
-    def pipeline(
-        stages: list[list[str]], *, description: str, cancel_event: Event, **_: object
-    ) -> None:
-        if description.endswith("(chr20)"):
-            started.set()
-            assert cancel_event.wait(5), "running worker was not cancelled"
-            assert list(tmp_path.glob(".wgse_call_*"))
-            stopped.set()
-        else:
-            assert started.wait(5)
-            raise WGSExtractError("original worker failure")
-
-    monkeypatch.setattr(contig_calling, "run_pipeline", pipeline)
-    with pytest.raises(WGSExtractError, match="original worker failure"):
-        contig_calling.call_small_variants(
-            "input.bam", "ref.fa", str(tmp_path / "result.vcf.gz"),
-            threads="2", region=None, profile=[], call_args=[], parallel=True,
-        )  # fmt: skip
-    assert stopped.is_set()
-    assert list(tmp_path.iterdir()) == []
+    pids = _faulty_bcftools(tmp_path, monkeypatch, chr20="hang", chr21="fail")
+    bam, ref = multicontig_sample
+    outdir = tmp_path / "out"
+    started = time.monotonic()
+    with pytest.raises(WGSExtractError, match="chr21"):
+        _call((bam, ref), outdir, "snp", 2, "--parallel")
+    assert time.monotonic() - started < 30
+    assert _gone(int(pids.read_text()))
+    assert list(outdir.iterdir()) == []
 
 
 @needs_htslib
@@ -407,26 +446,18 @@ def test_concat_failure_preserves_previous_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    output = tmp_path / "result.vcf.gz"
+    outdir = tmp_path / "out"
+    output = outdir / "indels.vcf.gz"
+    outdir.mkdir()
     output.write_bytes(b"previous output")
     index = Path(str(output) + ".tbi")
     index.write_bytes(b"previous index")
-
-    def fail_concat(command: list[str]) -> None:
-        Path(command[-1]).write_bytes(b"partial output")
-        raise WGSExtractError("concat failed")
-
-    monkeypatch.setattr(contig_calling, "run_pipeline", Mock())
-    monkeypatch.setattr(contig_calling, "run_command", fail_concat)
-    bam, ref = multicontig_sample
-    with pytest.raises(WGSExtractError, match="concat failed"):
-        contig_calling.call_small_variants(
-            bam, ref, str(output), threads="3", region=None, profile=[],
-            call_args=["--ploidy", "2"], indels=True, parallel=True,
-        )  # fmt: skip
+    _faulty_bcftools(tmp_path, monkeypatch, concat="fail")
+    with pytest.raises(WGSExtractError, match="concat"):
+        _call(multicontig_sample, outdir, "indel", 3, "--parallel")
     assert output.read_bytes() == b"previous output"
     assert index.read_bytes() == b"previous index"
-    assert sorted(tmp_path.iterdir()) == sorted([output, index])
+    assert sorted(outdir.iterdir()) == sorted([output, index])
 
 
 @pytest.mark.parametrize("contents", ["-2\t1\t100\t0\t0\t0\n", "invalid\n"])

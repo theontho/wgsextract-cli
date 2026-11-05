@@ -1,12 +1,17 @@
 """`vcf freebayes` and `vcf gatk` (CPU HaplotypeCaller) on a tiny genome."""
 
+import json
+import os
 import random
-import subprocess
+import shutil
+import sys
+import tempfile
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
+from tests.fake_tools import FakeGatk
 from tests.htslib_helpers import (
     needs_tools,
     require_runnable,
@@ -17,7 +22,9 @@ from tests.htslib_helpers import (
 )
 from wgsextract_cli.commands.vcf import callers
 from wgsextract_cli.core import paths
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.dependencies import clear_tool_caches
+from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.main import main
 
 SNP = 1000  # 1-based position of the sample's homozygous SNP
 
@@ -140,210 +147,134 @@ def test_gatk_calls_the_snp_from_a_regional_cram(genome, tmp_path):
     ]
 
 
-def _mock_gatk(monkeypatch, tmp_path, run):
-    """cmd_gatk with get_base_args and dependency checks stubbed; ``run``
-    stands in for run_command."""
-    lib = Namespace(dict_file=str(tmp_path / "ref.dict"))
-    monkeypatch.setattr(callers, "verify_dependencies", lambda _tools: None)
-    monkeypatch.setattr(callers, "require_native_tool", lambda _tool: None)
-    monkeypatch.setattr(
-        callers, "get_base_args", lambda _a: ("2", str(tmp_path), "ref.fa", lib)
-    )
-    monkeypatch.setattr(callers, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(callers, "run_command", run)
-    gatk_tmp = tmp_path / "gatk-tmp"
-    gatk_tmp.mkdir()
-    monkeypatch.setattr(callers, "_gatk_tmp_dir", lambda: str(gatk_tmp))
-    return gatk_tmp
+# --- GATK at its process boundary ----------------------------------------------
+# GATK is slow to start and not in the default environment: FakeGatk calls with
+# bcftools instead and checks what GATK itself would refuse.
 
 
-def test_gatk_failure_on_cram_cleans_up_and_hints_at_cram_versions(
-    monkeypatch, tmp_path, caplog
-):
-    commands: list[list[str]] = []
-
-    def run(cmd, **_kwargs):
-        commands.append(cmd)
-        if cmd[0] == "samtools" and cmd[1] == "view":
-            Path(cmd[cmd.index("-o") + 1]).write_text("bam")
-        elif cmd[0] == "samtools" and cmd[1] == "index":
-            Path(cmd[2] + ".bai").write_text("bai")
-        elif cmd[0] == "gatk":
-            raise subprocess.CalledProcessError(2, cmd)
-
-    gatk_tmp = _mock_gatk(monkeypatch, tmp_path, run)
-    args = Namespace(input=str(tmp_path / "s.cram"), region="chr1:1-500", gpu=False)
-    with pytest.raises(WGSExtractError, match="GATK failed"):
-        callers.cmd_gatk(args)
-
-    gatk = commands[-1]
-    assert gatk[:2] == ["gatk", "HaplotypeCaller"]
-    assert gatk[gatk.index("--tmp-dir") + 1] == str(gatk_tmp)
-    assert gatk[gatk.index("-L") + 1] == str(tmp_path / "gatk_region.intervals")
-    assert gatk[gatk.index("-I") + 1].endswith(".bam")
-    assert "CRAM version 3.1" in caplog.text
-    # The temporary BAM, its index, the intervals file and GATK's temp dir are gone.
-    assert sorted(p.name for p in tmp_path.iterdir()) == []
+@pytest.fixture
+def gatk(tmp_path, monkeypatch) -> FakeGatk:
+    require_runnable("samtools", "bcftools", "tabix")
+    bcftools = shutil.which("bcftools") or pytest.skip("bcftools is not on PATH")
+    bindir = tmp_path / "bin"
+    fake = FakeGatk(bindir, bcftools)
+    # The OS temp folder, where GATK's temp dir goes without a --tmp-dir.
+    (tmp_path / "systemp").mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "systemp"))
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    clear_tool_caches()
+    return fake
 
 
-def test_gatk_dict_generation_failure_is_reported(monkeypatch, tmp_path):
-    def run(cmd, **_kwargs):
-        raise subprocess.CalledProcessError(1, cmd)
-
-    _mock_gatk(monkeypatch, tmp_path, run)
-    lib = Namespace(dict_file=None)
-    monkeypatch.setattr(
-        callers, "get_base_args", lambda _a: ("2", str(tmp_path), "ref.fa", lib)
-    )
-    args = Namespace(input="s.bam", region=None, gpu=False)
-    with pytest.raises(WGSExtractError, match="Failed to generate GATK dict"):
-        callers.cmd_gatk(args)
-
-
-@pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
-def test_gatk_native_numeric_warning_only_on_windows(
-    monkeypatch, tmp_path, caplog, platform
-):
-    commands = []
-
-    def run(cmd, **_kwargs):
-        commands.append(cmd)
-        raise subprocess.CalledProcessError(1, cmd)
-
-    _mock_gatk(monkeypatch, tmp_path, run)
-    monkeypatch.setattr(
-        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=False)
-    )
-    monkeypatch.setattr(callers.sys, "platform", platform)
-    args = Namespace(input="s.bam", region=None, gpu=False)
-    with pytest.raises(WGSExtractError, match="GATK failed"):
-        callers.cmd_gatk(args)
-    assert commands[0][:2] == ["gatk", "HaplotypeCaller"]
-    assert ("compression remains Java-based" in caplog.text) == (platform == "win32")
+def _reference_copy(genome: Namespace, folder: Path, *, gzip: bool = False) -> str:
+    folder.mkdir(parents=True)
+    ref = folder / "ref.fa"
+    shutil.copy(genome.ref, ref)
+    if gzip:
+        with open(f"{ref}.gz", "wb") as f:
+            run_command(["bgzip", "-c", str(ref)], stdout=f)
+        ref.unlink()
+        ref = folder / "ref.fa.gz"
+    run_command(["samtools", "faidx", str(ref)])
+    return str(ref)
 
 
-def test_failed_cram_conversion_removes_the_partial_bam(monkeypatch, tmp_path):
-    def run(cmd, **_kwargs):
-        Path(cmd[cmd.index("-o") + 1]).write_text("partial")
-        raise subprocess.CalledProcessError(1, cmd)
-
-    monkeypatch.setattr(callers, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(callers, "run_command", run)
-    args = Namespace(input="s.cram", region="chr1:1-500")
-    with pytest.raises(subprocess.CalledProcessError):
-        callers._prepare_gatk_input(args, "ref.fa", str(tmp_path))
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_gatk_takes_each_comma_separated_region_as_an_interval(monkeypatch, tmp_path):
-    intervals: list[str] = []
-
-    def run(cmd, **_kwargs):
-        if cmd[0] == "gatk":
-            intervals.extend(Path(cmd[cmd.index("-L") + 1]).read_text().splitlines())
-
-    _mock_gatk(monkeypatch, tmp_path, run)
-    monkeypatch.setattr(callers, "ensure_vcf_indexed", lambda _v: None)
-    monkeypatch.setattr(callers, "warn_if_no_variants", lambda *_a: None)
-    args = Namespace(input="s.bam", region="chr20,chr21:1-500", gpu=False)
-    callers.cmd_gatk(args)
-    assert intervals == ["chr20", "chr21:1-500"]
+def _gatk(capsys, genome: Namespace, input_path: str, ref: str, outdir: Path,
+          scratch: Path | None, *extra: str) -> tuple[dict, str]:  # fmt: skip
+    """`vcf gatk` through the CLI: its --json result manifest and its log.
+    Without a scratch folder the temporary BAM goes beside the output."""
+    if scratch:
+        scratch.mkdir(exist_ok=True)
+        extra = ("--tmp-dir", str(scratch), *extra)
+    try:
+        main(["vcf", "gatk", "--input", input_path, "--ref", ref,
+              "--outdir", str(outdir), *extra, "--json"])  # fmt: skip
+    except SystemExit:
+        pass
+    captured = capsys.readouterr()
+    return json.loads(captured.out), captured.err
 
 
-def test_cleanup_tolerates_missing_temp_files(tmp_path):
-    bam = tmp_path / "t.bam"
-    bam.write_text("x")
-    (tmp_path / "t.bam.csi").write_text("x")
-    callers._cleanup_gatk_temp_input(str(bam))
-    callers._cleanup_gatk_temp_input(None)
-    assert list(tmp_path.iterdir()) == []
+def test_gatk_cuts_a_regional_cram_to_a_bam_it_can_read(genome, gatk, tmp_path, capsys):
+    """A GATK that can't read CRAM 3.1 still calls a CRAM region: the CRAM is cut
+    to a temporary BAM of every requested interval (given out of order), and
+    the missing .dict is made beside the reference. Nothing else is left beside
+    the output or in the OS temp folder."""
+    gatk.set(reads_cram=False)
+    ref = _reference_copy(genome, tmp_path / "ref")
+    outdir = tmp_path / "out"
+    result, log = _gatk(capsys, genome, genome.cram, ref, outdir, None,
+                   "-r", f"chr1:1500-1600, chr1:{SNP - 100}-{SNP + 100}")  # fmt: skip
 
-
-def test_gatk_scatter_with_one_worker_uses_the_unscattered_path(monkeypatch, tmp_path):
-    commands = []
-    _mock_gatk(monkeypatch, tmp_path, lambda cmd, **_: commands.append(cmd))
-    monkeypatch.setattr(callers, "scatter_intervals", lambda *_: [[("chr1", 1, 100)]])
-    monkeypatch.setattr(
-        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=True)
-    )
-    monkeypatch.setattr(callers, "ensure_vcf_indexed", lambda _: None)
-    monkeypatch.setattr(callers, "warn_if_no_variants", lambda *_: None)
-    callers.cmd_gatk(
-        Namespace(input="s.bam", region="chr1:1-100", gpu=False, scatter=True)
-    )
-    assert len(commands) == 1
-    assert commands[0][:2] == ["gatk", "HaplotypeCaller"]
-    assert "--flow-mode" in commands[0]
-    assert "--java-options" not in commands[0]
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_gatk_scatter_requires_flow_aware_input(monkeypatch, tmp_path):
-    _mock_gatk(monkeypatch, tmp_path, lambda *_a, **_kw: pytest.fail("GATK started"))
-    monkeypatch.setattr(callers, "scatter_intervals", lambda *_: [[("chr1", 1, 100)]])
-    monkeypatch.setattr(
-        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=False)
-    )
-    with pytest.raises(WGSExtractError, match="requires flow-aware Ultima"):
-        callers.cmd_gatk(Namespace(input="s.bam", region=None, gpu=False, scatter=True))
-
-
-def test_gatk_regional_cram_conversion_reads_each_requested_interval(
-    monkeypatch, tmp_path
-):
-    commands = []
-    monkeypatch.setattr(callers, "get_tool_path", lambda name: name)
-    monkeypatch.setattr(
-        callers, "run_command", lambda command, **_: commands.append(command)
-    )
-    _bam, temporary = callers._prepare_gatk_input(
-        Namespace(input="s.cram", region="chr2:1-20, chr1:30-50"),
-        "ref.fa",
-        str(tmp_path),
-    )
-    assert commands[0][-3:] == ["s.cram", "chr2:1-20", "chr1:30-50"]
-    assert "-M" in commands[0]
-    callers._cleanup_gatk_temp_input(temporary)
-
-
-def test_gatk_windows_argv_uses_native_local_paths(monkeypatch, tmp_path):
-    import ntpath
-
-    commands = []
-    gatk_tmp = _mock_gatk(
-        monkeypatch, tmp_path, lambda cmd, **_kwargs: commands.append(cmd)
-    )
-    lib = Namespace(dict_file=None)
-    reference = "R:/Reference genome/ref.fa.gz"
-    monkeypatch.setattr(paths, "sys", Namespace(platform="win32"))
-    monkeypatch.setattr(
-        callers, "get_base_args", lambda _: ("1", str(tmp_path), reference, lib)
-    )
-    monkeypatch.setattr(
-        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=False)
-    )
-    monkeypatch.setattr(callers, "ensure_vcf_indexed", lambda _: None)
-    monkeypatch.setattr(callers, "warn_if_no_variants", lambda *_: None)
-    callers.cmd_gatk(
-        Namespace(input="R:/Input data/sample.bam", region="chr1:1-500", gpu=False)
-    )
-
-    dictionary, gatk = commands
-    assert dictionary == [
-        "samtools",
-        "dict",
-        "-o",
-        r"R:\Reference genome\ref.dict",
-        r"R:\Reference genome\ref.fa.gz",
+    assert result["status"] == "ok", result["error"]
+    assert vcf_calls(outdir / "gatk.vcf.gz") == [genome.call]
+    assert (tmp_path / "ref" / "ref.dict").read_text().startswith("@HD")
+    assert sorted(p.name for p in outdir.iterdir()) == [
+        "gatk.vcf.gz",
+        "gatk.vcf.gz.tbi",
+        "gatk.vcf.manifest.json",
     ]
-    assert lib.dict_file == r"R:\Reference genome\ref.dict"
-    expected = {
-        "-R": r"R:\Reference genome\ref.fa.gz",
-        "-I": r"R:\Input data\sample.bam",
-        "-O": ntpath.normpath(str(tmp_path / "gatk.vcf.gz")),
-        "--tmp-dir": ntpath.normpath(str(gatk_tmp)),
-        "-L": ntpath.normpath(str(tmp_path / "gatk_region.intervals")),
-    }
-    for flag, value in expected.items():
-        assert gatk[gatk.index(flag) + 1] == value
-    assert sorted(tmp_path.iterdir()) == []
+    assert list((tmp_path / "systemp").iterdir()) == []
+
+
+@pytest.mark.parametrize("stage", ["gatk", "conversion"])
+def test_gatk_failure_on_a_cram_hints_at_cram_versions_and_cleans_up(
+    genome, gatk, tmp_path, capsys, stage
+):
+    """Whether GATK or the CRAM-to-BAM cut fails (a reference that doesn't match
+    the CRAM fails its MD5 check part-way), the partial or temporary BAM, its
+    index, the intervals and GATK's temp dir are removed."""
+    gatk.set(fail="unexpected CRAM container")
+    ref = _reference_copy(genome, tmp_path / "ref")
+    if stage == "conversion":
+        seq = "".join(Path(ref).read_text().splitlines()[1:])
+        write_fasta(Path(ref), {"chr1": seq[::-1]})
+        run_command(["samtools", "faidx", ref])
+    outdir = tmp_path / "out"
+    result, log = _gatk(capsys, genome, genome.cram, ref, outdir, None,
+                   "-r", f"chr1:{SNP - 100}-{SNP + 100}")  # fmt: skip
+
+    assert result["status"] == "failed"
+    assert "GATK failed" in result["error"]["message"]
+    assert "CRAM version 3.1" in log
+    assert (gatk.runs() == []) == (stage == "conversion")
+    assert list(outdir.iterdir()) == []
+    assert list((tmp_path / "systemp").iterdir()) == []
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs a folder the user can't write to",
+)
+def test_gatk_reports_a_dict_it_cannot_write(genome, gatk, tmp_path, capsys):
+    ref = _reference_copy(genome, tmp_path / "ref")
+    (tmp_path / "ref").chmod(0o555)
+    try:
+        result, log = _gatk(capsys, genome, genome.bam, ref, tmp_path / "out",
+                       tmp_path / "scratch")  # fmt: skip
+    finally:
+        (tmp_path / "ref").chmod(0o755)
+    assert result["status"] == "failed"
+    assert "Failed to generate GATK dict" in result["error"]["message"]
+    assert gatk.runs() == []
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_gatk_on_windows_gets_native_paths_and_a_numeric_warning(
+    genome, gatk, tmp_path, monkeypatch, capsys, platform
+):
+    """Windows GATK reads only native paths (a bare R:/x is a URI to Java), here
+    with spaces and a bgzipped reference; its native kernels can change numbers."""
+    monkeypatch.setattr(paths, "sys", Namespace(platform=platform))
+    monkeypatch.setattr(callers, "sys", Namespace(platform=platform))
+    gatk.set(windows=platform == "win32")
+    ref = _reference_copy(genome, tmp_path / "Reference genome", gzip=True)
+    # A missing .dict would be written by the host's samtools at a native path.
+    run_command(["samtools", "dict", "-o", str(tmp_path / "Reference genome" / "ref.dict"), ref])  # fmt: skip
+    outdir = tmp_path / "Output data"
+    result, log = _gatk(capsys, genome, genome.bam, ref, outdir, tmp_path / "scratch",
+                   "-r", f"chr1:{SNP - 100}-{SNP + 100}")  # fmt: skip
+
+    assert result["status"] == "ok", result["error"]
+    assert vcf_calls(outdir / "gatk.vcf.gz") == [genome.call]
+    assert ("compression remains Java-based" in log) == (platform == "win32")
