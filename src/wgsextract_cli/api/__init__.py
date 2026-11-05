@@ -23,8 +23,8 @@ config.toml is loaded on the first call; ``use_config(path)`` selects another.
 The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and ``--help`` cannot drift.
 
-Stability: the names exported here and the group modules (``api.info``,
-``api.vcf``, ``api.lineage``, ``api.microarray``, ``api.report``,
+Stability: the names exported here and the group modules (``api.extract``,
+``api.info``, ``api.vcf``, ``api.lineage``, ``api.microarray``, ``api.report``,
 ``api.sample``, ``api.support``) follow semantic versioning from the 1.0
 release; adding fields with defaults is not a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -44,7 +44,7 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
 )
 
-from . import info, lineage, microarray, report, sample, support, vcf
+from . import extract, info, lineage, microarray, report, sample, support, vcf
 from ._params import Params, json_schema
 from ._runtime import (
     Cancelled,
@@ -53,6 +53,17 @@ from ._runtime import (
     ProgressCallback,
     ProgressEvent,
     use_config,
+)
+from .extract import (
+    BamSubsetParams,
+    CustomParams,
+    MitoFastaParams,
+    MitoVcfParams,
+    MtBamParams,
+    UnmappedParams,
+    YdnaBamParams,
+    YdnaVcfParams,
+    YMtExtractParams,
 )
 from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, InfoParams
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
@@ -63,34 +74,44 @@ from .support import IssueReport, ReportIssueParams
 from .vcf import VcfIndelParams, VcfSnpParams
 
 __all__ = [
+    "BamSubsetParams",
     "CalculateCoverageParams",
     "CancelToken",
     "Cancelled",
     "ChipParams",
     "CommandFailed",
     "CoverageSampleParams",
+    "CustomParams",
     "FileRecord",
     "InfoParams",
     "IssueReport",
     "MicroarrayParams",
     "MissingDependencyError",
+    "MitoFastaParams",
+    "MitoVcfParams",
+    "MtBamParams",
     "MtHaplogroupParams",
     "Params",
-    "ReportIssueParams",
-    "ReportParams",
     "ProgressCallback",
     "ProgressEvent",
+    "ReportIssueParams",
+    "ReportParams",
     "Result",
     "ResultWarning",
     "SampleSetParams",
     "SampleShowParams",
     "SampleUnsetParams",
+    "UnmappedParams",
     "UsageError",
     "VcfIndelParams",
     "VcfSnpParams",
     "WGSExtractError",
     "YHaplogroupParams",
+    "YMtExtractParams",
     "YStrParams",
+    "YdnaBamParams",
+    "YdnaVcfParams",
+    "extract",
     "info",
     "json_schema",
     "lineage",

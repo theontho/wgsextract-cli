@@ -61,6 +61,17 @@ def threads_param() -> Any:
     )
 
 
+def memory_param() -> Any:
+    return param(
+        None,
+        doc="Memory limit per thread, e.g. '2G'; None picks a share of "
+        "this machine's RAM (default: config memory_limit, else auto).",
+        flags=("--memory", "-m"),
+        shared=True,
+        config_key="memory_limit",
+    )
+
+
 def depth_param() -> Any:
     """``--qc-min-depth``, as ``genotype_qc.add_depth_argument`` declares it."""
     from wgsextract_cli.core.genotype_qc import DEPTH_HELP, _non_negative

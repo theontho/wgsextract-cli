@@ -6,8 +6,6 @@ import threading
 import time
 from collections.abc import Callable
 
-from wgsextract_cli.core import live_status
-
 _READS = re.compile(r"(?:Processed|mapped)\s+(\d+)\s+(?:reads|sequences)", re.I)
 
 
@@ -67,10 +65,11 @@ class Heartbeat:
         with self._lock:
             done = self.completed
         if done or self.total:
-            live_status.detail(
+            _report(
                 f"{done:,}/{self.total:,} {self.unit}"
                 if self.total
-                else f"{done:,} {self.unit}"
+                else f"{done:,} {self.unit}",
+                min(1.0, done / self.total) if self.total else None,
             )
         if not self.emit:
             return
@@ -90,3 +89,10 @@ class Heartbeat:
         logging.info(
             "%s heartbeat: %s, elapsed %.0fs%s", self.label, progress, elapsed, eta
         )
+
+
+def _report(count: str, fraction: float | None) -> None:
+    # The CLI renders heartbeat events on its progress line (cli/dispatch).
+    from wgsextract_cli.api._runtime import report
+
+    report("heartbeat", count, fraction)

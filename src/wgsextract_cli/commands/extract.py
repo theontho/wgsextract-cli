@@ -4,6 +4,19 @@ import logging
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.extract import (
+    BamSubsetParams,
+    CustomParams,
+    MitoFastaParams,
+    MitoVcfParams,
+    MtBamParams,
+    UnmappedParams,
+    YdnaBamParams,
+    YdnaVcfParams,
+    YMtExtractParams,
+    _ExtractParams,
+)
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
 from wgsextract_cli.core.dependency_checks import (
@@ -36,10 +49,10 @@ from wgsextract_cli.core.warnings import print_warning
 from ._extract_helpers import (
     BaseArgs,
     alignments_to_fastq,
+    base_args,
     cleanup_files,
     derive_output_path,
-    get_base_args,
-    resolve_region_or_gene,
+    region_or_gene,
 )
 
 _SAMTOOLS = ["samtools"]
@@ -54,87 +67,35 @@ def register(
         "extract", help="Extract specific chromosomes or unmapped reads."
     )
     ext_subs = parser.add_subparsers(dest="ext_cmd", required=True)
-
-    # Mitochondrial commands
-    mito_fasta_parser = ext_subs.add_parser(
-        "mito-fasta", parents=[base_parser], help=CLI_HELP["cmd_mito-fasta"]
-    )
-    mito_fasta_parser.set_defaults(func=cmd_mito_fasta)
-
-    mito_vcf_parser = ext_subs.add_parser(
-        "mito-vcf", parents=[base_parser], help=CLI_HELP["cmd_mito-vcf"]
-    )
-    mito_vcf_parser.set_defaults(func=cmd_mito_vcf)
-
-    mt_bam_parser = ext_subs.add_parser(
-        "mt-bam", parents=[base_parser], help=CLI_HELP["cmd_mt-bam"]
-    )
-    mt_bam_parser.set_defaults(func=cmd_mt_bam)
-
-    subset_parser = ext_subs.add_parser(
-        "bam-subset", parents=[base_parser], help=CLI_HELP["cmd_bam-subset"]
-    )
-    subset_parser.add_argument(
-        "--fraction",
-        "-f",
-        required=True,
-        type=float,
-        help=CLI_HELP["arg_fraction"],
-    )
-    subset_parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    subset_parser.add_argument("--gene", help="Filter by Gene Name (e.g. BRCA1, KCNQ2)")
-    subset_parser.set_defaults(func=cmd_bam_subset)
-
-    # Y-DNA commands
-    y_bam_parser = ext_subs.add_parser(
-        "ydna-bam", parents=[base_parser], help=CLI_HELP["cmd_ydna-bam"]
-    )
-    y_bam_parser.add_argument(
-        "--poz",
-        action="store_true",
-        help="Restrict Y reads to the bundled CombBED/McDonald/Poznik union (GRCh37/38 only).",
-    )
-    y_bam_parser.set_defaults(func=cmd_ydna_bam)
-
-    y_vcf_parser = ext_subs.add_parser(
-        "ydna-vcf", parents=[base_parser], help=CLI_HELP["cmd_ydna-vcf"]
-    )
-    y_vcf_parser.add_argument(
-        "--ybrowse",
-        action="store_true",
-        help="Call installed, allele-annotated yBrowse SNP targets (GRCh38 only; no downloads).",
-    )
-    y_vcf_parser.set_defaults(func=cmd_ydna_vcf)
-
-    # Combined command
-    y_mt_parser = ext_subs.add_parser(
-        "y-mt-extract", parents=[base_parser], help=CLI_HELP["cmd_y-mt-extract"]
-    )
-    y_mt_parser.set_defaults(func=cmd_y_mt_extract)
-
-    # Legacy / Other
-    unmapped_parser = ext_subs.add_parser(
-        "unmapped", parents=[base_parser], help=CLI_HELP["cmd_unmapped"]
-    )
-    unmapped_parser.add_argument(
-        "--fastq",
-        action="store_true",
-        help="Also write paired, single-end and singleton unmapped FASTQs.",
-    )
-    unmapped_parser.set_defaults(func=cmd_unmapped)
-
-    custom_parser = ext_subs.add_parser(
-        "custom", parents=[base_parser], help=CLI_HELP["cmd_custom"]
-    )
-    custom_parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    custom_parser.add_argument("--gene", help="Filter by Gene Name (e.g. BRCA1, KCNQ2)")
-    custom_parser.set_defaults(func=cmd_custom)
+    for name, cls, func in (
+        ("mito-fasta", MitoFastaParams, cmd_mito_fasta),
+        ("mito-vcf", MitoVcfParams, cmd_mito_vcf),
+        ("mt-bam", MtBamParams, cmd_mt_bam),
+        ("bam-subset", BamSubsetParams, cmd_bam_subset),
+        ("ydna-bam", YdnaBamParams, cmd_ydna_bam),
+        ("ydna-vcf", YdnaVcfParams, cmd_ydna_vcf),
+        ("y-mt-extract", YMtExtractParams, cmd_y_mt_extract),
+        ("unmapped", UnmappedParams, cmd_unmapped),
+        ("custom", CustomParams, cmd_custom),
+    ):
+        sub = ext_subs.add_parser(
+            name, parents=[base_parser], help=CLI_HELP[f"cmd_{name}"]
+        )
+        add_arguments(sub, cls)
+        sub.set_defaults(func=func)
 
 
-def _setup(args: argparse.Namespace, tools: list[str]) -> BaseArgs:
+def _setup(params: _ExtractParams, tools: list[str]) -> BaseArgs:
     verify_dependencies(tools)
     log_dependency_info(tools)
-    base = get_base_args(args)
+    base = base_args(
+        params.input,
+        ref=params.ref,
+        outdir=params.outdir,
+        threads=params.threads,
+        memory=params.memory,
+        region=getattr(params, "region", None),
+    )
     current_result().set_reference(base.ref)
     return base
 
@@ -246,16 +207,17 @@ def _warn_if_female(input_path: str, outdir: str) -> None:
         )
 
 
-def cmd_mito_fasta(args: argparse.Namespace) -> None:
-    base = _setup(args, _CALLING_TOOLS)
-    ref = require_reference(base.ref, "mitochondrial extraction", args.input)
+def run_mito_fasta(params: MitoFastaParams) -> None:
+    base = _setup(params, _CALLING_TOOLS)
+    input_path = str(params.input)
+    ref = require_reference(base.ref, "mitochondrial extraction", input_path)
 
     print_warning("ButtonMitoFASTA", threads=base.threads)
 
-    chr_m = get_chr_name(args.input, "MT", base.cram_opt)
-    out_bam = derive_output_path(args.input, base.outdir, "_MT_temp.bam")
-    out_vcf = derive_output_path(args.input, base.outdir, "_MT_temp.vcf.gz")
-    out_fasta = derive_output_path(args.input, base.outdir, "_MT.fasta")
+    chr_m = get_chr_name(input_path, "MT", base.cram_opt)
+    out_bam = derive_output_path(input_path, base.outdir, "_MT_temp.bam")
+    out_vcf = derive_output_path(input_path, base.outdir, "_MT_temp.vcf.gz")
+    out_fasta = derive_output_path(input_path, base.outdir, "_MT.fasta")
 
     temp = [out_bam, out_bam + ".bai", out_vcf, out_vcf + ".tbi"]
     try:
@@ -264,7 +226,7 @@ def cmd_mito_fasta(args: argparse.Namespace) -> None:
             on_failure=[out_fasta],
             preserve_outputs=atomic_outputs_enabled(),
         ):
-            _extract_regions(base, args.input, out_bam, [chr_m])
+            _extract_regions(base, input_path, out_bam, [chr_m])
             _call_haploid_variants(out_bam, ref, out_vcf)
 
             logging.info(LOG_MESSAGES["generating_consensus"].format(output=out_fasta))
@@ -284,15 +246,16 @@ def cmd_mito_fasta(args: argparse.Namespace) -> None:
     _published(out_fasta, "mt_fasta")
 
 
-def cmd_mito_vcf(args: argparse.Namespace) -> None:
-    base = _setup(args, _CALLING_TOOLS)
-    ref = require_reference(base.ref, "mitochondrial extraction", args.input)
+def run_mito_vcf(params: MitoVcfParams) -> None:
+    base = _setup(params, _CALLING_TOOLS)
+    input_path = str(params.input)
+    ref = require_reference(base.ref, "mitochondrial extraction", input_path)
 
     print_warning("ButtonMitoVCF", threads=base.threads)
 
-    chr_m = get_chr_name(args.input, "MT", base.cram_opt)
-    out_bam = derive_output_path(args.input, base.outdir, "_MT_temp.bam")
-    out_vcf = derive_output_path(args.input, base.outdir, "_MT.vcf.gz")
+    chr_m = get_chr_name(input_path, "MT", base.cram_opt)
+    out_bam = derive_output_path(input_path, base.outdir, "_MT_temp.bam")
+    out_vcf = derive_output_path(input_path, base.outdir, "_MT.vcf.gz")
 
     try:
         with cleanup_files(
@@ -300,7 +263,7 @@ def cmd_mito_vcf(args: argparse.Namespace) -> None:
             on_failure=[out_vcf],
             preserve_outputs=atomic_outputs_enabled(),
         ):
-            _extract_regions(base, args.input, out_bam, [chr_m])
+            _extract_regions(base, input_path, out_bam, [chr_m])
             logging.info(LOG_MESSAGES["calling_mito_variants"].format(output=out_vcf))
             _call_haploid_variants(out_bam, ref, out_vcf)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
@@ -308,29 +271,33 @@ def cmd_mito_vcf(args: argparse.Namespace) -> None:
     _published(out_vcf, "mt_vcf")
 
 
-def cmd_mt_bam(args: argparse.Namespace) -> None:
-    base = _setup(args, _SAMTOOLS)
+def run_mt_bam(params: MtBamParams) -> None:
+    base = _setup(params, _SAMTOOLS)
+    input_path = str(params.input)
 
-    mt_chr = get_chr_name(args.input, "MT", base.cram_opt)
-    out_file = derive_output_path(args.input, base.outdir, "_mtDNA.bam")
+    mt_chr = get_chr_name(input_path, "MT", base.cram_opt)
+    out_file = derive_output_path(input_path, base.outdir, "_mtDNA.bam")
 
     logging.info(LOG_MESSAGES["extracting_mt"].format(mt_chr=mt_chr, output=out_file))
     try:
         _extract_regions(
-            base, args.input, out_file, [mt_chr], contents=f"{mt_chr} reads"
+            base, input_path, out_file, [mt_chr], contents=f"{mt_chr} reads"
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"mtDNA extraction failed: {e}") from e
     _published(out_file, "mt_bam")
 
 
-def cmd_bam_subset(args: argparse.Namespace) -> None:
-    base = _setup(args, _SAMTOOLS)
-    region = resolve_region_or_gene(args, base.ref)
+def run_bam_subset(params: BamSubsetParams) -> None:
+    base = _setup(params, _SAMTOOLS)
+    input_path = str(params.input)
+    region = region_or_gene(params.region, params.gene, input_path, base.ref)
 
-    out_file = derive_output_path(args.input, base.outdir, "_subset.bam")
+    out_file = derive_output_path(input_path, base.outdir, "_subset.bam")
     logging.info(
-        LOG_MESSAGES["subsetting_file"].format(fraction=args.fraction, output=out_file)
+        LOG_MESSAGES["subsetting_file"].format(
+            fraction=params.fraction, output=out_file
+        )
     )
     try:
         from wgsextract_cli.core.atomic_output import safe_output
@@ -342,24 +309,25 @@ def cmd_bam_subset(args: argparse.Namespace) -> None:
             safe_output(out_file) as staged,
         ):
             run_command(
-                ["samtools", "view", "-bh", "-s", str(args.fraction), *base.cram_opt]
-                + ["-o", staged, args.input, *([region] if region else [])]
+                ["samtools", "view", "-bh", "-s", str(params.fraction), *base.cram_opt]
+                + ["-o", staged, input_path, *([region] if region else [])]
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"BAM subsetting failed: {e}") from e
     _published(out_file, "subset_bam")
 
 
-def cmd_ydna_bam(args: argparse.Namespace) -> None:
-    base = _setup(args, _SAMTOOLS)
+def run_ydna_bam(params: YdnaBamParams) -> None:
+    base = _setup(params, _SAMTOOLS)
+    input_path = str(params.input)
 
     print_warning("ButtonYOnlyBAM", threads=base.threads)
-    _warn_if_female(args.input, base.outdir)
+    _warn_if_female(input_path, base.outdir)
 
-    chr_y = get_chr_name(args.input, "Y", base.cram_opt)
-    use_poz = bool(getattr(args, "poz", False))
+    chr_y = get_chr_name(input_path, "Y", base.cram_opt)
+    use_poz = params.poz
     out_bam = derive_output_path(
-        args.input, base.outdir, "_Y_poz.bam" if use_poz else "_Y.bam"
+        input_path, base.outdir, "_Y_poz.bam" if use_poz else "_Y.bam"
     )
 
     logging.info(LOG_MESSAGES["extracting_y"].format(chr_y=chr_y, output=out_bam))
@@ -370,11 +338,11 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
 
             from ._extract_poz import poz_bed
 
-            contigs = sequence_lengths(get_bam_header(args.input, base.cram_opt))
+            contigs = sequence_lengths(get_bam_header(input_path, base.cram_opt))
             with poz_bed(contigs, chr_y, base.outdir) as bed:
                 _extract_regions(
                     base,
-                    args.input,
+                    input_path,
                     out_bam,
                     [chr_y],
                     bed=bed,
@@ -384,7 +352,7 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
         else:
             _extract_regions(
                 base,
-                args.input,
+                input_path,
                 out_bam,
                 [chr_y],
                 contents=f"{chr_y} reads",
@@ -395,22 +363,23 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
     _published(out_bam, "y_bam")
 
 
-def cmd_ydna_vcf(args: argparse.Namespace) -> None:
-    use_ybrowse = bool(getattr(args, "ybrowse", False))
-    base = _setup(args, [*_CALLING_TOOLS, "bgzip"] if use_ybrowse else _CALLING_TOOLS)
+def run_ydna_vcf(params: YdnaVcfParams) -> None:
+    use_ybrowse = params.ybrowse
+    base = _setup(params, [*_CALLING_TOOLS, "bgzip"] if use_ybrowse else _CALLING_TOOLS)
+    input_path = str(params.input)
     if use_ybrowse:
         from ._extract_ybrowse import call_ybrowse
 
-        call_ybrowse(args, base)
+        call_ybrowse(input_path, base)
         return
-    ref = require_reference(base.ref, "Y extraction", args.input)
+    ref = require_reference(base.ref, "Y extraction", input_path)
 
     print_warning("ButtonYOnlyVCF", threads=base.threads)
-    _warn_if_female(args.input, base.outdir)
+    _warn_if_female(input_path, base.outdir)
 
-    chr_y = get_chr_name(args.input, "Y", base.cram_opt)
-    out_bam = derive_output_path(args.input, base.outdir, "_Y_temp.bam")
-    out_vcf = derive_output_path(args.input, base.outdir, "_Y.vcf.gz")
+    chr_y = get_chr_name(input_path, "Y", base.cram_opt)
+    out_bam = derive_output_path(input_path, base.outdir, "_Y_temp.bam")
+    out_vcf = derive_output_path(input_path, base.outdir, "_Y.vcf.gz")
 
     try:
         with cleanup_files(
@@ -418,7 +387,7 @@ def cmd_ydna_vcf(args: argparse.Namespace) -> None:
             on_failure=[out_vcf],
             preserve_outputs=atomic_outputs_enabled(),
         ):
-            _extract_regions(base, args.input, out_bam, [chr_y])
+            _extract_regions(base, input_path, out_bam, [chr_y])
             logging.info(LOG_MESSAGES["calling_y_variants"].format(output=out_vcf))
             _call_haploid_variants(out_bam, ref, out_vcf)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
@@ -426,21 +395,22 @@ def cmd_ydna_vcf(args: argparse.Namespace) -> None:
     _published(out_vcf, "y_vcf")
 
 
-def cmd_y_mt_extract(args: argparse.Namespace) -> None:
-    base = _setup(args, _SAMTOOLS)
+def run_y_mt_extract(params: YMtExtractParams) -> None:
+    base = _setup(params, _SAMTOOLS)
+    input_path = str(params.input)
 
     print_warning("ButtonYMTBAM", threads=base.threads)
-    _warn_if_female(args.input, base.outdir)
+    _warn_if_female(input_path, base.outdir)
 
-    chr_y = get_chr_name(args.input, "Y", base.cram_opt)
-    chr_m = get_chr_name(args.input, "MT", base.cram_opt)
-    out_bam = derive_output_path(args.input, base.outdir, "_Y_MT.bam")
+    chr_y = get_chr_name(input_path, "Y", base.cram_opt)
+    chr_m = get_chr_name(input_path, "MT", base.cram_opt)
+    out_bam = derive_output_path(input_path, base.outdir, "_Y_MT.bam")
 
     logging.info(LOG_MESSAGES["extracting_y_mt"].format(output=out_bam))
     try:
         _extract_regions(
             base,
-            args.input,
+            input_path,
             out_bam,
             [chr_y, chr_m],
             contents=f"{chr_y} or {chr_m} reads",
@@ -450,12 +420,13 @@ def cmd_y_mt_extract(args: argparse.Namespace) -> None:
     _published(out_bam, "y_mt_bam")
 
 
-def cmd_unmapped(args: argparse.Namespace) -> None:
-    base = _setup(args, _SAMTOOLS)
+def run_unmapped(params: UnmappedParams) -> None:
+    base = _setup(params, _SAMTOOLS)
+    input_path = str(params.input)
 
     print_warning("ButtonUnmappedBAM", threads=base.threads)
 
-    out_bam = derive_output_path(args.input, base.outdir, "_unmapped.bam")
+    out_bam = derive_output_path(input_path, base.outdir, "_unmapped.bam")
 
     logging.info(LOG_MESSAGES["extracting_unmapped"].format(output=out_bam))
     try:
@@ -472,7 +443,7 @@ def cmd_unmapped(args: argparse.Namespace) -> None:
                     "-@",
                     base.threads,
                 ]
-                + ["-o", out_bam, args.input]
+                + ["-o", out_bam, input_path]
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Unmapped extraction failed: {e}") from e
@@ -480,10 +451,10 @@ def cmd_unmapped(args: argparse.Namespace) -> None:
     if bam_has_reads(out_bam) is False:
         # Unlike the other extractions, none can be right: an aligner that
         # dropped its unmapped reads.
-        logging.info(f"{args.input} has no unmapped reads.")
-    if getattr(args, "fastq", False):
+        logging.info(f"{input_path} has no unmapped reads.")
+    if params.fastq:
         fastqs = {
-            role: derive_output_path(args.input, base.outdir, f"_unmapped_{tag}")
+            role: derive_output_path(input_path, base.outdir, f"_unmapped_{tag}")
             for role, tag in (
                 ("fastq_r1", "R1.fastq.gz"),
                 ("fastq_r2", "R2.fastq.gz"),
@@ -506,16 +477,17 @@ def cmd_unmapped(args: argparse.Namespace) -> None:
                 _published(path, role)
 
 
-def cmd_custom(args: argparse.Namespace) -> None:
-    base = _setup(args, _SAMTOOLS)
-    region = resolve_region_or_gene(args, base.ref)
+def run_custom(params: CustomParams) -> None:
+    base = _setup(params, _SAMTOOLS)
+    input_path = str(params.input)
+    region = region_or_gene(params.region, params.gene, input_path, base.ref)
     if not region:
         raise UsageError("--region or --gene is required for custom extraction.")
 
     is_bed = Path(region).is_file()
     label = Path(region).name if is_bed else region
     region_suffix = label.replace(":", "_").replace(",", "_")
-    out_bam = derive_output_path(args.input, base.outdir, f"_{region_suffix}.bam")
+    out_bam = derive_output_path(input_path, base.outdir, f"_{region_suffix}.bam")
 
     logging.info(
         LOG_MESSAGES["extracting_region"].format(region=region, output=out_bam)
@@ -523,13 +495,13 @@ def cmd_custom(args: argparse.Namespace) -> None:
     try:
         if is_bed:
             _extract_regions(
-                base, args.input, out_bam, [], bed=region, contents=f"reads in {label}"
+                base, input_path, out_bam, [], bed=region, contents=f"reads in {label}"
             )
         else:
             # Split comma-separated regions (e.g. chr1:1-100,chr2:200-300)
             _extract_regions(
                 base,
-                args.input,
+                input_path,
                 out_bam,
                 region.split(","),
                 contents=f"reads in {label}",
@@ -537,3 +509,14 @@ def cmd_custom(args: argparse.Namespace) -> None:
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Custom extraction failed: {e}") from e
     _published(out_bam, "region_bam")
+
+
+cmd_mito_fasta = cli_handler(MitoFastaParams, run_mito_fasta)
+cmd_mito_vcf = cli_handler(MitoVcfParams, run_mito_vcf)
+cmd_mt_bam = cli_handler(MtBamParams, run_mt_bam)
+cmd_bam_subset = cli_handler(BamSubsetParams, run_bam_subset)
+cmd_ydna_bam = cli_handler(YdnaBamParams, run_ydna_bam)
+cmd_ydna_vcf = cli_handler(YdnaVcfParams, run_ydna_vcf)
+cmd_y_mt_extract = cli_handler(YMtExtractParams, run_y_mt_extract)
+cmd_unmapped = cli_handler(UnmappedParams, run_unmapped)
+cmd_custom = cli_handler(CustomParams, run_custom)

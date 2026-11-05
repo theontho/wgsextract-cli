@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from wgsextract_cli.api._runtime import ProgressEvent, _context_of
 from wgsextract_cli.core import utils
 from wgsextract_cli.core.progress import Heartbeat
 
@@ -90,3 +91,14 @@ def test_pipeline_counts_aligner_only_or_fastq_as_fallback(
     assert (tmp_path / "data").read_bytes() == b"paired-data"
     assert "2/2 reads (100.0%)" in caplog.text
     assert "4/2 reads" not in caplog.text
+
+
+def test_heartbeat_sends_its_count_and_fraction_to_api_callers():
+    events: list[ProgressEvent] = []
+    with _context_of(events.append, None):
+        with Heartbeat("Alignment", 4, interval=60) as heartbeat:
+            heartbeat.advance(3)
+    assert events == [
+        ProgressEvent("heartbeat", "0/4 reads", 0.0),
+        ProgressEvent("heartbeat", "3/4 reads", 0.75),
+    ]

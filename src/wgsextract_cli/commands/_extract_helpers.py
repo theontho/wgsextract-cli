@@ -40,24 +40,48 @@ class BaseArgs(NamedTuple):
 
 
 def get_base_args(args: argparse.Namespace) -> BaseArgs:
-    """Validate --input, create the output directory and resolve the reference."""
+    """``base_args`` from parsed CLI arguments."""
     if not args.input:
         raise UsageError(LOG_MESSAGES["input_required"])
-    verify_paths_exist({"--input": args.input})
-    logging.debug(f"Input file: {str(absolute_path(args.input))}")
+    return base_args(
+        args.input,
+        ref=args.ref,
+        outdir=args.outdir,
+        threads=args.threads,
+        memory=args.memory,
+        region=getattr(args, "region", None),
+    )
 
-    threads, memory = get_resource_defaults(args.threads, args.memory)
-    outdir = args.outdir or str(absolute_path(args.input).parent)
+
+def base_args(
+    input_path: PathInput | None,
+    *,
+    ref: PathInput | None,
+    outdir: PathInput | None,
+    threads: int | str | None,
+    memory: str | None,
+    region: str | None = None,
+) -> BaseArgs:
+    """Validate the input, create the output directory and resolve the reference."""
+    if not input_path:
+        raise UsageError(LOG_MESSAGES["input_required"])
+    input_path = fspath(input_path)
+    verify_paths_exist({"--input": input_path})
+    logging.debug(f"Input file: {str(absolute_path(input_path))}")
+
+    threads, memory = get_resource_defaults(threads, memory)
+    outdir = fspath(outdir) if outdir else str(absolute_path(input_path).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
+    ref_arg = fspath(ref) if ref else None
     try:
-        resolved_ref = resolve_reference(args.ref, calculate_bam_md5(args.input, None))
+        resolved_ref = resolve_reference(ref_arg, calculate_bam_md5(input_path, None))
     except (OSError, RuntimeError, ValueError) as e:
         raise WGSExtractError(f"Failed to resolve the reference: {e}") from e
     if resolved_ref and Path(resolved_ref).is_dir():
         logging.warning(
-            f"No reference matching {args.input} was found in {resolved_ref}; "
+            f"No reference matching {input_path} was found in {resolved_ref}; "
             "continuing without one."
         )
         resolved_ref = None
@@ -65,10 +89,10 @@ def get_base_args(args: argparse.Namespace) -> BaseArgs:
     if resolved_ref:
         verify_paths_exist({"--ref": resolved_ref})
 
-    contigs = _alignment_contigs(args.input)
+    contigs = _alignment_contigs(input_path)
     if contigs:
-        resolved_ref = _matching_reference(args, resolved_ref, contigs)
-        _check_region(getattr(args, "region", None), contigs, args.input)
+        resolved_ref = _matching_reference(input_path, ref_arg, resolved_ref, contigs)
+        _check_region(region, contigs, input_path)
 
     cram_opt = ["-T", resolved_ref] if resolved_ref else []
     return BaseArgs(threads, memory, outdir, cram_opt, resolved_ref)
@@ -86,7 +110,7 @@ def _alignment_contigs(path: str) -> dict[str, int]:
 
 
 def _matching_reference(
-    args: argparse.Namespace, ref: str | None, contigs: dict[str, int]
+    input_path: str, ref_arg: str | None, ref: str | None, contigs: dict[str, int]
 ) -> str | None:
     """The reference, unless its contigs contradict the alignment's: CRAM
     encoded against the wrong genome only fails when it's decoded."""
@@ -97,10 +121,10 @@ def _matching_reference(
     if not ref or not clash:
         return ref
     detail = (
-        f"{ref} doesn't match {args.input}: {clash} is {lengths[clash]:,} bp there "
+        f"{ref} doesn't match {input_path}: {clash} is {lengths[clash]:,} bp there "
         f"and {contigs[clash]:,} bp in the alignment."
     )
-    if args.ref and Path(args.ref).is_file():
+    if ref_arg and Path(ref_arg).is_file():
         raise WGSExtractError(detail)
     logging.warning(f"{detail} Continuing without a reference; pass --ref.")
     return None
@@ -163,10 +187,20 @@ def cleanup_files(
 def resolve_region_or_gene(
     args: argparse.Namespace, resolved_ref: str | None
 ) -> str | None:
-    """Return --region, or --gene resolved to coordinates; None if neither is set."""
-    if args.region:
-        return str(args.region)
-    if not args.gene:
+    """``region_or_gene`` from parsed CLI arguments."""
+    return region_or_gene(args.region, args.gene, args.input, resolved_ref)
+
+
+def region_or_gene(
+    region: str | None,
+    gene: str | None,
+    input_path: PathInput,
+    resolved_ref: str | None,
+) -> str | None:
+    """Return ``region``, or ``gene`` resolved to coordinates; None if neither is set."""
+    if region:
+        return str(region)
+    if not gene:
         return None
 
     from wgsextract_cli.core.config import settings
@@ -178,7 +212,7 @@ def resolve_region_or_gene(
     from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 
     detected = ReferenceLibrary(
-        resolved_ref, skip_full_search=True, input_path=args.input
+        resolved_ref, skip_full_search=True, input_path=fspath(input_path)
     ).build
     build = gene_map_build(detected)
 
@@ -194,8 +228,8 @@ def resolve_region_or_gene(
             "reference_library in config.toml."
         )
 
-    resolved_region = gene_coords(reflib_dir, args.gene, build)
-    logging.info(f"Resolved gene {args.gene} to {resolved_region}")
+    resolved_region = gene_coords(reflib_dir, gene, build)
+    logging.info(f"Resolved gene {gene} to {resolved_region}")
     return str(resolved_region)
 
 

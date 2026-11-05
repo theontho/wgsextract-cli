@@ -29,8 +29,8 @@ config.toml is loaded on the first call; `use_config(path)` selects another.
 The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and `--help` cannot drift.
 
-Stability: the names exported here and the group modules (`api.info`,
-`api.vcf`, `api.lineage`, `api.microarray`, `api.report`,
+Stability: the names exported here and the group modules (`api.extract`,
+`api.info`, `api.vcf`, `api.lineage`, `api.microarray`, `api.report`,
 `api.sample`, `api.support`) follow semantic versioning from the 1.0
 release; adding fields with defaults is not a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -46,8 +46,10 @@ One progress report: a stage name, a message and, when known, how far
 through the operation is (0.0 to 1.0).
 
 Stages so far: `start` and `finish` (the command name, 0.0 and
-1.0), `tool` (an external tool is starting) and `step` (a resumable
-workflow runs or skips one of its steps, and why). More stages may be
+1.0), `tool` (an external tool is starting), `step` (a resumable
+workflow runs or skips one of its steps, and why) and `heartbeat` (a
+periodic count from a long tool run, such as `"1,200/5,000 reads"`, with
+the fraction of that run done when the total is known). More stages may be
 added.
 
 ### `api.ProgressCallback`
@@ -145,6 +147,178 @@ raw-data file, or list the catalogued revisions.
 | `input` | `Path \| None` | `None` | `--input`, `-i` | Microarray raw-data file; required unless list_revisions. |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `list_revisions` | `bool` | `False` | `--list` | List the catalogued chip revisions and their matching templates. |
+
+## `api.extract`
+
+`extract`: pull chromosomes, regions or unmapped reads out of a BAM/CRAM
+into smaller BAM, VCF or FASTA files.
+
+Outputs are named after the input (`sample.bam` gives `sample_Y.bam`) and
+written to `outdir`, else beside the input. Calling and consensus commands
+(`mito_fasta`, `mito_vcf`, `ydna_vcf`) need the matching reference; the
+others use it only to decode a CRAM.
+
+### `api.extract.mito_fasta(MitoFastaParams)`
+
+CLI: `wgsextract extract mito-fasta`.
+
+Write the mitochondrial consensus FASTA (output role `mt_fasta`).
+
+`MitoFastaParams`: The mitochondrial consensus sequence as `<input>_MT.fasta`: chrM
+reads called haploid with bcftools and applied to the reference's chrM.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+
+### `api.extract.mito_vcf(MitoVcfParams)`
+
+CLI: `wgsextract extract mito-vcf`.
+
+Call mitochondrial variants (output role `mt_vcf`; the `variants`
+metric counts them).
+
+`MitoVcfParams`: Mitochondrial variants as `<input>_MT.vcf.gz`, called haploid.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+
+### `api.extract.mt_bam(MtBamParams)`
+
+CLI: `wgsextract extract mt-bam`.
+
+Extract the chrM reads (output role `mt_bam`).
+
+`MtBamParams`: The chrM reads as `<input>_mtDNA.bam`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+
+### `api.extract.bam_subset(BamSubsetParams)`
+
+CLI: `wgsextract extract bam-subset`.
+
+Subsample the reads (output role `subset_bam`).
+
+`BamSubsetParams`: A random fraction of the reads as `<input>_subset.bam`, optionally
+limited to a region or gene.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `fraction` | `float` | required | `--fraction`, `-f` | Fraction of the reads to keep, e.g. 0.1 for 10%. |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
+| `gene` | `str \| None` | `None` | `--gene` | A gene name (e.g. BRCA1) to extract, looked up in the reference library's gene map (hg19/hg38 only); the region wins when both are set. |
+
+### `api.extract.ydna_bam(YdnaBamParams)`
+
+CLI: `wgsextract extract ydna-bam`.
+
+Extract the chrY reads (output role `y_bam`).
+
+`YdnaBamParams`: The chrY reads as `<input>_Y.bam` (`<input>_Y_poz.bam` with `poz`).
+Warns when the sample appears female, whose chrY reads are mismapped.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `poz` | `bool` | `False` | `--poz` | Restrict Y reads to the bundled CombBED/McDonald/Poznik union (GRCh37/38 only). |
+
+### `api.extract.ydna_vcf(YdnaVcfParams)`
+
+CLI: `wgsextract extract ydna-vcf`.
+
+Call Y-chromosome variants (output role `y_vcf`; the `variants`
+metric counts them).
+
+`YdnaVcfParams`: Y-chromosome variants as `<input>_Y.vcf.gz`, called haploid, or with
+`ybrowse` the installed yBrowse SNP targets as `<input>_Y_ybrowse.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `ybrowse` | `bool` | `False` | `--ybrowse` | Call installed, allele-annotated yBrowse SNP targets (GRCh38 only; no downloads). |
+
+### `api.extract.y_mt_extract(YMtExtractParams)`
+
+CLI: `wgsextract extract y-mt-extract`.
+
+Extract the chrY and chrM reads together (output role `y_mt_bam`).
+
+`YMtExtractParams`: The chrY and chrM reads in one `<input>_Y_MT.bam`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+
+### `api.extract.unmapped(UnmappedParams)`
+
+CLI: `wgsextract extract unmapped`.
+
+Extract the unmapped reads (output role `unmapped_bam`; with `fastq`
+also `fastq_r1`, `fastq_r2`, `fastq_other` and `fastq_singletons`
+for the FASTQs that have reads).
+
+`UnmappedParams`: The unmapped reads as `<input>_unmapped.bam`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `fastq` | `bool` | `False` | `--fastq` | Also write paired, single-end and singleton unmapped FASTQs. |
+
+### `api.extract.custom(CustomParams)`
+
+CLI: `wgsextract extract custom`.
+
+Extract the reads of a region, BED file or gene (output role
+`region_bam`).
+
+`CustomParams`: The reads in a region, a comma-separated list of regions, a BED file or a
+gene as `<input>_<region>.bam`. `region` or `gene` is required.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to extract from. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region (chrY:10000-20000), comma-separated regions, or a BED file. |
+| `gene` | `str \| None` | `None` | `--gene` | A gene name (e.g. BRCA1) to extract, looked up in the reference library's gene map (hg19/hg38 only); the region wins when both are set. |
 
 ## `api.vcf`
 
