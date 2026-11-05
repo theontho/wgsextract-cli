@@ -6,6 +6,7 @@ from pathlib import Path
 
 from wgsextract_cli.api.vcf import VcfFilterParams, VcfTrioParams
 from wgsextract_cli.core.alignment_health import warn_about_alignment
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
 from wgsextract_cli.core.builds import canonical_build
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -31,6 +32,7 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 
+from .._extract_helpers import cleanup_files
 from .basic import record_variants, require_vcf_input, vcf_input_handler
 from .trio_alignments import (
     CLUSTER_DISTANCE,
@@ -135,15 +137,19 @@ def run_filter(params: VcfFilterParams) -> None:
                     "gaps_not_excluded",
                     "Gap exclusion requested but Count Ns output (_nbin.csv) not found.",
                 )
+        partial = [out_vcf, out_vcf + ".tbi", out_vcf + ".csi"]
         try:
-            run_command(
-                ["bcftools", "view"]
-                + region_args
-                + expr_args
-                + exclude_args
-                + ["-Oz", "-o", out_vcf, input_vcf]
-            )
-            ensure_vcf_indexed(out_vcf)
+            with cleanup_files(
+                on_failure=partial, preserve_outputs=atomic_outputs_enabled()
+            ):
+                run_command(
+                    ["bcftools", "view"]
+                    + region_args
+                    + expr_args
+                    + exclude_args
+                    + ["-Oz", "-o", out_vcf, input_vcf]
+                )
+                ensure_vcf_indexed(out_vcf)
         except (OSError, subprocess.SubprocessError, RuntimeError) as e:
             raise WGSExtractError(f"VCF filtering failed: {e}") from e
     record_variants(out_vcf, "filtered_vcf", vcf_record_count(out_vcf))

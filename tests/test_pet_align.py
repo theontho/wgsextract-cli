@@ -1,5 +1,5 @@
 import random
-import subprocess
+import shutil
 from argparse import Namespace
 from pathlib import Path
 
@@ -72,128 +72,105 @@ def test_pet_align_calls_a_planted_snp(tmp_path, paired, fmt):
     assert calls == f"chr1\t{SNP + 1}\t{genome[SNP]}\t{alt}\t1/1\n"
 
 
-@pytest.fixture
-def no_tools(monkeypatch):
-    """Record the alignment and calling commands instead of running them."""
-    calls = {
-        "index": [],
-        "align": [],
-        "align_options": [],
-        "pipeline": [],
-        "command": [],
-        "memory_checks": [],
-    }
-    monkeypatch.setattr(pet, "verify_dependencies", lambda _tools: None)
-    monkeypatch.setattr(pet, "log_dependency_info", lambda _tools: None)
-    monkeypatch.setattr(
-        pet, "check_mapping_memory", lambda *_a, **kw: calls["memory_checks"].append(kw)
-    )
-    monkeypatch.setattr(pet, "ensure_bwa_index", calls["index"].append)
-
-    def record_alignment(cmd, out, **options):
-        calls["align"].append(cmd)
-        calls["align_options"].append(options)
-
-    monkeypatch.setattr(pet, "run_streamed_alignment", record_alignment)
-    monkeypatch.setattr(
-        pet, "run_pipeline", lambda stages, **_k: calls["pipeline"].append(stages)
-    )
-    monkeypatch.setattr(pet, "run_command", calls["command"].append)
-    return calls
+needs_pet_tools = needs_tools("bwa", "samtools", "bcftools", "bgzip")
 
 
-@pytest.fixture
-def reads(tmp_path):
-    path = tmp_path / "rex_R1.fastq.gz"
-    path.write_bytes(b"")
-    return path
+def _dog(tmp_path: Path, fasta: str = "dog.fa") -> tuple[Path, Path]:
+    """A 5 kb reference and 200 single-end reads from it, rex_R1.fq."""
+    rng = random.Random(5)
+    genome = "".join(rng.choice("ACGT") for _ in range(5_000))
+    ref = write_fasta(tmp_path / fasta, {"chr1": genome})
+    reads = tmp_path / "rex_R1.fq"
+    write_read_pairs(genome, reads, tmp_path / "rex_R2.fq", range(0, 4_600, 23))
+    return ref, reads
 
 
-def test_species_reference_comes_from_the_library(
-    tmp_path, monkeypatch, reads, no_tools
-):
-    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref, **_k: "bwa")
+def _programs(bam: Path) -> list[str]:
+    header = run_command(["samtools", "view", "-H", str(bam)], capture_output=True)
+    return [line for line in header.stdout.splitlines() if line.startswith("@PG")]
+
+
+@needs_pet_tools
+def test_species_reference_comes_from_the_library(tmp_path):
     library = tmp_path / "lib"
+    _, reads = _dog(tmp_path)
     with pytest.raises(WGSExtractError, match="cat not found.*ref library --install"):
         pet.run(_args(reads, library, species="cat"))
 
-    fasta = library / "genomes" / "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz"
-    fasta.parent.mkdir(parents=True)
-    fasta.write_bytes(b"")
+    plain, _ = _dog(
+        library / "genomes", "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna"
+    )
+    run_command(["bgzip", str(plain)])
+    fasta = f"{plain}.gz"
     pet.run(_args(reads, library, species="cat"))
 
-    assert no_tools["index"] == [str(fasta)]
-    (cmd,) = no_tools["align"]
+    bam = tmp_path / "rex_R1_cat.bam"
     rg = "@RG\\tID:rex_R1\\tSM:rex\\tLB:rex\\tPL:ILLUMINA"
-    assert cmd == [
-        "bwa", "mem", "-K", "100000000", "-t", "2", "-R", rg, str(fasta), str(reads)
-    ]  # fmt: skip
-    mpileup, call = no_tools["pipeline"][0]
-    assert mpileup[-3:] == ["-f", str(fasta), str(tmp_path / "rex_R1_cat.bam")]
-    assert call[-1] == str(tmp_path / "rex_R1_cat.vcf.gz")
+    # contract: bwa's -K batch size keeps alignments the same whatever -t
+    bwa = f"CL:bwa mem -K 100000000 -t 2 -R {rg} {fasta} {reads}"
+    assert any(bwa in line for line in _programs(bam))
+    assert Path(f"{fasta}.bwt").is_file()  # indexed in the library
+    assert (tmp_path / "rex_R1_cat.vcf.gz.csi").is_file()
 
 
+@needs_pet_tools
 @pytest.mark.parametrize(
     ("memory", "sort_memory"), [("512M", "256M"), ("128M", "128M")]
 )
 def test_bwa_mem2_aligns_when_the_reference_has_its_index(
-    tmp_path, monkeypatch, reads, no_tools, memory, sort_memory
+    tmp_path, memory, sort_memory
 ):
-    ref = tmp_path / "dog.fa"
-    ref.write_text(">chr1\nACGT\n")
-    monkeypatch.setattr(pet, "short_read_aligner", lambda req, _ref, **_k: "bwa-mem2")
+    ref, reads = _dog(tmp_path)
+    if not shutil.which("bwa-mem2"):
+        pytest.skip("bwa-mem2 missing")
+    run_command(["bwa-mem2", "index", str(ref)])
+
     pet.run(_args(reads, ref, memory=memory))
-    assert no_tools["index"] == []
-    assert no_tools["align"][0][:2] == ["bwa-mem2", "mem"]
-    command = no_tools["align"][0]
-    assert command[command.index("-K") + 1] == "100000000"
-    assert no_tools["align_options"][0]["memory"] == sort_memory
-    assert no_tools["memory_checks"][0]["memory"] == sort_memory
+
+    programs = _programs(tmp_path / "rex_R1_dog.bam")
+    assert any("CL:bwa-mem2 mem -K 100000000 " in line for line in programs)
+    # bwa-mem2 holds more memory, so its sort gets less, down to a floor.
+    sort = next(line for line in programs if "CL:samtools sort" in line)
+    assert f" -m {sort_memory} " in sort
+    assert not Path(f"{ref}.bwt").exists()  # no bwa index built
 
 
-def test_missing_reads_or_reference_are_reported(tmp_path, reads, no_tools):
+@needs_pet_tools
+def test_missing_reads_or_reference_are_reported(tmp_path):
+    _, reads = _dog(tmp_path)
+    before = sorted(tmp_path.iterdir())
     with pytest.raises(WGSExtractError, match="--r1 is required"):
         pet.run(_args(None, tmp_path))
     with pytest.raises(WGSExtractError, match="--r2"):
         pet.run(_args(reads, tmp_path, r2=str(tmp_path / "gone.fq")))
     with pytest.raises(WGSExtractError, match="--ref"):
         pet.run(_args(reads, None))
-    assert no_tools["align"] == []
-
-
-def test_mistyped_reference_fasta_is_named_in_the_error(tmp_path, reads, no_tools):
     with pytest.raises(WGSExtractError, match="not found at .*gone\\.fa\\.$"):
         pet.run(_args(reads, tmp_path / "gone.fa"))
+    assert sorted(tmp_path.iterdir()) == before
 
 
-def test_alignment_failure_is_reported(tmp_path, monkeypatch, reads, no_tools):
-    ref = tmp_path / "dog.fa"
-    ref.write_text(">chr1\nACGT\n")
-    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref, **_k: "bwa")
-
-    def fail(*_a, **_k):
-        raise OSError("bwa: not found")
-
-    monkeypatch.setattr(pet, "run_streamed_alignment", fail)
-    with pytest.raises(WGSExtractError, match="Alignment error: bwa: not found"):
-        pet.run(_args(reads, ref))
-    assert no_tools["pipeline"] == []
+@needs_pet_tools
+def test_alignment_failure_is_reported(tmp_path):
+    ref, _ = _dog(tmp_path)
+    reads = tmp_path / "rex_R1.fq"
+    reads.chmod(0)  # bwa can't read it
+    with pytest.raises(WGSExtractError, match="Alignment failed in bwa mem"):
+        pet.run(_args(reads, ref, outdir=str(tmp_path / "out")))
+    assert list((tmp_path / "out").iterdir()) == []
 
 
-def test_failed_variant_calling_leaves_no_partial_vcf(
-    tmp_path, monkeypatch, reads, no_tools
-):
-    ref = tmp_path / "dog.fa"
-    ref.write_text(">chr1\nACGT\n")
-    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref, **_k: "bwa")
-    vcf = tmp_path / "rex_R1_dog.vcf.gz"
-
-    def fail_index(cmd):
-        vcf.write_bytes(b"partial")
-        Path(f"{vcf}.csi").write_bytes(b"partial")
-        raise subprocess.CalledProcessError(1, cmd)
-
-    monkeypatch.setattr(pet, "run_command", fail_index)
-    with pytest.raises(WGSExtractError, match="Variant calling error"):
-        pet.run(_args(reads, ref))
-    assert not vcf.exists() and not Path(f"{vcf}.csi").exists()
+@needs_pet_tools
+def test_failed_variant_calling_leaves_no_partial_vcf(tmp_path):
+    ref, reads = _dog(tmp_path)
+    run_command(["samtools", "faidx", str(ref)])
+    Path(f"{ref}.fai").write_text("chr1\tnot a length\n")
+    out = tmp_path / "out"
+    with pytest.raises(
+        WGSExtractError, match="Variant calling failed in bcftools mpileup"
+    ):
+        pet.run(_args(reads, ref, outdir=str(out)))
+    assert sorted(p.name for p in out.iterdir()) == [
+        "rex_R1_dog.bam",
+        "rex_R1_dog.bam.bai",
+    ]

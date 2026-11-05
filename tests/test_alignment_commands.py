@@ -1,19 +1,30 @@
 import math
 import os
+import random
 import shutil
 import subprocess
 import sys
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
-from tests.htslib_helpers import needs_tools
-from wgsextract_cli.api.extract import MitoVcfParams
-from wgsextract_cli.commands import align, extract, realign, repair
-from wgsextract_cli.commands._extract_helpers import BaseArgs, alignments_to_fastq
+from tests.fake_tools import only_tools, python_tool, require_bare_name_fakes
+from tests.htslib_helpers import (
+    needs_htslib,
+    needs_tools,
+    run_wgsextract,
+    sam_to_bam,
+    snp_sample,
+    vcf_calls,
+    write_fasta,
+    write_read_pairs,
+)
+from wgsextract_cli.commands import align, repair
+from wgsextract_cli.commands._extract_helpers import alignments_to_fastq
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
-from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 
 def _align_args(**overrides):
@@ -27,6 +38,38 @@ def _align_args(**overrides):
     return Namespace(**values)
 
 
+def _short_reads(work, pairs=120, duplicates=20):
+    """A 20 kb chr1 and 100 bp FR pairs from it, the first ``duplicates``
+    fragments sequenced twice."""
+    rng = random.Random(7)
+    genome = "".join(rng.choice("ACGT") for _ in range(20_000))
+    (work / "ref").mkdir(parents=True)
+    ref = write_fasta(work / "ref" / "ref.fa", {"chr1": genome})
+    starts = rng.sample(range(0, 19_600, 50), pairs)
+    r1, r2 = work / "reads_R1.fq", work / "reads_R2.fq"
+    write_read_pairs(genome, r1, r2, starts + starts[:duplicates], frag=400)
+    return Namespace(genome=genome, ref=str(ref), r1=str(r1), r2=str(r2))
+
+
+def _align(reads, out, *options, paired=True):
+    mates = ["--r2", reads.r2] if paired else []
+    run_wgsextract(
+        "align", "--r1", reads.r1, *mates, "--ref", reads.ref, "--outdir", str(out),
+        *options,
+    )  # fmt: skip
+    (bam,) = out.glob("*_aligned.bam")
+    return str(bam)
+
+
+def _samtools(*args):
+    return run_command(["samtools", *args], capture_output=True).stdout
+
+
+def _programs(bam):
+    """The @PG lines of an alignment's header."""
+    return [line for line in _samtools("view", "-H", bam).splitlines() if "@PG" in line]
+
+
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     [
@@ -38,9 +81,16 @@ def _align_args(**overrides):
         ({"aligner": "pbmm2", "platform": "hifi", "preset": "map-hifi"}, "pbmm2"),
     ],
 )
-def test_select_aligner(monkeypatch, overrides, expected):
-    monkeypatch.setattr(align, "get_tool_path", lambda _tool: None)
+def test_select_aligner(overrides, expected):
     assert align.select_aligner(_align_args(**overrides)) == expected
+
+
+@pytest.mark.parametrize("installed", [True, False])
+def test_auto_takes_pbmm2_for_pacbio_reads_when_installed(fake_pixi, installed):
+    if installed:
+        python_tool(fake_pixi.host_bin, "pbmm2", "")
+    chosen = align.select_aligner(_align_args(platform="hifi"))
+    assert chosen == ("pbmm2" if installed else "minimap2")
 
 
 @pytest.mark.parametrize(
@@ -60,74 +110,194 @@ def test_select_aligner_rejects_nonsensical_combinations(overrides):
         align.select_aligner(_align_args(**overrides))
 
 
-def test_minimap2_maps_pacbio_preset_names():
-    assert align._minimap2_preset(_align_args(preset="ccs")) == "map-hifi"
-    assert align._minimap2_preset(_align_args(preset="subread")) == "map-pb"
-
-
 def test_reads_stem_keeps_inner_dots():
     assert align.reads_stem("/x/HG002.chr20_R1.fastq.gz") == "HG002.chr20_R1"
     assert align.reads_stem("movie.ccs.bam") == "movie"
 
 
-def test_streamed_alignment_fails_when_an_upstream_stage_fails(tmp_path, monkeypatch):
-    drain = [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"]
-    monkeypatch.setattr(align, "get_sam_sort_cmd", lambda *_a, **_k: drain)
-    index_calls = []
-    monkeypatch.setattr(align, "run_command", index_calls.append)
+@needs_tools("bwa", "samtools", "samblaster")
+@pytest.mark.parametrize(
+    ("paired", "samblaster", "marker", "duplicates"),
+    [
+        (False, True, "CL:samtools markdup", 20),  # samblaster aborts on SE
+        (True, True, "ID:SAMBLASTER", 40),
+        (True, False, "CL:samtools markdup", 40),
+    ],
+)
+def test_bwa_always_marks_duplicates(
+    tmp_path, request, paired, samblaster, marker, duplicates
+):
+    reads = _short_reads(tmp_path)
+    if not samblaster:
+        only_tools(request, "bwa", "samtools")
 
-    failing_aligner = [sys.executable, "-c", "import sys; sys.exit(3)"]
+    bam = _align(reads, tmp_path / "out", paired=paired)
+
+    assert any(marker in line for line in _programs(bam))
+    assert _samtools("view", "-c", "-f", "0x400", bam).strip() == str(duplicates)
+
+
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize("threads", ["1", "3"])
+def test_bwa_batch_size_does_not_depend_on_threads(tmp_path, threads):
+    bam = _align(_short_reads(tmp_path), tmp_path / "out", "--threads", threads)
+    (bwa,) = [line for line in _programs(bam) if "\tID:bwa\t" in line]
+    # contract: a fixed -K batch makes the alignments independent of -t
+    assert f" -K 100000000 -t {threads} " in bwa
+
+
+@needs_tools("minimap2", "samtools")
+@pytest.mark.parametrize(
+    ("options", "preset"),
+    [
+        ((), "sr"),
+        (("--long-read",), "map-pb"),
+        (("--platform", "ont"), "map-ont"),
+        (("--platform", "hifi"), "map-hifi"),
+        (("--preset", "ccs"), "map-hifi"),
+        (("--preset", "subread"), "map-pb"),
+    ],
+)
+def test_minimap2_preset_follows_platform_and_marks_only_short_reads(
+    tmp_path, options, preset
+):
+    reads = _short_reads(tmp_path)
+    bam = _align(
+        reads, tmp_path / "out", "--aligner", "minimap2", *options, paired=False
+    )
+
+    (minimap2,) = [line for line in _programs(bam) if "\tID:minimap2\t" in line]
+    # contract: the preset sets minimap2's scoring for the platform's errors
+    assert f"CL:minimap2 -ax {preset} " in minimap2
+    flagged = int(_samtools("view", "-c", "-f", "0x400", bam))
+    assert (flagged > 0) == (preset == "sr")
+
+
+_FAKE_PBMM2 = """\
+import json, shutil, sys
+with open({log!r}, "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+shutil.copyfile({aligned!r}, sys.argv[4])
+"""
+
+
+@needs_tools("samtools")
+def test_pbmm2_aligns_hifi_reads_with_the_ccs_preset_and_sample(tmp_path, monkeypatch):
+    require_bare_name_fakes()
+    reads = _short_reads(tmp_path)
+    ccs = sam_to_bam(
+        ["@HD\tVN:1.6\tSO:unknown", "m1/1/ccs\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII"],
+        tmp_path / "HG00733.ccs.bam",
+    )
+    aligned = tmp_path / "pbmm2_output.bam"
+    run_command(["samtools", "import", "-0", reads.r1, "-o", str(aligned)])
+    log = tmp_path / "pbmm2.log"
+    bindir = tmp_path / "bin"
+    python_tool(bindir, "pbmm2", _FAKE_PBMM2.format(log=str(log), aligned=str(aligned)))
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    out = tmp_path / "out"
+
+    run_wgsextract(
+        "align", "--r1", ccs, "--ref", reads.ref, "--outdir", str(out),
+        "--platform", "hifi",
+    )  # fmt: skip
+
+    (argv,) = [line for line in log.read_text().splitlines() if '"align"' in line]
+    # contract: pbmm2's preset and the read group's sample
+    assert '"--preset", "CCS"' in argv and '"--sample", "HG00733"' in argv
+    assert (out / "HG00733_aligned.bam.bai").exists()
+
+
+@needs_tools("samtools")
+def test_streamed_alignment_fails_when_an_upstream_stage_fails(tmp_path):
+    # It emits a whole SAM, so the sorter completes a BAM that must not survive.
+    sam = "@SQ\\tSN:c\\tLN:100\\nr\\t4\\t*\\t0\\t0\\t*\\t*\\t0\\t0\\tA\\tI\\n"
+    failing_aligner = [
+        sys.executable, "-c", f"import sys; sys.stdout.write('{sam}'); sys.exit(3)"
+    ]  # fmt: skip
     with pytest.raises(WGSExtractError, match="exit 3"):
         align.run_streamed_alignment(
             failing_aligner,
             str(tmp_path / "out.bam"),
             threads="1",
-            memory="1G",
+            memory="100M",
             fmt="BAM",
             ref="ref.fa",
             duplicates=None,
         )
-    assert index_calls == []
+    assert os.listdir(tmp_path) == []
 
 
-def _fake_base(outdir, ref=None):
-    return BaseArgs("1", "1G", str(outdir), ["-T", ref] if ref else [], ref)
+@pytest.mark.parametrize(
+    ("tool", "budget", "sort_memory"),
+    [
+        ("bwa-mem2", "2G", "256M"),
+        ("bwa-mem2", "128M", "128M"),
+        ("bwa-mem2", "0.125G", "0.125G"),
+        ("bwa", "2G", "2G"),
+    ],
+)
+def test_mem2_sort_cap_respects_smaller_explicit_budgets(tool, budget, sort_memory):
+    assert align.short_read_sort_memory(tool, budget) == sort_memory
 
 
-def _no_deps(monkeypatch, module):
-    monkeypatch.setattr(module, "verify_dependencies", lambda _tools: None)
-    monkeypatch.setattr(module, "log_dependency_info", lambda _tools: None)
+def _coordinate_sorted_pairs(work, pairs=200):
+    """A coordinate-sorted BAM of ``pairs`` proper pairs p000, p001, ... in
+    coordinate order."""
+    read = f"100M\t=\t{{mate}}\t{{tlen}}\t{'ACGT' * 25}\t{'I' * 100}"
+    lines = ["@HD\tVN:1.6\tSO:unsorted", "@SQ\tSN:chr1\tLN:100000"]
+    for i in range(pairs):
+        pos = 1000 + 400 * i
+        lines += [
+            f"p{i:03d}\t99\tchr1\t{pos}\t60\t" + read.format(mate=pos + 300, tlen=400),
+            f"p{i:03d}\t147\tchr1\t{pos + 300}\t60\t"
+            + read.format(mate=pos, tlen=-400),
+        ]
+    return sam_to_bam(lines, work / "pairs.bam")
 
 
-def test_fastq_extraction_avoids_dev_null_and_system_temp(tmp_path, monkeypatch):
-    from wgsextract_cli.commands import _extract_helpers
+def _names(fastq):
+    return Path(fastq).read_text().splitlines()[::4]
 
-    pipelines = []
 
-    def fake_run_pipeline(stages, **kwargs):
-        pipelines.append((stages, kwargs))
+@needs_tools("samtools")
+def test_fastq_extraction_shuffles_pairs_out_of_coordinate_order(tmp_path):
+    bam = _coordinate_sorted_pairs(tmp_path)
+    temp_parent = tmp_path / "work"
+    temp_parent.mkdir()
+    r1, r2 = tmp_path / "r1.fq", tmp_path / "r2.fq"
 
-    monkeypatch.setattr(_extract_helpers, "run_pipeline", fake_run_pipeline)
     alignments_to_fastq(
-        "in.bam", "r1.fq.gz", "r2.fq.gz", threads="3", memory="1G", temp_parent=tmp_path
+        bam, r1, r2, threads="3", memory="100M", temp_parent=temp_parent
     )
 
-    stages, kwargs = pipelines[0]
-    argv = [str(arg) for stage in stages for arg in stage]
-    assert "/dev/null" not in argv
-    assert kwargs["stdout"] == subprocess.DEVNULL
-    for stage in stages:
-        assert stage[stage.index("-@") + 1] == "3"
-    collate_cmd = stages[1]
-    assert collate_cmd[collate_cmd.index("-T") + 1].startswith(str(tmp_path))
-    # Standard (randomising) collate: fast mode skews aligners' insert sizes.
-    assert collate_cmd[1] == "collate" and "-f" not in collate_cmd
+    names = _names(r1)
+    assert names == _names(r2)
+    assert sorted(names) == [f"@p{i:03d}" for i in range(200)]
+    # Standard (randomising) collate: fast mode's coordinate order skews
+    # aligners' insert-size estimates.
+    assert names != sorted(names)
+    assert os.listdir(temp_parent) == []
+
+
+@needs_tools("samtools")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions"
+)
+def test_fastq_extraction_keeps_its_temporaries_in_temp_parent(tmp_path):
+    bam = _coordinate_sorted_pairs(tmp_path)
+    temp_parent = tmp_path / "read-only"
+    temp_parent.mkdir(mode=0o500)
+    with pytest.raises(PermissionError):
+        alignments_to_fastq(
+            bam, tmp_path / "r1.fq", tmp_path / "r2.fq", threads="1",
+            memory="100M", temp_parent=temp_parent,
+        )  # fmt: skip
 
 
 @needs_tools("samtools")
 @pytest.mark.parametrize("mode", ["files", "files-se", "stream"])
 def test_paired_extraction_warns_about_reads_it_leaves_out(tmp_path, caplog, mode):
-    from tests.htslib_helpers import sam_to_bam
     from wgsextract_cli.commands._extract_helpers import paired_fastq_stream
     from wgsextract_cli.core.utils import run_pipeline
 
@@ -161,6 +331,23 @@ def test_paired_extraction_warns_about_reads_it_leaves_out(tmp_path, caplog, mod
         assert "2 primary reads flagged neither first nor second" in caplog.text
 
 
+@needs_tools("samtools")
+def test_streamed_extraction_orders_pairs_like_file_extraction(tmp_path):
+    from wgsextract_cli.commands._extract_helpers import paired_fastq_stream
+    from wgsextract_cli.core.utils import run_pipeline
+
+    bam = _coordinate_sorted_pairs(tmp_path)
+    common = {"threads": "2", "memory": "100M", "temp_parent": tmp_path}
+    alignments_to_fastq(bam, tmp_path / "r1.fq", tmp_path / "r2.fq", **common)
+    with (
+        paired_fastq_stream(bam, **common) as stages,
+        (tmp_path / "pairs.fq").open("wb") as pairs,
+    ):
+        run_pipeline(stages, stdout=pairs)
+
+    assert _names(tmp_path / "pairs.fq")[::2] == _names(tmp_path / "r1.fq")
+
+
 def test_collate_buckets_fit_the_memory_budget(tmp_path):
     from wgsextract_cli.commands._extract_helpers import _collate_buckets
 
@@ -173,10 +360,9 @@ def test_collate_buckets_fit_the_memory_budget(tmp_path):
     assert _collate_buckets(str(tmp_path / "missing.bam"), "1", "1G") == 64
 
 
-def test_streamed_collate_orders_pairs_like_file_extraction(tmp_path):
+def test_streamed_collate_uses_file_extractions_bucket_count(tmp_path):
     from wgsextract_cli.commands._extract_helpers import (
         _collate_buckets,
-        _fastq_stages,
         paired_fastq_stream,
     )
 
@@ -184,17 +370,13 @@ def test_streamed_collate_orders_pairs_like_file_extraction(tmp_path):
     with bam.open("wb") as output:
         output.truncate(5 * 1024**3)
     for threads, memory in (("8", "2G"), ("2", "512M"), ("1", "100M")):
-        files = _fastq_stages(
-            bam, "r1", "r2", threads=threads, memory=memory, temporary="t",
-            singletons="s",
-        )  # fmt: skip
         with paired_fastq_stream(
             bam, threads=threads, memory=memory, temp_parent=tmp_path
         ) as stages:
-            stream = stages[1]
-        # Collate's output order depends on its bucket count.
-        assert stream[stream.index("-n") + 1] == files[1][files[1].index("-n") + 1]
-        assert stream[stream.index("-n") + 1] == str(
+            collate = stages[1]
+        # contract: collate's pair order depends on its bucket count, and
+        # streamed realignment must reproduce file extraction's alignments
+        assert collate[collate.index("-n") + 1] == str(
             _collate_buckets(bam, threads, memory)
         )
 
@@ -225,58 +407,41 @@ def test_collate_working_memory_holds_the_largest_bucket_of_records(tmp_path):
     assert collate_working_memory(bam, "6", "1G") == expected
 
 
-def test_mito_vcf_calls_haploid_and_cleans_temp_bam_on_failure(tmp_path, monkeypatch):
-    _no_deps(monkeypatch, extract)
-    monkeypatch.setattr(extract, "print_warning", lambda *_a, **_k: None)
-    monkeypatch.setattr(extract, "get_chr_name", lambda *_a: "chrM")
-    monkeypatch.setattr(
-        extract, "base_args", lambda *_a, **_k: _fake_base(tmp_path, "ref.fa")
+@needs_htslib
+def test_mito_vcf_calls_haploid_genotypes(tmp_path):
+    sample = snp_sample(tmp_path, contig="chrM")
+    out = tmp_path / "out"
+    run_wgsextract(
+        "extract", "mito-vcf", "-i", sample.bam, "--ref", sample.ref, "-o", str(out)
     )
-
-    def fake_run_command(cmd, **_kwargs):
-        if "-o" in cmd:
-            open(cmd[cmd.index("-o") + 1], "wb").close()
-
-    pipelines = []
-
-    def failing_pipeline(stages, **_kwargs):
-        pipelines.append(stages)
-        raise WGSExtractError("Variant calling failed in bcftools mpileup (exit 1)")
-
-    monkeypatch.setattr(extract, "run_command", fake_run_command)
-    monkeypatch.setattr(extract, "run_pipeline", failing_pipeline)
-
-    with pytest.raises(WGSExtractError, match="mpileup"):
-        extract.run_mito_vcf(MitoVcfParams(input=tmp_path / "x.cram"))
-
-    call_cmd = pipelines[0][1]
-    assert call_cmd[call_cmd.index("--ploidy") + 1] == "1"
-    assert not (tmp_path / "x_MT_temp.bam").exists()
+    assert vcf_calls(out / "s_MT.vcf.gz") == [(*call[:4], "1") for call in sample.calls]
+    assert sorted(os.listdir(out)) == ["s_MT.vcf.gz", "s_MT.vcf.gz.tbi"]
 
 
-def test_realign_rejects_bad_aligner_before_extracting(tmp_path, monkeypatch):
-    source = tmp_path / "x.bam"
-    source.write_bytes(b"data")
-    extracted = []
-    monkeypatch.setattr(realign, "alignments_to_fastq", extracted.append)
-    args = Namespace(
-        input=str(source),
-        outdir=str(tmp_path),
-        threads=None,
-        memory=None,
-        r1=None,
-        r2=None,
-        force_extract=False,
-        no_preflight=True,
-        keep_fastq=False,
-        aligner="bwa",
-        platform="ont",
-        long_read=False,
-        preset=None,
-    )
+@needs_htslib
+def test_mito_vcf_failure_removes_its_temporary_bam(tmp_path):
+    sample = snp_sample(tmp_path, contig="chrM")
+    # A corrupt reference index: mpileup fails, after the chrM reads are
+    # extracted.
+    Path(sample.ref + ".fai").write_text("chrM\tnot-a-length\n")
+    out = tmp_path / "out"
+    with pytest.raises(WGSExtractError, match="bcftools mpileup"):
+        run_wgsextract(
+            "extract", "mito-vcf", "-i", sample.bam, "--ref", sample.ref, "-o", str(out)
+        )
+    assert os.listdir(out) == []
+
+
+@needs_tools("samtools")
+def test_realign_rejects_bad_aligner_before_extracting(tmp_path):
+    sample = snp_sample(tmp_path)
+    out = tmp_path / "out"
     with pytest.raises(WGSExtractError, match="short-read"):
-        realign.run(args)
-    assert extracted == []
+        run_wgsextract(
+            "realign", "-i", sample.bam, "--ref", sample.ref, "-o", str(out),
+            "--aligner", "bwa", "--platform", "ont",
+        )  # fmt: skip
+    assert not out.exists() or os.listdir(out) == []
 
 
 @needs_tools("samtools")
@@ -325,103 +490,6 @@ def test_repair_bam_reports_unreadable_input(tmp_path):
     assert not os.path.exists(tmp_path / "broken_repaired.bam")
 
 
-@pytest.mark.parametrize(
-    ("r2", "samblaster", "marker"),
-    [
-        (None, "samblaster", ["samtools", "markdup"]),  # samblaster aborts on SE
-        ("r2", "samblaster", ["samblaster"]),
-        ("r2", None, ["samtools", "markdup"]),
-    ],
-)
-def test_bwa_always_marks_duplicates(tmp_path, monkeypatch, r2, samblaster, marker):
-    ref = tmp_path / "ref.fa"
-    from wgsextract_cli.core.bwa_index import INDEX_SUFFIXES
-
-    for path in (
-        tmp_path / "r1.fq",
-        tmp_path / "r2.fq",
-        ref,
-        *(ref.with_name(ref.name + suffix) for suffix in INDEX_SUFFIXES),
-    ):
-        path.write_text("x")
-    _no_deps(monkeypatch, align)
-    monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        align,
-        "get_tool_path",
-        lambda tool: samblaster if tool == "samblaster" else tool,
-    )
-    monkeypatch.setattr(align, "run_command", lambda *_a, **_k: None)
-    pipelines = []
-    monkeypatch.setattr(
-        align, "run_pipeline", lambda stages, **_k: pipelines.append(stages)
-    )
-    args = Namespace(
-        aligner="bwa",
-        r1=str(tmp_path / "r1.fq"),
-        r2=str(tmp_path / r2) + ".fq" if r2 else None,
-        ref=str(ref),
-        input=None,
-        outdir=str(tmp_path),
-        format="BAM",
-        threads=None,
-        memory=None,
-    )
-
-    align.align_bwa(args)
-
-    assert any(stage[: len(marker)] == marker for stage in pipelines[0])
-
-
-@pytest.mark.parametrize("tool", ["bwa", "bwa-mem2"])
-@pytest.mark.parametrize("threads", ["2", "4", "6"])
-def test_bwa_batch_size_does_not_depend_on_threads(
-    tmp_path, monkeypatch, tool, threads
-):
-    setup = align._AlignSetup(threads, "100M", str(tmp_path), "ref.fa", "sample")
-    monkeypatch.setattr(align, "_bwa_setup", lambda *_a, **_k: (setup, tool))
-    monkeypatch.setattr(align, "duplicate_marker", lambda **_k: None)
-    commands = []
-    monkeypatch.setattr(
-        align, "run_streamed_alignment", lambda cmd, *_a, **_k: commands.append(cmd)
-    )
-    align.align_bwa(Namespace(r1="r1.fq", r2="r2.fq", format="BAM"))
-    (command,) = commands
-    assert command[:2] == [tool, "mem"]
-    assert command[command.index("-t") + 1] == threads
-    assert command[command.index("-K") + 1] == "100000000"
-
-
-@pytest.mark.parametrize(
-    ("tool", "budget", "sort_memory"),
-    [
-        ("bwa-mem2", "2G", "256M"),
-        ("bwa-mem2", "128M", "128M"),
-        ("bwa-mem2", "0.125G", "0.125G"),
-        ("bwa", "2G", "2G"),
-    ],
-)
-def test_mem2_sort_cap_respects_smaller_explicit_budgets(
-    tmp_path, monkeypatch, tool, budget, sort_memory
-):
-    setup = align._AlignSetup("2", budget, str(tmp_path), "ref.fa", "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
-    monkeypatch.setattr(align, "check_mapping_memory", lambda *_a, **_kw: None)
-    monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
-    monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
-    monkeypatch.setattr(align.bwa_mem2, "ensure_index", lambda *_a, **_k: None)
-    monkeypatch.setattr(align.bwa_mem2, "can_map", lambda *_a, **_k: True)
-    monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)
-    monkeypatch.setattr(align, "run_command", lambda *_a, **_k: None)
-    pipelines = []
-    monkeypatch.setattr(
-        align, "run_pipeline", lambda stages, **_k: pipelines.append(stages)
-    )
-    align.align_bwa(Namespace(aligner=tool, r1="r1.fq", r2=None, format="BAM"))
-    sort = next(stage for stage in pipelines[0] if stage[:2] == ["samtools", "sort"])
-    assert sort[sort.index("-m") + 1] == sort_memory
-
-
 @needs_tools("samtools")
 def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
     """Two identical pairs from the aligner: the second is flagged a duplicate."""
@@ -462,52 +530,85 @@ def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
     ]
 
 
-def test_gene_lookup_uses_detected_build_and_rejects_t2t(monkeypatch):
+@needs_tools("samtools")
+def test_gene_lookup_uses_the_inputs_build_and_rejects_t2t(tmp_path):
     from wgsextract_cli.commands._extract_helpers import region_or_gene
-    from wgsextract_cli.core import reference_resolver
 
-    class FakeLibrary:
-        def __init__(self, *_args, **_kwargs):
-            self.build = "chm13v2.0"
-
-    monkeypatch.setattr(reference_resolver, "ReferenceLibrary", FakeLibrary)
+    t2t = {"chr1": 248387328, "chrX": 154259566, "chrY": 62460029, "chrM": 16569}
+    bam = sam_to_bam(
+        ["@HD\tVN:1.6\tSO:coordinate"]
+        + [f"@SQ\tSN:{name}\tLN:{length}" for name, length in t2t.items()],
+        tmp_path / "x.bam",
+    )
+    ref = tmp_path / "hg38_named_but_t2t.fa"
+    ref.write_text("".join(f">{name}\nA\n" for name in t2t))
+    (tmp_path / "hg38_named_but_t2t.fa.fai").write_text(
+        "".join(f"{name}\t{length}\t0\t1\t2\n" for name, length in t2t.items())
+    )
     with pytest.raises(WGSExtractError, match="hg19/hg38"):
-        region_or_gene(None, "BRCA1", "x.bam", "/refs/hg38_named_but_t2t.fa.gz")
+        region_or_gene(None, "BRCA1", bam, str(ref))
 
 
-def _write_indexed_fasta(path, contigs):
-    path.write_text("".join(f">{name}\nACGT\n" for name in contigs))
-    (path.parent / (path.name + ".fai")).write_text(
-        "".join(f"{name}\t{length}\t0\t4\t5\n" for name, length in contigs.items())
+def _paired_cram(work, genome):
+    """Read pairs from ``genome``, aligned and encoded as a CRAM against
+    ``work/encoded/ref.fa``."""
+    reads = Namespace(
+        ref=str(write_fasta(work / "encoded" / "ref.fa", {"chr1": genome})),
+        r1=str(work / "in_R1.fq"),
+        r2=str(work / "in_R2.fq"),
     )
+    rng = random.Random(3)
+    starts = [rng.randrange(0, len(genome) - 400) for _ in range(100)]
+    write_read_pairs(genome, Path(reads.r1), Path(reads.r2), starts, frag=400)
+    bam = _align(reads, work / "aligned")
+    cram = str(work / "in.cram")
+    run_command(["samtools", "view", "-C", "-T", reads.ref, "-o", cram, bam])
+    return cram, reads.ref
 
 
-def test_realign_cram_input_reference_matches_library_signature(tmp_path, monkeypatch):
-    from wgsextract_cli.core.config import settings
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize("decoder", ["library", "target"])
+def test_realign_decodes_a_cram_input_with_the_fasta_it_was_encoded_with(
+    tmp_path, monkeypatch, decoder
+):
+    genome = "".join(random.Random(5).choice("ACGT") for _ in range(20_000))
+    cram, encoded = _paired_cram(tmp_path, genome)
+    library = tmp_path / "library"
+    write_fasta(library / "genomes" / "other.fa", {"chr1": genome[:5000]})
+    if decoder == "library":
+        shutil.copy(encoded, library / "genomes" / "match.fa")
+        shutil.copy(encoded + ".fai", library / "genomes" / "match.fa.fai")
+        # Realign onto another build: the CRAM's own one plus a contig.
+        target = write_fasta(
+            tmp_path / "target" / "ref.fa", {"chr1": genome, "chr2": genome[:3000]}
+        )
+    else:
+        target = Path(encoded)
+    Path(encoded).unlink()  # decoding can only use a copy
+    if decoder == "target":
+        write_fasta(target, {"chr1": genome})
+    monkeypatch.setitem(settings, "reference_library", str(library))
+    out = tmp_path / "out"
 
-    genomes = tmp_path / "genomes"
-    genomes.mkdir()
-    _write_indexed_fasta(genomes / "other.fa", {"chr1": 100})
-    _write_indexed_fasta(genomes / "match.fa", {"chr1": 200, "chrM": 16569})
-    header = "@SQ\tSN:chr1\tLN:200\n@SQ\tSN:chrM\tLN:16569\n"
-    monkeypatch.setitem(settings, "reference_library", str(tmp_path))
-    monkeypatch.setattr(
-        realign, "calculate_bam_md5", lambda path: calculate_bam_md5("", header=header)
-    )
-    opt = realign._input_cram_reference(Namespace(input="in.cram", input_ref=None))
-    assert opt == ["-T", str(genomes / "match.fa")]
-    assert (
-        realign._input_cram_reference(Namespace(input="in.bam", input_ref=None)) == []
-    )
+    run_wgsextract("realign", "-i", cram, "--ref", str(target), "-o", str(out))
+
+    (bam,) = out.glob("*.bam")
+    assert _samtools("view", "-c", "-F", "0x900", str(bam)).strip() == "200"
 
 
+@needs_tools("samtools")
 def test_realign_cram_input_without_matching_reference_errors(tmp_path, monkeypatch):
-    from wgsextract_cli.core.config import settings
-
-    monkeypatch.setitem(settings, "reference_library", str(tmp_path))
-    monkeypatch.setattr(realign, "calculate_bam_md5", lambda path: "0" * 32)
+    genome = "".join(random.Random(5).choice("ACGT") for _ in range(3000))
+    sample = snp_sample(tmp_path)
+    library = tmp_path / "library"
+    write_fasta(library / "genomes" / "other.fa", {"chr1": genome[:1000]})
+    target = write_fasta(tmp_path / "target" / "ref.fa", {"chr1": genome})
+    monkeypatch.setitem(settings, "reference_library", str(library))
     with pytest.raises(WGSExtractError, match="--input-ref"):
-        realign._input_cram_reference(Namespace(input="in.cram", input_ref=None))
+        run_wgsextract(
+            "realign", "-i", sample.cram, "--ref", str(target),
+            "-o", str(tmp_path / "out"),
+        )  # fmt: skip
 
 
 @pytest.mark.parametrize(

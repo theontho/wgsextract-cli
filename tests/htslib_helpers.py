@@ -33,6 +33,7 @@ def bgzip_index(plain_vcf: str | Path, out: str | Path | None = None) -> str:
 
 def write_fasta(path: Path, seqs: Mapping[str, str]) -> Path:
     """Write a FASTA, one line per sequence, and faidx it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(f">{name}\n{seq}\n" for name, seq in seqs.items()))
     run_command([get_tool_path("samtools"), "faidx", str(path)])
     return path
@@ -53,8 +54,9 @@ def snp_sample(
     read_group: str = "@RG\tID:rg\tSM:S",
     snps: Iterable[int] = (1000, 1550),
     tags: str = "",
+    contig: str = "chr1",
 ) -> Namespace:
-    """A 3 kb chr1 and a sample homozygous for SNPs at 1-based ``snps``, as a
+    """A 3 kb ``contig`` (chr1) and a sample homozygous for SNPs at 1-based ``snps``, as a
     BAM and a CRAM with 20x single-end coverage over 500-2500 in the read group
     ``read_group`` (ID rg), each read with the extra SAM ``tags``. ``calls``
     are their (CHROM, POS, REF, ALT, GT)."""
@@ -63,12 +65,12 @@ def snp_sample(
     sample, calls = list(ref), []
     for pos in snps:
         sample[pos - 1] = {"A": "C", "C": "G", "G": "T", "T": "A"}[ref[pos - 1]]
-        calls.append(("chr1", str(pos), ref[pos - 1], sample[pos - 1], "1/1"))
-    fasta = write_fasta(work / "ref.fa", {"chr1": ref})
-    lines = ["@HD\tVN:1.6\tSO:unsorted", "@SQ\tSN:chr1\tLN:3000", read_group]
+        calls.append((contig, str(pos), ref[pos - 1], sample[pos - 1], "1/1"))
+    fasta = write_fasta(work / "ref.fa", {contig: ref})
+    lines = ["@HD\tVN:1.6\tSO:unsorted", f"@SQ\tSN:{contig}\tLN:3000", read_group]
     for i, start in enumerate(range(500, 2400, 5)):
         lines.append(
-            f"r{i}\t{16 if i % 2 else 0}\tchr1\t{start}\t60\t100M\t*\t0\t0\t"
+            f"r{i}\t{16 if i % 2 else 0}\t{contig}\t{start}\t60\t100M\t*\t0\t0\t"
             f"{''.join(sample[start - 1 : start + 99])}\t{'I' * 100}\tRG:Z:rg{tags}"
         )
     bam = sam_to_bam(lines, work / "s.bam")

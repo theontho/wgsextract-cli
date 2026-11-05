@@ -4,8 +4,10 @@ import logging
 import platform
 import random
 import re
+import shutil
 from argparse import Namespace
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -251,6 +253,38 @@ class _Fakes:
         self.align(args)
 
 
+_DISK = re.compile(r"Realign pre-flight: ~(\d+) GB .*\(extract (\d+)\+(\d+), align")
+
+
+def _disk_preflights(caplog) -> list[tuple[int, int]]:
+    """(GB needed, of which GB of FASTQs kept until alignment) per pre-flight."""
+    found = [_DISK.search(r.getMessage()) for r in caplog.records]
+    return [(int(m[1]), int(m[3])) for m in found if m]
+
+
+def _preflight_gib(caplog, kind: str) -> float:
+    """The first estimate of a "Preflight memory"/"Preflight disk" report line."""
+    line = next(
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith(f"Preflight {kind}")
+    )
+    return float(line.split()[3])
+
+
+class _DiskUsage(NamedTuple):
+    total: int
+    used: int
+    free: int
+
+
+@pytest.fixture
+def roomy_disk(monkeypatch):
+    """A disk with room for any estimate, so the pre-flight check passes."""
+    roomy = _DiskUsage(2**60, 0, 2**60)
+    monkeypatch.setattr(shutil, "disk_usage", lambda _p: roomy)
+
+
 @pytest.fixture
 def source(tmp_path):
     path = tmp_path / "x.bam"
@@ -420,16 +454,12 @@ def test_stream_failure_leaves_no_fastqs_or_collate_spills(monkeypatch, source, 
 def test_paired_stream_body_matches_files_including_discarded_reads(
     tmp_path, genome_and_ref, monkeypatch, cram, markdup, aligner
 ):
-    from wgsextract_cli.commands import _extract_helpers
-
     if realign.align_cmd.get_tool_path(aligner) is None:
         pytest.skip(f"{aligner} unavailable")
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * 1024**3)
     monkeypatch.setattr(
         realign.align_cmd, "streaming_mapping_fits", lambda *_a, **_kw: True
     )
-    # A bucket count that differs from the default proves both modes share it.
-    monkeypatch.setattr(_extract_helpers, "_collate_buckets", lambda *_a, **_kw: 3)
     genome, ref = genome_and_ref
     source, pairs = _old_alignment(tmp_path, genome)
     records = _view("view", source).splitlines()
@@ -674,23 +704,26 @@ def test_stream_overlap_without_ram_uses_files_without_changing_aligner(
 
 
 def test_stream_reserves_the_estimated_collate_bucket_for_reporting_and_mapping(
-    tmp_path, monkeypatch, source
+    tmp_path, monkeypatch, source, caplog
 ):
     fakes = _Fakes(monkeypatch)
     monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 1_000_000)
-    reported = []
-    monkeypatch.setattr(
-        realign,
-        "_report_resource_estimates",
-        lambda *_a, **kwargs: reported.append(kwargs["additional_ram_bytes"]),
-    )
-    realign.run(_args(source, aligner="bwa"))
+    estimates, disk = [], []
+    for ram in (1024**4, 1):  # the bucket fits beside alignment, then doesn't
+        monkeypatch.setattr(realign, "available_memory", lambda ram=ram: ram)
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            realign.run(_args(source, aligner="bwa"))
+        estimates.append(_preflight_gib(caplog, "memory"))
+        disk.append(_preflight_gib(caplog, "disk"))
+        (tmp_path / "x_aligned.bam").unlink()
     expected = realign.collate_working_memory(
         source, "2", "100M", records=1_000_000, max_record_bytes=400
     )
-    assert not fakes.extracted
-    assert reported == [expected]
+    assert len(fakes.streamed) == 1 and len(fakes.extracted) == 1
     assert fakes.streamed[0]["additional_ram_bytes"] == expected
+    assert estimates[0] - estimates[1] == pytest.approx(expected / 1024**3, abs=0.01)
+    assert disk[0] < disk[1]  # a stream writes no FASTQ files
 
 
 @pytest.mark.parametrize("gib", [64, 2])
@@ -714,29 +747,26 @@ def test_whole_genome_input_streams_when_its_collate_bucket_fits_ram(
 
 
 def test_late_stream_memory_change_retries_file_extraction(
-    tmp_path, monkeypatch, source
+    tmp_path, monkeypatch, source, roomy_disk, caplog
 ):
     fakes = _Fakes(monkeypatch)
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 800_000_000)
 
     def unavailable(*_a, **_kw):
         raise realign.align_cmd.StreamingMemoryUnavailable("RAM changed")
 
     monkeypatch.setattr(realign.align_cmd, "align_bwa", unavailable)
-    disk = []
-    monkeypatch.setattr(
-        realign,
-        "_preflight_disk_space",
-        lambda *_a, **kw: disk.append(kw.get("streaming", False)),
-    )
     realign.run(_args(source, aligner="bwa", no_preflight=False))
-    assert disk == [True, False]
+    # Rechecked for FASTQ files kept until alignment, which streaming has none of.
+    (_, streamed), (_, extracted) = _disk_preflights(caplog)
+    assert streamed == 0 and extracted > 0
     assert len(fakes.extracted) == 1 and len(fakes.aligned) == 1
     assert not list(tmp_path.glob(".collate_*"))
 
 
 @pytest.mark.parametrize("provided_fastqs", [False, True])
 def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
-    tmp_path, monkeypatch, source, provided_fastqs
+    tmp_path, monkeypatch, source, provided_fastqs, roomy_disk, caplog
 ):
     _Fakes(monkeypatch)
     ref = tmp_path / "ref.fa"
@@ -755,11 +785,6 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
         "check_mapping_memory",
         lambda *_a, **kwargs: budgets.append(("memory", kwargs["reads"])),
     )
-    monkeypatch.setattr(
-        realign,
-        "_preflight_disk_space",
-        lambda *_a, **kwargs: budgets.append(("disk", kwargs["reads"])),
-    )
 
     def align(args, **_kwargs):
         budgets.append(("align", args._input_read_count))
@@ -777,13 +802,16 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
         _args(source, ref=str(ref), aligner="bwa-mem2", no_preflight=False, **overrides)
     )
     expected = 2 if provided_fastqs else 800_000_000
-    assert budgets == [("memory", expected), ("disk", expected), ("align", expected)]
+    assert budgets == [("memory", expected), ("align", expected)]
+    # 800 million reads need room on disk; two reads in a 4-byte input don't.
+    ((needed, _),) = _disk_preflights(caplog)
+    assert (needed > 0) == (not provided_fastqs)
 
 
 @pytest.mark.parametrize("no_preflight", [False, True])
 @pytest.mark.parametrize("reads", [800_000_000, None])
 def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
-    tmp_path, monkeypatch, source, no_preflight, reads
+    tmp_path, monkeypatch, source, no_preflight, reads, roomy_disk, caplog
 ):
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     calls = []
@@ -793,11 +821,6 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
         return reads
 
     monkeypatch.setattr(realign, "indexed_read_count", count)
-    monkeypatch.setattr(
-        realign,
-        "_preflight_disk_space",
-        lambda *_a, **k: calls.append(("disk", k["reads"])),
-    )
 
     def align_ultima(args, *_a):
         calls.append(("align", args._input_read_count))
@@ -808,39 +831,43 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
     realign.run(
         _args(source, platform="ultima", aligner="bwa", no_preflight=no_preflight)
     )
-    expected = ["idxstats"]
-    if not no_preflight:
-        expected.append(("disk", reads))
-    expected.append(("align", reads))
-    assert calls == expected
+    assert calls == ["idxstats", ("align", reads)]
+    # The count sizes the disk check; unknown, the 4-byte input's size does.
+    preflights = _disk_preflights(caplog)
+    if no_preflight:
+        assert preflights == []
+    else:
+        ((needed, _),) = preflights
+        assert (needed > 0) == (reads is not None)
 
 
+@needs_tools("samtools")
 def test_force_step_index_reindexes_an_alignment_its_aligner_indexed(
     tmp_path, monkeypatch, source
 ):
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(realign, "indexed_read_count", lambda *_args: 2)
+    aligned = sam_to_bam(
+        ["@SQ\tSN:chr1\tLN:100", "r\t0\tchr1\t1\t60\t4M\t*\t0\t0\tACGT\tIIII"],
+        tmp_path / "a.bam",
+    )
+    out = tmp_path / "x_aligned.bam"
     calls = []
 
     def align_ultima(*_args):
         calls.append("align")
-        Path(tmp_path, "x_aligned.bam").write_text("aligned")
-        Path(tmp_path, "x_aligned.bam.bai").write_text("index")
-
-    def index(path, **_kwargs):
-        calls.append("index")
-        Path(path + ".bai").write_text("reindexed")
+        out.write_bytes(Path(aligned).read_bytes())
+        Path(f"{out}.bai").write_text("the aligner's index")
 
     monkeypatch.setattr(realign.align_cmd, "align_ultima", align_ultima)
-    monkeypatch.setattr(realign.align_cmd, "_index_output", index)
     args = {"platform": "ultima", "aligner": "bwa", "force_steps": None}
     realign.run(_args(source, **args))
     realign.run(_args(source, **args))
     assert calls == ["align"]
 
     realign.run(_args(source, **{**args, "force_steps": ["index"]}))
-    assert calls == ["align", "index"]
-    assert Path(tmp_path, "x_aligned.bam.bai").read_text() == "reindexed"
+    assert calls == ["align"]
+    assert Path(f"{out}.bai").read_bytes().startswith(b"BAI\x01")
 
 
 # --- resuming after a crash ---------------------------------------------------

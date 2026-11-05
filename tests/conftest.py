@@ -9,6 +9,7 @@ from tests.fake_tools import FakePixi
 from tests.smoke_utils import ensure_fake_data, isolate_home, state_directory_setting
 from wgsextract_cli.core.config import get_config_path, reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
+from wgsextract_cli.core.dev_download_cache import wgsextract_cache_root
 from wgsextract_cli.core.runtime import repo_root, source_checkout_root
 
 
@@ -78,6 +79,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 _CHECKOUT_STATE = repo_root() / "state"
 _CHECKOUT_STATE_EXISTED = _CHECKOUT_STATE.exists()
+# Resolved before any fixture points the home directories at tmp_path.
+_HOME_CACHE = wgsextract_cache_root()
+
+
+def _home_cache_entries() -> set[Path]:
+    """The real ~/.cache/wgsextract and its folders' entries."""
+    if not _HOME_CACHE.is_dir():
+        return set()
+    top = set(_HOME_CACHE.iterdir())
+    return top.union(*(set(p.iterdir()) for p in top if p.is_dir()))
+
+
+_HOME_CACHE_BEFORE = _home_cache_entries()
 
 
 def pytest_sessionstart() -> None:
@@ -86,10 +100,16 @@ def pytest_sessionstart() -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
-    """Fail the run if a test recorded a run in the checkout's state/."""
+    """Fail the run if a test recorded a run in the checkout's state/ or
+    cached a download in the developer's home cache."""
     if not _CHECKOUT_STATE_EXISTED and _CHECKOUT_STATE.exists():
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
         print(f"\nA test wrote {_CHECKOUT_STATE}; point state_directory at tmp_path.")
+    if hasattr(session.config, "workerinput"):
+        return  # the xdist controller checks once all workers are done
+    if new := sorted(map(str, _home_cache_entries() - _HOME_CACHE_BEFORE)):
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        print(f"\nTests wrote into the real {_HOME_CACHE}: {new}; set XDG_CACHE_HOME.")
 
 
 _REAL_CONFIG = get_config_path()

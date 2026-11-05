@@ -1,25 +1,28 @@
-from pathlib import Path
-
-import pytest
+import sys
 
 from tests import e2e_base
+from tests.fake_tools import python_tool
+from wgsextract_cli.core.dependencies import clear_tool_caches
+from wgsextract_cli.core.pixi_tools import PIXI_TOOL_ENVS
 
 
-def test_optional_tool_needs_its_pixi_environment_installed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    deferred = "pixi run -e freebayes freebayes"
-    monkeypatch.setattr(e2e_base, "get_tool_path", lambda tool: deferred)
+def test_optional_tool_needs_its_pixi_environment_installed(fake_pixi, monkeypatch):
+    env = PIXI_TOOL_ENVS["freebayes"]
+    monkeypatch.setattr(sys, "prefix", str(fake_pixi.env("default")))
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    assert not e2e_base.optional_tool_installed("freebayes")  # nowhere
+
     # Pixi would install the environment on first use: not installed yet.
-    monkeypatch.setattr(e2e_base, "pixi_env_prefix", lambda env: None)
+    prefix = fake_pixi.env(env, locked=("freebayes",), installed=False)
+    python_tool(prefix / "bin", "freebayes", "")
+    clear_tool_caches()
     assert not e2e_base.optional_tool_installed("freebayes")
 
-    # Installed, wherever Pixi keeps it.
-    monkeypatch.setattr(e2e_base, "pixi_env_prefix", lambda env: tmp_path / env)
+    fake_pixi.install(env)
+    clear_tool_caches()
     assert e2e_base.optional_tool_installed("freebayes")
 
-    monkeypatch.setattr(e2e_base, "get_tool_path", lambda tool: None)
-    assert not e2e_base.optional_tool_installed("freebayes")
 
-    monkeypatch.setattr(e2e_base, "get_tool_path", lambda tool: "/usr/bin/freebayes")
+def test_optional_tool_on_the_host_is_installed(fake_pixi):
+    python_tool(fake_pixi.host_bin, "freebayes", "")
     assert e2e_base.optional_tool_installed("freebayes")

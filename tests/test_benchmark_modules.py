@@ -480,6 +480,7 @@ def test_real_archive_restores_from_dev_cache_without_downloading(
 ):
     files, fetched = served
     monkeypatch.setitem(settings, "dev_download_cache", True)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     url = "https://example.test/d.zip"
     files[url] = _dataset_zip(tmp_path / "a.zip").read_bytes()
     args = Namespace(

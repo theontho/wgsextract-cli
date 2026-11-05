@@ -1,7 +1,9 @@
 """`vcf sv` (Delly, pbsv, Sniffles) and `vcf cnv` (Delly): Delly runs for real
 on a tiny genome with a 2 kb deletion; pbsv and Sniffles are stood in for."""
 
+import json
 import logging
+import os
 import random
 import shutil
 import subprocess
@@ -10,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.fake_tools import only_tools, python_tool, require_bare_name_fakes
 from tests.htslib_helpers import (
     needs_htslib,
     needs_tools,
@@ -240,47 +243,108 @@ SV_VCF = (
 )
 
 
+_FAKE_CALLER = """\
+import json, sys
+name, args = {name!r}, sys.argv[1:]
+if args in (["--version"], ["--help"]):
+    print(name, "2.0.0")
+    sys.exit(0)
+state = json.load(open({state!r}))
+record = {{"argv": [name, *args]}}
+if "--regions" in args:
+    record["bed"] = open(args[args.index("--regions") + 1]).read()
+if args[:1] == ["call"]:
+    record["reference"] = open(args[-3], "rb").read(1).decode()
+with open(state["log"], "a") as log:
+    log.write(json.dumps(record) + "\\n")
+if name == state["fail"]:
+    sys.exit(3)
+vcf = open({header!r}).read() + state["records"]
+if args[:1] == ["discover"]:
+    open(args[-1], "wb").write(b"svsig")
+elif args[:1] == ["call"]:
+    assert open(args[-2], "rb").read() == b"svsig"
+    open(args[-1], "w").write(vcf)
+else:
+    open(args[args.index("--vcf") + 1], "w").write(vcf)
+"""
+
+
 class _LongReadCallers:
-    """Stands in for pbsv and Sniffles in structural.run_command, writing the
-    VCF each would (one deletion, or none); everything else runs for real."""
+    """pbsv and Sniffles stand-ins in ``bindir``, writing the VCF each would
+    (one deletion, or none) and logging how they were run."""
 
-    def __init__(self, records: str = "chr1\t30000\tdel\tN\t<DEL>\t60\tPASS\t"):
-        self.records = records + "SVTYPE=DEL;END=32000\n" if records else ""
-        self.calls: list[list[str]] = []
-        self.fail = ""
+    def __init__(self, bindir: Path, tools=("pbsv", "sniffles")):
+        self._state = bindir / "callers.json"
+        self._data = {"log": str(bindir / "calls.jsonl"), "fail": "", "records": ""}
+        self.records = "chr1\t30000\tdel\tN\t<DEL>\t60\tPASS\tSVTYPE=DEL;END=32000\n"
+        header = bindir / "header.vcf"
+        header.write_text(SV_VCF)
+        for name in tools:
+            python_tool(
+                bindir,
+                name,
+                _FAKE_CALLER.format(
+                    name=name, state=str(self._state), header=str(header)
+                ),
+            )
 
-    def __call__(self, cmd, *args, **kwargs):
-        if cmd[0] not in ("pbsv", "sniffles"):
-            return run_command(cmd, *args, **kwargs)
-        self.calls.append(list(cmd))
-        if cmd[0] == self.fail:
-            raise subprocess.CalledProcessError(3, cmd)
-        if cmd[:2] == ["pbsv", "discover"]:
-            Path(cmd[-1]).write_bytes(b"svsig")
-        elif cmd[:2] == ["pbsv", "call"]:
-            assert Path(cmd[-2]).read_bytes() == b"svsig"
-            Path(cmd[-1]).write_text(SV_VCF + self.records)
-        else:
-            Path(cmd[cmd.index("--vcf") + 1]).write_text(SV_VCF + self.records)
+    def _set(self, key, value):
+        self._data[key] = value
+        self._state.write_text(json.dumps(self._data))
+
+    @property
+    def records(self) -> str:
+        return self._data["records"]
+
+    @records.setter
+    def records(self, value: str) -> None:
+        self._set("records", value)
+
+    @property
+    def fail(self) -> str:
+        return self._data["fail"]
+
+    @fail.setter
+    def fail(self, value: str) -> None:
+        self._set("fail", value)
+
+    @property
+    def runs(self) -> list[dict]:
+        log = Path(self._data["log"])
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in log.read_text().splitlines()]
+
+    @property
+    def calls(self) -> list[list[str]]:
+        return [run["argv"] for run in self.runs]
+
+    def clear(self) -> None:
+        Path(self._data["log"]).unlink(missing_ok=True)
+
+
+def _long_read_bam(tmp_path: Path, name: str = "hifi", platform: str = "") -> str:
+    """A real one-read BAM, its read group naming ``platform`` if given."""
+    group = [f"@RG\tID:1\tSM:S\tPL:{platform}"] if platform else []
+    tag = "\tRG:Z:1" if platform else ""
+    return sam_to_bam(
+        ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:60000", *group,
+         f"r1\t0\tchr1\t100\t60\t4M\t*\t0\t0\tACGT\tIIII{tag}"],
+        tmp_path / f"{name}.bam",
+    )  # fmt: skip
 
 
 @pytest.fixture
-def long_read(tmp_path):
+def long_read(tmp_path, monkeypatch):
     """(callers, bam, ref) with pbsv and Sniffles 'installed'."""
-    callers = _LongReadCallers()
-    bam = tmp_path / "hifi.bam"
-    bam.write_bytes(b"")
+    require_bare_name_fakes()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    callers = _LongReadCallers(bindir)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
     ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 15_000})
-    with (
-        patch.object(structural, "run_command", callers),
-        patch.object(structural, "verify_dependencies"),
-        patch.object(structural, "log_dependency_info"),
-        patch("wgsextract_cli.commands.vcf.basic.warn_about_alignment"),
-        patch("wgsextract_cli.commands.vcf.basic.calculate_bam_md5", return_value=""),
-        patch.object(structural, "calculate_bam_md5", return_value=""),
-        patch.object(structural, "get_tool_path", side_effect=lambda t: t),
-    ):
-        yield callers, str(bam), str(ref)
+    return callers, _long_read_bam(tmp_path), str(ref)
 
 
 @needs_htslib
@@ -300,6 +364,53 @@ def test_pacbio_runs_pbsv_discover_then_call(tmp_path, long_read):
     assert call[-3] == ref
     assert _records(out / "pbsv.vcf.gz") == [("chr1", "30000", "32000")]
     assert sorted(p.name for p in out.iterdir()) == ["pbsv.vcf.gz", "pbsv.vcf.gz.tbi"]
+
+
+@needs_htslib
+def test_pbsv_calls_a_region_against_an_uncompressed_reference(tmp_path, long_read):
+    callers, bam, _ref = long_read
+    ref = tmp_path / "gz" / "ref.fa"
+    write_fasta(ref, {"chr1": "ACGT" * 15_000})
+    run_command([get_tool_path("bgzip"), "-i", str(ref)])
+    run_command([get_tool_path("samtools"), "faidx", f"{ref}.gz"])
+    ref.with_suffix(".fa.fai").unlink()
+    out = tmp_path / "out"
+
+    _run("sv", bam, f"{ref}.gz", out, "--pacbio", "--region", "chr1")
+
+    discover, call = callers.runs
+    for run in (discover, call):
+        argv = run["argv"]
+        # contract: pbsv discovers and calls only the region asked for
+        assert argv[argv.index("--region") + 1] == "chr1"
+    # pbsv call can't read .fa.gz: it got a plain FASTA, since removed.
+    assert call["reference"] == ">"
+    assert not Path(call["argv"][-3]).exists()
+    assert sorted(p.name for p in out.iterdir()) == ["pbsv.vcf.gz", "pbsv.vcf.gz.tbi"]
+
+
+@needs_htslib
+def test_pacbio_falls_back_to_sniffles_without_pbsv(tmp_path, request):
+    bindir = only_tools(request, "samtools", "bcftools", "bgzip", "tabix")
+    callers = _LongReadCallers(bindir, tools=("sniffles",))
+    ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 15_000})
+    out = tmp_path / "out"
+    _run("sv", _long_read_bam(tmp_path), str(ref), out, "--pacbio")
+    assert [c[0] for c in callers.calls] == ["sniffles"]
+    assert _records(out / "sniffles.vcf.gz") == [("chr1", "30000", "32000")]
+
+
+@needs_htslib
+def test_sniffles_takes_a_region_as_a_bed_file(tmp_path, long_read):
+    callers, bam, ref = long_read
+    _run("sv", bam, ref, tmp_path / "out", "--caller", "sniffles", "--region", "chr1")
+    # Sniffles2 --regions takes a BED file, not a region string.
+    (run,) = callers.runs
+    assert run["bed"] == "chr1\t0\t60000\n"
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [
+        "sniffles.vcf.gz",
+        "sniffles.vcf.gz.tbi",
+    ]
 
 
 @needs_htslib
@@ -328,7 +439,7 @@ def test_pacbio_prefers_pbsv_when_installed(tmp_path, long_read):
     callers, bam, ref = long_read
     _run("sv", bam, ref, tmp_path / "out", "--pacbio")
     assert [c[0] for c in callers.calls] == ["pbsv", "pbsv"]
-    callers.calls.clear()
+    callers.clear()
     _run("sv", bam, ref, tmp_path / "out", "--pacbio", "--caller", "sniffles")
     assert [c[0] for c in callers.calls] == ["sniffles"]
 
@@ -358,15 +469,7 @@ def test_sniffles_whole_genome_and_its_warnings(tmp_path, long_read, caplog):
 
 def _platform_bam(tmp_path: Path, platform: str) -> str:
     """A real one-read BAM whose read group names the sequencing platform."""
-    return sam_to_bam(
-        [
-            "@HD\tVN:1.6\tSO:coordinate",
-            "@SQ\tSN:chr1\tLN:60000",
-            f"@RG\tID:1\tSM:S\tPL:{platform}",
-            "r1\t0\tchr1\t100\t60\t4M\t*\t0\t0\tACGT\tIIII\tRG:Z:1",
-        ],
-        tmp_path / f"{platform.lower()}.bam",
-    )
+    return _long_read_bam(tmp_path, platform.lower(), platform)
 
 
 @needs_htslib
@@ -415,10 +518,10 @@ def test_pacbio_input_keeps_delly_default_and_pbsv(tmp_path, long_read):
     assert structural._select_sv_caller(params).caller == "delly"
     _run("sv", bam, ref, tmp_path / "out", "--long-read", "--caller", "pbsv")
     assert [c[:2] for c in callers.calls] == [["pbsv", "discover"], ["pbsv", "call"]]
-    callers.calls.clear()
+    callers.clear()
     _run("sv", bam, ref, tmp_path / "lr", "--long-read")
     assert [c[0] for c in callers.calls] == ["sniffles"]
-    callers.calls.clear()
+    callers.clear()
     _run("sv", bam, ref, tmp_path / "pb", "--pacbio")
     assert [c[0] for c in callers.calls] == ["pbsv", "pbsv"]
 
@@ -429,6 +532,7 @@ def test_pacbio_input_keeps_delly_default_and_pbsv(tmp_path, long_read):
         (["--ont", "--pacbio"], "cannot be combined"),
         (["--ont", "--caller", "delly"], "--ont selects a long-read"),
         (["--long-read", "--caller", "delly"], "--long-read selects a long-read"),
+        (["--pacbio", "--caller", "delly"], "--pacbio selects a long-read"),
     ],
 )
 def test_contradictory_long_read_flags_are_rejected(tmp_path, flags, message):

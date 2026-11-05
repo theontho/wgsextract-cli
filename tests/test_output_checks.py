@@ -1,17 +1,17 @@
 """Commands warn when they succeed with an empty result."""
 
-import io
+import gzip
 import logging
+import struct
 import subprocess
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_htslib
-from wgsextract_cli.commands import _microarray_combined as combined
 from wgsextract_cli.core import output_checks
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.utils import run_command
 
 pytestmark = needs_htslib
 
@@ -47,70 +47,54 @@ def test_no_variants_warns_naming_the_reference(tmp_path, caplog):
     assert "/ref/hg38.fa" in caplog.text
 
 
-def test_gatk_style_zero_index_does_not_warn_for_real_records(
-    tmp_path, monkeypatch, caplog
-):
-    vcf = _vcf(tmp_path / "gatk.vcf.gz", _records(3))
-    monkeypatch.setattr(
-        output_checks,
-        "run_command",
-        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="0\n"),
-    )
+def _htsjdk_index(vcf: str) -> str:
+    """Re-index ``vcf`` like htsjdk (GATK), whose .tbi has no record counts:
+    htslib's index less its per-contig pseudo-bins, so --nrecords reports 0."""
+    run_command([get_tool_path("tabix"), "-f", "-p", "vcf", vcf])
+    data = gzip.decompress(Path(f"{vcf}.tbi").read_bytes())
+    n_ref, *_, l_nm = struct.unpack_from("<8i", data, 4)
+    pos = 36 + l_nm
+    out = bytearray(data[:pos])
+    for _ in range(n_ref):
+        (n_bin,) = struct.unpack_from("<i", data, pos)
+        pos += 4
+        bins = []
+        for _ in range(n_bin):
+            bin_id, n_chunk = struct.unpack_from("<Ii", data, pos)
+            end = pos + 8 + 16 * n_chunk
+            if bin_id != 37450:  # the pseudo-bin holding the counts
+                bins.append(data[pos:end])
+            pos = end
+        out += struct.pack("<i", len(bins)) + b"".join(bins)
+        (n_intv,) = struct.unpack_from("<i", data, pos)
+        out += data[pos : pos + 4 + 8 * n_intv]
+        pos += 4 + 8 * n_intv
+    Path(f"{vcf}.tbi").write_bytes(gzip.compress(bytes(out + data[pos:])))
+    return vcf
+
+
+def test_gatk_style_zero_index_does_not_warn_for_real_records(tmp_path, caplog):
+    vcf = _htsjdk_index(_vcf(tmp_path / "gatk.vcf.gz", _records(3)))
     with caplog.at_level(logging.WARNING):
         output_checks.warn_if_no_variants(vcf, "/ref/hg38.fa", "chr1")
     assert not caplog.records
 
 
-@pytest.mark.parametrize(
-    ("line", "exit_code", "expected"),
-    [("chr1\t1\t.\tA\tG\t50\tPASS\t.\n", 0, None), ("", 0, 0), ("", 1, None)],
-)
-def test_zero_index_probes_only_one_record(monkeypatch, line, exit_code, expected):
-    monkeypatch.setattr(
-        output_checks,
-        "run_command",
-        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="0\n"),
-    )
-    proc = Mock()
-    proc.stdout.readline.return_value = line
-    proc.wait.return_value = exit_code
-    start = Mock(return_value=proc)
-    monkeypatch.setattr(output_checks, "popen", start)
-    assert output_checks.vcf_record_count("sample.vcf.gz") == expected
-    start.assert_called_once_with(
-        ["bcftools", "view", "-H", "sample.vcf.gz"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
-    proc.stdout.readline.assert_called_once_with()
-    proc.stdout.read.assert_not_called()
-    proc.stdout.close.assert_called_once_with()
-    proc.wait.assert_called_once_with()
-    assert proc.kill.called == bool(line)
+def test_record_count_comes_from_the_index_or_the_records(tmp_path):
+    counted = _vcf(tmp_path / "counted.vcf.gz", _records(3))
+    assert output_checks.vcf_record_count(counted) == 3
+    # A zero from an index without counts is confirmed from the records.
+    uncounted = _htsjdk_index(_vcf(tmp_path / "uncounted.vcf.gz", _records(3)))
+    assert output_checks.vcf_record_count(uncounted) is None
+    empty = _htsjdk_index(_vcf(tmp_path / "empty.vcf.gz", []))
+    assert output_checks.vcf_record_count(empty) == 0
+    Path(empty).write_bytes(b"not a VCF")
+    assert output_checks.vcf_record_count(empty) is None
 
 
-def test_positive_index_count_never_streams_records(monkeypatch):
-    monkeypatch.setattr(
-        output_checks,
-        "run_command",
-        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="124581\n"),
-    )
-    monkeypatch.setattr(
-        output_checks, "popen", lambda *_a, **_k: pytest.fail("unnecessary scan")
-    )
-    assert output_checks.vcf_record_count("sample.vcf.gz") == 124581
-
-
-def test_zero_index_with_unreadable_vcf_does_not_warn(monkeypatch, caplog):
-    monkeypatch.setattr(
-        output_checks,
-        "run_command",
-        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="0\n"),
-    )
-    monkeypatch.setattr(output_checks, "popen", Mock(side_effect=OSError("unreadable")))
+def test_unreadable_vcf_does_not_warn(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
-        output_checks.warn_if_no_variants("sample.vcf.gz")
+        output_checks.warn_if_no_variants(tmp_path / "gone.vcf.gz")
     assert not caplog.records
 
 
@@ -177,49 +161,3 @@ def test_read_presence_uses_the_index_or_stops_at_the_first_read(tmp_path):
         subprocess.run([samtools, "index", str(bam)], check=True)
     assert output_checks.bam_has_reads(full) is True
     assert output_checks.bam_has_reads(empty) is False
-
-
-def test_microarray_kit_with_no_rows_warns(caplog):
-    out = io.StringIO()
-    with (
-        patch.object(combined, "_command_lines", return_value=iter([])),
-        caplog.at_level(logging.WARNING),
-    ):
-        combined._write_alignment_mode_kit(out, outdir=".", out_vcf="x.vcf.gz")
-    assert "No target genotypes were produced" in caplog.text
-
-
-def test_microarray_kit_of_only_no_calls_warns(caplog):
-    lines = [f"rs{i}\tchr1\t{i}\t./.\n" for i in range(1, 4)]
-    out = io.StringIO()
-    with (
-        patch.object(combined, "_command_lines", return_value=iter(lines)),
-        caplog.at_level(logging.WARNING),
-    ):
-        combined._write_alignment_mode_kit(out, outdir=".", out_vcf="x.vcf.gz")
-    assert out.getvalue().count("\t--\n") == 3
-    assert "All 3 target genotypes are no-calls" in caplog.text
-
-
-def test_microarray_vcf_matching_no_targets_warns(tmp_path, caplog):
-    targets = tmp_path / "targets.tab"
-    targets.write_text("#CHROM\tPOS\tID\tREF\n1\t100\trs1\tA\n")
-    args = type("A", (), {"region": None})()
-    out = io.StringIO()
-    with (
-        # The input VCF's variants are all elsewhere (another build).
-        patch.object(combined, "_command_lines", return_value=iter(["1\t555\tA/G\n"])),
-        patch.object(combined, "_reference_alleles", return_value={}),
-        patch.object(combined, "MIN_TARGETS_TO_EXPECT_A_VARIANT", 1),
-        caplog.at_level(logging.WARNING),
-    ):
-        combined._write_vcf_mode_kit(
-            out,
-            args=args,
-            outdir=str(tmp_path),
-            out_vcf="sample.vcf.gz",
-            ref_fasta="ref.fa",
-            ref_vcf_tab=str(targets),
-        )
-    assert "rs1\t1\t100\tAA" in out.getvalue()
-    assert "every genotype is written as the reference allele" in caplog.text

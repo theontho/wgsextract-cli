@@ -190,6 +190,7 @@ def isolated_home_env(home: Path) -> dict[str, str]:
         "HOME": home,
         "USERPROFILE": home,
         "XDG_CONFIG_HOME": home / ".config",
+        "XDG_CACHE_HOME": home / ".cache",
         "APPDATA": home / "AppData" / "Roaming",
         "LOCALAPPDATA": home / "AppData" / "Local",
     }

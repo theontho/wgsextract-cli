@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.htslib_helpers import needs_tools
 from tests.yleaf_helpers import native_tables as native_tables
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.ydna.yleaf_native import analysis, data, trees
@@ -125,6 +126,18 @@ def test_missing_intermediate_ancestors_are_neutral_except_for_ftdna(
         predictor.predict(link_markers([("1", "leaf", "R1b1", "D")])).haplogroup
         == expected
     )
+
+
+def _y_vcf(path: Path, positions: tuple[int, ...], contig: str = "Y") -> Path:
+    """A single-sample VCF calling G (hemizygous alt) at each A>G marker."""
+    path.write_text(
+        "##fileformat=VCFv4.2\n"
+        f"##contig=<ID={contig},length=1000>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        + "".join(f"{contig}\t{p}\t.\tA\tG\t50\tPASS\t.\tGT\t1\n" for p in positions)
+    )
+    return path
 
 
 def _archive(name: str, payload: bytes) -> bytes:
@@ -250,11 +263,27 @@ def test_unsupported_build_is_reported_before_any_download(tmp_path, monkeypatch
         trees.ensure_tree(tree, "hg37", tmp_path)
 
 
-def test_archive_rejects_unexpected_paths(tmp_path):
-    archive = tmp_path / "bad.tar.gz"
-    archive.write_bytes(_archive("../escape", b"bad"))
+def test_archive_with_an_unexpected_path_is_rejected(tmp_path, monkeypatch):
+    blob = _archive("../escape", b"bad")
+    asset = {
+        "url": "https://example.invalid/hg38.tar.gz",
+        "sha256": hashlib.sha256(blob).hexdigest(),
+        "files": {"hg38/table.txt": {"size": 3, "sha256": "0" * 64}},
+    }
+    monkeypatch.setattr(
+        data,
+        "manifest",
+        lambda: {
+            "upstream": {"tag": "v4.1.6"},
+            "archives": {"hg38": asset, "hg_prediction_tables": asset},
+        },
+    )
+    monkeypatch.setattr(
+        data, "download_file", lambda _url, dest, **_: Path(dest).write_bytes(blob)
+    )
     with pytest.raises(WGSExtractError, match="Unsafe"):
-        data.extract_archive(archive, tmp_path / "staging", {})
+        data.ensure_data("hg38", tmp_path / "lib")
+    assert not list(tmp_path.rglob("escape"))
 
 
 def test_smoke_cache_gate_needs_only_selected_build_and_shared_tables(
@@ -295,27 +324,19 @@ def test_smoke_cache_gate_needs_only_selected_build_and_shared_tables(
     assert not yleaf_tables_cached("hg38", "isogg")
 
 
+@needs_tools("bcftools")
 @pytest.mark.parametrize(
     ("ancient", "custom"), [(False, False), (True, False), (False, True)]
 )
 def test_run_provenance_identifies_the_actual_marker_panel(
-    native_tables, tmp_path, monkeypatch, ancient, custom
+    native_tables, tmp_path, ancient, custom
 ):
-    vcf = tmp_path / "synthetic.vcf"
-    vcf.touch()
+    vcf = _y_vcf(tmp_path / "synthetic.vcf", (100, 110, 120, 130))
     selected = trees.ensure_tree("yfull", "hg38").positions("hg38", ancient)
     if custom:
         panel = tmp_path / "custom-panel.txt"
         panel.write_text(selected.read_text().replace("M-leaf", "M-custom"))
         selected = panel
-    monkeypatch.setattr(
-        analysis,
-        "_query_vcf",
-        lambda _: (
-            {pos: Call("G", 1, 100) for pos in (100, 110, 120, 130)},
-            False,
-        ),
-    )
     output = tmp_path / "results"
     analysis.analyze(
         vcf,
@@ -337,20 +358,13 @@ def test_run_provenance_identifies_the_actual_marker_panel(
     assert metadata["tree"]["version"] == trees.MANIFEST["trees"]["yfull"]["version"]
 
 
-def test_analysis_clears_previous_result_on_failed_run(
-    native_tables, tmp_path, monkeypatch
-):
-    vcf = tmp_path / "synthetic.vcf"
-    vcf.touch()
+@needs_tools("bcftools")
+def test_analysis_clears_previous_result_on_failed_run(native_tables, tmp_path):
+    vcf = _y_vcf(tmp_path / "no-y.vcf", (), contig="X")
     output = tmp_path / "results"
     output.mkdir()
     (output / "hg_prediction.hg").write_text("old")
-
-    def fail(_):
-        raise WGSExtractError("No Y")
-
-    monkeypatch.setattr(analysis, "_query_vcf", fail)
-    with pytest.raises(WGSExtractError, match="No Y"):
+    with pytest.raises(WGSExtractError, match="no records on chromosome Y"):
         analysis.analyze(vcf, output, build="hg38", no_ref_inference=True)
     assert not (output / "hg_prediction.hg").exists()
 
