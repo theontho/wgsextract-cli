@@ -674,7 +674,9 @@ Re-align a BAM/CRAM to a reference (see `RealignParams`).
 
 The reads are extracted to FASTQ first, or streamed into the aligner when
 the machine has the memory; FASTQs from an earlier extraction (beside the
-input or in `outdir`) or given as `r1`/`r2` are reused. Free disk
+input or in `outdir`) or given as `r1`/`r2` are reused. Single-end
+ONT and PacBio reads (detected, or `platform`) stream each read's primary
+record with its MM/ML tags into minimap2. Free disk
 space is checked first. Completed steps (extract, align, index) are
 recorded in `<output>.steps.json` and skipped on a rerun whose inputs,
 settings and tools are unchanged.
@@ -691,7 +693,7 @@ settings and tools are unchanged.
 | `sample` | `str \| None` | `None` | `--sample` | Sample name to embed in read-group metadata. |
 | `long_read` | `bool` | `False` | `--long-read` | Treat input as long-read data (PacBio/ONT). |
 | `format` | `str` | `'BAM'` | `--format` | Output format: BAM or CRAM (written with the target reference). One of: `BAM`, `CRAM` |
-| `keep_fastq` | `bool` | `False` | `--keep-fastq` | Keep the FASTQs extracted from --input after alignment (default: delete them). FASTQs passed with --r1/--r2 or reused from an earlier extraction are never deleted. |
+| `keep_fastq` | `bool` | `False` | `--keep-fastq` | Keep the FASTQs extracted from --input after alignment (default: delete them); ONT and PacBio reads are then extracted to one tagged <input stem>.fastq.gz. FASTQs passed with --r1/--r2 or reused from an earlier extraction are never deleted. |
 | `force_extract` | `bool` | `False` | `--force-extract` | Re-extract FASTQs even if a matching pair already exists next to the BAM. |
 | `no_preflight` | `bool` | `False` | `--no-preflight` | Skip the up-front disk space check (not recommended). |
 | `restart` | `bool` | `False` | `--force`, `--no-resume` | Rerun every step, ignoring the steps an earlier run completed. |

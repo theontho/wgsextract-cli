@@ -54,6 +54,7 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.steps import (
     Decision,
     Step,
@@ -61,7 +62,12 @@ from wgsextract_cli.core.steps import (
     resume_policy,
 )
 from wgsextract_cli.core.temp_directory import configured_temp_directory
-from wgsextract_cli.core.utils import UsageError, WGSExtractError, get_resource_defaults
+from wgsextract_cli.core.utils import (
+    UsageError,
+    WGSExtractError,
+    get_resource_defaults,
+    run_pipeline,
+)
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     resolve_reference,
@@ -232,9 +238,33 @@ def _refuse_unpaired_reads(path: str, cram_opt: list[str]) -> None:
             "nor second of a pair. realign extracts paired reads and would drop "
             "them. Extract all reads with 'wgsextract bam unalign --r1 R1.fastq.gz "
             "--r2 R2.fastq.gz --se SE.fastq.gz' and align SE.fastq.gz (and any "
-            "pairs) with 'wgsextract align', or pass --platform for ONT or Ultima "
-            "reads."
+            "pairs) with 'wgsextract align', or pass --platform for ONT, PacBio "
+            "or Ultima reads."
         )
+
+
+def _single_end_pacbio(args: argparse.Namespace, cram_opt: list[str]) -> str | None:
+    """ "pacbio" (or "clr" for subreads) when every sampled primary read of a
+    PacBio input is single-end, as PacBio reads are: realign then takes the
+    long-read path instead of refusing them. Paired PacBio-labelled input keeps
+    the short-read defaults."""
+    sample = unpaired_sample(args.input, cram_opt=cram_opt)
+    if not sample.records or sample.unpaired != sample.records:
+        return None
+    header = get_bam_header(args.input, cram_opt[1] if cram_opt else None)
+    types = {
+        field.split("=", 1)[1].upper()
+        for group in ultima.read_groups(header)
+        for field in group.get("DS", "").split(";")
+        if field.upper().startswith("READTYPE=")
+    }
+    platform = "clr" if types == {"SUBREAD"} else "pacbio"
+    logging.info(
+        "Detected single-end PacBio reads: realigning them as long reads "
+        "(--platform %s).",
+        platform,
+    )
+    return platform
 
 
 def run(args: argparse.Namespace) -> None:
@@ -252,7 +282,18 @@ def run(args: argparse.Namespace) -> None:
             input_cram_opt = _input_cram_reference(args)
             platform_args = argparse.Namespace(**vars(args))
             platform_args.input_ref = input_cram_opt[1]
-    args.platform = align_cmd.resolve_platform(platform_args, args.r1 or args.input)
+    detected = None
+    if not args.platform and not args.r1:
+        input_ref = getattr(platform_args, "input_ref", None)
+        if input_platform(args.input, input_ref, strict=True) == "pacbio":
+            detected = _single_end_pacbio(
+                args, input_cram_opt or _input_cram_reference(platform_args)
+            )
+    args.platform = detected or align_cmd.resolve_platform(
+        platform_args, args.r1 or args.input
+    )
+    if align_cmd.is_long_read(args) and not args.r1:
+        _check_long_read_options(args)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     selected_aligner = align_cmd.select_aligner(args)
     if (
@@ -280,7 +321,7 @@ def run(args: argparse.Namespace) -> None:
     policy = resume_policy(args)
     if args.r1:
         logical_r1, logical_r2 = args.r1, args.r2
-    elif args.platform in {"ont", "nanopore", "ultima"}:
+    elif args.platform == "ultima" or align_cmd.is_long_read(args):
         logical_r1, logical_r2 = args.input, None
     else:
         base = input_stem(args.input)
@@ -300,6 +341,24 @@ def run(args: argparse.Namespace) -> None:
             memory=memory,
             input_cram_opt=input_cram_opt,
         )
+
+
+def _check_long_read_options(args: argparse.Namespace) -> None:
+    """realign streams long reads from the BAM/CRAM into CPU minimap2."""
+    if args.aligner == "pbmm2":
+        raise UsageError(
+            "realign aligns long reads with minimap2, streaming each read's "
+            "primary record with its MM/ML tags. To use pbmm2, extract the "
+            "reads ('wgsextract bam unalign') and run 'wgsextract align "
+            "--aligner pbmm2'."
+        )
+    if getattr(args, "gpu", False):
+        raise UsageError(
+            "realign aligns long reads on the CPU with minimap2, keeping their "
+            "MM/ML tags; drop --gpu."
+        )
+    if args.aligner == "auto":
+        args.aligner = "minimap2"
 
 
 def _align_tools(aligner: str, platform: str | None, gpu: bool) -> list[str]:
@@ -413,6 +472,88 @@ def _resume_alignment(
     align_cmd.record_alignment(out_path, aligner, target or "")
 
 
+def _realign_long_reads(
+    args: argparse.Namespace,
+    journal: StepJournal,
+    *,
+    selected_aligner: str,
+    target: str | None,
+    outdir: str,
+    threads: str,
+    input_cram_opt: list[str] | None,
+) -> None:
+    """ONT and PacBio reads are single-end and carry base-modification tags:
+    each read's primary record, tags included, streams into minimap2. With
+    --keep-fastq they are extracted to a tagged <input stem>.fastq.gz first."""
+    out_path = align_cmd.aligned_output_path(
+        outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
+    )
+    fastq = str(absolute_path(Path(outdir, f"{input_stem(args.input)}.fastq.gz")))
+    extract_step = Step(
+        "extract",
+        inputs={
+            "alignment": args.input,
+            "input_reference": getattr(args, "input_ref", None),
+        },
+        outputs=[fastq],
+        params={"tags": align_cmd.LONG_READ_TAGS},
+        tools=["samtools", "bgzip"],
+    )
+    align_step = _align_step(
+        args, selected_aligner, target, out_path, {"alignment": args.input}
+    )
+    extract_decision = None
+    if args.keep_fastq:
+        extract_decision = journal.decide(extract_step)
+    decision = journal.decide(
+        align_step, after=[extract_decision] if extract_decision else []
+    )
+    if not decision.run and not (extract_decision and extract_decision.run):
+        _resume_alignment(journal, decision, out_path, target, threads)
+        if args.keep_fastq:
+            current_result().add_output(fastq, "fastq_r1")
+        return
+    if journal.dry_run:
+        journal.decide(_index_step(out_path))
+        return
+    cram_opt = input_cram_opt or _input_cram_reference(args)
+    if not args.no_preflight:
+        _preflight_disk_space(
+            args.input,
+            outdir,
+            need_extract=bool(extract_decision and extract_decision.run),
+            reads=indexed_read_count(args.input, threads),
+            keep_fastq=args.keep_fastq,
+        )
+    align_args = argparse.Namespace(**vars(args))
+    align_args.r1 = args.input
+    # samtools fastq's -T lists tags; the reference needs --reference.
+    decode = ["--reference", cram_opt[1]] if cram_opt else []
+    align_args._input_cram_opt = decode
+    if extract_decision is not None:
+        if extract_decision.run:
+            verify_dependencies(["samtools", "bgzip"])
+            logging.info("Extracting tagged single-end FASTQ from %s ...", args.input)
+            with (
+                journal.running(extract_decision),
+                atomic_output(fastq) as staged,
+                open(staged, "wb") as handle,
+            ):
+                run_pipeline(
+                    [
+                        align_cmd.long_read_fastq_command(args.input, decode),
+                        ["bgzip", "-@", threads, "-c"],
+                    ],
+                    stdout=handle,
+                    description="FASTQ extraction",
+                    heartbeat=True,
+                )
+        align_args.r1 = fastq
+    _align(journal, decision, align_args, lambda: align_cmd.run(align_args))
+    if args.keep_fastq:
+        current_result().add_output(fastq, "fastq_r1")
+
+
 def _run_steps(
     args: argparse.Namespace,
     journal: StepJournal,
@@ -426,40 +567,16 @@ def _run_steps(
 ) -> None:
     """Realign as steps: extract FASTQs (when they're written to files), then
     align. A completed alignment skips everything before it."""
-    if args.platform in {"ont", "nanopore"} and not args.r1:
-        if args.keep_fastq:
-            raise UsageError(
-                "ONT realignment streams tagged single-end FASTQ to preserve "
-                "MM/ML; --keep-fastq is not supported. Use samtools fastq "
-                "-T MM,ML,MN to retain tagged FASTQ separately."
-            )
-        out_path = align_cmd.aligned_output_path(
-            outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
+    if align_cmd.is_long_read(args) and not args.r1:
+        _realign_long_reads(
+            args,
+            journal,
+            selected_aligner=selected_aligner,
+            target=target,
+            outdir=outdir,
+            threads=threads,
+            input_cram_opt=input_cram_opt,
         )
-        step = _align_step(
-            args, selected_aligner, target, out_path, {"alignment": args.input}
-        )
-        decision = journal.decide(step)
-        if not decision.run:
-            _resume_alignment(journal, decision, out_path, target, threads)
-            return
-        if journal.dry_run:
-            journal.decide(_index_step(out_path))
-            return
-        align_args = argparse.Namespace(**vars(args))
-        align_args.r1 = args.input
-        ont_cram_opt = input_cram_opt or _input_cram_reference(args)
-        align_args._input_cram_opt = (
-            ["--reference", ont_cram_opt[1]] if ont_cram_opt else []
-        )
-        if not args.no_preflight:
-            _preflight_disk_space(
-                args.input,
-                outdir,
-                need_extract=False,
-                reads=indexed_read_count(args.input, threads),
-            )
-        _align(journal, decision, align_args, lambda: align_cmd.run(align_args))
         return
 
     if args.platform == "ultima" and not args.r1:

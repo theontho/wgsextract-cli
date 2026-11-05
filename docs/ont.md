@@ -5,9 +5,10 @@ BAM/CRAM/FASTQ (including gzipped FASTQ). Read groups take precedence; mixed
 platforms are not assigned one platform. An explicit `--platform` overrides
 detection. Unknown input still defaults to Illumina. SRA-renamed FASTQs without
 platform metadata need `--platform ont`.
-Only ONT gains new automatic alignment defaults. Revio/PacBio-, Ultima- and
-MGI-named FASTQs, and `PL:PACBIO`/`PL:DNBSEQ` BAMs, retain the previous Illumina
-alignment defaults unless `--platform` is explicit. The pre-existing
+Only ONT gains new automatic alignment defaults, and `realign` of single-end
+PacBio BAM/CRAM. Revio/PacBio-, Ultima- and MGI-named FASTQs, paired
+`PL:PACBIO` and `PL:DNBSEQ` BAMs retain the previous Illumina alignment
+defaults unless `--platform` is explicit. The pre-existing
 BAM/CRAM `PL:ULTIMA` automatic path is unchanged. Other detected platforms
 may be reported, but reporting does not select their alignment workflows.
 
@@ -18,9 +19,10 @@ Sorting retains these tags.
 FASTQ input first passes through `samtools import -T MM,ML,MN`, so ordinary
 ONT `runid`/channel comments do not become invalid SAM fields with `-y`.
 Realignment streams single-end tagged FASTQ instead
-of reusing potentially untagged paired FASTQs. `--keep-fastq` and GPU ONT
-alignment are refused rather than silently losing modification data; for a
-retained intermediate use `samtools fastq -T MM,ML,MN` separately.
+of reusing potentially untagged paired FASTQs. With `--keep-fastq` it first
+writes them, tags included, to `<input stem>.fastq.gz` and aligns from that.
+GPU ONT alignment is refused rather than silently losing modification data.
+Single-end PacBio input takes the same path (see the README's alignment notes).
 
 For CRAM realignment, `--input-ref` supplies the original decoding FASTA for
 both platform detection and extraction; `--ref` selects the alignment target.
