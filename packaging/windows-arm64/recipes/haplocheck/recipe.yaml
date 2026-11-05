@@ -1,0 +1,31 @@
+package:
+  name: haplocheck
+  version: "1.3.3"
+
+source:
+  - url: https://github.com/genepi/haplocheck/releases/download/v1.3.3/haplocheck.zip
+    sha256: c9a903925b7eddc6118aa2d06a9c86508bdc791a8e3ff49563a90b24d3a929a3
+    target_directory: haplocheck
+  - url: https://raw.githubusercontent.com/genepi/haplocheck/6c971ba0c497dafa1e53574bcced67f7121360f5/LICENSE
+    sha256: 18d2d8d768557f7e05e31c8685ac1ad34e2beef309a0dd0a3933ec75f8cdee34
+    target_directory: license
+  - url: https://aka.ms/download-jdk/microsoft-jdk-17.0.21.0.2-windows-aarch64.zip
+    sha256: 2c0e7679022f1666da64b586f9941e86481c6f369212e918be3e505581085336
+    target_directory: sdk
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+requirements:
+  run:
+    - openjdk 17.*
+
+about:
+  homepage: https://github.com/genepi/haplocheck
+  license: MIT
+  license_file: license/LICENSE
+  summary: Pure-Java haplocheck and mutserve qualified with native ARM64 Microsoft Java 17.

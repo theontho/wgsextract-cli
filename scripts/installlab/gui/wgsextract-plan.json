@@ -10,7 +10,7 @@
       "fastq_r2": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/HG00096.hg19-mini_R2.fastq.gz",
       "fastq_output_format": "BAM",
       "genome_library": "{{bundleWorkspace}}/genomes",
-      "haplogrep_path": "haplogrep"
+      "haplogrep_path": "haplogrep3"
     },
     "checkedOptions": {
       "microarray_formats": [

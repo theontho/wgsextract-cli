@@ -5,14 +5,15 @@ def tree_links(
     haplogroup: str, *, mitochondrial: bool = False
 ) -> list[tuple[str, str]]:
     """(label, URL) of the public trees showing ``haplogroup``; real endpoints
-    only, without invented mtDNA branch URL parameters."""
+    only. FamilyTreeDNA's mtDNA pages use Mitotree names, which match
+    Haplogrep's ``mitotree-rcrs`` tree and often PhyloTree's."""
     value = quote(haplogroup.strip(), safe="")
     if not value or value == "NA":
         return []
     if mitochondrial:
         return [
             ("YFull mtDNA", f"https://www.yfull.com/mtree/{value}/"),
-            ("FTDNA mtDNA", "https://www.familytreedna.com/public/mt-dna-haplotree"),
+            ("FTDNA mtDNA", f"https://discover.familytreedna.com/mtdna/{value}/tree"),
         ]
     return [
         ("YFull", f"https://www.yfull.com/tree/{value}/"),

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from tests.haplogrep_helpers import mini_tree as mini_tree
 from tests.htslib_helpers import needs_htslib
 from tests.smoke_utils import ensure_fake_data, run_cli
 from tests.test_trio_vcfs import _trio
@@ -882,6 +883,7 @@ def test_analyze_carries_each_steps_manifest_outputs_and_warnings(tmp_path):
 
 
 @needs_htslib
+@pytest.mark.usefixtures("mini_tree")
 def test_analyze_steps_show_their_output_and_keep_their_results(tmp_path, capfd):
     from tests.test_lineage_haplogroups import _HG38, _KIT_BODY, _haplogrep, _vcf
     from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand

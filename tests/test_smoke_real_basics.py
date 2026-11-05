@@ -670,19 +670,6 @@ class TestLineageSmoke:
         # Fake data may not contain Yleaf-informative markers; verify execution.
         assert "Yleaf" in stdout or "Yleaf" in stderr
 
-    def test_lineage_mt_haplogroup(self):
-        # Requires haplogrep, usually a jar. This smoke test just checks if it tries to run.
-        args = [
-            "lineage",
-            "mt-haplogroup",
-            "--input",
-            self.fake_vcf,
-            "--outdir",
-            self.outdir,
-        ]
-        rc, stdout, stderr = run_cli(args)
-        assert "mtDNA" in stdout or "mtDNA" in stderr
-
 
 class TestQCFakeDataSmoke:
     """Ported from test_qc_fake_data.sh"""

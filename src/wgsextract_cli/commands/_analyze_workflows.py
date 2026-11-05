@@ -571,7 +571,7 @@ def run_bam_chain(
     )
     gender = str(metrics.get("gender") or "Unknown")
 
-    # 3. mt-haplogroup (Haplogrep)
+    # 3. mt-haplogroup (Haplogrep 3)
     for name, command in (
         ("mt-haplogroup", ["lineage", "mt-haplogroup"]),
         ("y-haplogroup", ["lineage", "y-haplogroup"]),
@@ -583,7 +583,7 @@ def run_bam_chain(
         command = [*command, "--input", input_file, "--outdir", outdir]
         tools = ["samtools", "bcftools"]
         if name == "mt-haplogroup":
-            tools.append("haplogrep")
+            tools.append("haplogrep3")
         run_step(
             journal,
             subcommand_step(name, command, tools=tools),

@@ -4705,7 +4705,7 @@
    }
   },
   "lineage mt-haplogroup": {
-   "help": "usage: wgsextract lineage mt-haplogroup [-h] [--haplogrep-path HAPLOGREP_PATH] [--tree-links]\n                                        [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --haplogrep-path HAPLOGREP_PATH\n                        Path to haplogrep executable or JAR (optional if in PATH)\n  --tree-links          Print a YFull mtDNA tree link.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract lineage mt-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage mt-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  haplogrep_results.txt; prints the mtDNA haplogroup.\n\nneeds:\n  bcftools, haplogrep, java, samtools; depending on options and inputs, also:\n  tabix; minutes on a 30x genome.\n",
+   "help": "usage: wgsextract lineage mt-haplogroup [-h]\n                                        [--tree {phylotree-fu-rcrs,phylotree-rcrs,mitotree-rcrs}]\n                                        [--contamination] [--haplogrep-path HAPLOGREP_PATH]\n                                        [--haplocheck-path HAPLOCHECK_PATH] [--tree-links]\n                                        [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --tree {phylotree-fu-rcrs,phylotree-rcrs,mitotree-rcrs}\n                        Haplogrep 3 tree (default: config haplogrep_tree, else phylotree-fu-rcrs,\n                        PhyloTree 17 Forensic Update). phylotree-rcrs is PhyloTree 17; mitotree-\n                        rcrs is FamilyTreeDNA Mitotree (non-commercial use only).\n  --contamination       Also check for mtDNA contamination with haplocheck. VCF input needs\n                        heteroplasmy levels (FORMAT/AF).\n  --haplogrep-path HAPLOGREP_PATH\n                        Path to the Haplogrep 3 executable or JAR (optional if in PATH)\n  --haplocheck-path HAPLOCHECK_PATH\n                        Path to the haplocheck executable or JAR (optional if in PATH)\n  --tree-links          Print YFull and FamilyTreeDNA mtDNA tree links.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract lineage mt-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage mt-haplogroup --input sample.cram\n  wgsextract lineage mt-haplogroup --input sample.cram --contamination\n  wgsextract lineage mt-haplogroup --input sample.vcf.gz --tree mitotree-rcrs\n\noutputs (in the output directory unless noted):\n  haplogrep_results.txt; prints the mtDNA haplogroup and Haplogrep 3 tree.\n  With --contamination, also haplocheck_contamination.txt (+ .raw.txt, .html).\n\nneeds:\n  bcftools, haplogrep3, java, samtools; depending on options and inputs, also:\n  curl, haplocheck, tabix; minutes on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -4988,17 +4988,69 @@
       "type": "int"
      },
      {
+      "choices": [
+       "phylotree-fu-rcrs",
+       "phylotree-rcrs",
+       "mitotree-rcrs"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "tree",
+      "exclusive_group": null,
+      "help": "Haplogrep 3 tree (default: config haplogrep_tree, else phylotree-fu-rcrs, PhyloTree 17 Forensic Update). phylotree-rcrs is PhyloTree 17; mitotree-rcrs is FamilyTreeDNA Mitotree (non-commercial use only).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--tree"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "contamination",
+      "exclusive_group": null,
+      "help": "Also check for mtDNA contamination with haplocheck. VCF input needs heteroplasmy levels (FORMAT/AF).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--contamination"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
       "choices": null,
       "class": "_StoreAction",
       "const": null,
       "default": null,
       "dest": "haplogrep_path",
       "exclusive_group": null,
-      "help": "Path to haplogrep executable or JAR (optional if in PATH)",
+      "help": "Path to the Haplogrep 3 executable or JAR (optional if in PATH)",
       "metavar": null,
       "nargs": null,
       "option_strings": [
        "--haplogrep-path"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "haplocheck_path",
+      "exclusive_group": null,
+      "help": "Path to the haplocheck executable or JAR (optional if in PATH)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--haplocheck-path"
       ],
       "required": false,
       "type": null
@@ -5026,7 +5078,7 @@
       "default": false,
       "dest": "tree_links",
       "exclusive_group": null,
-      "help": "Print a YFull mtDNA tree link.",
+      "help": "Print YFull and FamilyTreeDNA mtDNA tree links.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -8263,10 +8315,12 @@
    ],
    "atomic_output": false,
    "command": "lineage",
+   "contamination": false,
    "debug": false,
    "full_help": false,
    "func": "cli_MtHaplogroupParams",
    "genome": null,
+   "haplocheck_path": null,
    "haplogrep_path": null,
    "input": "x.bam",
    "json": false,
@@ -8282,6 +8336,7 @@
    "ref": null,
    "threads": null,
    "tmp_dir": null,
+   "tree": null,
    "tree_links": true
   },
   "lineage mt-haplogroup -i x.vcf.gz --haplogrep-path h.jar": {
@@ -8292,10 +8347,12 @@
    ],
    "atomic_output": false,
    "command": "lineage",
+   "contamination": false,
    "debug": false,
    "full_help": false,
    "func": "cli_MtHaplogroupParams",
    "genome": null,
+   "haplocheck_path": null,
    "haplogrep_path": "h.jar",
    "input": "x.vcf.gz",
    "json": false,
@@ -8311,6 +8368,7 @@
    "ref": null,
    "threads": null,
    "tmp_dir": null,
+   "tree": null,
    "tree_links": false
   },
   "lineage y-haplogroup -i x.bam --build hg38 --tree isogg --min-reads 3 --base-quality 15 --base-majority 80 --min-score 0.9 --ancient --no-ref-inference --pos-file pos.txt": {

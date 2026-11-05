@@ -1,35 +1,37 @@
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $env:RECIPE_DIR "..\..\..\..")).Path
-$evidence = Join-Path $repo "out\windows-arm64\haplogrep"
+$evidence = Join-Path $repo "out\windows-arm64\haplogrep3"
 $sdk = Join-Path $env:SRC_DIR "sdk"
 New-Item -ItemType Directory -Force -Path $evidence, "$env:PREFIX\bin" | Out-Null
 & python "$repo\packaging\windows-arm64\prepare_haplogrep.py" `
-    --source "$env:SRC_DIR\haplogrep\haplogrep.jar" --output "$env:PREFIX\bin\haplogrep.jar"
-if ($LASTEXITCODE) { throw "Native-only Haplogrep archive preparation failed" }
+    --source "$env:SRC_DIR\haplogrep3\haplogrep3.jar" --output "$env:PREFIX\bin\haplogrep3.jar"
+if ($LASTEXITCODE) { throw "Native-only Haplogrep 3 archive preparation failed" }
 & python "$repo\packaging\windows-arm64\audit_java_archives.py" `
     --root $env:PREFIX --report "$evidence\archives.json"
-if ($LASTEXITCODE) { throw "Haplogrep contains foreign native Java resources" }
+if ($LASTEXITCODE) { throw "Haplogrep 3 contains foreign native Java resources" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $sdk -Report "$evidence\sdk-pe.json"
-& "$sdk\bin\java.exe" -jar "$env:PREFIX\bin\haplogrep.jar" --version 2>&1 |
+# Haplogrep 3 prints its version banner when run without a command.
+& "$sdk\bin\java.exe" -jar "$env:PREFIX\bin\haplogrep3.jar" 2>&1 |
     Tee-Object "$evidence\version.log"
-if ($LASTEXITCODE) { throw "Native Haplogrep version qualification failed" }
+if ($LASTEXITCODE) { throw "Native Haplogrep 3 version qualification failed" }
 & python "$repo\packaging\windows-arm64\tests\haplogrep_smoke.py" `
-    --java "$sdk\bin\java.exe" --original "$env:SRC_DIR\haplogrep\haplogrep.jar" `
-    --restricted "$env:PREFIX\bin\haplogrep.jar" --output "$evidence\smoke"
-if ($LASTEXITCODE) { throw "Native Haplogrep VCF classification qualification failed" }
+    --java "$sdk\bin\java.exe" --original "$env:SRC_DIR\haplogrep3\haplogrep3.jar" `
+    --restricted "$env:PREFIX\bin\haplogrep3.jar" --tree "$env:SRC_DIR\tree" `
+    --output "$evidence\smoke"
+if ($LASTEXITCODE) { throw "Native Haplogrep 3 VCF classification qualification failed" }
 $probe = Join-Path $evidence "HaplogrepProbe.java"
 @'
 class HaplogrepProbe {
     public static void main(String[] args) throws Exception {
         if (!System.getProperty("os.arch").equals("aarch64"))
             throw new IllegalStateException("Native AArch64 required");
-        Class.forName("genepi.App");
+        Class.forName("genepi.haplogrep3.App");
         System.in.read();
     }
 }
 '@ | Set-Content -Encoding utf8 $probe
 & "$sdk\bin\javac.exe" -d $evidence $probe
-if ($LASTEXITCODE) { throw "Native Haplogrep runtime probe compilation failed" }
+if ($LASTEXITCODE) { throw "Native Haplogrep 3 runtime probe compilation failed" }
 & "$repo\scripts\qualify_windows_arm64_process.ps1" -Executable "$sdk\bin\java.exe" `
-    -Arguments @("-cp", "$evidence;$env:PREFIX\bin\haplogrep.jar", "HaplogrepProbe") `
+    -Arguments @("-cp", "$evidence;$env:PREFIX\bin\haplogrep3.jar", "HaplogrepProbe") `
     -Prefix $sdk -Report "$evidence\runtime-process.json"

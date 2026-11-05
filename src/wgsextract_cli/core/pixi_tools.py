@@ -155,7 +155,7 @@ def pixi_install_command(tool: str) -> str | None:
 
 def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str | None:
     """How to run a tool from the Pixi environment at prefix, as "kind:value"
-    (direct-name, haplogrep or script), or None.
+    (direct-name, gatk, jar or script), or None.
 
     Runs in this process or, for another environment, inside it: its source is
     sent to that environment's Python, so it imports what it needs itself.
@@ -208,10 +208,12 @@ def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str
         if shutil.which(tool):
             return "direct-name:" + tool
 
-    if "haplogrep" in tool_names:
-        jar = root / "bin" / "haplogrep.jar"
-        if jar.exists():
-            return "haplogrep:" + str(jar.resolve())
+    # Java tools whose Bioconda launchers are Bash scripts, unusable on Windows.
+    for tool in tool_names:
+        if tool in ("haplogrep3", "haplocheck"):
+            jar = root / "bin" / (tool + ".jar")
+            if jar.exists():
+                return "jar:" + str(jar.resolve())
 
     for tool in tool_names:
         # noarch packages keep the real script beside its data, in share/<pkg>/
@@ -325,7 +327,7 @@ def _host_pixi_tool_command(tool: str) -> str | None:
         return command([value])
     if kind == "gatk":
         return command(json.loads(value))
-    if kind == "haplogrep":
+    if kind == "jar":
         return command([*JAVA_JAR, java_local_path(value)])
     if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
         return command([*WINDOWS_PIXI_SCRIPT_LAUNCHERS[tool], value])

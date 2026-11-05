@@ -209,33 +209,36 @@ def test_ensure_vcf_prepared_requires_bgzip(tmp_path):
 
 
 def test_haplogrep_wrapper_is_bypassed_for_its_jar(tmp_path):
-    """Bioconda's haplogrep wrapper breaks on paths with spaces; use its jar."""
+    """Bioconda's haplogrep3 wrapper breaks on paths with spaces; use its jar."""
 
     env_bin = tmp_path / "Application Support" / "bin"
     env_bin.mkdir(parents=True)
-    wrapper = env_bin / "haplogrep"
+    wrapper = env_bin / "haplogrep3"
     wrapper.write_text('#!/bin/bash\njava -cp $CLASS_PATH genepi.App "$@"\n')
     wrapper.chmod(0o755)
-    (env_bin / "haplogrep.jar").write_bytes(b"")
+    jar = env_bin / "haplogrep3.jar"
+    jar.write_bytes(b"")
     with patch.object(lineage, "verify_dependencies"):
-        assert lineage._haplogrep_command(str(wrapper)) == [
-            *JAVA_JAR,
-            str(env_bin / "haplogrep.jar"),
-        ]
-    (env_bin / "haplogrep.jar").unlink()
-    assert lineage._haplogrep_command(str(wrapper)) == [str(wrapper)]
+        assert lineage._jar_command(str(wrapper), jar.name) == [*JAVA_JAR, str(jar)]
+    jar.unlink()
+    assert lineage._jar_command(str(wrapper), jar.name) == [str(wrapper)]
 
 
 def test_a_resolved_haplogrep_command_runs_as_it_is(tmp_path):
-    """The resolved tool may already be `java -jar <jar>`: no second `java -jar`."""
+    """The resolved tool may already be `java -jar <jar>`: no second `java -jar`.
+    It is split, so haplocheck's mutserve.jar can run the same way."""
 
-    jar = tmp_path / "bin" / "haplogrep.jar"
+    jar = tmp_path / "bin" / "haplogrep3.jar"
     jar.parent.mkdir()
     jar.write_bytes(b"")
     command = _join_command([str(tmp_path / "java"), "-jar", str(jar)])
     with patch.object(lineage, "verify_dependencies"):
-        assert lineage._haplogrep_command(command) == [command]
-        assert lineage._haplogrep_command(str(jar)) == [*JAVA_JAR, str(jar)]
+        assert lineage._jar_command(command, jar.name) == [
+            str(tmp_path / "java"),
+            "-jar",
+            str(jar),
+        ]
+        assert lineage._jar_command(str(jar), jar.name) == [*JAVA_JAR, str(jar)]
 
 
 def test_windows_wrapper_commands_keep_backslashes():
@@ -246,13 +249,13 @@ def test_windows_wrapper_commands_keep_backslashes():
 
     wrapper = (
         r"C:\Users\bob\.pixi\bin\pixi.exe run --manifest-path C:\Users\bob\w\pixi.toml"
-        r" -e default java -jar C:\Users\bob\w\haplogrep.jar"
+        r" -e default java -jar C:\Users\bob\w\haplogrep3.jar"
     )
     with patch.object(runtime, "is_windows_host", return_value=True):
         argv = _normalize_subprocess_cmd([wrapper, "classify"])
     assert argv[0] == r"C:\Users\bob\.pixi\bin\pixi.exe"
     assert argv[3] == r"C:\Users\bob\w\pixi.toml"
-    assert argv[-2:] == [r"C:\Users\bob\w\haplogrep.jar", "classify"]
+    assert argv[-2:] == [r"C:\Users\bob\w\haplogrep3.jar", "classify"]
 
 
 def _idx(x_reads, y_reads):

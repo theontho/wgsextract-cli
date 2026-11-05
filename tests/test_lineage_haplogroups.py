@@ -1,5 +1,6 @@
 """Native Yleaf and Haplogrep integration using real bcftools/samtools."""
 
+import csv
 import gzip
 import json
 import logging
@@ -10,9 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.haplogrep_helpers import mini_tree as mini_tree
 from tests.htslib_helpers import (
     bgzip_index,
     needs_htslib,
+    needs_tools,
     run_wgsextract,
     sam_to_bam,
     write_fasta,
@@ -21,7 +24,8 @@ from tests.yleaf_helpers import native_tables as native_tables
 from wgsextract_cli.commands._lineage_ydna import _yleaf_build
 from wgsextract_cli.core.utils import WGSExtractError
 
-pytestmark = needs_htslib
+# Haplogrep's trees are downloaded; serve a tiny one instead.
+pytestmark = [needs_htslib, pytest.mark.usefixtures("mini_tree")]
 
 _HAPLOGREP = '"SampleID"\t"Range"\t"Haplogroup"\t"Rank"\t"Quality"\n'
 
@@ -60,6 +64,8 @@ def _haplogrep(
     return _fake_tool(
         tmp_path / "haplogrep.py",
         f"""\
+        if not argv:
+            sys.exit(print("Haplogrep 3 3.2.2"))
         given = argv[argv.index("--in") + 1]
         with gzip.open(given, "rt") as f:
             contigs = [l for l in f if l.startswith("##contig")]
@@ -165,7 +171,7 @@ def test_mitochondrial_tree_links_are_opt_in(tmp_path, capsys):
     _print_haplogrep_result(str(output), None, tree_links=True)
     text = capsys.readouterr().out
     assert "https://www.yfull.com/mtree/H1c/" in text
-    assert "FTDNA mtDNA: https://www.familytreedna.com/public/mt-dna-haplotree" in text
+    assert "https://discover.familytreedna.com/mtdna/H1c/tree" in text
 
 
 def test_y_haplogroup_uses_the_vcf_build(tmp_path, monkeypatch):
@@ -432,7 +438,8 @@ def test_mt_haplogroup_from_vcf_hands_haplogrep_only_mtdna(tmp_path, capsys, mt)
         *(["--tree-links"] if mt == "chrM" else []),
     )  # fmt: skip
     (call,) = _calls(tmp_path)
-    assert call["argv"][:3] == ["classify", "--format", "vcf"]
+    # contract: the pinned default tree, named as Haplogrep's id@version.
+    assert call["argv"][call["argv"].index("--tree") + 1] == "phylotree-fu-rcrs@1.0"
     assert call["records"] == [[mt, "73", "A", "G", "1"], [mt, "263", "A", "G", "1"]]
     assert sorted(p.name for p in (tmp_path / "o").iterdir()) == [
         "haplogrep_results.txt"
@@ -440,7 +447,7 @@ def test_mt_haplogroup_from_vcf_hands_haplogrep_only_mtdna(tmp_path, capsys, mt)
     out = capsys.readouterr().out
     assert "Haplogroup      : H1c" in out and "Quality         : 0.93" in out
     assert ("https://www.yfull.com/mtree/H1c/" in out) is (mt == "chrM")
-    assert ("https://www.familytreedna.com/public/mt-dna-haplotree" in out) is (
+    assert ("https://discover.familytreedna.com/mtdna/H1c/tree" in out) is (
         mt == "chrM"
     )
 
@@ -542,3 +549,107 @@ def test_mt_haplogroup_calling_failure_stops_before_haplogrep(tmp_path):
             "--haplogrep-path", _haplogrep(tmp_path),
         )  # fmt: skip
     assert not (tmp_path / "calls.jsonl").exists()
+
+
+# --- Haplogrep 3 and haplocheck (#361) ---------------------------------------
+
+needs_haplogrep3 = needs_tools("haplogrep3", "java")
+
+
+def _mt_vcf(path: Path, body: str, af: bool = False) -> str:
+    meta = '##FORMAT=<ID=AF,Number=1,Type=Float,Description="level">\n' if af else ""
+    return _vcf(path, {"chrM": 16_569}, body, meta)
+
+
+def _classify(vcf: str, outdir: Path, **params):
+    from wgsextract_cli import api
+
+    return api.lineage.mt_haplogroup(
+        api.MtHaplogroupParams(input=Path(vcf), outdir=outdir, **params)
+    )
+
+
+@needs_haplogrep3
+def test_haplogrep3_classifies_with_the_chosen_tree(tmp_path, mini_tree):
+    vcf = _mt_vcf(tmp_path / "kit.vcf.gz", mini_tree.vcf_body([100, 200, 300]))
+    for tree in (None, "mitotree-rcrs"):
+        result = _classify(vcf, tmp_path / str(tree), tree=tree)
+        assert result.metrics["haplogroup"] == "A1"
+        assert result.details["tree"]["id"] == (tree or "phylotree-fu-rcrs")
+        assert result.details["haplogrep_version"] == "3.2.2"
+    _classify(vcf, tmp_path / "again")
+    assert len(mini_tree.downloads) == 2  # each tree once, then reused
+
+
+def test_mt_haplogroup_refuses_haplogrep_2(tmp_path):
+    """#361: Haplogrep 2 takes other arguments and an older tree."""
+    old = _fake_tool(tmp_path / "haplogrep.py", 'print("HaploGrep 2.4.0")\n')
+    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
+    with pytest.raises(WGSExtractError, match="not Haplogrep 3"):
+        run_wgsextract(
+            "lineage", "mt-haplogroup", "--input", vcf, "--haplogrep-path", old,
+        )  # fmt: skip
+
+
+def test_a_modified_tree_is_downloaded_again(tmp_path, mini_tree):
+    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
+    library = tmp_path / "library"
+    library.mkdir()
+    argv = ["lineage", "mt-haplogroup", "--input", vcf, "--ref", str(library)]
+    run_wgsextract(*argv, "--haplogrep-path", _haplogrep(tmp_path))
+    tree_xml = next(library.glob("haplogrep3/trees/phylotree-fu-rcrs/*/tree.xml"))
+    original = tree_xml.read_bytes()
+    tree_xml.write_text("<phylotree/>")
+    run_wgsextract(*argv, "--haplogrep-path", _haplogrep(tmp_path))
+    assert tree_xml.read_bytes() == original
+    assert len(mini_tree.downloads) == 2
+
+
+@needs_haplogrep3
+@needs_tools("haplocheck")
+def test_contamination_check_reports_haplocheck_status(tmp_path, mini_tree):
+    body = "".join(
+        line.replace("\tGT\t1", "\tGT:AF\t1:1.0")
+        for line in mini_tree.vcf_body([100, 200, 300]).splitlines(True)
+    )
+    vcf = _mt_vcf(tmp_path / "kit.vcf.gz", body, af=True)
+    result = _classify(vcf, tmp_path / "o", contamination=True)
+    assert result.metrics["mt_contamination"] == "ND"
+    roles = {Path(o.path).name: o.role for o in result.outputs}
+    assert roles == {
+        "haplogrep_results.txt": "haplogroup_report",
+        "haplocheck_contamination.txt": "contamination_report",
+        "haplocheck_contamination.raw.txt": "contamination_details",
+        "haplocheck_contamination.html": "contamination_html",
+    }
+    written = sorted(p.name for p in (tmp_path / "o").iterdir())
+    assert written == sorted([*roles, "haplogrep_results.txt.manifest.json"])
+
+
+def test_contamination_check_needs_heteroplasmy_levels(tmp_path):
+    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
+    with pytest.raises(WGSExtractError, match="heteroplasmy levels"):
+        run_wgsextract(
+            "lineage", "mt-haplogroup", "--input", vcf, "--contamination",
+            "--haplogrep-path", _haplogrep(tmp_path),
+            "--haplocheck-path", _haplogrep(tmp_path),
+        )  # fmt: skip
+
+
+@needs_haplogrep3
+@needs_tools("haplocheck")
+def test_contamination_check_on_a_bam_calls_heteroplasmies(tmp_path, mini_tree):
+    bam, ref = _mito_bam(tmp_path, 16_569)
+    from wgsextract_cli import api
+
+    result = api.lineage.mt_haplogroup(
+        api.MtHaplogroupParams(
+            input=Path(bam), ref=ref, outdir=tmp_path / "o", contamination=True
+        )
+    )
+    # Too few variants to judge; mutserve called the 12-read homoplasmy at 150.
+    assert result.metrics["mt_contamination"] == "ND"
+    (row,) = csv.DictReader(
+        (tmp_path / "o" / "haplocheck_contamination.raw.txt").open(), delimiter="\t"
+    )
+    assert row["Sample Coverage"] == "12" and row["Overall Homoplasmies"] == "1"

@@ -616,7 +616,7 @@ def test_real_mito_ydna_bam_extract(real_dataset: RealDataset, tmp_path: Path) -
     assert verify_bam(str(_single_file(tmp_path / "y", "*_Y.bam")), allow_empty=True)
 
 
-@pytest.mark.skipif(not check_tool("haplogrep"), reason="haplogrep missing")
+@pytest.mark.skipif(not check_tool("haplogrep3"), reason="haplogrep3 missing")
 def test_real_mt_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
     _run_ok(
         [

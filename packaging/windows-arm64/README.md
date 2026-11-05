@@ -280,11 +280,14 @@ override must have AA64 PE headers; ambient CLASSPATH cannot add unaudited jars.
 Java 17 compilation, known-read statistics, archive and live native Windows
 runtime audits and package qualification pass. Upstream's source uses a
 Java-10+ desktop API despite its Java-8 build setting; this package targets 17.
-Haplogrep 2.4.0 hides 13 foreign native objects/libraries inside `jbwa.zip`.
-The restricted unsigned jar removes that resource; FASTA/JBWA and FASTA-MSA
-requests fail before Java. Original/restricted VCF classification is byte-exact
-locally and natively; native Windows version, application-class, live SDK
-process/module and restricted-package qualification pass.
+Haplogrep 3.2.2 hides 13 foreign native objects/libraries inside `jbwa.zip`
+and 20 snappy-java JNI libraries (none for Windows ARM64); haplocheck 1.3.3
+hides the same 13 JBWA objects, and its bundled mutserve has none. The
+restricted unsigned jars remove those resources; FASTA/JBWA and FASTA-MSA
+requests fail before Java. Original/restricted VCF classification against the
+pinned PhyloTree 17 Forensic Update 1.3 tree, and haplocheck's VCF report, are
+byte-exact locally; the recipes repeat that natively, with native Windows
+version, application-class and live SDK process/module qualification.
 Archive qualification recursively examines nested jars and ZIP resources for
 foreign PE/ELF/Mach-O payloads, not only entries with DLL suffixes.
 

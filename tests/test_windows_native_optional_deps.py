@@ -31,7 +31,7 @@ def _pixi_feature_deps(feature: str, platform: str) -> dict[str, object]:
 def test_pixi_declares_native_windows_optional_tools() -> None:
     assert "gatk4" in _pixi_feature_deps("gatk", "win-64")
     bio_tools = _pixi_feature_deps("bio-tools", "win-64")
-    assert {"fastqc", "haplogrep"} <= set(bio_tools)
+    assert {"fastqc", "haplogrep3", "haplocheck"} <= set(bio_tools)
 
 
 LEGACY_INSTALLER_FLAGS = (

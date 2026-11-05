@@ -334,7 +334,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-64/samblaster-0.1.26-h9948957_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.24-h9dcdb79_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/boost-cpp-1.85.0-h3c6214e_4.conda
@@ -460,7 +461,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samblaster-0.1.26-h163da20_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samtools-1.24-h391949c_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/alsa-lib-1.2.16.1-h5bc82ec_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/boost-cpp-1.85.0-hdad291f_4.conda
@@ -568,7 +570,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       osx-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bcftools-1.24-h17d07ba_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-0.7.19-h7f84b70_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-mem2-2.3-h2ec61ea_0.tar.bz2
@@ -649,7 +652,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bcftools-1.24-h6bd33b9_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-0.7.19-hba9b596_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-mem2-2.3-hda5e58c_0.tar.bz2
@@ -730,7 +734,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       win-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.19-h4c7d964_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-dejavu-sans-mono-2.37-hab24e00_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/platformdirs-4.13.5-pyh5ded981_0.conda
@@ -801,7 +806,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-64/samblaster-0.1.26-h9948957_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.24-h9dcdb79_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/actionlint-1.7.12-h8bc977c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
@@ -1022,7 +1028,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samblaster-0.1.26-h163da20_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samtools-1.24-h391949c_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/actionlint-1.7.12-hddfeb4d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/alsa-lib-1.2.16.1-h5bc82ec_1.conda
@@ -1225,7 +1232,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fe/66/bcab3b677b71ad286b4e607e3427499537c76e13ad2e22584ba7a7d9882c/markdown-3.11.2-py3-none-any.whl
       osx-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bcftools-1.24-h17d07ba_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-0.7.19-h7f84b70_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-mem2-2.3-h2ec61ea_0.tar.bz2
@@ -1401,7 +1409,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fe/66/bcab3b677b71ad286b4e607e3427499537c76e13ad2e22584ba7a7d9882c/markdown-3.11.2-py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bcftools-1.24-h6bd33b9_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-0.7.19-hba9b596_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-mem2-2.3-hda5e58c_0.tar.bz2
@@ -1585,7 +1594,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fe/66/bcab3b677b71ad286b4e607e3427499537c76e13ad2e22584ba7a7d9882c/markdown-3.11.2-py3-none-any.whl
       win-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/attrs-26.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.19-h4c7d964_0.conda
@@ -2997,7 +3007,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-64/samblaster-0.1.26-h9948957_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.24-h9dcdb79_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/noarch/sniffles-2.8.1-pyhdfd78af_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
@@ -3120,7 +3131,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samblaster-0.1.26-h163da20_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samtools-1.24-h391949c_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/alsa-lib-1.2.16.1-h5bc82ec_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/boost-cpp-1.85.0-hdad291f_4.conda
@@ -3224,7 +3236,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       osx-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/noarch/sniffles-2.8.1-pyhdfd78af_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bcftools-1.24-h17d07ba_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-0.7.19-h7f84b70_1.tar.bz2
@@ -3305,7 +3318,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/noarch/sniffles-2.8.1-pyhdfd78af_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bcftools-1.24-h6bd33b9_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-0.7.19-hba9b596_1.tar.bz2
@@ -3386,7 +3400,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       win-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.19-h4c7d964_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-dejavu-sans-mono-2.37-hab24e00_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.13-9_cp313.conda
@@ -3451,7 +3466,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-64/samblaster-0.1.26-h9948957_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.24-h9dcdb79_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-h7cc23a3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/boost-cpp-1.85.0-h3c6214e_4.conda
@@ -3578,7 +3594,8 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samblaster-0.1.26-h163da20_7.conda
       - conda: https://conda.anaconda.org/bioconda/linux-aarch64/samtools-1.24-h391949c_1.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/alsa-lib-1.2.16.1-h5bc82ec_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/boost-cpp-1.85.0-hdad291f_4.conda
@@ -3687,7 +3704,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       osx-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bcftools-1.24-h17d07ba_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-0.7.19-h7f84b70_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-mem2-2.3-h2ec61ea_0.tar.bz2
@@ -3769,7 +3787,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bcftools-1.24-h6bd33b9_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-0.7.19-hba9b596_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-mem2-2.3-hda5e58c_0.tar.bz2
@@ -3851,7 +3870,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c7/18/c86eb8e0202e32dd3df50d43d7ff9854f8e0603945ff398974c1d91ac1ef/tomli_w-1.2.0-py3-none-any.whl
       win-64:
       - conda: https://conda.anaconda.org/bioconda/noarch/fastqc-0.13.0-hdfd78af_0.conda
-      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.19-h4c7d964_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-dejavu-sans-mono-2.37-hab24e00_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/platformdirs-4.13.5-pyh5ded981_0.conda
@@ -7649,16 +7669,29 @@ packages:
     - gatk4 >=4.6.2.0,<5.0a0
   size: 392185756
   timestamp: 1759164916358
-- conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
-  sha256: de7de40c5d9fb6dc96fd903502b82faf71f7bcd100c831633b71bee5d4367113
-  md5: 06e16c45a21e2df78388088886ec6628
+- conda: https://conda.anaconda.org/bioconda/noarch/haplocheck-1.3.3-h2a3209d_2.tar.bz2
+  sha256: 5147bc35a263f8d31ec3d5bfd26c4c90206f7008befcc9f8c7d6eba1708eb543
+  md5: 6cd5a7f5c4c281fe4452c2ebc5161532
   depends:
-  - openjdk
+  - openjdk >=8
   license: MIT
   purls: []
   run_exports: {}
-  size: 7762398
-  timestamp: 1651347961778
+  size: 15878272
+  timestamp: 1684217257925
+- conda: https://conda.anaconda.org/bioconda/noarch/haplogrep3-3.2.2-hdfd78af_1.tar.bz2
+  sha256: 99342c8e774297b2cdb4308cc9a550a93a00209f8c9d03d1e3d6c4c50e5ee93c
+  md5: 2c7e1f50728847a7ed6de8c880b32dcf
+  depends:
+  - openjdk >=11
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - haplogrep3 >=3.2.2,<4.0a0
+  size: 45028776
+  timestamp: 1753927966525
 - conda: https://conda.anaconda.org/bioconda/noarch/perl-bio-asn1-entrezgene-1.73-pl5321hdfd78af_3.tar.bz2
   sha256: 5c31d23f0d647615a08890bc3e05de1561aa16b7c41320c63e01fee4b62a8350
   md5: 1fa1e8f39aad93a6dc5a07b5bbb0d648

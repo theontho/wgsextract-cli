@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 IMAGE_FILE_MACHINE_ARM64 = 0xAA64
+# Haplogrep 3 and haplocheck align FASTA input with JBWA's foreign JNI kernels.
+FASTA_SUFFIXES = (".fasta", ".fa", ".fas", ".fasta.gz", ".fa.gz")
 
 
 def windows_native_machine() -> int | None:
@@ -88,20 +90,17 @@ def assert_native_windows_command(command: list[str]) -> None:
     if not command or windows_native_machine() != IMAGE_FILE_MACHINE_ARM64:
         return
     assert_native_windows_python()
-    if any(
-        argument.replace("\\", "/").rsplit("/", 1)[-1].lower() == "haplogrep.jar"
-        for argument in command
-    ) and (
-        any(argument.lower() == "--format=fasta" for argument in command)
-        or any(
-            first == "--format" and second.lower() == "fasta"
-            for first, second in zip(command, command[1:], strict=False)
-        )
-        or any(argument.startswith("--write-fasta-msa") for argument in command)
+    names = [
+        argument.replace("\\", "/").rsplit("/", 1)[-1].lower() for argument in command
+    ]
+    if any(name in ("haplogrep3.jar", "haplocheck.jar") for name in names) and any(
+        name.endswith(FASTA_SUFFIXES) or name.startswith("--write-fasta")
+        for name in names
     ):
         raise ValueError(
-            "Haplogrep FASTA alignment is not supported on native Windows ARM64: "
-            "the bundled JBWA JNI kernels are not qualified. Use VCF or HSD input."
+            "Haplogrep and haplocheck FASTA input is not supported on native "
+            "Windows ARM64: the bundled JBWA JNI kernels are not qualified. Use "
+            "VCF input."
         )
     name = command[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     if name.removesuffix(".exe") in ("wsl", "wslhost", "bash", "sh", "docker"):

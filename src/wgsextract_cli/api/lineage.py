@@ -1,4 +1,4 @@
-"""``lineage``: mtDNA haplogroups (Haplogrep), Y haplogroups (native Yleaf)
+"""``lineage``: mtDNA haplogroups (Haplogrep 3), Y haplogroups (native Yleaf)
 and Y-STR repeat counts."""
 
 from __future__ import annotations
@@ -7,13 +7,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core.haplogrep_trees import DEFAULT_TREE, TREE_IDS
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.results import CommandResult
 from wgsextract_cli.ydna.ystr.panel import PANELS
 
 from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
-from ._shared import depth_param, input_param, outdir_param, ref_param
+from ._shared import (
+    depth_param,
+    input_param,
+    outdir_param,
+    ref_param,
+    threads_param,
+)
 
 _REQUIRED = LOG_MESSAGES["input_required"]
 BUILDS = ("hg19", "hg38", "t2t")
@@ -30,19 +37,43 @@ def _build_param() -> Any:
 
 @dataclass(frozen=True, kw_only=True)
 class MtHaplogroupParams(Params):
-    """Predict the mtDNA haplogroup with Haplogrep from a BAM/CRAM (chrM is
+    """Predict the mtDNA haplogroup with Haplogrep 3 from a BAM/CRAM (chrM is
     called first; needs the reference) or a VCF. The report is
-    ``haplogrep_results.txt`` in the output folder."""
+    ``haplogrep_results.txt`` in the output folder. The chosen tree is
+    downloaded once into the reference library. With ``contamination``,
+    haplocheck also checks the mtDNA for a mixture of two haplogroups and writes
+    ``haplocheck_contamination.txt``."""
 
     COMMAND = "lineage mt-haplogroup"
 
     input: Path = input_param("BAM, CRAM or VCF with chrM/MT.", _REQUIRED)
     ref: Path | None = ref_param()
     outdir: Path | None = outdir_param()
+    tree: str | None = param(
+        None,
+        help=f"Haplogrep 3 tree (default: config haplogrep_tree, else {DEFAULT_TREE}"
+        ", PhyloTree 17 Forensic Update). phylotree-rcrs is PhyloTree 17; "
+        "mitotree-rcrs is FamilyTreeDNA Mitotree (non-commercial use only).",
+        choices=TREE_IDS,
+        config_key="haplogrep_tree",
+    )
+    contamination: bool = param(
+        False,
+        help="Also check for mtDNA contamination with haplocheck. VCF input needs "
+        "heteroplasmy levels (FORMAT/AF).",
+        action="store_true",
+    )
+    threads: int | None = threads_param()
     haplogrep_path: str | None = param(
         None,
-        help="Path to haplogrep executable or JAR (optional if in PATH)",
+        help="Path to the Haplogrep 3 executable or JAR (optional if in PATH)",
         config_key="haplogrep_executable",
+        local_only=True,
+    )
+    haplocheck_path: str | None = param(
+        None,
+        help="Path to the haplocheck executable or JAR (optional if in PATH)",
+        config_key="haplocheck_executable",
         local_only=True,
     )
     qc_min_depth: float | None = depth_param()
@@ -127,7 +158,10 @@ def mt_haplogroup(
     check: bool = True,
 ) -> CommandResult:
     """mtDNA haplogroup; ``metrics`` holds ``haplogroup`` and
-    ``haplogroup_quality``, ``details["haplogrep"]`` the full Haplogrep row."""
+    ``haplogroup_quality`` (plus ``mt_contamination`` and
+    ``mt_contamination_level`` with ``contamination``). ``details`` holds the
+    full Haplogrep row (``haplogrep``), ``haplogrep_version``, the ``tree``
+    (id, version, name) and the haplocheck row (``haplocheck``)."""
     from wgsextract_cli.commands.lineage import run_mt_haplogroup
 
     return execute(

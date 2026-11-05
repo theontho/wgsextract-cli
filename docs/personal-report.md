@@ -92,7 +92,7 @@ reason codes. The JSON document explains each code in `confidence_reasons`.
   `confidence_high_depth` settings (`low` below the minimum, `moderate`
   below the high threshold, `high` above it).
 - **Haplogroups**: the caller's quality score (Yleaf QC-score, Haplogrep
-  quality): `high` from 0.9, `moderate` from 0.7, `low` below 0.7. A run that
+  3 quality): `high` from 0.9, `moderate` from 0.7, `low` below 0.7. A run that
   warned of low coverage is `low`.
 
 ## Evidence and privacy

@@ -184,6 +184,8 @@ def _version_output(stdout: str, stderr: str) -> str:
 
 # Tools whose version isn't printed by --version (bwa-mem2 prints its usage).
 VERSION_ARGS = {"bwa-mem2": "version"}
+# Tools whose banner names them differently ("Haplogrep 3 3.2.2").
+VERSION_BANNER_NAMES = {"haplogrep3": "haplogrep 3 "}
 
 
 def get_tool_version(tool: str) -> str | None:
@@ -271,7 +273,8 @@ def _probe_version(tool: str, full_cmd: list[str]) -> str:
             line_l = line.lower()
             if "version:" in line_l:
                 return line.strip()
-            if tool.lower() in line_l and any(c.isdigit() for c in line):
+            name = VERSION_BANNER_NAMES.get(tool, tool.lower())
+            if name in line_l and any(c.isdigit() for c in line):
                 if len(line.strip()) < 50:
                     return line.strip()
 

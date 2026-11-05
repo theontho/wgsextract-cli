@@ -43,7 +43,8 @@ left out of its key. You can therefore resume with a different `--threads`.
 A step's inputs include the data it reads, not just the sample: the
 reference FASTA, region BED files, DeepVariant checkpoint files and
 installed annotation data (a new ClinVar or gnomAD release reruns
-`annotate`). Tool versions include Haplogrep for `mt-haplogroup` and, for
+`annotate`). Tool versions include Haplogrep 3 (and haplocheck with `--contamination`)
+for `mt-haplogroup` and, for
 DeepVariant in Docker, the image's ID, so replacing an image under the same
 tag reruns every stage.
 

@@ -161,10 +161,10 @@ class TestToolResolution(unittest.TestCase):
                 rf"{PIXI_EXE} run --no-install -e default python C:\repo\.pixi\envs\default\opt\fastqc-0.13.0\fastqc",
             )
 
-    def test_windows_launches_haplogrep_jar(self):
+    def test_windows_launches_haplogrep3_jar(self):
         completed = MagicMock(
             returncode=0,
-            stdout=r"haplogrep:C:\repo\.pixi\envs\default\bin\haplogrep.jar" + "\n",
+            stdout=r"jar:C:\repo\.pixi\envs\default\bin\haplogrep3.jar" + "\n",
         )
         with (
             patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True),
@@ -178,9 +178,9 @@ class TestToolResolution(unittest.TestCase):
             ),
         ):
             self.assertEqual(
-                dependencies.get_tool_path("haplogrep"),
+                dependencies.get_tool_path("haplogrep3"),
                 f"{PIXI_EXE} run --no-install -e default {' '.join(JAVA_JAR)} "
-                r"C:\repo\.pixi\envs\default\bin\haplogrep.jar",
+                r"C:\repo\.pixi\envs\default\bin\haplogrep3.jar",
             )
 
     def test_resolve_pixi_command_checks_windows_exe_fallback(self):
