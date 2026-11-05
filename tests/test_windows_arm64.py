@@ -9,9 +9,14 @@ from unittest.mock import Mock
 
 import pytest
 
+from tests.fake_tools import FakePixi, python_tool
 from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.core import dependency_checks, pixi_tools, utils, windows_arm64
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import ToolLaunchError, WGSExtractError
+
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="the stand-in environment needs POSIX shebangs"
+)
 
 
 @pytest.mark.skipif(
@@ -53,15 +58,12 @@ def test_arm64_callers_fail_before_input_or_tool_resolution(
 ) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
-    resolve = Mock(side_effect=AssertionError("must not resolve a tool"))
-    monkeypatch.setattr(dependency_checks, "get_tool_path", resolve)
-    monkeypatch.setattr(dependency_checks, "check_dependencies", resolve)
+    # Looking the tool up on a simulated Windows fails some other way.
     with pytest.raises(WGSExtractError, match="native Windows ARM64"):
         verify_platform_support(argparse.Namespace(command="vcf", vcf_cmd=tool))
     with pytest.raises(WGSExtractError, match="native Windows ARM64"):
         dependency_checks.verify_dependencies([tool])
     assert "native Windows ARM64" in str(dependency_checks.get_tool_version(tool))
-    resolve.assert_not_called()
 
 
 def test_arm64_rejects_gatk_java_dispatch_before_process_start(
@@ -70,7 +72,7 @@ def test_arm64_rejects_gatk_java_dispatch_before_process_start(
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     with pytest.raises(WGSExtractError, match="pinned GKL"):
-        utils._normalize_subprocess_cmd(
+        utils.run_command(
             [
                 Path(sys.executable),
                 "-cp",
@@ -82,12 +84,10 @@ def test_arm64_rejects_gatk_java_dispatch_before_process_start(
 
 @pytest.mark.parametrize("category", ["mandatory", "optional"])
 def test_arm64_dependency_report_explains_unsupported_tools_without_install_hint(
-    category: str, monkeypatch: pytest.MonkeyPatch
+    category: str, monkeypatch: pytest.MonkeyPatch, fake_pixi: FakePixi
 ) -> None:
+    """Neither tool is installed, and installing an x64 environment is no fix."""
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
-    monkeypatch.setattr(dependency_checks, "get_tool_path", lambda tool: None)
-    install = Mock(side_effect=AssertionError("must not suggest an x64 environment"))
-    monkeypatch.setattr(dependency_checks, "pixi_install_command", install)
     arguments: dict[str, list[str]] = {"mandatory": [], "optional": []}
     arguments[category] = ["gatk", "run_deepvariant"]
     results = dependency_checks.check_all_dependencies(**arguments)
@@ -95,7 +95,7 @@ def test_arm64_dependency_report_explains_unsupported_tools_without_install_hint
     assert len(reports) == 2
     assert all("native Windows ARM64" in row["version"] for row in reports)
     assert all(row["path"] is None for row in reports)
-    install.assert_not_called()
+    assert not any("Run:" in row["version"] for row in reports)
 
 
 @pytest.mark.parametrize("machine", [0x8664, None])
@@ -141,6 +141,13 @@ def test_simulated_windows_does_not_infer_os_architecture_from_an_arm_host(
     host.name = "nt"
     with pytest.raises(OSError, match="architecture query is unavailable"):
         windows_arm64.windows_native_machine()
+
+
+def _launches(command: list[object]) -> None:
+    """``command`` passes the ARM64 checks: the OS is asked to start it (and
+    can't, as the stand-in executables are only PE headers)."""
+    with pytest.raises(ToolLaunchError, match="Could not start"):
+        utils.run_command(command)
 
 
 def _write_pe(path: Path, machine: int) -> None:
@@ -192,9 +199,9 @@ def test_arm64_runtime_rejects_configured_x64_binary_before_launch(
     binary = tmp_path / "bwa.exe"
     _write_pe(binary, 0x8664)
     with pytest.raises(WGSExtractError, match="native ARM64 requires"):
-        utils._normalize_subprocess_cmd([binary, "mem"])
+        utils.run_command([binary, "mem"])
     _write_pe(binary, 0xAA64)
-    assert utils._normalize_subprocess_cmd([binary, "mem"]) == [str(binary), "mem"]
+    _launches([binary, "mem"])
 
 
 @pytest.mark.parametrize("wrapper", ["wsl.exe", "bash.exe", "docker.exe"])
@@ -212,11 +219,10 @@ def test_arm64_version_probe_does_not_launch_x64_binary(
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     binary = tmp_path / "bwa.exe"
     _write_pe(binary, 0x8664)
+    # A Windows PATH lookup can't be simulated on POSIX; launching the x64
+    # stand-in there would fail as "exec format error" instead.
     monkeypatch.setattr(dependency_checks, "get_tool_path", lambda _: str(binary))
-    launch = Mock(side_effect=AssertionError("must not launch x64 executable"))
-    monkeypatch.setattr(subprocess, "run", launch)
     assert "native ARM64 requires" in str(dependency_checks.get_tool_version("bwa"))
-    launch.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -233,14 +239,10 @@ def test_arm64_haplogrep_rejects_foreign_jbwa_before_java(
     _write_pe(java, 0xAA64)
     command = [str(java), "-jar", "haplogrep3.jar", "classify"]
     with pytest.raises(WGSExtractError, match="JBWA JNI kernels are not qualified"):
-        utils._normalize_subprocess_cmd([*command, *arguments])
-    allowed = [*command, "--in", "s.vcf.gz"]
-    assert utils._normalize_subprocess_cmd(allowed) == allowed
+        utils.run_command([*command, *arguments])
+    _launches([*command, "--in", "s.vcf.gz"])
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
-    assert utils._normalize_subprocess_cmd([*command, *arguments]) == [
-        *command,
-        *arguments,
-    ]
+    _launches([*command, *arguments])
 
 
 def test_arm64_features_reject_prism_python_before_input_processing(
@@ -255,18 +257,27 @@ def test_arm64_features_reject_prism_python_before_input_processing(
         verify_platform_support(argparse.Namespace(command="info"))
 
 
-def test_arm64_discovery_and_wrappers_do_not_start_foreign_environments(
+@posix_only
+@pytest.mark.parametrize(("machine", "found"), [(0x8664, True), (0xAA64, False)])
+def test_arm64_discovery_does_not_start_foreign_environments(
+    machine: int, found: bool, monkeypatch: pytest.MonkeyPatch, fake_pixi: FakePixi
+) -> None:
+    """Finding a tool in another Pixi environment runs that environment's
+    Python; on ARM64 that would be an emulated x64 one."""
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: machine)
+    prefix = fake_pixi.env("multiqc")
+    python_tool(prefix / "bin", "multiqc", 'print("multiqc 1.25")')
+    assert (pixi_tools.pixi_env_tool("multiqc") is not None) is found
+
+
+def test_arm64_rejects_cross_environment_pixi_wrappers(
     monkeypatch: pytest.MonkeyPatch, _native_arm64_python: None
 ) -> None:
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
-    launch = Mock(side_effect=AssertionError("must not probe foreign Python"))
-    monkeypatch.setattr(subprocess, "run", launch)
-    assert pixi_tools._probe_environment_with_pixi("pixi", "bio-tools", ["bwa"]) is None
     with pytest.raises(ValueError, match="cross-environment Pixi wrappers"):
         windows_arm64.assert_native_windows_command(
             ["pixi", "run", "-e", "bio-tools", "bwa"]
         )
-    launch.assert_not_called()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows installer")

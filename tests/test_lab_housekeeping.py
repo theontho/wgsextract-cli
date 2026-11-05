@@ -3,33 +3,47 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 import pytest
 
+from tests.fake_tools import python_tool
+
 LAB_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "installlab"
 DAY = 86400
+GIT = shutil.which("git")
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="the lab runs `ps` by name"
+)
 
 
 @pytest.fixture
 def hk(tmp_path, monkeypatch):
-    spec = importlib.util.spec_from_file_location(
-        "housekeeping", LAB_SCRIPTS / "housekeeping.py"
-    )
+    """housekeeping.py as run from a checkout in tmp_path, so its lab is that
+    checkout's out/installlab, on a host with none of the tools it manages
+    (Tart, Docker, Pixi, Homebrew) and no running QEMU: only `bin` is on PATH,
+    and its `ps` lists ``bin/ps.txt``."""
+    script = tmp_path / "repo" / "scripts" / "installlab" / "housekeeping.py"
+    script.parent.mkdir(parents=True)
+    shutil.copy(LAB_SCRIPTS / "housekeeping.py", script)
+    if GIT:  # its own repository, even where tmp_path is inside another
+        subprocess.run([GIT, "init", "-q", str(script.parents[2])], check=True)
+    spec = importlib.util.spec_from_file_location("housekeeping", script)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, "housekeeping", module)
     spec.loader.exec_module(module)
-    lab = tmp_path / "out" / "installlab"
-    monkeypatch.setattr(module, "LAB", lab)
-    monkeypatch.setattr(module, "WIN_DIRS", (lab / "windows", lab / "windows-x64"))
-    module.WIN = lab / "windows"  # the ARM64 images, which most tests use
-    monkeypatch.setattr(module, "LEDGER", lab / "last-used.json")
-    # No Tart, Docker, Pixi or Homebrew: only the files under out/installlab.
-    monkeypatch.setattr(module, "_tool", lambda name: None)
-    monkeypatch.setattr(module, "_qemu_command_lines", lambda: "")
-    monkeypatch.setattr(module.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    assert module.LAB == tmp_path / "repo" / "out" / "installlab"
+    module.WIN = module.WIN_DIRS[0]  # the ARM64 images, which most tests use
+    bindir = tmp_path / "bin"
+    python_tool(bindir, "ps", f"print(open({str(bindir / 'ps.txt')!r}).read())")
+    (bindir / "ps.txt").write_text("")
+    module.ps_lines = bindir / "ps.txt"
+    monkeypatch.setenv("PATH", str(bindir))
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
     return module
 
 
@@ -84,19 +98,21 @@ def test_base_outlives_the_gui_base_built_on_it(hk):
     assert base.exists() and gui_base.exists()
 
 
-def test_leftovers_of_killed_runs_go_unless_still_running(hk, monkeypatch):
+@posix_only
+def test_leftovers_of_killed_runs_go_unless_still_running(hk):
     dead = make(hk.WIN / "runs" / "wgse-lab-dead0001", 0.1)
     live = make(hk.WIN / "runs" / "wgse-lab-live0001", 0.1)
     young = make(hk.WIN / "runs" / "wgse-lab-young001", 0.01)
-    qmp = make(hk.tempfile.gettempdir() / Path("wgse-qmp-abc"), 0.1)
-    monkeypatch.setattr(
-        hk, "_qemu_command_lines", lambda: f"qemu -drive file={live}/disk.qcow2"
+    qmp = make(Path(tempfile.gettempdir()) / "wgse-qmp-abc", 0.1)
+    live_qmp = make(Path(tempfile.gettempdir()) / "wgse-qmp-live", 0.1)
+    hk.ps_lines.write_text(
+        f"qemu -drive file={live}/disk.qcow2 -qmp unix:{live_qmp},server\n"
     )
 
     hk.collect_garbage(verbose=False)
 
     assert not dead.exists() and not qmp.exists()
-    assert live.exists() and young.exists()
+    assert live.exists() and young.exists() and live_qmp.exists()
 
 
 def test_downloads_expire_sooner_than_images(hk):
@@ -129,11 +145,12 @@ def test_dry_run_removes_nothing(hk, capsys):
     assert "would remove" in capsys.readouterr().out
 
 
-@pytest.mark.skipif(not shutil.which("git"), reason="git not installed")
-def test_worktrees_share_the_main_checkouts_lab(hk, tmp_path):
+@pytest.mark.skipif(not GIT, reason="git not installed")
+def test_worktrees_share_the_main_checkouts_lab(hk, tmp_path, monkeypatch):
     # A linked worktree's out/ goes with the worktree; base images must not.
+    monkeypatch.setenv("PATH", os.path.dirname(GIT))
     main = tmp_path / "main"
-    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    git = [GIT, "-c", "user.name=t", "-c", "user.email=t@t"]
     subprocess.run([*git, "init", "-q", str(main)], check=True)
     subprocess.run([*git, "-C", str(main), "commit", "-q", "--allow-empty", "-m", "x"],
                    check=True)  # fmt: skip

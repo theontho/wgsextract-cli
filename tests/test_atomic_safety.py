@@ -1,17 +1,22 @@
 import json
 import os
 import platform
+import shutil
 import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
+import psutil
 import pytest
 
-from tests.htslib_helpers import needs_tools
+from tests.fake_tools import python_tool, require_bare_name_fakes
+from tests.htslib_helpers import bgzip_index, needs_tools, sam_to_bam
 from wgsextract_cli.core import bwa_index, config
 from wgsextract_cli.core.atomic_output import atomic_output
+from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.file_lock import build_lock
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.main import main
@@ -54,36 +59,29 @@ def test_atomic_mode_still_cleans_partial_outputs_from_direct_writers(tmp_path):
     assert not output.exists() and not temporary.exists()
 
 
-@pytest.mark.parametrize(
-    ("command", "explicit"), [("align", "r1"), ("vcf", "vcf_input")]
-)
+@needs_tools("samtools", "bcftools")
+@pytest.mark.parametrize("command", ["to-ubam", "table"])
 def test_alternative_input_does_not_validate_unmounted_configured_bam(
-    tmp_path, monkeypatch, command, explicit
+    tmp_path, command
 ):
-    from argparse import Namespace
-
-    from wgsextract_cli.cli import dispatch
-    from wgsextract_cli.core import alignment_input
-
-    called = []
-    args = Namespace(
-        command=command,
-        input=str(tmp_path / "unmounted" / "default.bam"),
-        outdir=None,
-        debug=False,
-        atomic_output=False,
-        keep_awake=False,
-        func=lambda parsed: called.append(parsed),
-    )
-    monkeypatch.setattr(dispatch, "verify_platform_support", lambda parsed: None)
-    monkeypatch.setattr(dispatch, "apply_genome_selection", lambda *args: None)
-    monkeypatch.setattr(
-        alignment_input,
-        "validate_alignment_input",
-        lambda path: pytest.fail("unused configured input was validated"),
-    )
-    dispatch.dispatch_command(args, {explicit})
-    assert called == [args]
+    config_file = tmp_path / "config.toml"
+    unmounted = (tmp_path / "unmounted" / "default.bam").as_posix()
+    config_file.write_text(f'input_path = "{unmounted}"\n')
+    outdir = tmp_path / "out"
+    if command == "to-ubam":
+        reads = tmp_path / "reads.fq"
+        reads.write_text("@r1\nACGTACGT\n+\nIIIIIIII\n")
+        argv = ["bam", "to-ubam", "--r1", str(reads), "--sample", "S"]
+    else:
+        vcf = tmp_path / "calls.vcf"
+        vcf.write_text(
+            "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100>\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            "chr1\t5\t.\tA\tG\t50\tPASS\t.\n"
+        )
+        argv = ["vcf", "table", "--vcf-input", bgzip_index(vcf)]
+    main([*argv, "--outdir", str(outdir), "--config", str(config_file)])
+    assert any(outdir.iterdir())
 
 
 def test_publication_failure_restores_the_previous_index(tmp_path, monkeypatch):
@@ -162,35 +160,50 @@ def test_atomic_special_alignment_failure_preserves_the_existing_bam(
     assert set(tmp_path.iterdir()) == {output}
 
 
+_INTERRUPTED_FASTQ = """\
+import os, sys
+
+args = sys.argv[1:]
+if args[:1] == ["fastq"]:
+    for flag in ("-1", "-2", "-s", "-0"):
+        if flag in args:
+            open(args[args.index(flag) + 1], "wb").write(b"partial FASTQs")
+    sys.exit("samtools fastq interrupted")
+os.execv({real!r}, [{real!r}, *args])
+"""
+
+
+@needs_tools("samtools")
 def test_atomic_singleton_extraction_failure_preserves_previous_fastqs(
     tmp_path, monkeypatch
 ):
-    from wgsextract_cli.commands import _extract_helpers
-    from wgsextract_cli.core.atomic_output import atomic_output_mode
-
-    paths = [tmp_path / name for name in ("r1.fq.gz", "r2.fq.gz", "single.fq.gz")]
-    for path in paths:
+    reads = [f"u{i}\t{flag}\t*\t0\t0\t*\t*\t0\t0\tACGTACGT\tIIIIIIII"
+             for i, flag in ((1, 77), (1, 141), (2, 4))]  # fmt: skip
+    bam = sam_to_bam(["@HD\tVN:1.6\tSO:unsorted", *reads], tmp_path / "in.bam")
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    previous = [
+        outdir / f"in_unmapped_{tag}.fastq.gz"
+        for tag in ("R1", "R2", "SE", "singletons")
+    ]
+    for path in previous:
         path.write_bytes(b"previous FASTQs")
-
-    def interrupted(stages, **kwargs):
-        command = stages[-1]
-        for flag in ("-1", "-2", "-s"):
-            Path(command[command.index(flag) + 1]).write_bytes(b"partial FASTQs")
-        raise RuntimeError("interrupted extraction")
-
-    monkeypatch.setattr(_extract_helpers, "run_pipeline", interrupted)
-    with atomic_output_mode(True), pytest.raises(RuntimeError):
-        _extract_helpers.alignments_to_fastq(
-            "input.bam",
-            paths[0],
-            paths[1],
-            threads="1",
-            memory="1M",
-            temp_parent=tmp_path,
-            out_singletons=paths[2],
-        )
-    assert all(path.read_bytes() == b"previous FASTQs" for path in paths)
-    assert set(tmp_path.iterdir()) == set(paths)
+    require_bare_name_fakes()
+    real = shutil.which("samtools")
+    assert real
+    python_tool(tmp_path / "bin", "samtools", _INTERRUPTED_FASTQ.format(real=real))
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    clear_tool_caches()
+    with pytest.raises(SystemExit) as error:
+        main(["extract", "unmapped", "--input", bam, "--fastq", "--atomic-output",
+              "--outdir", str(outdir), "--config", str(tmp_path / "config.toml")])  # fmt: skip
+    assert error.value.code != 0
+    assert all(path.read_bytes() == b"previous FASTQs" for path in previous)
+    assert {p.name for p in outdir.iterdir()} == {
+        "in_unmapped.bam",
+        "in_unmapped.bam.manifest.json",
+        *(p.name for p in previous),
+    }
 
 
 def test_live_builder_is_not_evicted_by_a_wait_timeout(tmp_path):
@@ -211,73 +224,54 @@ def test_dead_builder_lock_is_reclaimed(tmp_path):
     assert not lock.exists()
 
 
-def test_concurrent_stale_lock_reclaimers_never_evict_a_new_owner(
-    tmp_path, monkeypatch
-):
-    from wgsextract_cli.core import file_lock
+def test_concurrent_stale_lock_reclaimers_never_evict_a_new_owner(tmp_path):
+    from wgsextract_cli.core.file_lock import exclusive_lock
 
     lock = tmp_path / "index.lock"
     lock.write_text(
         json.dumps({"pid": 2147483647, "created": 0, "host": socket.gethostname()})
     )
-    stale = threading.Barrier(2)
-    first_stale_read = threading.Event()
-    first_entered = threading.Event()
-    second_entered = threading.Event()
-    abandoned = file_lock._abandoned
-    unlink = Path.unlink
-    active = 0
-    overlaps = []
+    owner = json.dumps(
+        {
+            "pid": os.getpid(),
+            "created": psutil.Process().create_time(),
+            "host": socket.gethostname(),
+        }
+    )
     errors = []
 
-    def simultaneous_stale_read(path, timeout):
-        result = abandoned(path, timeout)
-        if result:
-            if threading.current_thread().name == "first":
-                first_stale_read.set()
-            try:
-                stale.wait(0.1)
-            except threading.BrokenBarrierError:
-                pass
-        return result
-
-    def delayed_unlink(path, **kwargs):
-        if path == lock and threading.current_thread().name == "second":
-            assert first_entered.wait(2)
-        return unlink(path, **kwargs)
-
-    def builder():
-        nonlocal active
+    def second_reclaimer():
         try:
-            with build_lock(str(lock), timeout=2):
-                active += 1
-                overlaps.append(active)
-                if threading.current_thread().name == "first":
-                    first_entered.set()
-                    second_entered.wait(0.2)
-                else:
-                    second_entered.set()
-                active -= 1
-        except BaseException as error:
+            with build_lock(str(lock), timeout=1):
+                pass
+        except WGSExtractError as error:
             errors.append(error)
 
-    monkeypatch.setattr(file_lock, "_abandoned", simultaneous_stale_read)
-    monkeypatch.setattr(Path, "unlink", delayed_unlink)
-    threads = [
-        threading.Thread(target=builder, name=name) for name in ("first", "second")
-    ]
-    threads[0].start()
-    assert first_stale_read.wait(2)
-    threads[1].start()
-    for thread in threads:
-        thread.join(5)
-    assert all(not thread.is_alive() for thread in threads)
-    assert not errors
-    assert overlaps == [1, 1]
+    # The first reclaimer replaces the dead owner's record while holding the
+    # lock; the second, arriving meanwhile, must see the new owner.
+    with exclusive_lock(lock):
+        second = threading.Thread(target=second_reclaimer)
+        second.start()
+        time.sleep(0.2)
+        lock.write_text(owner)
+    second.join(5)
+    assert not second.is_alive()
+    assert len(errors) == 1 and "Timed out" in str(errors[0])
+    assert lock.read_text() == owner
+
+
+_INTERRUPTED_BWA = """\
+import sys
+
+open(sys.argv[sys.argv.index("-p") + 1] + ".bwt", "w").write("partial staged index")
+sys.exit("bwa index interrupted")
+"""
 
 
 @needs_tools("bwa")
-def test_interrupted_bwa_build_is_not_trusted_and_next_run_rebuilds(tmp_path):
+def test_interrupted_bwa_build_is_not_trusted_and_next_run_rebuilds(
+    tmp_path, monkeypatch
+):
     reference = tmp_path / "tiny.fa"
     reference.write_text(">chrTiny\nACGTACGTACGT\n")
     ref = str(reference)
@@ -285,12 +279,15 @@ def test_interrupted_bwa_build_is_not_trusted_and_next_run_rebuilds(tmp_path):
     Path(ref + ".bwt").write_text("incomplete")
     assert not bwa_index.has_index(ref, bwa_index.INDEX_SUFFIXES, "bwa")
 
-    def interrupted(command):
-        Path(command[3] + ".bwt").write_text("partial staged index")
-        raise RuntimeError("simulated interruption")
-
-    with pytest.raises(RuntimeError):
-        bwa_index.ensure_index(ref, runner=interrupted)
+    require_bare_name_fakes()
+    path = os.environ["PATH"]
+    python_tool(tmp_path / "bin", "bwa", _INTERRUPTED_BWA)
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{path}")
+    clear_tool_caches()
+    with pytest.raises(WGSExtractError):
+        bwa_index.ensure_index(ref)
+    monkeypatch.setenv("PATH", path)
+    clear_tool_caches()
     assert not bwa_index.has_index(ref, bwa_index.INDEX_SUFFIXES, "bwa")
     assert Path(ref + ".bwt").read_text() == "incomplete"
     bwa_index.ensure_index(ref)
@@ -436,10 +433,10 @@ def test_config_prompt_never_reads_a_noninteractive_pipe(monkeypatch, tmp_path, 
     assert "in a terminal" in capsys.readouterr().out
 
 
-def test_config_save_interruption_preserves_file(monkeypatch, tmp_path):
-    path = tmp_path / "config.toml"
+def test_config_save_interruption_preserves_file(monkeypatch):
+    path = config.get_config_path()
     path.write_text("cpu_threads = 2\n")
-    monkeypatch.setattr(config, "get_config_path", lambda: path)
+    before = set(path.parent.iterdir())
 
     def interrupted(*args):
         raise OSError("interrupted publication")
@@ -448,13 +445,11 @@ def test_config_save_interruption_preserves_file(monkeypatch, tmp_path):
     with pytest.raises(OSError):
         config.save_config({"cpu_threads": 4})
     assert path.read_text() == "cpu_threads = 2\n"
-    assert list(tmp_path.iterdir()) == [path]
+    assert set(path.parent.iterdir()) == before
 
 
-def test_unknown_config_key_warns_once_with_a_suggestion(monkeypatch, tmp_path, caplog):
-    path = tmp_path / "config.toml"
-    path.write_text("refernce_library = 'reference'\n")
-    monkeypatch.setattr(config, "get_config_path", lambda: path)
+def test_unknown_config_key_warns_once_with_a_suggestion(caplog):
+    config.get_config_path().write_text("refernce_library = 'reference'\n")
     config.load_config()
     config.load_config()
     assert caplog.text.count("Unknown setting 'refernce_library'") == 1

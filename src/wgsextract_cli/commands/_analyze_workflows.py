@@ -312,8 +312,6 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
         cmd.extend(["--threads", str(args.threads)])
     if args.debug:
         cmd.append("--debug")
-    if getattr(args, "force", False):
-        cmd.append("--force")
 
     # The step writes its result document to a file rather than with --json,
     # which would silence the tables and results it prints for the user.

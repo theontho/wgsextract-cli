@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -57,11 +58,14 @@ def test_reference_symlink_keeps_its_library_context(
     for path in (bam, config, targets):
         path.write_bytes(b"fixture")
 
-    def check_command(command: list[str], output: Path) -> dict[str, float]:
-        assert Path(command[command.index("--ref") + 1]) == alias
-        raise RuntimeError("reference path checked")
-
-    monkeypatch.setattr("scripts.benchmark_microarray_parallel.measure", check_command)
+    # The benchmarked interpreter: it records the command line it was given.
+    python = tmp_path / "python"
+    python.write_text(
+        f"#!{sys.executable}\nimport json, sys\nprint(json.dumps(sys.argv))\n"
+        "sys.exit(1)\n"
+    )
+    python.chmod(0o755)
+    monkeypatch.setattr(sys, "executable", str(python))
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -78,5 +82,7 @@ def test_reference_symlink_keeps_its_library_context(
             str(tmp_path / "output"),
         ],
     )
-    with pytest.raises(RuntimeError, match="reference path checked"):
+    with pytest.raises(RuntimeError, match="failed"):
         main()
+    argv = json.loads((tmp_path / "output" / "1-serial" / "stdout.log").read_text())
+    assert Path(argv[argv.index("--ref") + 1]) == alias

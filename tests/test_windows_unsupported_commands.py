@@ -1,12 +1,12 @@
 import logging
 import sys
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
 from wgsextract_cli.cli import dispatch
 from wgsextract_cli.cli.parser import build_parser, parse_args
+from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.core.config import settings
 
 UNSUPPORTED = [
@@ -34,33 +34,49 @@ UNSUPPORTED = [
 ]
 
 
+@pytest.fixture
+def genome(tmp_path: Path) -> Path:
+    """A genome folder in the library: `--genome joe` writes its
+    genome-config.toml and makes it the output folder once resolved."""
+    folder = tmp_path / "library" / "joe"
+    folder.mkdir(parents=True)
+    settings["genome_library"] = str(folder.parent)
+    return folder
+
+
+def _dispatch(
+    argv: list[str], platform: str, monkeypatch: pytest.MonkeyPatch
+) -> int | str | None:
+    """Run a command line through dispatch as `platform`; its exit code."""
+    args, explicit = parse_args(*build_parser(), argv)
+    monkeypatch.setattr(sys, "platform", platform)
+    try:
+        dispatch.dispatch_command(args, explicit)
+    except SystemExit as e:
+        return e.code
+    return 0
+
+
 @pytest.mark.parametrize(("command", "tool"), UNSUPPORTED)
 def test_unsupported_windows_command_fails_before_work(
     command: list[str],
     tool: str,
+    genome: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    parser, base = build_parser()
     outdir = tmp_path / "must-not-exist"
-    args, explicit = parse_args(
-        parser, base, [*command, "--input", "missing.bam", "--outdir", str(outdir)]
-    )
-    handler = Mock(side_effect=AssertionError("command must not start"))
-    selection = Mock(side_effect=AssertionError("inputs must not be resolved"))
-    args.func = handler
-    monkeypatch.setattr(dispatch, "apply_genome_selection", selection)
-    monkeypatch.setattr(sys, "platform", "win32")
-    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
-        dispatch.dispatch_command(args, explicit)
+    argv = [*command, "--genome", "joe", "--input", "missing.bam",
+            "--outdir", str(outdir)]  # fmt: skip
+    with caplog.at_level(logging.ERROR):
+        code = _dispatch(argv, "win32", monkeypatch)
     # Only an option choice (--aligner pbmm2) is a usage error; whole commands fail.
-    assert exc.value.code == (2 if "--aligner" in command else 1)
+    assert code == (2 if "--aligner" in command else 1)
     assert f"{tool} is not supported on Windows" in caplog.text
     assert "unexpected error" not in caplog.text.lower()
     assert not outdir.exists()
-    handler.assert_not_called()
-    selection.assert_not_called()
+    assert list(genome.iterdir()) == []
 
 
 @pytest.mark.parametrize(
@@ -76,21 +92,26 @@ def test_unsupported_windows_command_fails_before_work(
 def test_gpu_modes_fail_before_work_on_non_linux(
     command: list[str],
     platform: str,
+    genome: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    parser, base = build_parser()
-    args, explicit = parse_args(parser, base, command)
-    args.func = Mock(side_effect=AssertionError("GPU work must not start"))
-    selection = Mock(side_effect=AssertionError("inputs must not be resolved"))
-    monkeypatch.setattr(dispatch, "apply_genome_selection", selection)
-    monkeypatch.setattr(sys, "platform", platform)
-    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
-        dispatch.dispatch_command(args, explicit)
-    assert exc.value.code == 2
+    with caplog.at_level(logging.ERROR):
+        code = _dispatch([*command, "--genome", "joe"], platform, monkeypatch)
+    assert code == 2
     assert "Parabricks --gpu is not supported" in caplog.text
-    selection.assert_not_called()
-    args.func.assert_not_called()
+    assert list(genome.iterdir()) == []
+
+
+def _passes_platform_check(
+    argv: list[str], platform: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The command line gets past the platform check: dispatch refuses
+    nothing for it. Running the command itself would need the platform's tools,
+    which a faked sys.platform can't find."""
+    args, _ = parse_args(*build_parser(), argv)
+    monkeypatch.setattr(sys, "platform", platform)
+    verify_platform_support(args)
 
 
 @pytest.mark.parametrize("extension", [".tsv.gz", ".vcf.gz"])
@@ -111,23 +132,11 @@ def test_windows_phylop_tables_remain_supported(
         argv += ["--phylop-file", str(resource)]
     elif source == "config":
         settings["phylop_tsv_path"] = str(resource)
-    parser, base = build_parser()
-    args, explicit = parse_args(parser, base, argv)
-    args.func = Mock()
-    monkeypatch.setattr(dispatch, "apply_genome_selection", Mock())
-    monkeypatch.setattr(sys, "platform", "win32")
-    dispatch.dispatch_command(args, explicit)
-    args.func.assert_called_once_with(args)
+    _passes_platform_check(argv, "win32", monkeypatch)
 
 
 @pytest.mark.parametrize("platform", ["linux", "darwin"])
 def test_windows_restrictions_do_not_change_unix_dispatch(
     platform: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    parser, base = build_parser()
-    args, explicit = parse_args(parser, base, ["vcf", "phylop"])
-    args.func = Mock()
-    monkeypatch.setattr(dispatch, "apply_genome_selection", Mock())
-    monkeypatch.setattr(sys, "platform", platform)
-    dispatch.dispatch_command(args, explicit)
-    args.func.assert_called_once_with(args)
+    _passes_platform_check(["vcf", "phylop"], platform, monkeypatch)
