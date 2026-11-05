@@ -1,30 +1,115 @@
 name: Release
 
-# Pushing a version tag (vX.Y.Z) creates a draft GitHub release once the tag
-# matches the version in pyproject.toml, pixi.toml and the package and the
-# checks pass. Edit the generated notes and publish it: install.sh installs the
-# latest published release.
+# A release starts in any of these ways:
+# - Merging a release PR that changes the version in pyproject.toml. This
+#   workflow then creates the vX.Y.Z tag itself, so nobody needs to push a
+#   tag (agent sessions often can't).
+# - Pushing a vX.Y.Z tag by hand.
+# - Running this workflow on main, which retries the current version's
+#   release if it failed (before or after its tag was created).
+# The tag must match the version in pyproject.toml, pixi.toml and the
+# package, and the checks must pass. If the tagged commit has
+# docs/release-notes/vX.Y.Z.md, the release is published with those notes
+# and becomes the latest unless a newer version already is (install.sh
+# installs the latest published release); otherwise it's left as a draft with
+# generated notes to edit and publish.
 
 on:
   push:
+    branches: [ main ]
+    paths: [ "pyproject.toml" ]
     tags: [ "v*" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# One release run at a time, so two runs can't race to tag or publish.
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      sha: ${{ steps.plan.outputs.sha }}
+      create_tag: ${{ steps.plan.outputs.create_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Work out what to release
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version_of() {
+            python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read())["project"]["version"])'
+          }
+          # The commit a tag points at, or nothing if there is no such tag.
+          tag_commit() {
+            local ref
+            ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$1" \
+              --jq '.object.type + " " + .object.sha' 2>/dev/null) || return 0
+            if [ "${ref%% *}" = tag ]; then
+              gh api "repos/$GITHUB_REPOSITORY/git/tags/${ref#* }" --jq .object.sha
+            else
+              echo "${ref#* }"
+            fi
+          }
+          if [ "$REF_TYPE" = tag ]; then
+            tag=$REF_NAME sha=$GITHUB_SHA create_tag=false
+          else
+            if [ "$REF_NAME" != main ]; then
+              echo "::error::Releases come from main, not $REF_NAME."
+              exit 1
+            fi
+            tag="v$(version_of < pyproject.toml)"
+            # pyproject.toml changes for other reasons too; only a push that
+            # changes the version is a release.
+            if [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ] &&
+               git fetch -q --depth=1 origin "$BEFORE" &&
+               [ "v$(git show "$BEFORE:pyproject.toml" | version_of)" = "$tag" ]; then
+              echo "The version is still ${tag#v}; nothing to release."
+              exit 0
+            fi
+            existing=$(tag_commit "$tag")
+            if [ -z "$existing" ]; then
+              sha=$GITHUB_SHA create_tag=true
+            else
+              # The tag exists, e.g. from a run that failed to publish:
+              # release the commit it already points at.
+              sha=$existing create_tag=false
+            fi
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag is already released; nothing to do."
+            exit 0
+          fi
+          echo "Releasing $tag from $sha"
+          {
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo "create_tag=$create_tag"
+          } >> "$GITHUB_OUTPUT"
+
   verify:
+    needs: resolve
+    if: needs.resolve.outputs.tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
       - name: Tag matches the package version
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           python3 - "$TAG" <<'EOF'
           import re, sys, tomllib
@@ -59,17 +144,52 @@ jobs:
       - name: Build and smoke test the package
         run: pixi run package-smoke
 
-  draft:
-    needs: verify
+  release:
+    needs: [ resolve, verify ]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - name: Create a draft release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - name: Create the tag
+        if: needs.resolve.outputs.create_tag == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: >-
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag
-          --draft --generate-notes --title "wgsextract-cli $TAG"
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        # A tag created with the workflow token doesn't start another run.
+        # Safe to repeat: an existing tag on the same commit is fine.
+        run: |
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+               -f ref="refs/tags/$TAG" -f sha="$SHA" --silent; then
+            current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)
+            if [ "$current" != "$SHA" ]; then
+              echo "::error::$TAG already points at $current, not $SHA."
+              exit 1
+            fi
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG is already released."
+            exit 0
+          fi
+          notes="docs/release-notes/$TAG.md"
+          if [ ! -f "$notes" ]; then
+            echo "::notice::No $notes, so $TAG is a draft with generated notes; edit and publish it."
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --draft --generate-notes --title "wgsextract-cli $TAG"
+            exit 0
+          fi
+          # Don't move "latest" back to an older version.
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          newest=$(printf '%s\n%s\n' "$TAG" "$latest" | sed '/^$/d' | sort -V | tail -1)
+          make_latest=$([ "$newest" = "$TAG" ] && echo true || echo false)
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "wgsextract-cli $TAG" --notes-file "$notes" --latest="$make_latest"

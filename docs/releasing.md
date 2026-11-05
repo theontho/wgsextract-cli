@@ -6,6 +6,10 @@ this is the whole sequence, with what to check at each step.
 
 ## 1. The CLI release
 
+Merging the release PR is the whole CLI release: nobody has to push a tag or
+run `gh release`, so an agent session that can only open and merge PRs can do
+it.
+
 1. **Bump the version** on a branch named `release-X.Y.Z`:
 
    ```bash
@@ -14,34 +18,35 @@ this is the whole sequence, with what to check at each step.
 
    It sets the version in `pyproject.toml`, `pixi.toml` and
    `src/wgsextract_cli/__init__.py`, the three files the release workflow
-   checks. Open a PR titled `Release X.Y.Z` that lists the PRs since the last
-   tag (`git log --oneline vPREVIOUS..origin/main`), and merge it once CI is
-   green.
+   checks.
 
-2. **Tag the merge commit** on `main` and push the tag:
+2. **Write the release notes** in `docs/release-notes/vX.Y.Z.md`, in the same
+   PR: what users get, under `## New` and `## Fixes` (see v0.4.2 and v0.4.3),
+   ending with a compare link (`.../compare/vPREVIOUS...vX.Y.Z`). The PRs since
+   the last release are `git log --oneline vPREVIOUS..origin/main`.
 
-   ```bash
-   git switch main && git pull
-   git tag vX.Y.Z && git push origin vX.Y.Z
-   ```
+3. **Open a PR** titled `Release X.Y.Z` and merge it once CI is green.
 
-   `release.yml` checks that the tag matches all three versions, runs lint,
-   type checks, tests and the package smoke test, and creates a **draft**
-   release with generated notes.
-
-3. **Write the release notes.** Replace the generated PR list with what users
-   get, under `## New` and `## Fixes` (see v0.4.2 and v0.4.3), and end with a
-   compare link (`.../compare/vPREVIOUS...vX.Y.Z`).
-
-4. **Publish** the draft as the latest release:
-
-   ```bash
-   gh release edit vX.Y.Z --notes-file notes.md --draft=false --latest
-   ```
-
+   On the merge, `release.yml` sees the new version, runs lint, type checks,
+   tests and the package smoke test on the merge commit, then creates the
+   `vX.Y.Z` tag and publishes the release as the latest with the notes file.
    `install.sh` installs the latest published release. The native Windows
    tools aren't part of it: `pixi.toml` pins their own packages (see
    [packaging/windows/README.md](../packaging/windows/README.md)).
+
+   Check the *Release* run on the merge commit. The tag isn't created until
+   the checks pass. If the run fails, fix the cause and retry from main with
+   *Run workflow* on the Release workflow (`gh workflow run release.yml`): it
+   picks up where it stopped, publishing from the existing tag if one was
+   already created. A release only becomes the latest if no newer version
+   already is.
+
+Without a notes file the release is left as a **draft** with generated notes.
+Edit and publish it on the release's GitHub page (**Edit**, then **Publish
+release**), or with
+`gh release edit vX.Y.Z --notes-file notes.md --draft=false --latest`.
+Pushing a `vX.Y.Z` tag by hand still works too, and also uses the notes file
+if the tagged commit has one.
 
 ## 2. The app release (gui-for-cli)
 

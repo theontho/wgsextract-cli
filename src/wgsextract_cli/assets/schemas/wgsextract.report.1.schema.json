@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wgsextract:schema:report:1",
+  "title": "wgsextract.report/1",
+  "description": "A sample's personal report: what earlier wgsextract runs found, by section, each finding with a confidence label, its evidence and the 'technical result, not diagnosis' disclaimer. Written by `wgsextract report` as <sample>_personal_report.json. See docs/personal-report.md.",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated",
+    "wgsextract_version",
+    "sample",
+    "disclaimer",
+    "guide",
+    "confidence_reasons",
+    "sections"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "wgsextract.report/1"},
+    "generated": {"type": "string", "format": "date-time", "description": "When the report was built (UTC)."},
+    "wgsextract_version": {"type": "string"},
+    "sample": {
+      "type": "object",
+      "required": ["name", "folder", "alignment", "vcf", "workspace"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "description": "The sample's name: its alignment's (or VCF's) file name without extensions."},
+        "folder": {"type": "string", "description": "The sample folder's name (not its full path). Every file path in the report is relative to this folder."},
+        "alignment": {"type": ["string", "null"], "description": "The BAM/CRAM the report describes, relative to the folder."},
+        "vcf": {"type": ["string", "null"], "description": "The sample's VCF used in hints, relative to the folder."},
+        "workspace": {"type": ["string", "null"], "description": "The sample workspace file, when there is one."}
+      }
+    },
+    "disclaimer": {"type": "string"},
+    "guide": {"type": "string"},
+    "confidence_reasons": {
+      "type": "object",
+      "description": "Reason code -> plain-language explanation.",
+      "additionalProperties": {"type": "string"}
+    },
+    "sections": {
+      "type": "object",
+      "required": ["overview", "lineage", "pharmacogenomics", "clinvar", "microarray"],
+      "additionalProperties": false,
+      "properties": {
+        "overview": {
+          "allOf": [{"$ref": "#/$defs/section"}],
+          "required": ["facts", "qc"],
+          "properties": {
+            "facts": {"type": "array", "items": {"$ref": "#/$defs/fact"}},
+            "qc": {"type": "array", "items": {"$ref": "#/$defs/metric"}}
+          }
+        },
+        "lineage": {"$ref": "#/$defs/section"},
+        "pharmacogenomics": {"$ref": "#/$defs/section"},
+        "clinvar": {
+          "allOf": [{"$ref": "#/$defs/section"}],
+          "required": ["gene_list"],
+          "properties": {
+            "gene_list": {
+              "type": "object",
+              "required": ["name", "version", "citation", "url", "genes"],
+              "properties": {
+                "name": {"type": "string"},
+                "version": {"type": "string"},
+                "citation": {"type": "string"},
+                "url": {"type": "string", "description": "The published gene table the list was checked against."},
+                "genes": {"type": "integer", "minimum": 1}
+              }
+            },
+            "build": {"enum": ["hg19", "hg38", null]},
+            "all_calls": {"type": ["string", "null"], "description": "Every carried ClinVar P/LP call (confidence TSV), relative to the folder."},
+            "counts": {
+              "type": "object",
+              "required": ["carried", "in_gene_list", "outside_gene_list", "high", "moderate", "low"],
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "microarray": {
+          "allOf": [{"$ref": "#/$defs/section"}],
+          "required": ["files"],
+          "properties": {
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["file", "role", "format", "exists", "sites", "called", "no_call_rate"],
+                "properties": {
+                  "file": {"type": ["string", "null"]},
+                  "role": {"type": "string"},
+                  "format": {"type": ["string", "null"]},
+                  "exists": {"type": "boolean"},
+                  "sites": {"type": ["integer", "null"]},
+                  "called": {"type": ["integer", "null"]},
+                  "no_call_rate": {"type": ["number", "null"]}
+                }
+              }
+            },
+            "metrics": {"type": "object"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "required": ["title", "status", "summary", "findings", "missing", "warnings", "sources"],
+      "properties": {
+        "title": {"type": "string"},
+        "status": {
+          "enum": ["ok", "not_run", "failed"],
+          "description": "ok: at least one source run succeeded; not_run: no run found (see missing); failed: only failed runs found (see error)."
+        },
+        "summary": {"type": "string"},
+        "error": {"type": "string"},
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+        "missing": {
+          "type": "array",
+          "description": "Parts of the section not run yet, with the command that produces each (relative to the sample folder).",
+          "items": {
+            "type": "object",
+            "required": ["what", "command"],
+            "additionalProperties": false,
+            "properties": {"what": {"type": "string"}, "command": {"type": "string"}}
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {"code": {"type": "string"}, "message": {"type": "string"}}
+          }
+        },
+        "sources": {
+          "type": "array",
+          "description": "The result manifests the section was built from.",
+          "items": {
+            "type": "object",
+            "required": ["command", "status", "finished", "manifest"],
+            "additionalProperties": false,
+            "properties": {
+              "command": {"type": "string"},
+              "status": {"type": "string"},
+              "finished": {"type": ["string", "null"]},
+              "manifest": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "section",
+        "label",
+        "value",
+        "detail",
+        "gene",
+        "note",
+        "confidence",
+        "confidence_reasons",
+        "confidence_basis",
+        "evidence",
+        "variant",
+        "links",
+        "disclaimer"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "section": {"enum": ["lineage", "pharmacogenomics", "clinvar"]},
+        "label": {"type": "string", "minLength": 1},
+        "value": {"type": "string"},
+        "detail": {"type": ["string", "null"]},
+        "gene": {"type": ["string", "null"]},
+        "note": {"type": ["string", "null"], "description": "A caveat from the gene list, e.g. only biallelic calls are reportable."},
+        "confidence": {"enum": ["high", "moderate", "low", "not_assessed"]},
+        "confidence_reasons": {"type": "array", "items": {"type": "string"}},
+        "confidence_basis": {"type": "string", "description": "What the label was derived from."},
+        "evidence": {
+          "type": "object",
+          "required": ["file", "region", "manifest"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"type": ["string", "null"], "description": "Evidence file, relative to the sample folder."},
+            "region": {"type": ["string", "null"], "description": "chrom:pos, a chromosome or 'gene SYMBOL'."},
+            "manifest": {"type": ["string", "null"], "description": "The run's result manifest, relative to the sample folder."}
+          }
+        },
+        "variant": {
+          "type": ["object", "null"],
+          "required": ["chrom", "pos", "ref", "alt", "genotype", "zygosity", "depth", "genotype_quality", "alt_fraction"],
+          "additionalProperties": false,
+          "properties": {
+            "chrom": {"type": "string"},
+            "pos": {"type": ["integer", "null"]},
+            "ref": {"type": ["string", "null"]},
+            "alt": {"type": ["string", "null"]},
+            "genotype": {"type": ["string", "null"]},
+            "zygosity": {"type": ["string", "null"]},
+            "depth": {"type": ["integer", "null"]},
+            "genotype_quality": {"type": ["integer", "null"]},
+            "alt_fraction": {"type": ["number", "null"]}
+          }
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "url"],
+            "additionalProperties": false,
+            "properties": {"label": {"type": "string"}, "url": {"type": "string"}}
+          }
+        },
+        "disclaimer": {"const": "Technical result, not diagnosis."}
+      }
+    },
+    "fact": {
+      "type": "object",
+      "required": ["name", "label", "value", "text", "source", "method", "confidence", "file", "at"],
+      "properties": {
+        "name": {"type": "string"},
+        "label": {"type": "string"},
+        "value": {},
+        "text": {"type": "string"},
+        "source": {"type": ["string", "null"], "description": "detected or override."},
+        "method": {"type": ["string", "null"]},
+        "confidence": {"type": ["string", "null"]},
+        "file": {"type": ["string", "null"]},
+        "at": {"type": ["string", "null"]}
+      }
+    },
+    "metric": {
+      "type": "object",
+      "required": ["name", "label", "value", "text"],
+      "properties": {
+        "name": {"type": "string"},
+        "label": {"type": "string"},
+        "value": {},
+        "text": {"type": "string"}
+      }
+    }
+  }
+}

@@ -6,6 +6,8 @@ import threading
 import time
 from collections.abc import Callable
 
+from wgsextract_cli.core import live_status
+
 _READS = re.compile(r"(?:Processed|mapped)\s+(\d+)\s+(?:reads|sequences)", re.I)
 
 
@@ -62,10 +64,16 @@ class Heartbeat:
             self.advance(int(match.group(1)))
 
     def report(self) -> None:
-        if not self.emit:
-            return
         with self._lock:
             done = self.completed
+        if done or self.total:
+            live_status.detail(
+                f"{done:,}/{self.total:,} {self.unit}"
+                if self.total
+                else f"{done:,} {self.unit}"
+            )
+        if not self.emit:
+            return
         elapsed = max(0.0, time.monotonic() - self.started)
         progress = (
             f"{done:,} {self.unit}"

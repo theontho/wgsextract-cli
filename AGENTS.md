@@ -14,6 +14,21 @@ Do not add new environment-variable configuration. Put persistent configuration 
 - **Always** run `pixi run mypy {file_path}` (or `pixi run mypy src/wgsextract_cli`) to check for type errors before concluding a task.
 - Run these commands from the repository root. Dev tools (ruff, mypy, pytest, pre-commit) live in the `dev` Pixi environment; `pixi run <tool>` selects it automatically.
 
+## Writing tests
+
+Tests check behaviour, not implementation. The full rules are in "Write tests" in `docs/developer_setup.md`.
+
+- Assert what a user can observe: output files and their content, exit codes, the result manifest, structured warnings, and documented CLI and API behaviour.
+- Run real samtools and bcftools on the fake genomes and fixtures.
+- Mock only true boundaries: network, containers, GPU, very slow tools, the OS or platform, and the clock.
+  - Never patch private `_helpers`.
+  - Never record what the command runner would have run.
+- Assert exact argv only for flags that are the scientific contract, with a `# contract: <why>` comment.
+- Check message codes or key facts, not whole prose.
+- Name the bug or issue in each regression test, and check the symptom the user saw.
+- Don't restate constants, defaults or re-exports.
+- Run `pixi run test-smells` before committing test changes. It is advisory.
+
 ## Supervisor model and issue queue
 
 Long-running work is driven by a supervisor agent that works through GitHub issues.

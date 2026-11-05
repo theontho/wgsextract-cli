@@ -1,14 +1,25 @@
 from urllib.parse import quote
 
 
-def print_tree_links(haplogroup: str, *, mitochondrial: bool = False) -> None:
-    """Print real tree endpoints without inventing mtDNA branch URL parameters."""
+def tree_links(
+    haplogroup: str, *, mitochondrial: bool = False
+) -> list[tuple[str, str]]:
+    """(label, URL) of the public trees showing ``haplogroup``; real endpoints
+    only, without invented mtDNA branch URL parameters."""
     value = quote(haplogroup.strip(), safe="")
     if not value or value == "NA":
-        return
+        return []
     if mitochondrial:
-        print(f"YFull mtDNA: https://www.yfull.com/mtree/{value}/")
-        print("FTDNA mtDNA: https://www.familytreedna.com/public/mt-dna-haplotree")
-    else:
-        print(f"YFull: https://www.yfull.com/tree/{value}/")
-        print(f"FTDNA: https://discover.familytreedna.com/y-dna/{value}/tree")
+        return [
+            ("YFull mtDNA", f"https://www.yfull.com/mtree/{value}/"),
+            ("FTDNA mtDNA", "https://www.familytreedna.com/public/mt-dna-haplotree"),
+        ]
+    return [
+        ("YFull", f"https://www.yfull.com/tree/{value}/"),
+        ("FTDNA", f"https://discover.familytreedna.com/y-dna/{value}/tree"),
+    ]
+
+
+def print_tree_links(haplogroup: str, *, mitochondrial: bool = False) -> None:
+    for label, url in tree_links(haplogroup, mitochondrial=mitochondrial):
+        print(f"{label}: {url}")

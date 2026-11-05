@@ -43,6 +43,9 @@ first run through these commands is a technical check, not a clinical result.
   `thresholds`, `counts`, `not_carried`, `reasons` (counts per code),
   `findings` (the first 1000 calls with their labels and annotations;
   `findings_truncated` says whether there were more) and `disclaimer`.
+- **Personal report** ([personal-report.md](personal-report.md)): `wgsextract
+  report` lists ClinVar pathogenic/likely pathogenic calls in the ACMG SF genes
+  with these labels, and labels PharmCAT genes by their weakest labelled call.
 
 Only calls the sample carries are labelled. A ClinVar site where the sample is
 homozygous reference (DeepVariant writes these as `RefCall` records with

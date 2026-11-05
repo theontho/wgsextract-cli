@@ -15,6 +15,7 @@ isn't suggested before the run has shown there is a Y chromosome.
 _TO_CHIP = "wgsextract microarray {source} --formats 23andme_v5"
 _MT = "wgsextract lineage mt-haplogroup {source}"
 _CHECK_BAM = "wgsextract info --input {bam}"
+_REPORT = "wgsextract report {source}"
 _ANNOTATE = (
     "wgsextract vcf clinvar --vcf-input {vcf}",
     "wgsextract vep --input {vcf}",
@@ -26,9 +27,11 @@ NEXT_STEPS: dict[str, tuple[str, ...]] = {
     "info calculate-coverage": (_TO_CHIP,),
     "microarray": (_MT,),
     "lineage y-haplogroup": (_MT,),
-    "lineage mt-haplogroup": (_TO_CHIP,),
+    "lineage mt-haplogroup": (_TO_CHIP, _REPORT),
     "align": (_CHECK_BAM,),
     "realign": (_CHECK_BAM,),
     "vcf snp": _ANNOTATE,
     "vcf indel": _ANNOTATE,
+    "vcf clinvar": (_REPORT,),
+    "vcf pharmcat": (_REPORT,),
 }

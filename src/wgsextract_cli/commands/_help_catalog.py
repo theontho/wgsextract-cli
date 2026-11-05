@@ -89,9 +89,9 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     # microarray / lineage
     "microarray": _h(
-        "<input stem>_<format>.txt (or the vendor's extension) per format, and "
-        "<input stem>_CombinedKit.txt; with --format also <input stem>"
-        "_genotypes.tsv or .parquet.",
+        "<input stem>_<format>.txt (or the vendor's extension) per format, "
+        "such as sample_23andMe_V5.txt, and <input stem>_CombinedKit.txt; with "
+        "--format also <input stem>_genotypes.tsv or .parquet.",
         "wgsextract microarray --input sample.cram --formats 23andme_v5",
         "wgsextract microarray --input sample.cram --formats 23andme_v5,ancestry_v2",
     ),
@@ -371,6 +371,14 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "Prints each tool's status; writes no files.",
         "wgsextract deps check",
         "wgsextract deps check --tool samtools",
+    ),
+    "report": _h(
+        "<sample>_personal_report.html, .md and .json and <sample>_personal_report_findings.tsv "
+        "(or .parquet with --format parquet) in the sample folder (or --outdir); "
+        "evidence links are relative to the sample folder.",
+        "wgsextract report --genome HG002",
+        "wgsextract report --input sample.cram",
+        "wgsextract report --workspace HG002 --results ~/wgs-out/HG002 --format parquet",
     ),
     "report-issue": _h(
         "Prints a redacted bug report and its GitHub link and saves the "

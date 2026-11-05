@@ -162,7 +162,7 @@ These commands record full manifests: `info` (including `--detailed`),
 `lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str`,
 `microarray`, every `bam`, `qc`, `ref`, `vep` and `typing` subcommand,
 `analyze`, `pet`, `methylation`, `repair`, `benchmark`, `example-genome
-download` and `sign`.
+download`, `sign` and `report`.
 
 `align` and `realign` record the `aligner` and the alignment's `records`; for a
 BAM also `mapped_records` and `unmapped_records` (from the index, without
@@ -197,6 +197,11 @@ Other commands' metrics:
   the library; `ref index` its new index files; `ref count-ns` the N totals.
 - `benchmark` records its report files and step counts in
   `benchmark.manifest.json` in the run directory.
+- `report` records its documents, the source manifests it read (role
+  `manifest`), the number of `findings` (and `findings_<label>` per
+  confidence label) and each section's status (`section_<name>`); its
+  `details` is the `wgsextract.report/1` document
+  ([personal-report.md](personal-report.md)).
 
 `repair` in pipe mode (no `--input`) streams to stdout, so `--json` is a usage
 error there. Commands that only print (`deps`, `info` listings, `ref library

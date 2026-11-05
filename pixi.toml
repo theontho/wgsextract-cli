@@ -1,6 +1,6 @@
 [workspace]
 name = "wgsextract-cli"
-version = "0.6.5"
+version = "0.6.6"
 description = "A modern, standalone Command-Line Interface for WGS Extract."
 authors = ["WGS Extract Contributors"]
 channels = ["conda-forge", "bioconda"]
@@ -210,6 +210,7 @@ pre-commit = ">=4.6.2,<5"
 uv = ">=0.13.1,<0.14"
 nodejs = ">=24"
 jsonschema = ">=4.23,<5"
+markdown-it-py = ">=3,<5"
 
 [feature.dev.tasks]
 pytest = "pytest"
@@ -228,6 +229,7 @@ validate-actions = "python scripts/validate_github_actions.py"
 lint = "ruff check . && python scripts/validate_site_sources.py && actionlint && python scripts/validate_github_actions.py"
 format = "ruff format ."
 typecheck = "mypy src/wgsextract_cli"
+test-smells = { cmd = "python scripts/test_smells.py", description = "Advisory: flag change-detector patterns in test lines added since origin/main." }
 package-smoke = "python scripts/package_smoke.py"
 jscpd = "npx --yes jscpd@5.4.2 src/wgsextract_cli --reporters console,json --output out/jscpd --min-lines 5 --min-tokens 50 --ignore '**/__pycache__/**' --ignore '**/.mypy_cache/**'"
 site-build = "python scripts/build_site.py"

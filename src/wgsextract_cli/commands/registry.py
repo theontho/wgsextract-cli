@@ -19,6 +19,7 @@ from . import (
     realign,
     ref,
     repair,
+    report,
     report_issue,
     sample,
     sign,
@@ -48,6 +49,7 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     sign,
     genotyping,
     methylation,
+    report,
     report_issue,
 )
 
@@ -111,6 +113,11 @@ COMMAND_TIERS: tuple[CommandTier, ...] = (
         "vep",
         CORE,
         "Predict what each variant does to genes, with Ensembl VEP.",
+    ),
+    CommandTier(
+        "report",
+        CORE,
+        "Summarise a sample's results in one local HTML report.",
     ),
     CommandTier(
         "ref", SETUP, "Download and check reference genomes and annotation data."

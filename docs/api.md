@@ -30,9 +30,9 @@ The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.info`,
-`api.vcf`, `api.lineage`, `api.microarray`, `api.sample`,
-`api.support`) follow semantic versioning from the 1.0 release; adding fields
-with defaults is not a breaking change.
+`api.vcf`, `api.lineage`, `api.microarray`, `api.report`,
+`api.sample`, `api.support`) follow semantic versioning from the 1.0
+release; adding fields with defaults is not a breaking change.
 Modules whose names start with `_` are private and may change at any time.
 See docs/api.md.
 
@@ -170,7 +170,7 @@ library's ploidy file, else bcftools' built-in GRCh37/GRCh38 table.
 | `ploidy` | `str \| None` | `None` | `--ploidy` | Predefined ploidy name or value |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `parallel` | `bool` | `False` | `--parallel` | Call contigs in parallel with up to --threads workers. Faster, but calls at sites deeper than 255 reads can differ slightly from the default single stream, because bcftools subsamples them with one random stream per process. |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.vcf.indel(VcfIndelParams)`
 
@@ -190,7 +190,7 @@ Call indels; the `indels` output carries the record count in its metrics.
 | `ploidy` | `str \| None` | `None` | `--ploidy` | Predefined ploidy name or value |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `parallel` | `bool` | `False` | `--parallel` | Call contigs in parallel with up to --threads workers. Faster, but calls at sites deeper than 255 reads can differ slightly from the default single stream, because bcftools subsamples them with one random stream per process. |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ## `api.lineage`
 
@@ -214,7 +214,7 @@ called first; needs the reference) or a VCF. The report is
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `haplogrep_path` | `str \| None` | `None` (config `haplogrep_executable`) | `--haplogrep-path` | Path to haplogrep executable or JAR (optional if in PATH) |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.lineage.y_haplogroup(YHaplogroupParams)`
 
@@ -240,7 +240,7 @@ or single-sample VCF/BCF. Outputs go to `yleaf/` in the output folder.
 | `min_score` | `float` | `0.95` | `--min-score` | Minimum QC score of a reported haplogroup prediction. |
 | `ancient` | `bool` | `False` | `--ancient` | Use ancient-DNA marker tables. |
 | `no_ref_inference` | `bool` | `False` | `--no-ref-inference` | VCF: use genotyped positions only (targeted panels); otherwise --ref is required. |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.lineage.y_str(YStrParams)`
 
@@ -304,7 +304,45 @@ settings) and then to the documented default.
 | `ploidy_file` | `Path \| None` | `None` | `--ploidy-file` | File defining ploidy per chromosome (auto-resolved from --ref if possible) |
 | `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+## `api.report`
+
+`report`: a sample's results as one local HTML, Markdown and JSON report.
+
+The report summarises what earlier runs left in the sample folder (their
+result manifests and the sample workspace): overview and QC, lineage,
+pharmacogenomics, ClinVar pathogenic calls in the ACMG SF genes and the
+microarray export. It runs no analysis and makes no network calls:
+
+```python
+res = api.report.build(api.ReportParams(workspace=Path("HG002")))
+report = res.details          # the wgsextract.report/1 document
+```
+
+Every finding has a confidence label, its evidence (file relative to the
+sample folder, plus region) and the "technical result, not diagnosis"
+disclaimer. See docs/personal-report.md.
+
+### `api.report.build(ReportParams)`
+
+CLI: `wgsextract report`.
+
+Write the report. `details` is the `wgsextract.report/1` document;
+`outputs` are the HTML (`report_html`), Markdown
+(`report_markdown`), JSON (`report_json`) and findings table
+(`findings_table`).
+
+`ReportParams`: Summarise a sample's results as <sample>_personal_report.html, .md and .json
+plus a findings table, from the result manifests in its folder.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | BAM, CRAM or VCF of the sample: only its runs (and runs on files made from it) are reported. Its folder holds the results unless workspace is given. |
+| `workspace` | `Path \| None` | `None` | `--workspace` | Sample folder whose results are reported (default: the --genome folder, else the --input's folder). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the sample folder). |
+| `results` | `tuple[Path, ...]` | `[]` | `--results` | Also read result manifests from this folder (repeatable); only runs on this sample's files are used. The --outdir is always read. |
+| `table_format` | `str` | `'tsv'` | `--format` | Format of the findings table, <sample>_personal_report_findings.tsv or .parquet (needs pyarrow) (default: tsv) One of: `tsv`, `parquet` |
 
 ## `api.sample`
 

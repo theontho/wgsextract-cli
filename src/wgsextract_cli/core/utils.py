@@ -1,7 +1,9 @@
 import codecs
 import contextlib
+import functools
 import logging
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -10,11 +12,12 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from os import PathLike
 from pathlib import Path
-from typing import IO, Literal, TypeAlias, overload
+from typing import IO, Concatenate, Literal, ParamSpec, TypeAlias, TypeVar, overload
 
+from wgsextract_cli.core import live_status
 from wgsextract_cli.core.download_progress import CancelEvent, redact_urls
 from wgsextract_cli.core.paths import PathInput, command_is_path, expand_path
 from wgsextract_cli.core.process_registry import (
@@ -206,6 +209,45 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
     return cmd_list
 
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_SUBCOMMAND = re.compile(r"[a-z][a-z0-9_-]*")
+
+
+def _caller_args(cmd: PathInput | Sequence[object]) -> list[str]:
+    """cmd's words as the caller wrote them, before any wrapping."""
+    if isinstance(cmd, PathLike):
+        return [expand_path(cmd)]
+    if isinstance(cmd, str):
+        return shlex.split(cmd)
+    return [str(a) for a in cmd]
+
+
+def step_label(args: Sequence[str]) -> str:
+    """'samtools view' for a tool and its subcommand, else the tool's name."""
+    if not args:
+        return "?"
+    words = [Path(args[0]).stem]
+    if len(args) > 1 and _SUBCOMMAND.fullmatch(args[1]):
+        words.append(args[1])
+    return " ".join(words)
+
+
+def _shows_step(
+    func: Callable[Concatenate[PathInput | Sequence[object], _P], _R],
+) -> Callable[Concatenate[PathInput | Sequence[object], _P], _R]:
+    """Name the tool a function runs on the terminal's progress line."""
+
+    @functools.wraps(func)
+    def wrapper(
+        cmd: PathInput | Sequence[object], /, *args: _P.args, **kwargs: _P.kwargs
+    ) -> _R:
+        with live_status.step(step_label(_caller_args(cmd))):
+            return func(cmd, *args, **kwargs)
+
+    return wrapper
+
+
 def _tee_stderr(
     fd: int,
     tail: bytearray,
@@ -250,6 +292,40 @@ def _tee_stderr(
             target.write(decoder.decode(b"", final=True))
 
 
+_Relay = tuple[int, int, str]
+
+
+def _relay_if_terminal(
+    stream: ProcessStream, inherited_fd: int, target: str, relays: list[_Relay]
+) -> ProcessStream:
+    """A pipe instead of ``stream`` when the child would write straight to the
+    terminal under the progress line; _start_relays copies it to sys.<target>,
+    which clears the line first."""
+    if not live_status.terminal_bound(stream, inherited_fd):
+        return stream
+    read_fd, write_fd = os.pipe()
+    relays.append((read_fd, write_fd, target))
+    return write_fd
+
+
+def _start_relays(relays: list[_Relay], launched: bool) -> list[threading.Thread]:
+    threads = []
+    for read_fd, write_fd, target in relays:
+        os.close(write_fd)
+        if not launched:
+            os.close(read_fd)
+            continue
+        thread = threading.Thread(
+            target=_tee_stderr,
+            args=(read_fd, bytearray(), getattr(sys, target)),
+            daemon=True,
+        )
+        thread.start()
+        threads.append(thread)
+    return threads
+
+
+@_shows_step
 def run_command(
     cmd: PathInput | Sequence[object],
     capture_output: bool = False,
@@ -277,9 +353,13 @@ def run_command(
     stderr_read, stderr_write = (
         os.pipe() if check and not capture_output else (None, None)
     )
-    proc_stderr = subprocess.PIPE if capture_output else stderr_write
     stderr_tail = bytearray()
     stderr_thread = None
+    relays: list[_Relay] = []
+    proc_stdout = _relay_if_terminal(proc_stdout, 1, "stdout", relays)
+    proc_stderr = _relay_if_terminal(
+        subprocess.PIPE if capture_output else stderr_write, 2, "stderr", relays
+    )
 
     text_mode = capture_output or stdout is None
     try:
@@ -298,11 +378,13 @@ def run_command(
         for fd in (stderr_read, stderr_write):
             if fd is not None:
                 os.close(fd)
+        _start_relays(relays, launched=False)
         raise ToolLaunchError(
             f"Could not start {Path(cmd_list[0]).name}: {error.strerror or error}. "
             "Run 'wgsextract deps check' to validate installed tools."
         ) from error
 
+    relay_threads = _start_relays(relays, launched=True)
     if stderr_read is not None:
         assert stderr_write is not None
         os.close(stderr_write)
@@ -324,12 +406,14 @@ def run_command(
                     pass
         else:
             res_stdout, res_stderr = process.communicate()
-        if stderr_thread:
+        for thread in [stderr_thread, *relay_threads]:
+            if thread is None:
+                continue
             if sys.platform == "win32":
-                while stderr_thread.is_alive():
-                    stderr_thread.join(timeout=0.5)
+                while thread.is_alive():
+                    thread.join(timeout=0.5)
             else:
-                stderr_thread.join()
+                thread.join()
         if check and process.returncode != 0:
             if stderr_read is not None:
                 res_stderr = "\n".join(
@@ -403,11 +487,12 @@ def popen(
     cmd_str = " ".join(display_cmd)
     logging.debug(f"Popen: {cmd_str}")
 
+    relays: list[_Relay] = []
     try:
         process = subprocess.Popen(
             cmd_list,
-            stdout=_child_stdout(stdout),
-            stderr=stderr,
+            stdout=_relay_if_terminal(_child_stdout(stdout), 1, "stdout", relays),
+            stderr=_relay_if_terminal(stderr, 2, "stderr", relays),
             stdin=stdin,
             text=text,
             errors="replace" if text else None,
@@ -416,10 +501,12 @@ def popen(
             **process_group_kwargs(),
         )
     except OSError as error:
+        _start_relays(relays, launched=False)
         raise ToolLaunchError(
             f"Could not start {Path(cmd_list[0]).name}: {error.strerror or error}. "
             "Run 'wgsextract deps check' to validate installed tools."
         ) from error
+    _start_relays(relays, launched=True)
     proc_registry.register_process(cmd_str, process)
 
     def _unregister_finished_process() -> None:
@@ -485,6 +572,7 @@ def run_pipeline(
         raise ValueError("run_pipeline requires at least one stage")
 
     procs: list[subprocess.Popen[bytes]] = []
+    pipeline_step = contextlib.ExitStack()
     stderr_files: list[IO[bytes]] = []
     readers: list[tuple[IO[bytes], bool]] = []
     partials: list[bytes] = []
@@ -567,6 +655,11 @@ def run_pipeline(
             procs.append(proc)
             upstream = proc.stdout
 
+        pipeline_step.enter_context(
+            live_status.step(
+                " | ".join(step_label(_caller_args(stage)) for stage in stages)
+            )
+        )
         if heartbeat or active_run_log():
             monitor = Heartbeat(description, expected_reads, scan=scan, emit=heartbeat)
             monitor.__enter__()
@@ -588,12 +681,7 @@ def run_pipeline(
             zip(stages, returncodes, strict=True)
         ):
             # Label from the caller's argv, not the resolved (possibly wrapped) one.
-            if isinstance(stage, PathLike):
-                args = [expand_path(stage)]
-            elif isinstance(stage, str):
-                args = shlex.split(stage)
-            else:
-                args = [str(a) for a in stage]
+            args = _caller_args(stage)
             stage_name = " ".join([Path(args[0]).name, *args[1:2]]) if args else "?"
             tail = _stderr_tail(stderr_files[index])
             downstream_ok = all(code == 0 for code in returncodes[index + 1 :])
@@ -616,6 +704,7 @@ def run_pipeline(
                 proc.stdout.close()
         if monitor:
             monitor.__exit__()
+        pipeline_step.close()
         for reader, _ in readers:
             reader.close()
         for err_file in stderr_files:
