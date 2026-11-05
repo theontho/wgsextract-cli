@@ -12,7 +12,13 @@ from types import SimpleNamespace
 import pytest
 
 from tests.fake_tools import FakePixi, python_tool
-from wgsextract_cli.core import dependency_checks, pixi_tools, runtime, windows_arm64
+from wgsextract_cli.core import (
+    dependency_checks,
+    native_support,
+    pixi_tools,
+    runtime,
+    windows_arm64,
+)
 from wgsextract_cli.core.tool_commands import _tool_command_parts
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -25,8 +31,10 @@ posix_pixi = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def _x64_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Windows ARM64 hosts skip probing other environments.
+    # Windows ARM64 hosts skip probing other environments, and Linux ARM64
+    # ones refuse GATK.
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
+    monkeypatch.setattr(native_support.platform, "machine", lambda: "x86_64")
 
 
 def _run(command: str, *args: str) -> str:
