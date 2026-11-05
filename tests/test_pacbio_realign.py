@@ -10,6 +10,7 @@ from tests.fake_tools import python_tool
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
+from wgsextract_cli.main import main
 
 COMP = str.maketrans("ACGT", "TGCA")
 MODS = "MM:Z:C+m,0,1;\tML:B:C,255,128"
@@ -146,8 +147,33 @@ def test_pacbio_realign_stays_on_minimap2_when_pbmm2_is_installed(
     clear_tool_caches()
     _realign(source, ref, tmp_path / "out")
     assert "\tID:minimap2\t" in _header(tmp_path / "out" / "hifi_aligned.bam")
-    with pytest.raises(UsageError, match="pbmm2"):
+    with pytest.raises(UsageError, match="align --r1 <BAM> --aligner pbmm2"):
         _realign(source, ref, tmp_path / "out2", "--aligner", "pbmm2")
+
+
+@needs_tools("samtools", "minimap2", "bgzip")
+def test_pacbio_movie_named_input_keeps_its_fastq_and_resumes(tmp_path, genome_ref):
+    """PR #457 review: movie.ccs.bam with --keep-fastq made minimap2 write
+    movie.ccs_aligned.bam while realign expected movie_aligned.bam and failed;
+    a later --dry-run then wrote a FASTQ manifest."""
+    genome, ref = genome_ref
+    source, reads = _pacbio_bam(tmp_path, genome)
+    movie = tmp_path / "movie.ccs.bam"
+    os.rename(source, movie)
+    os.rename(f"{source}.bai", f"{movie}.bai")
+    out = tmp_path / "out"
+    _realign(movie, ref, out, "--keep-fastq")
+    primary = [r for r in _records(out / "movie_aligned.bam") if not int(r[1]) & 0x900]
+    assert sorted(r[0] for r in primary) == sorted(reads)
+    assert (out / "movie.fastq.gz").is_file()
+    assert not list(out.glob("movie.ccs*"))
+
+    before = sorted(p.name for p in out.iterdir())
+    main(
+        ["realign", "--input", str(movie), "--ref", str(ref), "--outdir", str(out),
+         "--keep-fastq", "--dry-run", "--config", str(tmp_path / "config.toml")]
+    )  # fmt: skip
+    assert sorted(p.name for p in out.iterdir()) == before
 
 
 @needs_tools("samtools")
@@ -181,6 +207,8 @@ def test_ont_realign_can_keep_its_tagged_fastq(tmp_path, genome_ref):
         assert "MM:Z:C+m,0,1;" in handle.readline()
     [record] = _records(tmp_path / "out" / "ont_aligned.bam")
     assert record[2:4] == ["chr1", "501"] and "MM:Z:C+m,0,1;" in record[11:]
+    with pytest.raises(UsageError, match="pbmm2 aligns PacBio reads only"):
+        _realign(source, ref, tmp_path / "out2", "--aligner", "pbmm2")
 
 
 @needs_tools("samtools", "minimap2")

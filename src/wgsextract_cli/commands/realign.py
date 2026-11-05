@@ -346,11 +346,17 @@ def run(args: argparse.Namespace) -> None:
 def _check_long_read_options(args: argparse.Namespace) -> None:
     """realign streams long reads from the BAM/CRAM into CPU minimap2."""
     if args.aligner == "pbmm2":
+        if args.platform not in align_cmd.PACBIO_PLATFORMS:
+            raise UsageError(
+                "pbmm2 aligns PacBio reads only; realign maps ONT reads with "
+                "minimap2 (--aligner minimap2 or auto)."
+            )
         raise UsageError(
-            "realign aligns long reads with minimap2, streaming each read's "
-            "primary record with its MM/ML tags. To use pbmm2, extract the "
-            "reads ('wgsextract bam unalign') and run 'wgsextract align "
-            "--aligner pbmm2'."
+            "realign aligns PacBio reads with minimap2, streaming each read's "
+            "primary record with its MM/ML tags. pbmm2 reads a PacBio BAM "
+            "itself, primary records only: run 'wgsextract align --r1 "
+            "<BAM> --aligner pbmm2' (convert a CRAM with 'wgsextract bam "
+            "to-bam' first)."
         )
     if getattr(args, "gpu", False):
         raise UsageError(
@@ -488,7 +494,11 @@ def _realign_long_reads(
     out_path = align_cmd.aligned_output_path(
         outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
     )
-    fastq = str(absolute_path(Path(outdir, f"{input_stem(args.input)}.fastq.gz")))
+    # The aligner names its output after the FASTQ, so it takes the stem that
+    # names out_path (movie.ccs.bam -> movie.fastq.gz -> movie_aligned.bam).
+    fastq = str(
+        absolute_path(Path(outdir, f"{align_cmd.reads_stem(args.input)}.fastq.gz"))
+    )
     extract_step = Step(
         "extract",
         inputs={
@@ -510,7 +520,7 @@ def _realign_long_reads(
     )
     if not decision.run and not (extract_decision and extract_decision.run):
         _resume_alignment(journal, decision, out_path, target, threads)
-        if args.keep_fastq:
+        if args.keep_fastq and not journal.dry_run:
             current_result().add_output(fastq, "fastq_r1")
         return
     if journal.dry_run:
