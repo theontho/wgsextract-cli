@@ -79,9 +79,9 @@ within 3% of the same peak RSS.
 minimap2 builds its index from the reference FASTA in memory on every run;
 WGSExtract keeps no `.mmi` file. Its preflight therefore counts the index for
 the selected preset, plus the larger of the build's scratch and mapping's
-batches and per-thread buffers, plus the sort and a fixed overhead. The
-read count does not matter; a read file smaller than about 100 MB fills one
-smaller batch. It was calibrated with minimap2 2.31 on hs38 (3.10 Gbases),
+batches and per-thread buffers, plus the sort and a fixed overhead (and
+samblaster for paired `sr` reads). Only samblaster depends on the read count; a
+read file smaller than about 100 MB fills one smaller batch. It was calibrated with minimap2 2.31 on hs38 (3.10 Gbases),
 4 threads:
 
 | Measurement | Measured peak | Estimate |

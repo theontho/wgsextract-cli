@@ -271,3 +271,14 @@ def test_minimap2_preflight_suggests_settings_that_fit_a_14g_cgroup(
     [warning] = result.warnings
     assert warning.details["suggested_threads"] is None
     assert "Even one thread exceeds" in warning.message
+
+
+def test_minimap2_small_short_read_input_does_not_get_the_genome_fallback():
+    """A few-MB FASTQ pair aligned with minimap2 sr and samblaster must not be
+    budgeted (and warned about) as the 680-million-read genome fallback."""
+    options = {"threads": "2", "memory": "256M", "samblaster": True, "preset": "sr"}
+    small = alignment_memory.estimate_mapping_memory(
+        None, "minimap2", input_bytes=5_000_000, **options
+    )
+    unknown = alignment_memory.estimate_mapping_memory(None, "minimap2", **options)
+    assert small.samblaster < 10 * 1024**2 < GIB < unknown.samblaster

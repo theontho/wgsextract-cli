@@ -250,6 +250,9 @@ def estimate_mapping_memory(
     input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
     if aligner == "minimap2":
         index, working = _minimap2_memory(bases, preset, int(threads), input_bytes)
+        if reads is None and input_bytes is not None:
+            # A compressed short read takes at least 16 bytes.
+            input_reads = min(input_reads, max(0, input_bytes) // 16)
         return MappingMemory(
             index,
             working,
@@ -376,9 +379,15 @@ def check_mapping_memory(
             " Even one thread exceeds the available-memory estimate: it needs "
             f"{(least.total + additional_ram_bytes) / _GIB:.1f} GiB."
         )
+    message += f" Continuing with {aligner}."
+    if aligner != "minimap2":
+        # Without a read count BWA's estimate assumes a 680-million-read
+        # genome, even for tiny inputs, so it stays a log line.
+        logging.warning(message)
+        return
     warn(
         "alignment_memory",
-        f"{message} Continuing with {aligner}.",
+        message,
         aligner=aligner,
         estimated_gib=round(total / _GIB, 2),
         available_gib=round(available / _GIB, 2),
