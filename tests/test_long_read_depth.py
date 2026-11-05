@@ -114,9 +114,11 @@ def _cache_reused(alignment: str, ref: str, outdir) -> bool:
     """Whether `info --detailed` reused the cache an earlier run saved,
     rather than reading the alignment again."""
     cache = outdir / f"{os.path.basename(alignment)}.wgse_info.json"
-    os.utime(cache, ns=(1, 1))
+    # In 2001, and a whole second, which every filesystem's clock can hold.
+    old = 1_000_000_000 * 10**9
+    os.utime(cache, ns=(old, old))
     _info_table(alignment, ref, outdir)
-    return cache.stat().st_mtime_ns == 1
+    return cache.stat().st_mtime_ns == old
 
 
 @needs_htslib
