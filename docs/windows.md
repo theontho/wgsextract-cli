@@ -38,12 +38,15 @@ and packaged as conda packages that `pixi.toml` pins by URL and SHA-256. The
 recipes, patches and build instructions are in
 [packaging/windows/README.md](../packaging/windows/README.md).
 
-Java tools (GATK, FastQC, HaploGrep) come from conda-forge,
+Java tools (GATK, FastQC, Haplogrep 3, haplocheck) come from conda-forge,
 Bioconda's platform-independent packages and PyPI as on the other platforms.
 Y-DNA analysis is native Yleaf-derived Python code; its checksum-pinned tables
 download on demand into the configured reference library, not the app bundle.
 The GATK environment also includes the native Windows GKL sidecar described
 below.
+haplocheck 1.3.3 can't load its HTML report template on Windows, so
+`lineage mt-haplogroup --contamination` writes only its text reports there
+and warns `haplocheck_no_html`.
 `deps check` lists what isn't available on Windows (for example VEP,
 DeepVariant, Delly and FreeBayes).
 

@@ -106,8 +106,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract lineage y-str --input sample.cram --panel Y-37",
     ),
     "lineage mt-haplogroup": _h(
-        "haplogrep_results.txt; prints the mtDNA haplogroup.",
+        "haplogrep_results.txt; prints the mtDNA haplogroup and Haplogrep 3 tree. "
+        "With --contamination, also haplocheck_contamination.txt (+ .raw.txt, "
+        ".html).",
         "wgsextract lineage mt-haplogroup --input sample.cram",
+        "wgsextract lineage mt-haplogroup --input sample.cram --contamination",
+        "wgsextract lineage mt-haplogroup --input sample.vcf.gz --tree mitotree-rcrs",
     ),
     # extract
     "extract mito-fasta": _h(

@@ -371,7 +371,7 @@ Call indels; the `indels` output carries the record count in its metrics.
 
 ## `api.lineage`
 
-`lineage`: mtDNA haplogroups (Haplogrep), Y haplogroups (native Yleaf)
+`lineage`: mtDNA haplogroups (Haplogrep 3), Y haplogroups (native Yleaf)
 and Y-STR repeat counts.
 
 ### `api.lineage.mt_haplogroup(MtHaplogroupParams)`
@@ -379,18 +379,28 @@ and Y-STR repeat counts.
 CLI: `wgsextract lineage mt-haplogroup`.
 
 mtDNA haplogroup; `metrics` holds `haplogroup` and
-`haplogroup_quality`, `details["haplogrep"]` the full Haplogrep row.
+`haplogroup_quality` (plus `mt_contamination` and
+`mt_contamination_level` with `contamination`). `details` holds the
+full Haplogrep row (`haplogrep`), `haplogrep_version`, the `tree`
+(id, version, name) and the haplocheck row (`haplocheck`).
 
-`MtHaplogroupParams`: Predict the mtDNA haplogroup with Haplogrep from a BAM/CRAM (chrM is
+`MtHaplogroupParams`: Predict the mtDNA haplogroup with Haplogrep 3 from a BAM/CRAM (chrM is
 called first; needs the reference) or a VCF. The report is
-`haplogrep_results.txt` in the output folder.
+`haplogrep_results.txt` in the output folder. The chosen tree is
+downloaded once into the reference library. With `contamination`,
+haplocheck also checks the mtDNA for a mixture of two haplogroups and writes
+`haplocheck_contamination.txt`.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
 | `input` | `Path` | required | `--input`, `-i` | BAM, CRAM or VCF with chrM/MT. |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
-| `haplogrep_path` | `str \| None` | `None` (config `haplogrep_executable`) | `--haplogrep-path` | Path to haplogrep executable or JAR (optional if in PATH) |
+| `tree` | `str \| None` | `None` (config `haplogrep_tree`) | `--tree` | Haplogrep 3 tree (default: config haplogrep_tree, else phylotree-fu-rcrs, PhyloTree 17 Forensic Update). phylotree-rcrs is PhyloTree 17; mitotree-rcrs is FamilyTreeDNA Mitotree (non-commercial use only). One of: `phylotree-fu-rcrs`, `phylotree-rcrs`, `mitotree-rcrs` |
+| `contamination` | `bool` | `False` | `--contamination` | Also check for mtDNA contamination with haplocheck. VCF input needs heteroplasmy levels (FORMAT/AF). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `haplogrep_path` | `str \| None` | `None` (config `haplogrep_executable`) | `--haplogrep-path` | Path to the Haplogrep 3 executable or JAR (optional if in PATH) |
+| `haplocheck_path` | `str \| None` | `None` (config `haplocheck_executable`) | `--haplocheck-path` | Path to the haplocheck executable or JAR (optional if in PATH) |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.lineage.y_haplogroup(YHaplogroupParams)`

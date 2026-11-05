@@ -73,17 +73,17 @@ def test_a_tool_on_its_environments_path_runs_through_pixi(fake_pixi):
 
 
 @posix_pixi
-def test_haplogrep_runs_its_jar_with_the_environments_java(fake_pixi):
+def test_haplogrep3_runs_its_jar_with_the_environments_java(fake_pixi):
     prefix = fake_pixi.env("default")
     python_tool(prefix / "bin", "java", "import sys; print(sys.argv[1:])")
-    jar = prefix / "bin" / "haplogrep.jar"
+    jar = prefix / "bin" / "haplogrep3.jar"
     jar.write_bytes(b"PK")
 
-    command = pixi_tools.pixi_env_tool("haplogrep")
+    command = pixi_tools.pixi_env_tool("haplogrep3")
 
     assert command is not None
     args = eval(_run(command, "classify"))
-    # contract: haplogrep ships as a jar, run by its environment's Java.
+    # contract: haplogrep3 ships as a jar, run by its environment's Java.
     assert args[args.index("-jar") + 1 :] == [str(jar.resolve()), "classify"]
 
 

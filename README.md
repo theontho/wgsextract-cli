@@ -20,7 +20,7 @@ see [NOTICE](NOTICE) and the [upstream sync procedure](src/wgsextract_cli/ydna/y
 macOS and Linux: open Terminal, paste this command, and press Enter.
 Linux x86_64 and native ARM64 (`linux-aarch64`) use the same installer.
 ARM64 phase 1 supports the default alignment/CRAM/calling/export pipeline, VEP,
-native Yleaf-derived Y-DNA analysis and Haplogrep. GATK still fails before execution because its native kernels
+native Yleaf-derived Y-DNA analysis and Haplogrep 3. GATK still fails before execution because its native kernels
 are not yet qualified. DeepVariant has an explicit
 [native CPU source-build path](docs/deepvariant-arm64.md). There is no silent
 Java or x86-emulation fallback. See [Linux ARM64](docs/linux-arm64.md).
@@ -255,7 +255,7 @@ exposed as an application configuration setting.
 | `extract` | `mito-fasta`, `mito-vcf`, `mt-bam`, `ydna-bam`, `ydna-vcf`, `y-mt-extract`, `unmapped`, `custom`, `bam-subset` |
 | `microarray` | Simulate 23andMe, AncestryDNA, FTDNA, Living DNA, MyHeritage, and combined (`all`) raw-data files |
 | `microarray --formats aadr_1240k,aadr_ho,aadr_1240k+ho` | Export pinned AADR research panels as PLINK and EIGENSTRAT ([conventions and validation](docs/aadr.md)) |
-| `lineage` | `y-haplogroup` (Yleaf), `y-str` (genealogy Y-STR panels), `mt-haplogroup` (Haplogrep) |
+| `lineage` | `y-haplogroup` (Yleaf), `y-str` (genealogy Y-STR panels), `mt-haplogroup` (Haplogrep 3, optional haplocheck contamination check) |
 | `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `clair3`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `pharmcat`. Other: `table` (one row per variant as TSV or Parquet + SQLite, [docs](docs/variant-table.md)), `filter`, `trio`, `to-fasta` (personal consensus genome) |
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `methylation` | `pileup`: CpG 5mC (optionally 5hmC) bedMethyl and summary from Nanopore/PacBio MM/ML tags (modkit) |
@@ -526,7 +526,8 @@ threads = "auto"   # Apple Silicon performance cores, otherwise all cores
 memory = "auto"    # per thread, e.g. "2G"; auto uses 25% of RAM split across threads
 
 # External tool overrides (optional when the tools are on PATH)
-haplogrep_path = "/path/to/haplogrep"
+haplogrep_path = "/path/to/haplogrep3"
+haplogrep_tree = "phylotree-fu-rcrs"   # or phylotree-rcrs, mitotree-rcrs
 vep_cache = "~/.vep"
 ```
 

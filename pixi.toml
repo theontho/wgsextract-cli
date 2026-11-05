@@ -61,7 +61,11 @@ bwa-mem2 = ">=2.3,<3"
 minimap2 = ">=2.31,<3"
 fastp = ">=1.1,<2"
 fastqc = ">=0.13,<0.14"
-haplogrep = ">=2.4,<3"
+# Haplogrep 3 classifies mtDNA haplogroups; haplocheck (with its bundled
+# mutserve) checks mtDNA for contamination. Both are noarch Java jars that the
+# CLI runs directly. Haplogrep 3.3 is not on Bioconda yet.
+haplogrep3 = "==3.2.2"
+haplocheck = "==1.3.3"
 delly = ">=2.7,<3"
 samblaster = ">=0.1.26,<0.2"
 # Reads GERP bigWig scores for `vcf gerp`; Bioconda builds Linux and macOS.
@@ -79,7 +83,8 @@ bcftools = "==1.24"
 
 [feature.bio-tools.target.win-64.dependencies]
 fastqc = ">=0.13,<0.14"
-haplogrep = ">=2.4,<3"
+haplogrep3 = "==3.2.2"
+haplocheck = "==1.3.3"
 # Bioconda has no Windows builds: these are WGS Extract's own static MinGW-w64
 # builds (packaging/windows), from Windows Tools releases. For complete sets use
 # `python packaging/windows/pin.py <tag>`, then `pixi lock`. For partial releases,

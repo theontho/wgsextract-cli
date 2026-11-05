@@ -220,7 +220,7 @@ def test_arm64_version_probe_does_not_launch_x64_binary(
 
 
 @pytest.mark.parametrize(
-    "arguments", [["--format", "fasta"], ["--format=fasta"], ["--write-fasta-msa"]]
+    "arguments", [["--in", "s.fasta"], ["--in", r"C:\x\s.FA.GZ"], ["--write-fasta-msa"]]
 )
 def test_arm64_haplogrep_rejects_foreign_jbwa_before_java(
     arguments: list[str],
@@ -231,10 +231,10 @@ def test_arm64_haplogrep_rejects_foreign_jbwa_before_java(
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     java = tmp_path / "java.exe"
     _write_pe(java, 0xAA64)
-    command = [str(java), "-jar", "haplogrep.jar", "classify"]
+    command = [str(java), "-jar", "haplogrep3.jar", "classify"]
     with pytest.raises(WGSExtractError, match="JBWA JNI kernels are not qualified"):
         utils._normalize_subprocess_cmd([*command, *arguments])
-    allowed = [*command, "--format", "vcf"]
+    allowed = [*command, "--in", "s.vcf.gz"]
     assert utils._normalize_subprocess_cmd(allowed) == allowed
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
     assert utils._normalize_subprocess_cmd([*command, *arguments]) == [

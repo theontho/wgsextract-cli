@@ -44,7 +44,7 @@ step mito_vcf    "$WGSE" extract mito-vcf --input "$BAM" --ref "$REF" --outdir "
 step mt_haplo    "$WGSE" lineage mt-haplogroup --input "$BAM" --ref "$REF" --outdir "$OUT/mt_haplo"
 step y_haplo     "$WGSE" lineage y-haplogroup --input "$BAM" --ref "$REF" --outdir "$OUT/y_haplo"
 # Keep predictions/evidence, not downloaded tables or the fresh user's private lock.
-rm -rf "$OUT/reference/yleaf"
+rm -rf "$OUT/reference/yleaf" "$OUT/reference/haplogrep3"
 step snp         "$WGSE" vcf snp --input "$BAM" --ref "$REF" --region 20 --ploidy 2 --outdir "$OUT/snp"
 step microarray  "$WGSE" microarray --input "$BAM" --ref "$REF" --ref-vcf-tab "$TARGETS" --formats 23andme_v5 --outdir "$OUT/microarray"
 step align       "$WGSE" align --r1 "$R1" --r2 "$R2" --ref "$REF" --outdir "$OUT/align"

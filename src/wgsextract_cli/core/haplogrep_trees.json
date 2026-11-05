@@ -1,0 +1,272 @@
+{
+  "default": "phylotree-fu-rcrs",
+  "trees": {
+    "phylotree-fu-rcrs": {
+      "version": "1.3",
+      "name": "PhyloTree 17 - Forensic Update",
+      "url": "https://github.com/genepi/phylotree-fu-rcrs/releases/download/1.3/phylotree-fu-rcrs-1.3.zip",
+      "sha256": "ffb1d30c57b2d72d4451785f6a1c7c9ecce273971d2fafaa01f0ca94c566ced1",
+      "size": 11898841,
+      "files": {
+        "annotations/MitImpact_db_3.1.0.sorted.txt.gz": {
+          "sha256": "df4bb7639566e3b4ab540307c16482e1bdb07533a78faf46ee21c3db9601e543",
+          "size": 9007245
+        },
+        "annotations/MitImpact_db_3.1.0.sorted.txt.gz.index": {
+          "sha256": "e3208c10ef4ae95f36d1b62b36357577164481022bf967ee913467bcbad4deaf",
+          "size": 92909
+        },
+        "annotations/gnomad.frequencies.txt.gz": {
+          "sha256": "2e2d2f77ffd3b0414ab52719a332eb52da90aceba8c5d7e0c996ff80a04dccfd",
+          "size": 865259
+        },
+        "annotations/gnomad.frequencies.txt.gz.index": {
+          "sha256": "77abbc4eb867feb6786428fe1164cea6ca116c68fbe6a6bb3af1a8832f856297",
+          "size": 79193
+        },
+        "annotations/gnomad.genomes.v3.1.sites.chrM.reduced_annotations.tsv.gz": {
+          "sha256": "c67bb1529ee297aaca04de9808e805c06cda1c13dadd5a4aadcde04bde5f5b80",
+          "size": 158649
+        },
+        "annotations/gnomad.genomes.v3.1.sites.chrM.reduced_annotations.tsv.gz.index": {
+          "sha256": "a6c7751ec81d7b74e7b13c1ead48b68b26b519a93b622fa6e63ac1208c90f61c",
+          "size": 61747
+        },
+        "annotations/rCRS_annotation_2023-02-16.txt.gz": {
+          "sha256": "3d282d3ca88714c81239040b3f295ac91bd7bd09ed01187404dc3e2d3c34215c",
+          "size": 1309619
+        },
+        "annotations/rCRS_annotation_2023-02-16.txt.gz.index": {
+          "sha256": "32f0bf5a35f3eb8aabe3d6c0f699f7c0d6ccf7846cd8704faffc4baecd1f0076",
+          "size": 156571
+        },
+        "annotations/template.html": {
+          "sha256": "648851748ba4da532059cf4411e836928b06cf4f1a1008bc7dcb67545e61724b",
+          "size": 7179
+        },
+        "mtdna.aac.txt": {
+          "sha256": "448679eafae8a4a0b579a36de48b5c3b5b1444af14b95ff12013fb6ebaf7f3b8",
+          "size": 1243
+        },
+        "mtdna.gff": {
+          "sha256": "ce41f9461ef6f13c829449f9b8fed3e8c2372c0684fe45ee378eea87dbdb7f12",
+          "size": 21329
+        },
+        "rcrs.dict": {
+          "sha256": "88061a2ce3e69c675105f99401e5acd53c70fffc6fab542bb262c872341df767",
+          "size": 126
+        },
+        "rcrs.fasta": {
+          "sha256": "d166066fe1de9ea37680965c96bfbf07858527269d85c3ca62c78926b2456844",
+          "size": 16852
+        },
+        "rcrs.fasta.amb": {
+          "sha256": "2c516f0426ece6f58530da64119b157aac7f1c5724e25be02dc74a799088f792",
+          "size": 19
+        },
+        "rcrs.fasta.ann": {
+          "sha256": "08227129eb3bb6f961eb6f63f0b9e9c7952961b12bdfafeb78127a2530a75849",
+          "size": 72
+        },
+        "rcrs.fasta.bwt": {
+          "sha256": "11c088677467e0c6f8a60718b0184481e4f05cd774f7a25f13314b1ba81a3edd",
+          "size": 16648
+        },
+        "rcrs.fasta.fai": {
+          "sha256": "4dd0094ceceefb4d3424c9778d65643ad5016dd577a1fef29a80b6ec5f7e5ea3",
+          "size": 20
+        },
+        "rcrs.fasta.pac": {
+          "sha256": "cfdf937b0b4a81d922453362994144f82a773b2f4fce2aa76704cfef11c4e7d1",
+          "size": 4144
+        },
+        "rcrs.fasta.sa": {
+          "sha256": "664a92ea47058c6a4a281334655feb977693181f7b68d0f2a3b5431584abdff4",
+          "size": 8336
+        },
+        "rules.csv": {
+          "sha256": "0a4834cdbc780b810e406b570a88597868d60e854bd38146930455518f35d43b",
+          "size": 2433
+        },
+        "tree.xml": {
+          "sha256": "07275e7a32f2d9ddb13252f357559eaa3537f677600e127f5b3a1a2c089d45be",
+          "size": 2426061
+        },
+        "tree.yaml": {
+          "sha256": "776dc754f466ab4f516e94742b3a79f33cec1a20b8fa582f7e0543fc0151d8d0",
+          "size": 8317
+        },
+        "weights.txt": {
+          "sha256": "5328a963015f17156754b38acc319ad1d3afdb63e83fbe50e44ebf616412cd23",
+          "size": 150031
+        }
+      }
+    },
+    "phylotree-rcrs": {
+      "version": "17.3",
+      "name": "PhyloTree",
+      "url": "https://github.com/genepi/phylotree-rcrs-17/releases/download/17.3/phylotree-rcrs-17.3.zip",
+      "sha256": "5278133257f519fb94572eb9e6266ea24b34546cab32f26587700291e0103736",
+      "size": 11867242,
+      "files": {
+        "annotations/MitImpact_db_3.1.0.sorted.txt.gz": {
+          "sha256": "df4bb7639566e3b4ab540307c16482e1bdb07533a78faf46ee21c3db9601e543",
+          "size": 9007245
+        },
+        "annotations/MitImpact_db_3.1.0.sorted.txt.gz.index": {
+          "sha256": "e3208c10ef4ae95f36d1b62b36357577164481022bf967ee913467bcbad4deaf",
+          "size": 92909
+        },
+        "annotations/gnomad.frequencies.txt.gz": {
+          "sha256": "2e2d2f77ffd3b0414ab52719a332eb52da90aceba8c5d7e0c996ff80a04dccfd",
+          "size": 865259
+        },
+        "annotations/gnomad.frequencies.txt.gz.index": {
+          "sha256": "77abbc4eb867feb6786428fe1164cea6ca116c68fbe6a6bb3af1a8832f856297",
+          "size": 79193
+        },
+        "annotations/gnomad.genomes.v3.1.sites.chrM.reduced_annotations.tsv.gz": {
+          "sha256": "c67bb1529ee297aaca04de9808e805c06cda1c13dadd5a4aadcde04bde5f5b80",
+          "size": 158649
+        },
+        "annotations/gnomad.genomes.v3.1.sites.chrM.reduced_annotations.tsv.gz.index": {
+          "sha256": "a6c7751ec81d7b74e7b13c1ead48b68b26b519a93b622fa6e63ac1208c90f61c",
+          "size": 61747
+        },
+        "annotations/rCRS_annotation_2023-02-16.txt.gz": {
+          "sha256": "3d282d3ca88714c81239040b3f295ac91bd7bd09ed01187404dc3e2d3c34215c",
+          "size": 1309619
+        },
+        "annotations/rCRS_annotation_2023-02-16.txt.gz.index": {
+          "sha256": "32f0bf5a35f3eb8aabe3d6c0f699f7c0d6ccf7846cd8704faffc4baecd1f0076",
+          "size": 156571
+        },
+        "annotations/template.html": {
+          "sha256": "648851748ba4da532059cf4411e836928b06cf4f1a1008bc7dcb67545e61724b",
+          "size": 7179
+        },
+        "mtdna.aac.txt": {
+          "sha256": "448679eafae8a4a0b579a36de48b5c3b5b1444af14b95ff12013fb6ebaf7f3b8",
+          "size": 1243
+        },
+        "mtdna.gff": {
+          "sha256": "ce41f9461ef6f13c829449f9b8fed3e8c2372c0684fe45ee378eea87dbdb7f12",
+          "size": 21329
+        },
+        "rcrs.dict": {
+          "sha256": "88061a2ce3e69c675105f99401e5acd53c70fffc6fab542bb262c872341df767",
+          "size": 126
+        },
+        "rcrs.fasta": {
+          "sha256": "d166066fe1de9ea37680965c96bfbf07858527269d85c3ca62c78926b2456844",
+          "size": 16852
+        },
+        "rcrs.fasta.amb": {
+          "sha256": "2c516f0426ece6f58530da64119b157aac7f1c5724e25be02dc74a799088f792",
+          "size": 19
+        },
+        "rcrs.fasta.ann": {
+          "sha256": "08227129eb3bb6f961eb6f63f0b9e9c7952961b12bdfafeb78127a2530a75849",
+          "size": 72
+        },
+        "rcrs.fasta.bwt": {
+          "sha256": "11c088677467e0c6f8a60718b0184481e4f05cd774f7a25f13314b1ba81a3edd",
+          "size": 16648
+        },
+        "rcrs.fasta.fai": {
+          "sha256": "4dd0094ceceefb4d3424c9778d65643ad5016dd577a1fef29a80b6ec5f7e5ea3",
+          "size": 20
+        },
+        "rcrs.fasta.pac": {
+          "sha256": "cfdf937b0b4a81d922453362994144f82a773b2f4fce2aa76704cfef11c4e7d1",
+          "size": 4144
+        },
+        "rcrs.fasta.sa": {
+          "sha256": "664a92ea47058c6a4a281334655feb977693181f7b68d0f2a3b5431584abdff4",
+          "size": 8336
+        },
+        "rules.csv": {
+          "sha256": "0a4834cdbc780b810e406b570a88597868d60e854bd38146930455518f35d43b",
+          "size": 2433
+        },
+        "tree.xml": {
+          "sha256": "5490d3756503654001d07ed3a733bcfa8ee9ee225c50cd07c8c4260d239d85b1",
+          "size": 1949319
+        },
+        "tree.yaml": {
+          "sha256": "169273ff3e6a5a41e50d21704be54f29a2d5b2b1a60235dcd220f261af7e2e07",
+          "size": 8216
+        },
+        "weights.txt": {
+          "sha256": "d0962699365c7fe6f0b41f7c1793513fa950597c971c859beeb7dc0e3f8ab92a",
+          "size": 130364
+        }
+      }
+    },
+    "mitotree-rcrs": {
+      "version": "2026.05.06",
+      "name": "FamilyTreeDNA Mitotree (non-commercial use only)",
+      "url": "https://github.com/genebygene/mitotree/releases/download/2026.05.06/mitotree-rcrs-2026.05.06.zip",
+      "sha256": "4b2abaa1e32b47af380916063fd193f1f389b9c2bf803974cc855e9fb908d829",
+      "size": 774618,
+      "files": {
+        "mtdna.aac.txt": {
+          "sha256": "448679eafae8a4a0b579a36de48b5c3b5b1444af14b95ff12013fb6ebaf7f3b8",
+          "size": 1243
+        },
+        "mtdna.gff": {
+          "sha256": "ce41f9461ef6f13c829449f9b8fed3e8c2372c0684fe45ee378eea87dbdb7f12",
+          "size": 21329
+        },
+        "rcrs.dict": {
+          "sha256": "88061a2ce3e69c675105f99401e5acd53c70fffc6fab542bb262c872341df767",
+          "size": 126
+        },
+        "rcrs.fasta": {
+          "sha256": "d166066fe1de9ea37680965c96bfbf07858527269d85c3ca62c78926b2456844",
+          "size": 16852
+        },
+        "rcrs.fasta.amb": {
+          "sha256": "2c516f0426ece6f58530da64119b157aac7f1c5724e25be02dc74a799088f792",
+          "size": 19
+        },
+        "rcrs.fasta.ann": {
+          "sha256": "08227129eb3bb6f961eb6f63f0b9e9c7952961b12bdfafeb78127a2530a75849",
+          "size": 72
+        },
+        "rcrs.fasta.bwt": {
+          "sha256": "11c088677467e0c6f8a60718b0184481e4f05cd774f7a25f13314b1ba81a3edd",
+          "size": 16648
+        },
+        "rcrs.fasta.fai": {
+          "sha256": "4dd0094ceceefb4d3424c9778d65643ad5016dd577a1fef29a80b6ec5f7e5ea3",
+          "size": 20
+        },
+        "rcrs.fasta.pac": {
+          "sha256": "cfdf937b0b4a81d922453362994144f82a773b2f4fce2aa76704cfef11c4e7d1",
+          "size": 4144
+        },
+        "rcrs.fasta.sa": {
+          "sha256": "664a92ea47058c6a4a281334655feb977693181f7b68d0f2a3b5431584abdff4",
+          "size": 8336
+        },
+        "rules.csv": {
+          "sha256": "55c405840071144d948b5488378ca6e47c4a3147ca4119eb1d17f3136bfd7a56",
+          "size": 1841
+        },
+        "tree.xml": {
+          "sha256": "409f14c91d8220c5539fb18fcd72af0c67961a6385730c0b0299afcf7de8202b",
+          "size": 17336285
+        },
+        "tree.yaml": {
+          "sha256": "5880f309538cd22b253cc5881bc275b9a0b8030c957b8ae978ed307cc9fbeb94",
+          "size": 2196
+        },
+        "weights.txt": {
+          "sha256": "cf2a164c94d7d83c5be15c5f80b3be6f2adb82a6e305e6ea0e278e8225d61841",
+          "size": 266648
+        }
+      }
+    }
+  }
+}

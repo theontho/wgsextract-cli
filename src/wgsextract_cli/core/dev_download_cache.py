@@ -143,7 +143,7 @@ def _staged_copy(source: Path, destination: Path, *, suffix: str) -> Path:
         shutil.copyfile(source, staging)
         # mkstemp makes 0600; publish with the mode a fresh download would get.
         if os.name != "nt":
-            os.chmod(staging, 0o666 & ~_process_umask())
+            os.chmod(staging, 0o666 & ~process_umask())
         with staging.open("rb+") as stream:
             os.fsync(stream.fileno())
     except BaseException:
@@ -153,7 +153,7 @@ def _staged_copy(source: Path, destination: Path, *, suffix: str) -> Path:
 
 
 @functools.cache
-def _process_umask() -> int:
+def process_umask() -> int:
     # Read once: os.umask can only be read by setting it, which races threads.
     mask = os.umask(0o022)
     os.umask(mask)

@@ -52,7 +52,9 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 
 # --- External Tools ---
 # Paths to specific tool executables or directories
-# haplogrep_path = "/path/to/haplogrep"
+# haplogrep_path = "/path/to/haplogrep3"
+# haplocheck_path = "/path/to/haplocheck"
+# haplogrep_tree = "phylotree-fu-rcrs"  # or phylotree-rcrs, mitotree-rcrs
 # jar_dir = "/path/to/jars"
 
 # --- Variant Processing ---

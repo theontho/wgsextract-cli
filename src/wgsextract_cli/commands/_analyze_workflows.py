@@ -15,6 +15,7 @@ from typing import Any, TypedDict
 
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.config import config_args
+from wgsextract_cli.core.haplogrep_trees import configured_tree_spec
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import Scalar, current_result, warn
 from wgsextract_cli.core.steps import Decision, Step, StepJournal, StepRun
@@ -551,9 +552,15 @@ def run_bam_chain(
     """Runs the info and lineage steps. Returns detected gender."""
     _print("\nSTAGE: BAM/CRAM Metrics & Lineage")
 
-    def subcommand_step(name: str, command: list[str], **extra: Any) -> Step:
+    def subcommand_step(
+        name: str,
+        command: list[str],
+        params: dict[str, Any] | None = None,
+        **extra: Any,
+    ) -> Step:
         return Step(name, inputs={"input": input_file},
-                    params=_step_params(args, command), **extra)  # fmt: skip
+                    params=_step_params(args, command) | (params or {}),
+                    **extra)  # fmt: skip
 
     # 1. Info (detailed: shows the table and detects the sex)
     info = ["info", "--detailed", "--input", input_file, "--outdir", outdir]
@@ -571,7 +578,7 @@ def run_bam_chain(
     )
     gender = str(metrics.get("gender") or "Unknown")
 
-    # 3. mt-haplogroup (Haplogrep)
+    # 3. mt-haplogroup (Haplogrep 3)
     for name, command in (
         ("mt-haplogroup", ["lineage", "mt-haplogroup"]),
         ("y-haplogroup", ["lineage", "y-haplogroup"]),
@@ -582,11 +589,14 @@ def run_bam_chain(
             continue
         command = [*command, "--input", input_file, "--outdir", outdir]
         tools = ["samtools", "bcftools"]
+        params: dict[str, Any] = {}
         if name == "mt-haplogroup":
-            tools.append("haplogrep")
+            tools.append("haplogrep3")
+            # The configured tree and its pin shape the call, too.
+            params["tree"] = configured_tree_spec()
         run_step(
             journal,
-            subcommand_step(name, command, tools=tools),
+            subcommand_step(name, command, params, tools=tools),
             subcommand_action(command, args),
         )
 

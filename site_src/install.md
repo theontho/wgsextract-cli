@@ -309,7 +309,8 @@ genome_library = "/data/genome-library"
 # A number, or "auto"
 threads = "auto"
 memory = "auto"
-haplogrep_path = "/usr/local/bin/haplogrep"
+haplogrep_path = "/usr/local/bin/haplogrep3"
+haplogrep_tree = "phylotree-fu-rcrs"
 ```
 :::
 :::
