@@ -342,9 +342,10 @@ def _resolve_sample_targets(
 
 
 def _sample_windows(
-    targets: Sequence[tuple[str, int, int]],
+    targets: Sequence[tuple[str, int, int]], budget: int = SAMPLE_WINDOW_BUDGET
 ) -> list[tuple[str, int, int]]:
-    """Evenly spaced, non-overlapping windows (0-based half-open, BED style).
+    """About `budget` evenly spaced, non-overlapping windows (0-based
+    half-open, BED style).
 
     Windows are allocated in proportion to span length so the genome-wide
     estimate is not dominated by short contigs.
@@ -356,7 +357,7 @@ def _sample_windows(
         width = min(SAMPLE_WINDOW_BP, span)
         count = max(
             SAMPLE_MIN_WINDOWS_PER_CONTIG,
-            round(SAMPLE_WINDOW_BUDGET * span / total_len),
+            round(budget * span / total_len),
         )
         count = min(count, span // width)
         spacing = span / count

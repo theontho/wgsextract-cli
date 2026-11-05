@@ -42,6 +42,28 @@ non-N length, like `info`. When none of these sources is available (an
 unindexed BAM, or an unindexed CRAM with multi-reference containers), the
 check is skipped with an informational message.
 
+That whole-input depth is spread over every contig that has reads, so a slice
+(an `extract` output, a region-limited realign or a panel) looks shallow even
+when its reads are deep. Before warning, a target found low is measured again
+with `samtools bedcov` over about 200 evenly spaced 1 kb windows on the
+contigs with reads, dividing by the bases those windows have reads on; when
+none of them has any, every read on those contigs is counted. This measure
+leaves out duplicates, secondary and QC-failed reads.
+
+With `--region`, `microarray` and the `vcf` callers measure the region itself
+this way instead, dividing by every base of the sampled windows, so a 54x
+slice called over its own region is not warned about, a region half outside
+the reads reports about half the depth, and one outside them reports 0x.
+Region contigs match the input's names either way (`20` or `chr20`), and
+`chr20:1,500,000-1,600,000` is one region. Whether chrX is haploid is still
+decided from the whole input, since a region's chrY may have no reads. A CRAM
+is measured only when its reference FASTA is at hand.
+
+A genuinely low-pass genome still warns, though only bases with reads count,
+so the depth shown is somewhat high: a 2% subsample (about 1x) of a 52x ONT
+HG002 chr20 is reported as about 1.5x, and very sparse inputs approach 1x
+however few reads they have.
+
 ## After: genotype rates
 
 After `microarray` writes its files, the autosomal genotypes are checked:

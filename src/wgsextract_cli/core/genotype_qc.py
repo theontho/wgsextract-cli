@@ -7,8 +7,11 @@ from the files just written. Both only log; outputs are never changed.
 
 import argparse
 import csv
+import gzip
 import io
 import logging
+import re
+import tempfile
 from collections.abc import Collection, Iterable, Mapping
 from pathlib import Path
 
@@ -19,7 +22,8 @@ from wgsextract_cli.core.microarray_utils import GenotypeTally, is_autosome
 from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import alignment_index
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.temp_directory import configured_temp_directory
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 AUTOSOMES, CHR_X, CHR_Y, MTDNA = "autosomes", "chrX", "chrY", "mtDNA"
 TARGETS = (AUTOSOMES, CHR_X, CHR_Y, MTDNA)
@@ -71,12 +75,22 @@ def contig_target(contig: str) -> str | None:
     return {"X": CHR_X, "Y": CHR_Y, "M": MTDNA, "MT": MTDNA}.get(key)
 
 
+# Regions are separated by whitespace or a comma, but not by a thousands comma.
+_REGION_SEPARATOR = re.compile(r"\s+|,(?!\d{3}(?:[-,\s]|$))")
+
+
+def region_parts(region: str) -> list[str]:
+    """The regions of a `-r` selection: `chr20:1,500,000-1,600,000 chrX` or
+    `chr20,chrY` (contig[:start[-end]] each)."""
+    return [p for p in _REGION_SEPARATOR.split(region.strip()) if p]
+
+
 def region_targets(region: str | None) -> set[str]:
     """The targets a `-r` region (contig[:start-end][,...]) covers; autosomes
     for a whole-genome run."""
     if not region:
         return {AUTOSOMES}
-    contigs = (part.strip().split(":", 1)[0] for part in region.split(","))
+    contigs = (part.rpartition(":")[0] or part for part in region_parts(region))
     return {target for contig in contigs if (target := contig_target(contig))}
 
 
@@ -261,18 +275,57 @@ def _format_depth(depth: float) -> str:
     return f"{depth:,.0f}x" if depth >= 100 else f"{depth:.1f}x"
 
 
+def _depths_to_judge(
+    alignment: str,
+    targets: list[str],
+    outdir: str | None,
+    ref: str | None,
+    min_depth: float | None,
+    region: str | None,
+) -> tuple[dict[str, float], str, bool | None] | None:
+    """Depths over `region`; else the whole-input estimate, with any target it
+    finds low measured again over the bases its reads cover. Also whether the
+    whole input looks male, which a region's chrX and chrY can't say."""
+    found = target_depths(alignment, outdir, ref)
+    depths, source = (dict(found[0]), found[1]) if found else ({}, "")
+    male = _is_male(depths) if CHR_X in depths and CHR_Y in depths else None
+    if region:
+        judged, where = targets, f"in {region}"
+    else:
+        judged = [t for t, *_ in low_depth_targets(depths, targets, min_depth)]
+        where = "with reads"
+    try:
+        measured = (
+            covered_depths(alignment, judged, region=region, ref=ref) if judged else {}
+        )
+    except (OSError, ValueError, WGSExtractError) as e:
+        logging.debug(f"Could not measure the depth of {alignment}: {e}")
+        measured = {}
+    if measured:
+        depths.update(measured)
+        sampled = f"{', '.join(measured)} from sampled windows {where}"
+        source = f"{source}; {sampled}" if source else sampled
+    return (depths, source, male) if depths else None
+
+
+def _is_male(depths: Mapping[str, float]) -> bool:
+    return depths.get(CHR_Y, 0.0) > 0.25 * depths.get(CHR_X, 0.0) > 0
+
+
 def low_depth_targets(
     depths: Mapping[str, float],
     targets: Iterable[str],
     min_depth: float | None = None,
+    male: bool | None = None,
 ) -> list[tuple[str, float, float, bool]]:
     """(target, depth, threshold, haploid) for each target whose mean depth is
     below what its genotypes need: qc_min_diploid_depth for autosomes and a
     woman's chrX, qc_min_haploid_depth for chrY, mtDNA and a man's chrX;
-    `min_depth` overrides both."""
+    `min_depth` overrides both. `male` defaults to what `depths` suggest."""
     diploid = _setting("qc_min_diploid_depth", min_depth)
     haploid = _setting("qc_min_haploid_depth", min_depth)
-    male = depths.get(CHR_Y, 0.0) > 0.25 * depths.get(CHR_X, 0.0) > 0
+    if male is None:
+        male = _is_male(depths)
     low = []
     for target in (t for t in TARGETS if t in set(targets)):
         depth = depths.get(target)
@@ -283,6 +336,118 @@ def low_depth_targets(
     return low
 
 
+Interval = tuple[str, int, int]  # contig, 1-based start, inclusive end
+COVERED_WINDOWS = 200
+
+
+def _region_intervals(region: str, lengths: Mapping[str, int]) -> list[Interval]:
+    """The intervals of a `-r` selection on the alignment's contigs, matching
+    chr20 to 20 and so on."""
+    from wgsextract_cli.core.variant_files import chromosome_aliases
+
+    intervals = []
+    for part in region_parts(region):
+        name, _, span = part.rpartition(":") if ":" in part else (part, "", "")
+        contig = next(
+            (a for a in (name, *chromosome_aliases(name)) if a in lengths), None
+        )
+        if contig is None:
+            continue
+        start, _, end = span.replace(",", "").replace("_", "").partition("-")
+        first = max(int(start), 1) if start.isdigit() else 1
+        last = min(int(end), lengths[contig]) if end.isdigit() else lengths[contig]
+        if first <= last:
+            intervals.append((contig, first, last))
+    return intervals
+
+
+def _contigs_with_reads(alignment: str, ref: str | None) -> dict[str, int]:
+    """Length of each contig the index places mapped reads on."""
+    from wgsextract_cli.commands.info.metrics import parse_idxstats
+    from wgsextract_cli.core.alignment_metadata import get_bam_header
+    from wgsextract_cli.core.reference_models import sequence_lengths
+
+    index = alignment_index(alignment)
+    if not index:
+        return {}
+    if not index.endswith(".crai"):
+        stats, *_ = parse_idxstats(alignment)
+        return {s["name"]: s["length"] for s in stats if s["mapped"] and s["length"]}
+    names = list(sequence_lengths(get_bam_header(alignment, ref)).items())
+    with gzip.open(index, "rt") as f:
+        ids = {int(line.split("\t", 1)[0]) for line in f if line.strip()}
+    return dict(names[i] for i in sorted(ids) if 0 <= i < len(names))
+
+
+def _bedcov(
+    alignment: str, intervals: Iterable[Interval], ref: str | None
+) -> list[tuple[Interval, int, int]]:
+    """(interval, summed depth, covered bases) from `samtools bedcov`: aligned
+    bases of primary and supplementary records, without duplicates."""
+    with tempfile.TemporaryDirectory(dir=configured_temp_directory()) as tmp:
+        bed = Path(tmp, "intervals.bed")
+        bed.write_text(
+            "".join(f"{c}\t{s - 1}\t{e}\n" for c, s, e in intervals), newline="\n"
+        )
+        reference = ["--reference", ref] if ref else []
+        out = run_command(
+            ["samtools", "bedcov", "-j", "-d", "1", *reference, bed, alignment],
+            capture_output=True,
+        ).stdout
+    rows = []
+    for line in out.splitlines():
+        contig, start, end, depth, covered = line.split("\t")[:5]
+        rows.append(((contig, int(start) + 1, int(end)), int(depth), int(covered)))
+    return rows
+
+
+def covered_depths(
+    alignment: str,
+    targets: Iterable[str],
+    *,
+    region: str | None = None,
+    ref: str | None = None,
+) -> dict[str, float]:
+    """Mean depth per target: over `region`, or else over the bases its reads
+    cover on the contigs holding them, which is what calling sees in a slice,
+    an `extract` output or a panel (#430).
+
+    About 200 evenly spaced 1 kb windows are read, spaced widely enough that
+    few long reads are decoded twice. Without a region, only bases with reads
+    count, and when no window has any, every read on the target's contigs is
+    counted. A target with no reads there has depth 0."""
+    from wgsextract_cli.commands.info.render import _sample_windows
+    from wgsextract_cli.core.alignment_metadata import get_bam_header
+    from wgsextract_cli.core.reference_models import sequence_lengths
+
+    wanted = set(targets)
+    if alignment.lower().endswith(".cram") and not (ref and Path(ref).is_file()):
+        return {}
+    if region:
+        lengths = sequence_lengths(get_bam_header(alignment, ref))
+        intervals = _region_intervals(region, lengths)
+    else:
+        intervals = [(c, 1, n) for c, n in _contigs_with_reads(alignment, ref).items()]
+    intervals = [i for i in intervals if contig_target(i[0]) in wanted]
+    if not intervals:
+        return {}
+    windows = [(c, s + 1, e) for c, s, e in _sample_windows(intervals, COVERED_WINDOWS)]
+    rows = _bedcov(alignment, windows, ref)
+    if not region:
+        found = {contig_target(c) for (c, *_), _d, covered in rows if covered}
+        rows += _bedcov(
+            alignment, [i for i in intervals if contig_target(i[0]) not in found], ref
+        )
+    depth = dict.fromkeys(wanted, 0)
+    span = dict.fromkeys(wanted, 0)
+    for (contig, start, end), summed, covered in rows:
+        target = contig_target(contig)
+        if target in wanted:
+            depth[target] += summed
+            span[target] += end - start + 1 if region else covered
+    return {t: depth[t] / span[t] if span[t] else 0.0 for t in wanted}
+
+
 def warn_low_depth(
     alignment: str,
     targets: Iterable[str],
@@ -290,8 +455,11 @@ def warn_low_depth(
     outdir: str | None = None,
     ref: str | None = None,
     min_depth: float | None = None,
+    region: str | None = None,
 ) -> dict[str, float] | None:
-    """Warn about each of `targets` that low_depth_targets finds too shallow."""
+    """Warn about each of `targets` that low_depth_targets finds too shallow:
+    over `region` when given, else over the whole input, re-checked over the
+    bases its reads cover before warning."""
     targets = [t for t in TARGETS if t in set(targets)]
     if not targets or not alignment.lower().endswith((".bam", ".cram")):
         return None
@@ -299,18 +467,18 @@ def warn_low_depth(
         "qc_min_haploid_depth", min_depth
     ):
         return None
-    found = target_depths(alignment, outdir, ref)
+    found = _depths_to_judge(alignment, targets, outdir, ref, min_depth, region)
     if found is None or not any(t in found[0] for t in targets):
         logging.info(
             f"Mean depth of {Path(alignment).name} isn't known without reading it; "
             "`wgsextract info --detailed` caches it for the low-coverage check."
         )
         return None
-    depths, source = found
+    depths, source, male = found
     summary = ", ".join(f"{t} {_format_depth(d)}" for t, d in depths.items())
     logging.info(f"Mean depth from {source}: {summary}")
     for target, depth, threshold, is_haploid in low_depth_targets(
-        depths, targets, min_depth
+        depths, targets, min_depth, male
     ):
         setting = "qc_min_haploid_depth" if is_haploid else "qc_min_diploid_depth"
         consequence = (

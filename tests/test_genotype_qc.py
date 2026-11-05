@@ -1,6 +1,7 @@
 """Low-coverage and imputation warnings: depth from the info cache, CRAM
 container headers or a BAM index, and genotype rates from written kits."""
 
+import json
 import logging
 import random
 import sys
@@ -40,7 +41,7 @@ def sample(tmp_path_factory):
     reads = []
     for contig, n in READS.items():
         for i in range(n):
-            pos = 1 + (i * 13) % (LENGTHS[contig] - 50)
+            pos = 1 + (i * 37) % (LENGTHS[contig] - 50)
             seq = seqs[contig][pos - 1 : pos + 49]
             reads.append(
                 f"r{contig}{i}\t0\t{contig}\t{pos}\t60\t50M\t*\t0\t0\t{seq}\t{'I' * 50}"
@@ -59,6 +60,7 @@ def test_region_targets():
     assert region_targets("chrY") == {CHR_Y}
     assert region_targets("chrM:1-100,X") == {MTDNA, CHR_X}
     assert region_targets("chr20:1-5,000") == {AUTOSOMES}
+    assert region_targets("chr20:1,500,000-1,600,000 chrY") == {AUTOSOMES, CHR_Y}
     assert region_targets("chrUn_KI270302v1") == set()
 
 
@@ -66,8 +68,9 @@ def test_region_targets():
 def test_bam_index_depth_warns_per_target_threshold(sample, caplog):
     caplog.set_level(logging.INFO)
     depths = warn_low_depth(sample["bam"], set(genotype_qc.TARGETS), ref=sample["ref"])
+    # Low targets are measured again over sampled windows with reads.
     assert depths == pytest.approx(
-        {AUTOSOMES: 2.5, CHR_X: 1.25, CHR_Y: 2.0, MTDNA: 20.0}
+        {AUTOSOMES: 2.5, CHR_X: 1.25, CHR_Y: 2.0, MTDNA: 20.0}, rel=0.1
     )
     warnings = _warnings(caplog)
     # Male (chrY > a quarter of chrX), so chrX is held to the haploid 3x.
@@ -113,7 +116,7 @@ def test_cram_depth_comes_from_container_headers(sample, tmp_path, caplog):
     assert warn_low_depth(str(cram), {AUTOSOMES}, ref=sample["ref"]) is None
     run_command(["samtools", "index", str(cram)])
     depths = warn_low_depth(str(cram), {AUTOSOMES}, ref=sample["ref"])
-    assert depths == pytest.approx({AUTOSOMES: 2.5, CHR_X: 1.25})
+    assert depths == pytest.approx({AUTOSOMES: 2.5, CHR_X: 1.25}, rel=0.1)
     assert warn_low_depth(str(cram), {MTDNA}, ref=sample["ref"]) is None
     assert "isn't known without reading it" in caplog.text
 
@@ -129,7 +132,7 @@ def test_info_cache_is_used_before_counting(sample, tmp_path):
         main()
     with patch.object(genotype_qc, "_counted_depths", side_effect=AssertionError):
         depths = warn_low_depth(str(bam), {AUTOSOMES}, outdir=str(tmp_path))
-    assert depths is not None and depths[AUTOSOMES] == pytest.approx(2.5)
+    assert depths is not None and depths[AUTOSOMES] == pytest.approx(2.5, rel=0.1)
 
 
 def test_unknown_depth_and_vcf_inputs_never_warn(tmp_path, caplog):
@@ -215,3 +218,90 @@ def test_chrY_only_cram_keeps_the_assembly_n_adjustment(tmp_path):
     assert depths == pytest.approx(
         {AUTOSOMES: 0.0, CHR_X: 0.0, CHR_Y: 10.0, MTDNA: 0.0}
     )
+
+
+@pytest.fixture(scope="module")
+def slice_bam(tmp_path_factory):
+    """A 2 Mb chr20 whose reads (20x of 100 bp) cover only 20 kb from 1.2 Mb,
+    as `extract` or a region-limited realign writes."""
+    root = tmp_path_factory.mktemp("slice")
+    rng = random.Random(5)
+    seq = "".join(rng.choice("ACGT") for _ in range(2_000_000))
+    ref = write_fasta(root / "ref.fa", {"chr20": seq})
+    reads = [
+        f"r{i}\t0\tchr20\t{pos}\t60\t100M\t*\t0\t0\t{seq[pos - 1 : pos + 99]}\t"
+        + "I" * 100
+        for i, pos in enumerate(range(1_200_001, 1_219_902, 5))
+    ]
+    bam = sam_to_bam(["@SQ\tSN:chr20\tLN:2000000", *reads], root / "slice.bam")
+    return {"root": root, "ref": str(ref), "bam": bam}
+
+
+@needs_htslib
+def test_issue_430_slice_isnt_called_low_coverage_over_the_whole_contig(
+    slice_bam, caplog
+):
+    # #430: a 20x slice warned "mean autosomes depth of about 0.2x".
+    depths = warn_low_depth(slice_bam["bam"], {AUTOSOMES}, ref=slice_bam["ref"])
+    assert depths is not None and depths[AUTOSOMES] == pytest.approx(20, rel=0.05)
+    assert not _warnings(caplog)
+    assert warn_low_depth(slice_bam["bam"], {AUTOSOMES}, min_depth=25)
+    assert "about 20.0x, below the 25x" in _warnings(caplog)[0]
+
+
+@needs_htslib
+@pytest.mark.parametrize(
+    ("region", "warned"),
+    [
+        ("chr20:1200001-1220000", False),
+        ("chr20:1500000-1600000", True),
+        ("chr20:1100001-1300000", True),
+    ],
+)
+def test_issue_430_vcf_region_is_judged_by_its_own_depth(
+    slice_bam, tmp_path, region, warned
+):
+    # #430: `vcf ... --region` warned about the whole genome's depth.
+    outdir = tmp_path / "out"
+    argv = ["vcf", "snp", "--input", slice_bam["bam"], "--ref", slice_bam["ref"]]
+    argv += ["--region", region, "--ploidy", "2", "--outdir", str(outdir)]
+    main([*argv, "--config", str(tmp_path / "config.toml")])
+    (manifest,) = outdir.glob("*.manifest.json")
+    warnings = json.loads(manifest.read_text())["warnings"]
+    low = [w for w in warnings if w["code"] == "low_coverage"]
+    assert bool(low) is warned
+    if warned:
+        assert low[0]["details"]["depth"] < 3
+
+
+@needs_htslib
+def test_issue_430_region_names_like_the_header_or_not(slice_bam, caplog):
+    # `20:...` against a chr20 header, with thousands separators, is the slice.
+    for region in ("20:1,200,001-1,220,000", "chr20:1200001-1220000 chrUn"):
+        depths = warn_low_depth(
+            slice_bam["bam"], {AUTOSOMES}, ref=slice_bam["ref"], region=region
+        )
+        assert depths is not None
+        assert depths[AUTOSOMES] == pytest.approx(20, rel=0.05)
+    assert not _warnings(caplog)
+
+
+@needs_htslib
+def test_issue_430_region_without_chrY_reads_keeps_a_man_haploid(tmp_path, caplog):
+    # A man's 8x chrX is haploid even when the region's chrY has no reads.
+    rng = random.Random(7)
+    seqs = {c: "".join(rng.choice("ACGT") for _ in range(200_000)) for c in "XY"}
+    ref = write_fasta(tmp_path / "ref.fa", {f"chr{c}": s for c, s in seqs.items()})
+    reads = [
+        f"{c}{pos}\t0\tchr{c}\t{pos}\t60\t100M\t*\t0\t0\t"
+        f"{seqs[c][pos - 1 : pos + 99]}\t" + "I" * 100
+        for c, last in (("X", 199_901), ("Y", 99_901))
+        for pos in range(1, last + 1, 12)
+    ]
+    header = ["@SQ\tSN:chrX\tLN:200000", "@SQ\tSN:chrY\tLN:200000"]
+    bam = sam_to_bam([*header, *reads], tmp_path / "male.bam")
+    region = "chrX,chrY:150001-200000"
+    warn_low_depth(bam, {CHR_X, CHR_Y}, ref=str(ref), region=region)
+    assert [w.split(" depth")[0] for w in _warnings(caplog)] == [
+        "Low coverage: male.bam has a mean chrY"
+    ]

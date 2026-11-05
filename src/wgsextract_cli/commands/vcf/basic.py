@@ -136,6 +136,7 @@ def caller_setup(
         outdir=outdir,
         ref=resolved_ref,
         min_depth=qc_min_depth,
+        region=region,
     )
     return CallerSetup(thread_count, outdir, resolved_ref, lib, platform)
 

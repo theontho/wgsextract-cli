@@ -455,6 +455,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             outdir=outdir,
             ref=ref_fasta,
             min_depth=getattr(args, "qc_min_depth", None),
+            region=args.region,
         )
 
     if lib.build and is_t2t_build(lib.build):
