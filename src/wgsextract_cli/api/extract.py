@@ -71,7 +71,10 @@ class BamSubsetParams(_ExtractParams):
         doc="Fraction of the reads to keep, e.g. 0.1 for 10%.",
     )
     region: str | None = param(
-        None, help=CLI_HELP["arg_region"], flags=("-r", "--region")
+        None,
+        help=CLI_HELP["arg_region"],
+        flags=("-r", "--region"),
+        may_name_file=True,
     )
     gene: str | None = param(None, help=_GENE_HELP, doc=_GENE_DOC)
 
@@ -138,6 +141,7 @@ class CustomParams(_ExtractParams):
         help=CLI_HELP["arg_region"],
         flags=("-r", "--region"),
         doc="Region (chrY:10000-20000), comma-separated regions, or a BED file.",
+        may_name_file=True,
     )
     gene: str | None = param(None, help=_GENE_HELP, doc=_GENE_DOC)
 
