@@ -15,16 +15,28 @@ version gains a `-wgse-<version>` suffix.
 
 ## Installing
 
-Each release lists SHA-256 hashes for its archives. Downloading with `gh` or
-`curl` avoids the browser quarantine flag that Gatekeeper applies to these
-ad-hoc-signed executables:
+Download into an empty directory with `gh` (or `curl`), which avoids the
+browser quarantine flag that Gatekeeper applies to these ad-hoc-signed
+executables, and check the archives against the SHA-256 digests GitHub
+publishes for each release asset:
 
 ```bash
+mkdir wgse-aligners && cd wgse-aligners
 gh release download macos-aligners-1 -R WGSExtract/wgsextract-cli
-shasum -a 256 *.tar.gz   # compare with the release notes
-for archive in *.tar.gz; do tar -xzf "$archive"; done
-wgse-bwa-0.1.0-macos-arm64/bin/wgse-bwa
-wgse-bwa-mem2-0.1.0-macos-arm64/bin/wgse-bwa-mem2 capabilities --json
+gh release view macos-aligners-1 -R WGSExtract/wgsextract-cli --json assets \
+  --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
+  shasum -a 256 -c
+```
+
+Continue only if every archive reports `OK`. Then extract them and put both
+`bin` directories on `PATH` (add the `export` line to your shell profile to
+keep it):
+
+```bash
+tar -xzf wgse-bwa-0.1.0-macos-arm64.tar.gz
+tar -xzf wgse-bwa-mem2-0.1.0-macos-arm64.tar.gz
+export PATH="$PWD/wgse-bwa-0.1.0-macos-arm64/bin:$PWD/wgse-bwa-mem2-0.1.0-macos-arm64/bin:$PATH"
+wgse-bwa-mem2 capabilities --json
 ```
 
 macOS kills a quarantined executable as soon as it starts. If an archive was
