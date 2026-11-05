@@ -130,25 +130,125 @@ def deep_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
     return sam_to_bam(lines, root / "sample.bam"), str(ref)
 
 
-@needs_htslib
-def test_multithreaded_deep_calls_match_one_stream(
-    deep_sample: tuple[str, str], tmp_path: Path
-) -> None:
-    # bcftools draws from one per-process random stream to subsample sites
-    # deeper than 255 bases, so per-contig workers would change chrB (#197).
-    bam, ref = deep_sample
+def _bodies(
+    sample: tuple[str, str], tmp_path: Path, *, indels: bool = False
+) -> list[str]:
+    bam, ref = sample
     bodies = []
     for threads in ("1", "3"):
         output = str(tmp_path / f"calls-{threads}.vcf.gz")
         contig_calling.call_small_variants(
             bam, ref, output, threads=threads, region=None, profile=[],
-            call_args=["--ploidy", "2", "-P", "0"],
+            call_args=["--ploidy", "2", "-P", "0"], indels=indels, parallel=True,
         )  # fmt: skip
         bodies.append(
             run_command(["bcftools", "view", "-H", output], capture_output=True).stdout
         )
-    assert bodies[0] == bodies[1]
-    assert "chrB\t500\t" in bodies[0]
+    assert not list(tmp_path.glob(".wgse_call_*"))
+    return bodies
+
+
+@needs_htslib
+def test_parallel_deep_calls_match_one_stream(
+    deep_sample: tuple[str, str], tmp_path: Path
+) -> None:
+    # bcftools draws from one per-process random stream to subsample sites
+    # deeper than 255 bases, so per-contig workers would change chrB (#392).
+    serial, parallel = _bodies(deep_sample, tmp_path)
+    assert serial == parallel
+    assert "chrB\t500\t" in serial
+
+
+@pytest.fixture(scope="module")
+def deep_patches_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
+    """Shallow contigs with het SNPs, two of which hold 300-read deep patches."""
+    root = tmp_path_factory.mktemp("deep patches")
+    rng = random.Random(5)
+    length = 30_000
+    patches = {"chrA": [3_000, 25_000], "chrB": [], "chrC": [15_000]}
+    sequences = {
+        name: "".join(rng.choice("ACGT") for _ in range(length)) for name in patches
+    }
+    ref = write_fasta(root / "reference.fa", sequences)
+    lines = ["@HD\tVN:1.6\tSO:coordinate"]
+    lines += [f"@SQ\tSN:{name}\tLN:{length}" for name in sequences]
+    lines += ["@RG\tID:reads\tSM:sample"]
+    for chrom, seq in sequences.items():
+        snps = set(range(500, length, 1_000)) | {p + 450 for p in patches[chrom]}
+        reads = [(start, 100) for start in range(1, length - 99, 10)]
+        reads += [
+            (start, 300)
+            for patch in patches[chrom]
+            for start in range(patch, patch + 600)
+        ]
+        for name, (start, size) in enumerate(sorted(reads)):
+            bases = list(seq[start - 1 : start - 1 + size])
+            for snp in snps:
+                if start <= snp < start + size and rng.random() < 0.5:
+                    bases[snp - start] = "ACGT"[("ACGT".index(seq[snp - 1]) + 1) % 4]
+            quals = "".join(chr(33 + rng.randint(15, 40)) for _ in bases)
+            lines.append(
+                f"r{chrom}{name}\t0\t{chrom}\t{start}\t60\t{size}M\t*\t0\t0"
+                f"\t{''.join(bases)}\t{quals}\tRG:Z:reads"
+            )
+    return sam_to_bam(lines, root / "sample.bam"), str(ref)
+
+
+@needs_htslib
+@pytest.mark.parametrize("bands", [True, False])
+def test_parallel_replays_only_deep_windows(
+    deep_patches_sample: tuple[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bands: bool,
+) -> None:
+    # Multi-sample input lists dense columns without gVCF bands.
+    monkeypatch.setattr(contig_calling, "_single_sample", Mock(return_value=bands))
+    replay = contig_calling._ContigCaller._replay
+    replayed: list[list[contig_calling.Window]] = []
+
+    def spy(self: contig_calling._ContigCaller, *args: object, **kwargs: object):
+        replayed.append(list(args[3]))  # type: ignore[call-overload]
+        return replay(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(contig_calling._ContigCaller, "_replay", spy)
+    serial, parallel = _bodies(deep_patches_sample, tmp_path)
+    assert serial == parallel
+    assert "chrC\t15450\t" in serial and "chrB\t500\t" in serial
+    assert [[(c, s // 1000, e // 1000) for c, s, e in w] for w in replayed] == [
+        [("chrA", 0, 3), ("chrA", 15, 25), ("chrC", 5, 15)]
+    ]
+
+
+@needs_htslib
+def test_disagreeing_windows_fall_back_to_whole_contigs(
+    deep_patches_sample: tuple[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replay = contig_calling._ContigCaller._replay
+    verified: list[bool] = []
+
+    def disagree(
+        self: contig_calling._ContigCaller, *args: object, verify: bool = True
+    ):
+        verified.append(verify)
+        result = replay(self, *args, verify=verify)  # type: ignore[arg-type]
+        return None if verify else result
+
+    monkeypatch.setattr(contig_calling._ContigCaller, "_replay", disagree)
+    serial, parallel = _bodies(deep_patches_sample, tmp_path)
+    assert serial == parallel
+    assert verified == [True, False]
+
+
+@needs_htslib
+def test_parallel_deep_indel_calls_match_one_stream(
+    deep_patches_sample: tuple[str, str], tmp_path: Path
+) -> None:
+    # Indel likelihoods never subsample, so no replay is needed.
+    serial, parallel = _bodies(deep_patches_sample, tmp_path, indels=True)
+    assert serial == parallel
 
 
 @needs_htslib
@@ -246,8 +346,10 @@ def test_worker_failure_cancels_running_sibling_before_cleanup(
         Mock(return_value={"chr20": 1000, "chr21": 1000}),
     )
 
+    monkeypatch.setattr(contig_calling, "_single_sample", Mock(return_value=True))
+
     def pipeline(
-        stages: list[list[str]], *, description: str, cancel_event: Event
+        stages: list[list[str]], *, description: str, cancel_event: Event, **_: object
     ) -> None:
         if description.endswith("(chr20)"):
             started.set()
@@ -288,8 +390,8 @@ def test_concat_failure_preserves_previous_output(
     bam, ref = multicontig_sample
     with pytest.raises(WGSExtractError, match="concat failed"):
         contig_calling.call_small_variants(
-            bam, ref, str(output), threads="3", region=None,
-            profile=[], call_args=["--ploidy", "2"], parallel=True,
+            bam, ref, str(output), threads="3", region=None, profile=[],
+            call_args=["--ploidy", "2"], indels=True, parallel=True,
         )  # fmt: skip
     assert output.read_bytes() == b"previous output"
     assert index.read_bytes() == b"previous index"
