@@ -31,6 +31,7 @@ from wgsextract_cli.commands.registry import (
     TIERS,
     command_tier,
 )
+from wgsextract_cli.core.config import settings_suspended
 from wgsextract_cli.core.messages import CLI_HELP
 
 HELP_SCHEMA = "wgsextract.help/1"
@@ -575,6 +576,9 @@ def run_help(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
             message += "See 'wgsextract help --all' or 'wgsextract help topics'."
         resolve_command(parser, ["help"]).error(message)
     if as_json:
+        # Defaults from config.toml are this user's private paths and
+        # machine settings; agents get the defaults declared in code.
+        parser = _parser_without_settings()
         entries = command_index(parser, " ".join(topic))
         globals_ = None if topic else global_options_json(parser)
         sys.stdout.write(index_json(entries, globals_))
@@ -588,6 +592,13 @@ def run_help(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
         target.print_help()
     else:
         print_full_help(parser)
+
+
+def _parser_without_settings() -> argparse.ArgumentParser:
+    from .parser import build_parser
+
+    with settings_suspended():
+        return build_parser()[0]
 
 
 def _top_names(parser: argparse.ArgumentParser) -> list[str]:

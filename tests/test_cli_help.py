@@ -211,6 +211,46 @@ def test_piped_help_has_no_colour():
     assert "Start here" in result.stdout and not ANSI.search(result.stdout)
 
 
+def test_help_index_has_no_settings_from_the_users_config(tmp_path):
+    private = "joes-private-dir"
+    paths = {
+        key: f"/home/{private}/{key}"
+        for key in (
+            "input_path",
+            "output_directory",
+            "temp_directory",
+            "reference_fasta",
+            "log_dir",
+            "vep_cache_directory",
+            "default_input_vcf",
+            "mother_vcf_path",
+            "clinvar_vcf_path",
+        )
+    }
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "".join(f'{key} = "{value}"\n' for key, value in paths.items())
+        + "cpu_threads = 7\n",
+        encoding="utf-8",
+    )
+    base = [sys.executable, "-m", "wgsextract_cli.main", "--config", str(config)]
+    outputs = {}
+    for words in (
+        ["help", "--all"],
+        ["help", "--all", "--json"],
+        ["help", "vcf", "--json"],
+    ):
+        result = subprocess.run(
+            [*base, *words], capture_output=True, text=True, check=True
+        )
+        outputs[" ".join(words)] = result.stdout
+    for words, out in outputs.items():
+        assert private not in out, words
+    doc = json.loads(outputs["help --all --json"])
+    threads = next(o for o in doc["global_options"] if "--threads" in o["flags"])
+    assert "default" not in threads
+
+
 def test_first_sentence_keeps_abbreviations():
     text = "Download maps (e.g. GENCODE) for genes. More detail."
     assert cli_help.first_sentence(text) == "Download maps (e.g. GENCODE) for genes."

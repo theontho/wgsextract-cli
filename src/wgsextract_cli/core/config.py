@@ -2,6 +2,8 @@ import difflib
 import logging
 import os
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TypeVar, overload
 
@@ -440,6 +442,22 @@ def ensure_settings_loaded() -> None:
     loaded settings or filled them itself."""
     if not _settings_loaded and not settings:
         reload_settings()
+
+
+@contextmanager
+def settings_suspended() -> Iterator[None]:
+    """Run with no settings, so code sees only its built-in defaults; the
+    loaded settings come back afterwards."""
+    global _settings_loaded
+    saved, was_loaded = dict(settings), _settings_loaded
+    settings.clear()
+    _settings_loaded = True  # don't let ensure_settings_loaded refill them
+    try:
+        yield
+    finally:
+        settings.clear()
+        settings.update(saved)
+        _settings_loaded = was_loaded
 
 
 def save_config(updates: dict[str, Any]) -> None:
