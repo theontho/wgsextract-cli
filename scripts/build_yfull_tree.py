@@ -412,7 +412,7 @@ def main() -> None:
         "date": source["committed"],
         "license": LICENSE,
         "source": f"{YTREE_REPO}/blob/{source['commit']}/{source['file']}",
-        "positions": (
+        "positions_source": (
             f"YBrowse snps_hg38.csv retrieved {ybrowse_date}, {YBROWSE_COPYRIGHT}"
         ),
         "url": f"{RELEASE_URL}/{tag}/{name}",

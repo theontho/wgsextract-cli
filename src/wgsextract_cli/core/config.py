@@ -80,6 +80,16 @@ KNOWN_SETTINGS = {
         "Haplogrep 3 tree for mtDNA haplogroups: phylotree-fu-rcrs "
         "(default), phylotree-rcrs or mitotree-rcrs",
     ),
+    "y_tree": (
+        None,
+        "Y haplogroup tree for `lineage y-haplogroup`: yfull (default), "
+        "yfull_v10, ftdna, isogg or a [y_trees] id",
+    ),
+    "y_trees": (
+        None,
+        "Your own Y haplogroup trees, one [y_trees.<id>] table each "
+        "(see the Yleaf README)",
+    ),
     "jar_directory": (None, "Directory for JAR tools"),
     "vep_cache_directory": (None, "Path to VEP cache"),
     "pharmcat_directory": (None, "Extracted PharmCAT pipeline release"),
@@ -336,6 +346,12 @@ def _validate_config_types(
             expected = "a TOML string or an array of TOML strings"
             valid = isinstance(value, str) or (
                 isinstance(value, list) and all(isinstance(path, str) for path in value)
+            )
+        elif canonical == "y_trees":
+            # Each entry's own fields are checked when the tree is used.
+            expected = "a TOML table of [y_trees.<id>] tables"
+            valid = isinstance(value, dict) and all(
+                isinstance(entry, dict) for entry in value.values()
             )
         elif type(default) is bool:
             expected = "a TOML boolean (true or false)"

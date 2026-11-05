@@ -9401,7 +9401,7 @@
    }
   },
   "lineage y-haplogroup": {
-   "help": "usage: wgsextract lineage y-haplogroup [-h] [--build {hg19,hg38,t2t}]\n                                       [--tree {yfull,yfull_v10,ftdna,isogg}] [--ancient]\n                                       [--tree-links] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --tree {yfull,yfull_v10,ftdna,isogg}\n                        Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull\n                        10.01), ftdna or isogg (default: yfull).\n  --ancient             Use ancient-DNA marker tables.\n  --tree-links          Print YFull and FTDNA tree links.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n7 advanced options not shown; 'wgsextract lineage y-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage y-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and\n  run.json; prints the haplogroup and the tree's name and version.\n\nneeds:\n  bcftools, samtools; minutes on a 30x genome.\n",
+   "help": "usage: wgsextract lineage y-haplogroup [-h] [--build {hg19,hg38,t2t}] [--tree TREE] [--ancient]\n                                       [--tree-links] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --tree TREE           Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull\n                        10.01), ftdna, isogg, or a config.toml [y_trees.<id>] tree (default:\n                        config y_tree, else yfull).\n  --ancient             Use ancient-DNA marker tables.\n  --tree-links          Print YFull and FTDNA tree links.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n8 advanced options not shown; 'wgsextract lineage y-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage y-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and\n  run.json; prints the haplogroup and the tree's name and version.\n\nneeds:\n  bcftools, samtools; minutes on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -9720,22 +9720,33 @@
       "type": null
      },
      {
-      "choices": [
-       "yfull",
-       "yfull_v10",
-       "ftdna",
-       "isogg"
-      ],
+      "choices": null,
       "class": "_StoreAction",
       "const": null,
-      "default": "yfull",
+      "default": null,
       "dest": "tree",
-      "exclusive_group": null,
-      "help": "Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull 10.01), ftdna or isogg (default: yfull).",
+      "exclusive_group": 0,
+      "help": "Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull 10.01), ftdna, isogg, or a config.toml [y_trees.<id>] tree (default: config y_tree, else yfull).",
       "metavar": null,
       "nargs": null,
       "option_strings": [
        "--tree"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "tree_file",
+      "exclusive_group": 0,
+      "help": "A Yleaf-format tree JSON to use instead of --tree, with its markers in --pos-file; QC1 backbone checks are skipped.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--tree-file"
       ],
       "required": false,
       "type": null
@@ -16238,6 +16249,7 @@
    "threads": null,
    "tmp_dir": null,
    "tree": "isogg",
+   "tree_file": null,
    "tree_links": false
   },
   "lineage y-str -i x.bam --panel Y-37 --min-fraction 0.7": {

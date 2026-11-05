@@ -57,6 +57,9 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # haplogrep_tree = "phylotree-fu-rcrs"  # or phylotree-rcrs, mitotree-rcrs
 # jar_dir = "/path/to/jars"
 
+# --- Y haplogroup trees (lineage y-haplogroup) ---
+# y_tree = "yfull"  # or yfull_v10, ftdna, isogg, or a [y_trees] id (end of file)
+
 # --- Variant Processing ---
 # Default VEP cache location
 # vep_cache = "~/vep_cache"
@@ -86,6 +89,16 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 
 # --- Persistent Run Logs (off by default) ---
 # log_dir = "~/wgse_logs"
+
+# --- Your own Y haplogroup trees (keep tables last in this file) ---
+# A Yleaf-format tree JSON and a marker table per build. A path is local
+# (relative to this file), or a url with its sha256 for a download.
+# [y_trees.mytree]
+# version = "2026-01"
+# license = "CC-BY-4.0"
+# tree = "trees/mytree.json"
+# positions.hg38 = "trees/mytree_hg38.txt"
+# qc = "none"  # or yfull, yfull_v10, ftdna, isogg backbone checks
 """
 
 

@@ -63,7 +63,7 @@ def yleaf_tables_cached(build: str, tree: str = "yfull") -> bool:
         root / name for name in metadata["archives"]["hg_prediction_tables"]["files"]
     ] + (
         [pack / name for name in tree_meta["files"]]
-        if "url" in tree_meta
+        if tree_meta["data"] == "pack"
         else [root / name for name in metadata["archives"][build]["files"]]
     )
     return all(path.is_file() for path in needed)

@@ -42,9 +42,13 @@ directory is recursively deleted. Only the current prediction file is replaced.
 
 ## Trees
 
-`trees.json` records every `--tree`: name, version, release date, license and
-source. The CLI prints the tree's name and version with each result; JSON
-results carry them in `details["tree"]`.
+`trees.json` is the registry of built-in trees. Each entry gives the name,
+version, release date, license and source; the builds it covers; where its
+tree JSON and marker tables are (`{build}` stands for the build); and its QC
+profile, Yleaf's QC1 backbone check (see `qc` in `trees.json`). The CLI prints
+the tree's name and version with each result; JSON results carry them in
+`details["tree"]`, and `run.json` records them with the marker table's
+SHA-256. The config.toml setting `y_tree` picks the default tree.
 
 | `--tree` | Tree | Version | Markers from |
 |---|---|---|---|
@@ -75,6 +79,62 @@ length, MD5 and SHA-256. The YBrowse-derived positions are attributed
 "CC-BY-SA Thomas Krahn YSEQ (2022)." and shared under the same terms
 (`NOTICE-YBrowse.md` in the pack). That grant names no CC-BY-SA version; the
 version question in the top-level README's yBrowse section still applies.
+
+### Your own trees
+
+A custom tree is a Yleaf-format tree JSON, which maps each node to its
+children starting from `ROOT (Y-Chromosome "Adam")`, plus a marker table for
+each build. A marker table has Yleaf's seven tab-separated columns:
+chromosome, marker, haplogroup (a node of the tree), position, mutation,
+ancestral and derived. For a one-off run, pass the files with
+`--tree-file tree.json --pos-file markers.txt`. To keep a tree, add it to
+config.toml after the top-level settings, and select it with `--tree mytree`
+or `y_tree = "mytree"`:
+
+```toml
+[y_trees.mytree]
+name = "My Y tree"            # default: the id
+version = "2026-01"           # required
+date = "2026-01-15"
+license = "CC-BY-4.0"         # default: unspecified
+source = "https://example.org/mytree"
+tree = "trees/mytree.json"    # relative to config.toml's folder
+positions.hg38 = "trees/mytree_hg38.txt"
+positions.hg19 = {url = "https://example.org/mytree_hg19.txt", sha256 = "<64 hex digits>"}
+positions_ancient.hg38 = "trees/mytree_hg38_ancient.txt"  # optional
+qc = "none"                   # or yfull, yfull_v10, ftdna, isogg
+```
+
+A file is a local path, or `{url, sha256}` for a download; a local path can
+also pin a `sha256`. A download is fetched once into
+`<reference_library>/yleaf/trees/custom/<sha256>/` and refused if its SHA-256
+differs, so a changed upstream file can't alter calls unnoticed. Before a run,
+the tree and marker table are checked: the JSON must start at the root, and
+each node must have one parent. Each marker row needs seven columns, a
+positive position, and two different A/C/G/T alleles, and must name a node of
+the tree. An error gives the file, line and fix. `qc = "none"`, the default
+and the only choice for `--tree-file`, skips Yleaf's QC1 backbone check (QC1
+is scored 1). A QC profile is accepted only if most of that profile's
+backbone groups are nodes of the tree; it suits a newer release of the same
+tree, such as a YFull pack built with `scripts/build_yfull_tree.py`.
+
+Sources and their licenses:
+
+* **YFull**: the YTree is CC-BY-4.0. The built-in `yfull` pack is downloaded
+  at run time, pinned by SHA-256. For a newer release, build a pack (below)
+  and register its `tree.json` and `<build>/new_positions.txt` as a custom
+  tree with `qc = "yfull"`.
+* **FamilyTreeDNA**: FTDNA's public haplotree is under its
+  [copyright policy](https://www.familytreedna.com/legal/copyright-policy),
+  which allows personal, non-commercial use but no modification or
+  redistribution without written permission. WGS Extract therefore neither
+  downloads nor converts it. The built-in `ftdna` tree is the one in Yleaf's
+  data release. You may register a Yleaf-format FTDNA tree that you made
+  yourself, for your own use.
+* **ISOGG**: the built-in `isogg` tree comes from Yleaf's data release.
+* **theytree.com**: not redistributed or fetched, pending permission from its
+  maintainers. A tree file you obtained yourself can be registered like any
+  other.
 
 ### Refreshing the YFull tree
 
