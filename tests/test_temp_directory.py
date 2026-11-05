@@ -38,13 +38,13 @@ def _wgsextract(capsys, *argv: str) -> dict:
 @contextmanager
 def _files_seen_under(*folders: Path) -> Iterator[dict[Path, set[str]]]:
     """Record every file that appears under each folder while the block runs.
-    Sort and collate spills live until their tool finishes, so a few-ms poll
-    sees them."""
+    Sort and collate spills live until their tool finishes, a few hundred ms
+    here, so a 2 ms poll sees them even when a busy runner delays it."""
     seen: dict[Path, set[str]] = {folder: set() for folder in folders}
     done = threading.Event()
 
     def poll() -> None:
-        while not done.wait(0.01):
+        while not done.wait(0.002):
             for folder, names in seen.items():
                 for root, _dirs, files in os.walk(folder):
                     names.update(
@@ -63,9 +63,9 @@ def _files_seen_under(*folders: Path) -> Iterator[dict[Path, set[str]]]:
 @pytest.fixture
 def paired_bam(tmp_path) -> Callable[[int], tuple[str, str]]:
     """Make a reference and an indexed BAM of FR pairs mapped to it. The
-    default 15k pairs are enough records that a 1 MB sort spills to disk."""
+    default 40k pairs make a 1 MB sort spill about 20 files to disk."""
 
-    def make(pairs: int = 15_000) -> tuple[str, str]:
+    def make(pairs: int = 40_000) -> tuple[str, str]:
         rng = random.Random(7)
         genome = "".join(rng.choices("ACGT", k=20_000))
         ref = write_fasta(tmp_path / "ref.fa", {"chr1": genome})
