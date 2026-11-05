@@ -69,9 +69,10 @@ MT) whose whole index fits in cache. Full-genome gains will be smaller:
 | `wgse-bwa-mem2 --metal` | 9 | 31.0 s | −32.2% |
 
 `wgse-bwa` matches the packaged build at full-genome scale; its value is a
-self-contained, dependency-free macOS build. Profiling shows FM-index seeding
-takes about 70% of its time and extension about 5%, so GPU work for BWA must
-target seeding rather than extension.
+self-contained, dependency-free macOS build. On hs38 its time splits roughly
+into SMEM collection (19%), suffix-array locate (23%) and extension with mate
+rescue (45%). An exact GPU seeding prototype cut full-genome wall time by only
+9%, so `wgse-bwa` has no Metal backend.
 
 ## Building
 
