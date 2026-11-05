@@ -51,7 +51,7 @@ _FIRST_RUN = (
     "wgsextract microarray --input sample.cram --formats 23andme_v5",
 )
 _TOPICS_HINT = (
-    "Concepts such as references, builds and exit codes: 'wgsextract help topics'."
+    "Topics: references, builds, exit codes and more: 'wgsextract help topics'."
 )
 _TERMS = (
     "BAM/CRAM = aligned reads; FASTQ = raw reads; VCF = a list of variants; "
@@ -606,7 +606,7 @@ def run_help(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
         sys.stdout.write(format_index(command_index(parser, " ".join(topic)), color))
         if not topic:
             sys.stdout.write(
-                "\n" + "\n".join(_wrap(_TOPICS_HINT, color, "Concepts")) + "\n"
+                "\n" + "\n".join(_wrap(_TOPICS_HINT, color, "Topics")) + "\n"
             )
     elif topic:
         target.print_help()
