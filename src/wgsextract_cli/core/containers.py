@@ -144,7 +144,9 @@ def run_container(
 def engine_call(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """A quick container engine query or command, bounded in case the daemon
     hangs. Unlike run_command, it works once the run has been cancelled."""
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+    return subprocess.run(
+        cmd, capture_output=True, text=True, errors="replace", timeout=30, check=False
+    )
 
 
 def tagged_containers(tags: Iterable[str]) -> list[str]:
