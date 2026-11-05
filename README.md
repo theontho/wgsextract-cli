@@ -142,6 +142,8 @@ Output files are named after the full input stem: `HG002.chr20.bam` produces `HG
 
 What commands detect about a sample (sex, sequencing platform, build, depth) is recorded once in its genome folder's `wgsextract.sample.toml`, tied to each input's fingerprint, so later commands don't detect it again. Correct a wrong call with `wgsextract sample set --genome ID --sex Female`; see [docs/sample-workspace.md](docs/sample-workspace.md).
 
+`wgsextract report --genome ID` summarises a sample's results in one local, offline report (HTML, Markdown and JSON, plus a findings table): sample overview and QC, Y and mtDNA haplogroups, pharmacogenomics, ClinVar pathogenic calls in the ACMG SF v3.2 genes and the microarray files. Each finding has a confidence label and a link to its evidence. It reads earlier runs' manifests and runs nothing itself; sections not run yet show the command to run. These are technical results, not a diagnosis. See [docs/personal-report.md](docs/personal-report.md).
+
 ## Commands
 
 `wgsextract --help` starts with the core commands, in the order you would

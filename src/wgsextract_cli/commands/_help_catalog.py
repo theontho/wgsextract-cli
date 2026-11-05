@@ -367,6 +367,14 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract deps check",
         "wgsextract deps check --tool samtools",
     ),
+    "report": _h(
+        "<sample>_personal_report.html, .md and .json and <sample>_personal_report_findings.tsv "
+        "(or .parquet with --format parquet) in the sample folder (or --outdir); "
+        "evidence links are relative to the sample folder.",
+        "wgsextract report --genome HG002",
+        "wgsextract report --input sample.cram",
+        "wgsextract report --workspace HG002 --results ~/wgs-out/HG002 --format parquet",
+    ),
     "report-issue": _h(
         "Prints a redacted bug report and its GitHub link and saves the "
         "report as issue-report-<time>.md in state/reports (setting "

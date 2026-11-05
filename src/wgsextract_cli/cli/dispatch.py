@@ -27,7 +27,7 @@ from .platform_support import verify_platform_support
 # (it may be on a drive that isn't mounted), check inputs or need a temp dir.
 # `sample` only reads and edits the small workspace file.
 READ_ONLY_COMMANDS = frozenset({"help", "config", "deps", "report-issue", "sample"})
-_NO_ALIGNMENT_PREFLIGHT = {*READ_ONLY_COMMANDS, "ref", "benchmark", "sign"}
+_NO_ALIGNMENT_PREFLIGHT = {*READ_ONLY_COMMANDS, "ref", "benchmark", "sign", "report"}
 
 
 def checks_alignment_input(path: str) -> bool:

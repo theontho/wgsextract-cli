@@ -210,6 +210,7 @@ pre-commit = ">=4.6.2,<5"
 uv = ">=0.13.1,<0.14"
 nodejs = ">=24"
 jsonschema = ">=4.23,<5"
+markdown-it-py = ">=3,<5"
 
 [feature.dev.tasks]
 pytest = "pytest"

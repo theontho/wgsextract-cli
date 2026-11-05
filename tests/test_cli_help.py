@@ -25,7 +25,17 @@ from wgsextract_cli.main import main
 
 ROOT = Path(__file__).resolve().parents[1]
 ANSI = re.compile(r"\x1b\[")
-JOURNEY = ["info", "microarray", "lineage", "extract", "realign", "align", "vcf", "vep"]
+JOURNEY = [
+    "info",
+    "microarray",
+    "lineage",
+    "extract",
+    "realign",
+    "align",
+    "vcf",
+    "vep",
+    "report",
+]
 
 
 @pytest.fixture(scope="module")
