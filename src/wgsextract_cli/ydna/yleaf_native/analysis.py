@@ -198,7 +198,14 @@ def analyze(
     metadata = manifest()
     version = metadata["upstream"]["tag"]
     selected = (
-        tree if isinstance(tree, YleafTree) else ensure_tree(tree, build, library)
+        tree
+        if isinstance(tree, YleafTree)
+        else ensure_tree(
+            tree,
+            build,
+            library,
+            None if pos_file else ("ancient" if ancient else "regular"),
+        )
     )
     logging.info(
         "%s; tables %s; build %s; tree %s", CREDIT, version, build, selected.label

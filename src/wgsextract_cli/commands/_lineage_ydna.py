@@ -133,6 +133,16 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
         raise WGSExtractError(
             "--tree-file needs --pos-file, the marker table for that tree."
         )
+    verify_paths_exist(
+        {
+            flag: path
+            for flag, path in (
+                ("--tree-file", params.tree_file),
+                ("--pos-file", params.pos_file),
+            )
+            if path
+        }
+    )
     if not params.tree_file:
         check_tree_id(params.tree or DEFAULT_TREE)
     tools = ["samtools", "bcftools"] if is_vcf else ["samtools"]

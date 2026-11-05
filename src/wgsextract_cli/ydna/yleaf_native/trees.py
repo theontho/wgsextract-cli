@@ -18,7 +18,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from wgsextract_cli.core.dev_download_cache import process_umask
 from wgsextract_cli.core.file_lock import build_lock
@@ -28,6 +28,8 @@ from wgsextract_cli.core.utils import WGSExtractError
 
 from .data import ensure_data, extract_archive, verified
 from .predict import QcRules
+
+Panel = Literal["regular", "ancient"]
 
 BUILDS = ("hg19", "hg38", "t2t")
 
@@ -59,7 +61,12 @@ class YleafTree:
     ancient_files: dict[str, Path] = field(default_factory=dict)
 
     def positions(self, build: str, ancient: bool = False) -> Path:
-        if ancient and build in self.ancient_files:
+        if ancient:
+            if build not in self.ancient_files:
+                raise WGSExtractError(
+                    f"Y tree {self.id!r} has no ancient-DNA {build} marker table; "
+                    "run without --ancient, or add one to the tree."
+                )
             return self.ancient_files[build]
         if build not in self.positions_files:
             raise WGSExtractError(
@@ -170,17 +177,25 @@ def ensure_pack(tree_id: str, library: Path | None = None) -> Path:
     return root
 
 
-def ensure_tree(tree_id: str, build: str, library: Path | None = None) -> YleafTree:
+def ensure_tree(
+    tree_id: str,
+    build: str,
+    library: Path | None = None,
+    panel: Panel | None = "regular",
+) -> YleafTree:
     """The tree and the ``build`` marker tables it needs, downloaded if missing.
 
     ``tree_id`` is a built-in tree or a config.toml ``[y_trees.<id>]`` entry.
+    A custom tree fetches only ``panel`` (None: no marker table, as with
+    ``--pos-file``); a built-in's data comes as one download.
     """
+    from .custom_trees import check_tree_id, ensure_custom_tree
+
     if build not in BUILDS:
         raise WGSExtractError(f"Unsupported Yleaf build: {build}")
+    check_tree_id(tree_id)
     if tree_id not in MANIFEST["trees"]:
-        from .custom_trees import ensure_custom_tree
-
-        return ensure_custom_tree(tree_id, build, library)
+        return ensure_custom_tree(tree_id, build, library, panel)
     meta = tree_metadata(tree_id)
     pack = meta["data"] == "pack"
     # A pack has its own marker tables; Yleaf's archive supplies QC1's tables.

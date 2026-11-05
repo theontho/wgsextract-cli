@@ -592,6 +592,12 @@ def run_bam_chain(
             tools.append("haplogrep3")
             # The configured tree and its pin shape the call, too.
             params["tree"] = configured_tree_spec()
+        else:
+            from wgsextract_cli.ydna.yleaf_native.custom_trees import (
+                configured_tree_spec as configured_y_tree_spec,
+            )
+
+            params["tree"] = configured_y_tree_spec()
         run_step(
             journal,
             subcommand_step(name, command, params, tools=tools),

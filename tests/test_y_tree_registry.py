@@ -51,6 +51,10 @@ def _configure(text: str) -> None:
     reload_settings()
 
 
+def _toml(path: Path) -> str:
+    return json.dumps(path.as_posix())
+
+
 def _call(kit: str, outdir: Path, *argv: str) -> tuple[list[str], dict]:
     run_wgsextract(
         "lineage", "y-haplogroup", "--input", kit, "--outdir", str(outdir),
@@ -89,8 +93,8 @@ def test_config_copy_of_a_builtin_tree_calls_like_the_builtin(
     # with the same QC rules is the same tree.
     builtin, _ = _call(kit, tmp_path / "builtin", "--tree", "yfull")
     _configure(
-        f'[y_trees.copy]\nversion = "1"\ntree = "{native_tables / "tree.json"}"\n'
-        f'positions.hg38 = "{native_tables / "hg38/new_positions.txt"}"\n'
+        f'[y_trees.copy]\nversion = "1"\ntree = {_toml(native_tables / "tree.json")}\n'
+        f"positions.hg38 = {_toml(native_tables / 'hg38/new_positions.txt')}\n"
         'qc = "yfull"\n'
     )
     copy, _ = _call(kit, tmp_path / "copy", "--tree", "copy")
@@ -115,6 +119,41 @@ def test_tree_file_with_its_markers(kit, tmp_path, capsys):
 def test_unknown_tree_lists_the_choices(kit, tmp_path):
     with pytest.raises(WGSExtractError, match="Unknown Y tree 'mine'.*isogg"):
         _call(kit, tmp_path / "out", "--tree", "mine")
+
+
+def test_config_entry_cannot_shadow_a_builtin_tree(kit, tmp_path):
+    _x_tree(get_config_path().parent / "trees")
+    _configure(
+        '[y_trees.yfull]\nversion = "15"\ntree = "trees/x.json"\n'
+        'positions.hg38 = "trees/x_hg38.txt"\n'
+    )
+    with pytest.raises(WGSExtractError, match="'yfull' is a built-in tree"):
+        _call(kit, tmp_path / "out", "--tree", "yfull")
+
+
+def test_only_the_selected_marker_panel_is_needed(kit, tmp_path):
+    # An unreachable ancient panel must not break a normal run, and --ancient
+    # must not silently fall back to the normal panel.
+    _x_tree(get_config_path().parent / "trees")
+    _configure(
+        '[y_trees.xtree]\nversion = "1"\ntree = "trees/x.json"\n'
+        'positions.hg38 = "trees/x_hg38.txt"\n'
+        'positions_ancient.hg19 = {url = "http://127.0.0.1:9/a.txt", '
+        f'sha256 = "{"0" * 64}"}}\n'
+    )
+    rows, run = _call(kit, tmp_path / "normal", "--tree", "xtree")
+    assert rows[1].split("\t")[1] == "X1a"
+    with pytest.raises(WGSExtractError, match="no hg38 marker table"):
+        _call(kit, tmp_path / "ancient", "--tree", "xtree", "--ancient")
+
+
+def test_missing_tree_file_is_a_file_not_found_error(kit, tmp_path):
+    _, markers = _x_tree(tmp_path / "files")
+    with pytest.raises(WGSExtractError, match="--tree-file file not found"):
+        _call(
+            kit, tmp_path / "out", "--tree-file", str(tmp_path / "none.json"),
+            "--pos-file", str(markers),
+        )  # fmt: skip
 
 
 @pytest.mark.parametrize(
@@ -154,6 +193,12 @@ def test_unknown_tree_lists_the_choices(kit, tmp_path):
             r"1 of 5 markers .* line 5: 'Z9'",
         ),
         (
+            'positions.hg38 = "m.txt"',
+            TREE,
+            "chr1\tM-X\tX\t100\tA>G\tA\tG\n",
+            r"m.txt:1: chromosome 'chr1' is not chrY",
+        ),
+        (
             'positions.hg38 = "m.txt"\nqc = "yfull"',
             TREE,
             X_MARKERS,
@@ -181,14 +226,17 @@ def test_remote_tree_files_are_pinned_and_cached(kit, tmp_path, monkeypatch):
     library = tmp_path / "reflib"
     with serving(None, files) as server:
         sha = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+        signed = server.url_for("x.json") + "?token=SECRET"
         _configure(
-            f'reference_library = "{library}"\n\n[y_trees.remote]\nversion = "1"\n'
-            f'tree = {{url = "{server.url_for("x.json")}", sha256 = "{sha["x.json"]}"}}\n'
+            f"reference_library = {_toml(library)}\n\n[y_trees.remote]\n"
+            f'version = "1"\ntree = {{url = "{signed}", sha256 = "{sha["x.json"]}"}}\n'
             "positions.hg38 = {url = "
             f'"{server.url_for("x_hg38.txt")}", sha256 = "{sha["x_hg38.txt"]}"}}\n'
         )
         rows, run = _call(kit, tmp_path / "first", "--tree", "remote")
         assert rows[1].split("\t")[1] == "X1a"
+        # A signed URL's token stays out of the run's provenance.
+        assert run["tree"]["source"] == server.url_for("x.json")
         cached = library / "yleaf/trees/custom" / sha["x.json"] / "x.json"
         assert cached.read_bytes() == tree
         fetched = len(server.gets())
@@ -199,7 +247,7 @@ def test_remote_tree_files_are_pinned_and_cached(kit, tmp_path, monkeypatch):
         server.files["x_hg38.txt"] = MARKERS.encode()
         _configure(
             '\n[y_trees.changed]\nversion = "1"\n'
-            f'tree = "{cached}"\npositions.hg38 = {{url = '
+            f"tree = {_toml(cached)}\npositions.hg38 = {{url = "
             f'"{server.url_for("x_hg38.txt")}", sha256 = "{"0" * 64}"}}\n'
         )
         with pytest.raises(

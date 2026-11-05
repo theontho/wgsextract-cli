@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from wgsextract_cli.core.download_progress import redact_urls
 from wgsextract_cli.core.file_lock import build_lock
 from wgsextract_cli.core.paths import expand_path
 from wgsextract_cli.core.ref_library.downloads import download_file
@@ -28,7 +29,16 @@ from wgsextract_cli.core.utils import WGSExtractError
 from .data import file_sha256
 from .predict import QcRules
 from .tree import Tree
-from .trees import BUILDS, QC_PROFILES, TREE_IDS, YleafTree, shared_qc_rules
+from .trees import (
+    BUILDS,
+    DEFAULT_TREE,
+    MANIFEST,
+    QC_PROFILES,
+    TREE_IDS,
+    Panel,
+    YleafTree,
+    shared_qc_rules,
+)
 
 ENTRY_KEYS = (
     "name",
@@ -87,7 +97,19 @@ def configured_trees() -> dict[str, Any]:
 
 
 def available_tree_ids() -> list[str]:
-    return [*TREE_IDS, *configured_trees()]
+    return [*TREE_IDS, *(i for i in configured_trees() if i not in TREE_IDS)]
+
+
+def configured_tree_spec() -> dict[str, Any]:
+    """The tree a run without --tree uses, as resume-journal parameters:
+    config.toml's y_tree (else the default) with its pinned version or its
+    ``[y_trees.<id>]`` entry."""
+    from wgsextract_cli.core.config import settings
+
+    tree_id = str(settings.get("y_tree") or DEFAULT_TREE)
+    if tree_id in MANIFEST["trees"]:
+        return {"id": tree_id, "version": MANIFEST["trees"][tree_id]["version"]}
+    return {"id": tree_id, "entry": configured_trees().get(tree_id)}
 
 
 def _where(section: str, problem: str) -> str:
@@ -200,7 +222,7 @@ def parse_entry(tree_id: str, raw: Any) -> CustomTreeSpec:
         version=raw["version"],
         date=raw.get("date", ""),
         license=raw.get("license", "unspecified"),
-        source=raw.get("source", tree.location),
+        source=raw.get("source", redact_urls(tree.location)),
         tree=tree,
         positions=positions,
         positions_ancient=_build_files(
@@ -234,7 +256,8 @@ def fetch(ref: FileRef, library: Path | None = None) -> Path:
     with build_lock(str(folder / "download.lock")):
         if path.is_file() and file_sha256(path) == ref.sha256:
             return path
-        logging.info(f"Downloading custom Y tree file {ref.location}...")
+        shown = redact_urls(ref.location)
+        logging.info(f"Downloading custom Y tree file {shown}...")
         if not download_file(
             ref.location,
             str(path),
@@ -242,7 +265,7 @@ def fetch(ref: FileRef, library: Path | None = None) -> Path:
             resolve_release_digest=False,
         ):
             raise WGSExtractError(
-                f"Cannot download {ref.location} with sha256 {ref.sha256}. Check "
+                f"Cannot download {shown} with sha256 {ref.sha256}. Check "
                 "the URL and the pinned sha256; if offline, connect once."
             )
     return path
@@ -305,7 +328,12 @@ def check_markers(path: Path, nodes: set[str], tree: str) -> None:
                     f"{where}: expected 7 tab-separated columns ({MARKER_COLUMNS}); "
                     f"found {len(row)}."
                 )
-            _, _, haplogroup, position, _, ancestral, derived = row
+            chromosome, _, haplogroup, position, _, ancestral, derived = row
+            if chromosome.lower() not in ("y", "chry"):
+                raise WGSExtractError(
+                    f"{where}: chromosome {chromosome!r} is not chrY; Y tree "
+                    "markers must be on chrY."
+                )
             if not position.isdigit() or int(position) < 1:
                 raise WGSExtractError(
                     f"{where}: position {position!r} is not a positive integer."
@@ -354,9 +382,11 @@ def _check_backbone(rules: QcRules, nodes: set[str], spec: CustomTreeSpec) -> No
 
 def check_tree_id(tree_id: str) -> None:
     """Raise unless ``tree_id`` is a built-in tree or a valid config.toml entry."""
-    if tree_id in TREE_IDS:
-        return
     trees = configured_trees()
+    if tree_id in TREE_IDS:
+        if tree_id in trees:
+            parse_entry(tree_id, trees[tree_id])
+        return
     if tree_id not in trees:
         raise WGSExtractError(
             f"Unknown Y tree {tree_id!r}; choose one of "
@@ -367,29 +397,33 @@ def check_tree_id(tree_id: str) -> None:
 
 
 def ensure_custom_tree(
-    tree_id: str, build: str, library: Path | None = None
+    tree_id: str,
+    build: str,
+    library: Path | None = None,
+    panel: Panel | None = "regular",
 ) -> YleafTree:
-    """A config.toml tree, its files fetched and checked, ready for ``build``."""
+    """A config.toml tree for ``build``, with its tree file and the ``panel``
+    marker table (None: none) fetched and checked."""
     check_tree_id(tree_id)
     spec = parse_entry(tree_id, configured_trees()[tree_id])
-    if build not in spec.positions:
+    key = "positions_ancient" if panel == "ancient" else "positions"
+    tables = spec.positions_ancient if panel == "ancient" else spec.positions
+    if panel is not None and build not in tables:
+        listed = ", ".join(tables) or "no build"
         raise WGSExtractError(
             _where(
-                f"y_trees.{tree_id}.positions",
-                f"no {build} marker table (it lists {', '.join(spec.positions)}). "
-                f"Add positions.{build} for this {build} input.",
+                f"y_trees.{tree_id}.{key}",
+                f"no {build} marker table (it lists {listed}). "
+                f"Add {key}.{build} for this {build} input.",
             )
         )
     tree_file = fetch(spec.tree, library)
     nodes = tree_nodes(tree_file)
-    positions = {build: fetch(spec.positions[build], library)}
-    ancient = (
-        {build: fetch(spec.positions_ancient[build], library)}
-        if build in spec.positions_ancient
-        else {}
-    )
-    for path in (*positions.values(), *ancient.values()):
+    selected = {build: fetch(tables[build], library)} if panel is not None else {}
+    for path in selected.values():
         check_markers(path, nodes, f"the {tree_id} tree")
+    positions = selected if panel == "regular" else {}
+    ancient = selected if panel == "ancient" else {}
     rules = QcRules()
     if spec.qc != "none":
         rules = shared_qc_rules(spec.qc, library)

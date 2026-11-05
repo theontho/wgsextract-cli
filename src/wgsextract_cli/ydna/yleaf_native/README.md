@@ -109,10 +109,12 @@ A file is a local path, or `{url, sha256}` for a download; a local path can
 also pin a `sha256`. A download is fetched once into
 `<reference_library>/yleaf/trees/custom/<sha256>/` and refused if its SHA-256
 differs, so a changed upstream file can't alter calls unnoticed. Before a run,
-the tree and marker table are checked: the JSON must start at the root, and
-each node must have one parent. Each marker row needs seven columns, a
-positive position, and two different A/C/G/T alleles, and must name a node of
-the tree. An error gives the file, line and fix. `qc = "none"`, the default
+the tree and the marker table the run uses are checked (only that table is
+fetched; `--ancient` needs a `positions_ancient` table for the build). The JSON
+must start at the root, and each node must have one parent. Each marker row
+needs seven columns, a chrY chromosome, a positive position, and two different
+A/C/G/T alleles, and must name a node of the tree. A `[y_trees.<id>]` table
+can't reuse a built-in tree's id. An error gives the file, line and fix. `qc = "none"`, the default
 and the only choice for `--tree-file`, skips Yleaf's QC1 backbone check (QC1
 is scored 1). A QC profile is accepted only if most of that profile's
 backbone groups are nodes of the tree; it suits a newer release of the same

@@ -322,6 +322,16 @@ def test_unreadable_info_cache_still_runs_y_lineage(
     assert run.ran == ["info", "mt-haplogroup", "y-haplogroup"]
 
 
+def test_changing_the_y_tree_reruns_y_lineage_on_resume(
+    fake: FakeSteps, bam: str, tmp_path: Path
+) -> None:
+    out = tmp_path / "o"
+    fake.run("--input", bam, "--outdir", str(out), "--skip-calling")
+    fake.settings["y_tree"] = "isogg"
+    run = fake.run("--input", bam, "--outdir", str(out), "--skip-calling")
+    assert run.ran == ["y-haplogroup"]
+
+
 @needs_bcftools
 def test_vcf_inputs_replace_calling_and_get_annotations_for_their_type(
     fake: FakeSteps, bam: str, tmp_path: Path
