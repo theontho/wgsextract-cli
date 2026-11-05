@@ -56,11 +56,15 @@ def _terminal() -> Iterator[_Tty]:
     handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     root = logging.getLogger()
     saved = sys.stderr, root.handlers[:], root.level
-    sys.stderr, root.handlers, root.level = tty, [handler], logging.INFO
+    sys.stderr, root.handlers = tty, [handler]
+    # setLevel, not assignment: it clears the isEnabledFor cache, which may
+    # still say INFO is off from an earlier test.
+    root.setLevel(logging.INFO)
     try:
         yield tty
     finally:
-        sys.stderr, root.handlers, root.level = saved
+        sys.stderr, root.handlers = saved[0], saved[1]
+        root.setLevel(saved[2])
 
 
 def test_the_line_shows_the_step_and_clears_before_other_output():
