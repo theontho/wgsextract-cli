@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import textwrap
+import typing
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import IO, Any
@@ -475,11 +476,19 @@ def _json_default(value: Any) -> Any:
 
 
 def _value_type(action: argparse.Action) -> str:
+    """flag, integer, number or string; a converter function counts as the
+    type it's annotated to return."""
     if action.nargs == 0:
         return "flag"
-    if action.type is int:
+    converter: Any = action.type
+    if converter not in (None, int, float) and callable(converter):
+        try:
+            converter = typing.get_type_hints(converter).get("return")
+        except (NameError, TypeError):
+            converter = None
+    if converter is int:
         return "integer"
-    return "number" if action.type is float else "string"
+    return "number" if converter is float else "string"
 
 
 def _expanded_help(parser: argparse.ArgumentParser, action: argparse.Action) -> str:

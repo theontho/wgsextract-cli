@@ -273,10 +273,21 @@ def test_typed_commands_embed_their_input_schema(capsys, root):
     doc = json.loads(capsys.readouterr().out)
     typed = {c["path"]: c for c in doc["commands"] if "input_schema" in c}
     assert {"microarray", "vcf snp", "lineage y-haplogroup"} <= set(typed)
+    kinds = {"integer": "integer", "number": "number", "boolean": "flag"}
     for path, command in typed.items():
         known = cli_help.resolve_command(root, path.split())._option_string_actions
+        options = {flag: o for o in command["options"] for flag in o.get("flags", [])}
         for prop in command["input_schema"]["properties"].values():
             assert prop["x-cli-flag"] in known, path
+            kind = prop["type"][0] if isinstance(prop["type"], list) else prop["type"]
+            if prop["x-cli-flag"] in options and kind in ("string", *kinds):
+                # The CLI view and the schema agree, custom converters included.
+                expected = kinds.get(kind, "string")
+                assert options[prop["x-cli-flag"]]["type"] == expected, prop
+    qc_depth = next(
+        o for o in typed["microarray"]["options"] if o["dest"] == "qc_min_depth"
+    )
+    assert qc_depth["type"] == "number"
 
 
 def _value(option: dict) -> str:
@@ -390,3 +401,26 @@ def test_next_step_hints_skip_what_the_run_cannot_fill():
     args = parser.argparse.Namespace(input=None, genome="family/joe")
     assert hints.next_steps("realign", args, []) == []
     assert hints.next_steps("microarray", args, [])[0].endswith("--genome family/joe")
+
+
+def test_next_step_hints_keep_the_runs_input_reference_and_config():
+    args = _parse(
+        [
+            "--config",
+            "p.toml",
+            "info",
+            "--genome",
+            "joe",
+            "--input",
+            "b.cram",
+            "--ref",
+            "r",
+        ]
+    )
+    (hint, *_) = hints.next_steps("info", args, [])
+    assert _parse(shlex.split(hint)[1:]).genome == "joe"
+    for words in ("--genome joe --input b.cram", "--ref r", "--config p.toml"):
+        assert words in hint
+    # --genome alone fills in --input; the hint shouldn't repeat it.
+    args = parser.argparse.Namespace(genome="joe", input="/lib/joe/a.cram")
+    assert "--input" not in hints.next_steps("info", args, [])[0]

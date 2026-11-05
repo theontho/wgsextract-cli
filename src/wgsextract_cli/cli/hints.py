@@ -25,14 +25,25 @@ def next_steps(
     command: str, args: argparse.Namespace, outputs: Iterable[FileRecord]
 ) -> list[str]:
     """The filled-in hints for a finished command; a hint whose placeholder
-    this run can't fill is left out."""
+    this run can't fill is left out. An --input given with --genome, and an
+    explicit --ref or --config, are kept."""
+    explicit: set[str] = getattr(args, "_explicit_dests", set())
     values: dict[str, str] = {}
     genome = getattr(args, "genome", None)
     source = getattr(args, "input", None)
+    words = []
     if genome:
-        values["source"] = f"--genome {quote(str(genome))}"
-    elif source:
-        values["source"] = f"--input {quote(str(source))}"
+        words.append(f"--genome {quote(str(genome))}")
+    if source and (not genome or "input" in explicit):
+        words.append(f"--input {quote(str(source))}")
+    if words:
+        values["source"] = " ".join(words)
+    # Settings the user chose for this run must carry over to the next.
+    context = "".join(
+        f" {flag} {quote(str(getattr(args, dest)))}"
+        for dest, flag in (("ref", "--ref"), ("config_path", "--config"))
+        if dest in explicit and getattr(args, dest, None)
+    )
     outputs = list(outputs)
     for name, kinds in (("bam", {"bam", "cram"}), ("vcf", {"vcf"})):
         found = next((o.path for o in outputs if o.kind in kinds), None)
@@ -42,7 +53,7 @@ def next_steps(
     for template in NEXT_STEPS.get(command, ()):
         names = set(_PLACEHOLDER.findall(template))
         if names <= values.keys():
-            hints.append(_PLACEHOLDER.sub(lambda m: values[m[1]], template))
+            hints.append(_PLACEHOLDER.sub(lambda m: values[m[1]], template) + context)
     return hints
 
 
