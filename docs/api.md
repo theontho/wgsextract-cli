@@ -168,7 +168,7 @@ library's ploidy file, else bcftools' built-in GRCh37/GRCh38 table.
 | `ploidy` | `str \| None` | `None` | `--ploidy` | Predefined ploidy name or value |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `parallel` | `bool` | `False` | `--parallel` | Call contigs in parallel with up to --threads workers. Faster, but calls at sites deeper than 255 reads can differ slightly from the default single stream, because bcftools subsamples them with one random stream per process. |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.vcf.indel(VcfIndelParams)`
 
@@ -188,7 +188,7 @@ Call indels; the `indels` output carries the record count in its metrics.
 | `ploidy` | `str \| None` | `None` | `--ploidy` | Predefined ploidy name or value |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `parallel` | `bool` | `False` | `--parallel` | Call contigs in parallel with up to --threads workers. Faster, but calls at sites deeper than 255 reads can differ slightly from the default single stream, because bcftools subsamples them with one random stream per process. |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ## `api.lineage`
 
@@ -212,7 +212,7 @@ called first; needs the reference) or a VCF. The report is
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `haplogrep_path` | `str \| None` | `None` (config `haplogrep_executable`) | `--haplogrep-path` | Path to haplogrep executable or JAR (optional if in PATH) |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.lineage.y_haplogroup(YHaplogroupParams)`
 
@@ -238,7 +238,7 @@ or single-sample VCF/BCF. Outputs go to `yleaf/` in the output folder.
 | `min_score` | `float` | `0.95` | `--min-score` | Minimum QC score of a reported haplogroup prediction. |
 | `ancient` | `bool` | `False` | `--ancient` | Use ancient-DNA marker tables. |
 | `no_ref_inference` | `bool` | `False` | `--no-ref-inference` | VCF: use genotyped positions only (targeted panels); otherwise --ref is required. |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.lineage.y_str(YStrParams)`
 
@@ -302,7 +302,7 @@ settings) and then to the documented default.
 | `ploidy_file` | `Path \| None` | `None` | `--ploidy-file` | File defining ploidy per chromosome (auto-resolved from --ref if possible) |
 | `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
-| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ## `api.sample`
 
