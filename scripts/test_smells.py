@@ -49,8 +49,13 @@ ARGV_ASSERTS = {
 
 
 def _git(*args: str, cwd: Path) -> str:
+    # quotePath=false keeps non-ASCII paths unquoted in diff headers and ls-files.
     return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+        ["git", "-c", "core.quotePath=false", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
     ).stdout
 
 

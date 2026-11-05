@@ -1,5 +1,6 @@
 """scripts/test_smells.py flags change detectors only in newly added test lines."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,7 +44,8 @@ def _smells(root: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, SCRIPT, "--base", "HEAD", "--root", root],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
 
 
@@ -94,3 +96,18 @@ def test_new_untracked_files_are_checked_and_broken_ones_skipped(
     assert "tests/test_new.py:7: TS001" in result.stdout
     assert "tests/test_x.py" not in result.stdout
     assert "skipped tests/test_broken.py" in result.stdout
+
+
+def test_non_ascii_test_paths_keep_their_own_findings(tmp_path: Path) -> None:
+    tests = _repo(tmp_path)
+    (tests / "test_é.py").write_text(OLD)
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, *("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "é"))
+    (tests / "test_é.py").write_text(OLD + NEW)
+    (tests / "test_ü_new.py").write_text(OLD)
+
+    result = _smells(tmp_path)
+
+    assert "tests/test_é.py:15: TS001" in result.stdout
+    assert "tests/test_ü_new.py:7: TS001" in result.stdout
+    assert "tests/test_x.py" not in result.stdout
