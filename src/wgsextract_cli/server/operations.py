@@ -200,6 +200,11 @@ def _coerce(item: ParamField, value: object) -> object:
         return None
     base = item.base_type
     if typing.get_origin(base) is tuple:
+        element = typing.get_args(base)[0]
+        if element is float:
+            if not (isinstance(value, list) and all(_is_number(v) for v in value)):
+                raise _type_error(item, "an array of numbers")
+            return tuple(float(v) for v in value)
         if not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
             raise _type_error(item, "an array of strings")
         return tuple(value)
@@ -220,6 +225,10 @@ def _coerce(item: ParamField, value: object) -> object:
             raise _type_error(item, "a number")
         return float(value)
     return value
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _type_error(item: ParamField, expected: str) -> RequestError:

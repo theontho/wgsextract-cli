@@ -1,10 +1,11 @@
-import argparse
 import logging
+import os
 import subprocess
 import tempfile
 from itertools import islice
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfToFastaParams
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -33,7 +34,7 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 
-from .basic import require_vcf_input
+from .basic import require_vcf_input, vcf_input_handler
 
 # --haplotype choice -> bcftools consensus genotype option.
 HAPLOTYPE_OPTIONS = {
@@ -331,20 +332,21 @@ def write_uncalled_mask(
                 bed.write(f"{name}\t{lo}\t{hi}\n")
 
 
-def cmd_to_fasta(args: argparse.Namespace) -> None:
+def run_to_fasta(params: VcfToFastaParams) -> None:
     tools = ["bcftools", "samtools", "bgzip", "tabix"]
     verify_dependencies(tools)
     log_dependency_info(tools)
 
-    input_vcf = require_vcf_input(args)
+    input_vcf = require_vcf_input(params)
     verify_paths_exist({"--input": input_vcf})
-    if args.mask:
-        verify_paths_exist({"--mask": args.mask})
-    threads, _ = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or str(absolute_path(input_vcf).parent)
+    mask = os.fspath(params.mask) if params.mask else None
+    if mask:
+        verify_paths_exist({"--mask": mask})
+    threads, _ = get_resource_defaults(params.threads, None)
+    outdir = os.fspath(params.outdir or absolute_path(input_vcf).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
-    ref = ReferenceLibrary(args.ref, None, input_path=input_vcf).fasta
+    ref = ReferenceLibrary(params.ref, None, input_path=input_vcf).fasta
     if not ref or not Path(ref).is_file():
         raise WGSExtractError(
             LOG_MESSAGES["ref_required_for"].format(task="consensus generation")
@@ -353,12 +355,12 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
 
     stem = input_stem(input_vcf)
     out_fasta = str(Path(outdir, f"{stem}_consensus.fa.gz"))
-    out_chain = str(Path(outdir, f"{stem}_consensus.chain")) if args.chain else None
+    out_chain = str(Path(outdir, f"{stem}_consensus.chain")) if params.chain else None
     input_vcf = ensure_vcf_prepared(input_vcf)
-    sample = _pick_sample(input_vcf, args.sample)
+    sample = _pick_sample(input_vcf, params.sample)
 
     gvcf = is_gvcf(input_vcf)
-    uncalled = args.uncalled
+    uncalled = params.uncalled
     if uncalled == "auto":
         uncalled = "n" if gvcf else "ref"
         logging.info(
@@ -370,15 +372,15 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
     lengths = _reference_lengths(ref)
     check_vcf_build(input_vcf, lengths, "--ref")
     contigs = list(lengths)
-    region = _reference_region(args.region, lengths) if args.region else None
-    include = None if args.include_filtered else _PASSING
-    consensus_cmd = ["bcftools", "consensus", *HAPLOTYPE_OPTIONS[args.haplotype]]
+    region = _reference_region(params.region, lengths) if params.region else None
+    include = None if params.include_filtered else _PASSING
+    consensus_cmd = ["bcftools", "consensus", *HAPLOTYPE_OPTIONS[params.haplotype]]
     if sample:
         consensus_cmd += ["--samples", sample]
     if uncalled == "n":
         consensus_cmd += ["--missing", "N"]
-    if args.mask:
-        consensus_cmd += ["--mask", args.mask]
+    if mask:
+        consensus_cmd += ["--mask", mask]
     if out_chain:
         consensus_cmd += ["--chain", out_chain]
 
@@ -400,7 +402,7 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
                 write_uncalled_mask(vcf, lengths, uncalled_bed, region, include)
                 consensus_cmd += ["--mask", uncalled_bed]
             consensus_include = include
-            if args.haplotype == "iupac":
+            if params.haplotype == "iupac":
                 # IUPAC codes can't express a heterozygous indel, which
                 # bcftools would apply in full; apply homozygous indels only.
                 samples = get_vcf_samples(vcf)
@@ -435,7 +437,10 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
     result.add_output(out_fasta, "consensus_fasta")
     # No --sample means the VCF's only sample was used.
     used = sample or next(iter(get_vcf_samples(input_vcf)), None)
-    result.add_metrics(sample=used, haplotype=args.haplotype, uncalled=uncalled)
+    result.add_metrics(sample=used, haplotype=params.haplotype, uncalled=uncalled)
     if out_chain:
         logging.info(f"Liftover chain (reference -> consensus) written to {out_chain}")
         result.add_output(out_chain, "liftover_chain", kind="chain")
+
+
+cmd_to_fasta = vcf_input_handler(VcfToFastaParams, run_to_fasta)

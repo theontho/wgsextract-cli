@@ -1,4 +1,3 @@
-import argparse
 import json
 import logging
 import os
@@ -15,7 +14,6 @@ from wgsextract_cli.api.qc import (
     MultiqcParams,
     QcVcfParams,
 )
-from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -32,7 +30,7 @@ from wgsextract_cli.core.utils import (
 
 from .._extract_helpers import cleanup_files
 from ..align import reads_stem
-from ..vcf.basic import _select_vcf_input
+from ..vcf.basic import vcf_input_handler
 
 # The MultiQC modules `qc multiqc` runs: FastQC reports, `bcftools stats` from
 # `qc vcf`, and custom content (the WGS Extract metrics).
@@ -417,17 +415,4 @@ cmd_fastp = cli_handler(FastpParams, run_fastp)
 cmd_fastqc = cli_handler(FastqcParams, run_fastqc)
 cmd_multiqc = cli_handler(MultiqcParams, run_multiqc)
 cmd_multiqc_metrics = cli_handler(MultiqcMetricsParams, run_multiqc_metrics)
-_cli_vcf_qc = cli_handler(QcVcfParams, run_vcf_qc)
-
-
-def cmd_vcf_qc(args: argparse.Namespace) -> None:
-    explicit: set[str] = getattr(args, "_explicit_dests", set())
-    if args.vcf_input is None and "vcf_input" not in explicit:
-        args.vcf_input = settings.get("default_input_vcf")
-    selected = _select_vcf_input(args)
-    # Keep an --input pick as input: dispatch has recorded it under that role.
-    if selected is not None and selected == args.input:
-        args.vcf_input = None
-    else:
-        args.vcf_input = selected
-    _cli_vcf_qc(args)
+cmd_vcf_qc = vcf_input_handler(QcVcfParams, run_vcf_qc)

@@ -49,7 +49,7 @@ class ParamSpec:
 
     help: str | None = None
     flags: tuple[str, ...] = ()
-    metavar: str | None = None
+    metavar: str | tuple[str, ...] | None = None
     choices: tuple[Any, ...] | None = None
     path: PathKind | None = None
     shared: bool = False
@@ -78,7 +78,7 @@ def param(
     *,
     help: str | None = None,
     flags: tuple[str, ...] = (),
-    metavar: str | None = None,
+    metavar: str | tuple[str, ...] | None = None,
     choices: tuple[Any, ...] | None = None,
     path: PathKind | None = None,
     shared: bool = False,
@@ -147,7 +147,7 @@ class ParamField:
     @property
     def flags(self) -> tuple[str, ...]:
         if self.spec.positional:
-            return (self.spec.metavar or self.name.upper(),)
+            return (str(self.spec.metavar or self.name.upper()),)
         return self.spec.flags or ("--" + self.name.replace("_", "-"),)
 
     @property
@@ -157,6 +157,20 @@ class ParamField:
         if _is_union(self.type) and len(args) == 1:
             return args[0]
         return self.type
+
+    @property
+    def tuple_length(self) -> int | None:
+        """How many values a fixed-length tuple field (``tuple[float, float]``)
+        holds; None for any other field."""
+        return fixed_length(self.base_type)
+
+
+def fixed_length(tp: Any) -> int | None:
+    """The length of a fixed-length tuple type, else None."""
+    args = typing.get_args(tp)
+    if typing.get_origin(tp) is not tuple or not args or Ellipsis in args:
+        return None
+    return len(args)
 
 
 def _is_union(tp: Any) -> bool:
@@ -188,6 +202,11 @@ class Params:
                 raise UsageError(
                     item.spec.required_message or f"{item.flags[0]} required."
                 )
+            length = item.tuple_length
+            if length is not None and value is not None:
+                if not isinstance(value, (tuple, list)) or len(value) != length:
+                    raise UsageError(f"{item.flags[0]} takes {length} values.")
+                object.__setattr__(self, item.name, tuple(value))
             if item.spec.choices is not None and value is not None:
                 values = value if isinstance(value, tuple) else (value,)
                 for one in values:
@@ -326,8 +345,13 @@ def _type_schema(tp: Any, spec: ParamSpec) -> dict[str, Any]:
     base = next((a for a in args if a is not type(None)), str)
     schema: dict[str, Any]
     if typing.get_origin(base) is tuple:
+        element = next((a for a in typing.get_args(base) if a is not Ellipsis), str)
         item = {"type": "string", "format": "path"} if spec.path else {"type": "string"}
+        if element in (int, float):
+            item = {"type": "integer" if element is int else "number"}
         schema = {"type": "array", "items": item}
+        if (length := fixed_length(base)) is not None:
+            schema.update(minItems=length, maxItems=length)
     elif spec.path or base is Path:
         schema = {"type": "string", "format": "path"}
     elif base is bool:

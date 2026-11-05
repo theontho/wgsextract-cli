@@ -1,10 +1,10 @@
-import argparse
 import logging
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfChainAnnotateParams
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -16,7 +16,7 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5, ensure_vcf_prepared
 
 from .._vep_run import vep_output_paths
-from .basic import record_variants, require_vcf_input
+from .basic import record_variants, require_vcf_input, vcf_input_handler
 from .clinvar_revel import CLINVAR_ANNOTATED, REVEL_ANNOTATED
 from .deleteriousness import CADD_ANNOTATED, GERP_ANNOTATED
 from .population import GNOMAD_ANNOTATED, PHYLOP_ANNOTATED
@@ -69,11 +69,15 @@ def skip_reason(ann: str, lib: ReferenceLibrary) -> str | None:
     return None
 
 
-def cmd_chain_annotate(args: argparse.Namespace) -> None:
+def run_chain_annotate(
+    params: VcfChainAnnotateParams, keep_awake: bool | None = None
+) -> None:
     verify_dependencies(["bcftools", "tabix"])
-    input_file = require_vcf_input(args)
-    outdir = args.outdir or str(absolute_path(input_file).parent)
-    annotations = [a.strip().lower() for a in args.annotations.split(",") if a.strip()]
+    input_file = require_vcf_input(params)
+    outdir = params.outdir or str(absolute_path(input_file).parent)
+    annotations = [
+        a.strip().lower() for a in params.annotations.split(",") if a.strip()
+    ]
     if not annotations:
         raise WGSExtractError("No valid annotations provided in --annotations.")
     unknown = [a for a in annotations if a != "vep" and a not in _VCF_STEPS]
@@ -90,7 +94,7 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
         if input_file.lower().endswith((".bam", ".cram"))
         else None
     )
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
+    lib = ReferenceLibrary(params.ref, md5_sig, input_path=input_file)
 
     current_input = prepared_input = ensure_vcf_prepared(input_file)
     step_dirs: list[str] = []
@@ -121,12 +125,12 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
                 sys.executable,
                 "-m",
                 "wgsextract_cli.main",
-                *config_args(keep_awake=getattr(args, "keep_awake", None)),
+                *config_args(keep_awake=keep_awake),
                 *_step_command(ann),
             ]
             cmd += ["--input", current_input, "--outdir", step_outdir]
-            if args.ref:
-                cmd += ["--ref", args.ref]
+            if params.ref:
+                cmd += ["--ref", str(params.ref)]
 
             try:
                 # Captured so chained runs stay readable; surfaced on failure.
@@ -162,7 +166,7 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
             annotations_applied=",".join(applied), annotations_skipped=len(skipped)
         )
     finally:
-        if not getattr(args, "keep_intermediates", False):
+        if not params.keep_intermediates:
             if finalized:
                 logging.info("Cleaning up intermediate files...")
                 for step_outdir in step_dirs:
@@ -172,3 +176,8 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
                     "Preserving chain annotation intermediates because "
                     "finalization did not complete."
                 )
+
+
+cmd_chain_annotate = vcf_input_handler(
+    VcfChainAnnotateParams, run_chain_annotate, keep_awake="keep_awake"
+)

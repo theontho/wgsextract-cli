@@ -702,7 +702,13 @@ settings and tools are unchanged.
 
 ## `api.vcf`
 
-`vcf snp` / `vcf indel`: small-variant calling with bcftools.
+`vcf`: call variants, and annotate, filter, tabulate and analyse VCFs.
+
+`snp` and `indel` call small variants from a BAM/CRAM with bcftools. The
+other operations read a VCF: `vcf_input`, else `input`. Their outputs go
+to `outdir`, else beside that VCF. Annotators take their data file from the
+field, else config.toml, else the reference library (`ref`); see
+`wgsextract ref` to download it.
 
 ### `api.vcf.snp(VcfSnpParams)`
 
@@ -746,6 +752,334 @@ Call indels; the `indels` output carries the record count in its metrics.
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `parallel` | `bool` | `False` | `--parallel` | Call contigs in parallel with up to --threads workers. SNP calling then recalls the stretches with sites deeper than 255 reads in one stream, because bcftools subsamples them with one random stream per process, so the calls match the default single stream. |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+### `api.vcf.annotate(VcfAnnotateParams)`
+
+CLI: `wgsextract vcf annotate`.
+
+Annotate; output role `annotated`, with the record count in its metrics.
+
+`VcfAnnotateParams`: Copy columns from an annotation VCF or tab file into `annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `ann_vcf` | `Path \| None` | `None` | `--ann-vcf` | Annotation VCF file (auto-resolved from --ref if possible) |
+| `cols` | `str \| None` | `None` | `--cols` | bcftools annotate -c columns; default: inferred from the annotation file's header. |
+
+### `api.vcf.filter(VcfFilterParams)`
+
+CLI: `wgsextract vcf filter`.
+
+Filter; output role `filtered_vcf`, with the record count in its metrics.
+
+`VcfFilterParams`: Keep the calls in a region or gene, matching an expression, into
+`filtered.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `expr` | `str \| None` | `None` | `--expr` | bcftools filter expression (e.g. 'QUAL>30') |
+| `gene` | `str \| None` | `None` | `--gene` | Filter by Gene Name (e.g. BRCA1, KCNQ2) |
+| `exclude_near_gaps` | `bool` | `False` | `--exclude-near-gaps` | Exclude variants in or near genomic gaps (requires Count Ns output) |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region |
+
+### `api.vcf.table(VcfTableParams)`
+
+CLI: `wgsextract vcf table`.
+
+Write the table (role `variant_table`) and database (`variant_database`);
+`rows` is a metric.
+
+`VcfTableParams`: One row per variant with its annotations, as `<stem>_variants.tsv`
+(or `.parquet`) and an SQLite database.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Only export this region (e.g. chr22). |
+| `sample` | `str \| None` | `None` | `--sample` | Sample whose genotypes to use (default: the first). |
+| `all_alleles` | `bool` | `False` | `--all-alleles` | Also export ALT alleles the sample doesn't carry (0/0 calls, no-calls, the other ALT of a 0/1 multi-allelic site). |
+| `pharmcat_json` | `Path \| None` | `None` | `--pharmcat-json` | PharmCAT's <stem>.phenotype.json (from 'vcf pharmcat'), to add its diplotype and phenotype to rows in those genes. |
+| `no_sqlite` | `bool` | `False` | `--no-sqlite` | Write only the table file. |
+| `table_format` | `str` | `'tsv'` | `--format` | Table file format: tsv, or parquet (needs pyarrow) (default: tsv) One of: `tsv`, `parquet` |
+
+### `api.vcf.to_fasta(VcfToFastaParams)`
+
+CLI: `wgsextract vcf to-fasta`.
+
+Build the consensus (role `consensus_fasta`, and `liftover_chain` with
+`chain`).
+
+`VcfToFastaParams`: The reference with the VCF's variants applied, as
+`<stem>_consensus.fa.gz` (and optionally a liftover chain).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Only build this region (e.g. chr21 or 21:30000000-31000000); default: the whole reference. |
+| `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF. |
+| `haplotype` | `str` | `'iupac'` | `--haplotype` | How genotypes are applied: iupac (default) writes heterozygous SNVs as IUPAC codes (e.g. R for A/G) and applies homozygous ALTs; alt applies every ALT; 1 or 2 applies that haplotype of a phased VCF (for unphased genotypes, the first or second allele, so 1 keeps the reference at heterozygous sites). One of: `iupac`, `alt`, `1`, `2` |
+| `uncalled` | `str` | `'auto'` | `--uncalled` | What to write where the VCF has no passing call: n (an N), ref (the reference base), or auto (default): n for a gVCF, whose reference blocks say which positions were called, ref for a variant-only VCF. One of: `auto`, `n`, `ref` |
+| `include_filtered` | `bool` | `False` | `--include-filtered` | Also apply variants whose FILTER is not PASS. |
+| `mask` | `Path \| None` | `None` | `--mask` | BED file of regions to replace with N (e.g. low coverage). |
+| `chain` | `bool` | `False` | `--chain` | Also write a chain file mapping reference coordinates to the consensus (indels shift positions). |
+
+### `api.vcf.trio(VcfTrioParams)`
+
+CLI: `wgsextract vcf trio`.
+
+Filter the trio; output roles `trio_<mode>` (and `trio_joint`,
+`trio_denovo_isolated` from BAM/CRAMs).
+
+`VcfTrioParams`: Calls matching an inheritance mode in a child and both parents, as
+`trio_<mode>.vcf.gz`. Three VCFs are merged; three BAM/CRAMs are first
+genotyped jointly from the reads (`trio_joint.vcf.gz`), which de novo
+calls need.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `mother` | `Path \| None` | `None` (config `mother_vcf_path`) | `--mother` | The mother's VCF, or BAM/CRAM, for trio analysis. |
+| `father` | `Path \| None` | `None` (config `father_vcf_path`) | `--father` | The father's VCF, or BAM/CRAM, for trio analysis. |
+| `proband` | `Path \| None` | `None` | `--proband` | The child's VCF or BAM/CRAM; overrides --vcf-input/--input and configured defaults. With the parents' BAM/CRAMs, genotyped jointly from the reads, which de novo calls need. |
+| `mode` | `str` | `'denovo'` | `--mode` | Inheritance mode to filter for. One of: `denovo`, `recessive`, `comphet`, `all` |
+| `min_depth` | `int \| None` | `None` | `--min-depth` | BAM/CRAM input: minimum read depth in each person at a reported site (default 15) |
+| `proband_sex` | `str \| None` | `None` | `--proband-sex` | BAM/CRAM input: the child's sex, for chrX ploidy (default: inferred from chrX/chrY coverage) One of: `male`, `female` |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region |
+
+### `api.vcf.clinvar(VcfClinvarParams)`
+
+CLI: `wgsextract vcf clinvar`.
+
+Annotate with ClinVar; output roles `annotated_vcf` and
+`clinvar_pathogenic`.
+
+`VcfClinvarParams`: ClinVar significance and disease (CLNSIG, CLNDN) as
+`clinvar_annotated.vcf.gz`; the pathogenic and likely pathogenic calls,
+with confidence labels, as `clinvar_pathogenic.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `clinvar_file` | `Path \| None` | `None` (config `clinvar_vcf_path`) | `--clinvar-file` | Path to ClinVar VCF data file. |
+| `confidence_depth` | `tuple[float, float] \| None` | `None` | `--confidence-depth` | (LOW, HIGH): read depth below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+| `confidence_gq` | `tuple[float, float] \| None` | `None` | `--confidence-gq` | (LOW, HIGH): genotype quality below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+
+### `api.vcf.revel(VcfRevelParams)`
+
+CLI: `wgsextract vcf revel`.
+
+Annotate with REVEL; output roles `annotated_vcf` and, with `min_score`,
+`filtered_vcf`.
+
+`VcfRevelParams`: REVEL missense pathogenicity scores as `revel_annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `revel_file` | `Path \| None` | `None` (config `revel_tsv_path`) | `--revel-file` | Path to REVEL TSV or VCF data file. |
+| `min_score` | `float \| None` | `None` | `--min-score` | Also write the calls with a REVEL score of at least this. |
+
+### `api.vcf.phylop(VcfPhylopParams)`
+
+CLI: `wgsextract vcf phylop`.
+
+Annotate with PhyloP; output roles `annotated_vcf` and, with `min_score`,
+`filtered_vcf`.
+
+`VcfPhylopParams`: PhyloP conservation scores as `phylop_annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `phylop_file` | `Path \| None` | `None` (config `phylop_tsv_path`) | `--phylop-file` | Path to a PhyloP bigWig (phylop_<build>.bw), or a TSV/VCF of scores. |
+| `min_score` | `float \| None` | `None` | `--min-score` | Also write the calls with a PhyloP score of at least this. |
+
+### `api.vcf.cadd(VcfCaddParams)`
+
+CLI: `wgsextract vcf cadd`.
+
+Annotate with CADD; output roles `annotated_vcf` and, with `min_score`,
+`filtered_vcf`.
+
+`VcfCaddParams`: CADD deleteriousness scores (CADD_RAW, CADD_PHRED) as
+`cadd_annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `cadd_file` | `Path \| None` | `None` (config `cadd_tsv_path`) | `--cadd-file` | Path to the CADD whole-genome SNV TSV (cadd_<build>.tsv.gz). |
+| `cadd_indel_file` | `Path \| None` | `None` (config `cadd_indel_tsv_path`) | `--cadd-indel-file` | Path to a CADD indel TSV (cadd_indel_<build>.tsv.gz); used when present. |
+| `min_score` | `float \| None` | `None` | `--min-score` | Also write the calls with a CADD PHRED score of at least this. |
+
+### `api.vcf.gerp(VcfGerpParams)`
+
+CLI: `wgsextract vcf gerp`.
+
+Annotate with GERP++; output roles `annotated_vcf` and, with `min_score`,
+`filtered_vcf`.
+
+`VcfGerpParams`: GERP++ conservation scores as `gerp_annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `gerp_file` | `Path \| None` | `None` (config `gerp_bigwig_path`) | `--gerp-file` | Path to a GERP++ RS bigWig (gerp_<build>.bw). |
+| `min_score` | `float \| None` | `None` | `--min-score` | Also write the calls with a GERP score of at least this. |
+
+### `api.vcf.gnomad(VcfGnomadParams)`
+
+CLI: `wgsextract vcf gnomad`.
+
+Annotate with gnomAD; output roles `annotated_vcf` and, with `max_af`,
+`rare_variants`.
+
+`VcfGnomadParams`: gnomAD allele frequencies (GNOMAD_AF) as `gnomad_annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `gnomad_file` | `Path \| None` | `None` (config `gnomad_vcf_path`) | `--gnomad-file` | Path to gnomAD data: a sites VCF, or the allele-frequency table from 'ref gnomad --release 4.1'. |
+| `max_af` | `float \| None` | `None` | `--max-af` | Also write the calls rarer than this gnomAD allele frequency (or absent from gnomAD), with confidence labels. |
+| `confidence_depth` | `tuple[float, float] \| None` | `None` | `--confidence-depth` | (LOW, HIGH): read depth below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+| `confidence_gq` | `tuple[float, float] \| None` | `None` | `--confidence-gq` | (LOW, HIGH): genotype quality below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+
+### `api.vcf.spliceai(VcfSpliceaiParams)`
+
+CLI: `wgsextract vcf spliceai`.
+
+Annotate with SpliceAI; output role `annotated_vcf`.
+
+`VcfSpliceaiParams`: SpliceAI splicing scores as `spliceai_annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `spliceai_file` | `Path \| None` | `None` (config `spliceai_vcf_path`) | `--spliceai-file` | Path to SpliceAI VCF data file. |
+
+### `api.vcf.alphamissense(VcfAlphamissenseParams)`
+
+CLI: `wgsextract vcf alphamissense`.
+
+Annotate with AlphaMissense; output roles `annotated_vcf` and, with
+`min_score`, `filtered_vcf`.
+
+`VcfAlphamissenseParams`: AlphaMissense pathogenicity scores as `alphamissense_annotated.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `am_file` | `Path \| None` | `None` (config `alphamissense_vcf_path`) | `--am-file` | Path to AlphaMissense VCF data file. |
+| `min_score` | `float \| None` | `None` | `--min-score` | Also write the calls with a AlphaMissense score of at least this. |
+
+### `api.vcf.pharmgkb(VcfPharmgkbParams)`
+
+CLI: `wgsextract vcf pharmgkb`.
+
+Annotate with PharmGKB; output role `annotated_vcf`.
+
+`VcfPharmgkbParams`: PharmGKB drug-response annotations as `pharmgkb_annotated.vcf.gz`
+(GRCh38 only).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `pharmgkb_file` | `Path \| None` | `None` (config `pharmgkb_vcf_path`) | `--pharmgkb-file` | Path to PharmGKB VCF or data file. |
+
+### `api.vcf.pharmcat(VcfPharmcatParams)`
+
+CLI: `wgsextract vcf pharmcat`.
+
+Run PharmCAT; output roles `pharmcat_report`, `pharmcat_report_json` and
+`pharmcat_phenotypes`.
+
+`VcfPharmcatParams`: Star-allele diplotypes and drug-response phenotypes from a GRCh38 VCF
+with PharmCAT: `<stem>.report.html`, `.report.json` and
+`.phenotype.json`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `pharmcat_dir` | `Path \| None` | `None` (config `pharmcat_directory`) | `--pharmcat-dir` | Extracted PharmCAT pipeline release (default: <reference library>/pharmcat). |
+| `absent_to_ref` | `bool` | `False` | `--absent-to-ref` | Treat positions absent from the VCF as reference. Only for a whole-genome VCF that lists variants only (not a gVCF). |
+| `outside_call` | `tuple[Path, ...] \| None` | `None` | `--outside-call` | PharmCAT outside-call file (gene<TAB>diplotype), e.g. from `typing cyp2d6` or `typing hla`. Repeatable; one call per gene. |
+| `confidence_depth` | `tuple[float, float] \| None` | `None` | `--confidence-depth` | (LOW, HIGH): read depth below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+| `confidence_gq` | `tuple[float, float] \| None` | `None` | `--confidence-gq` | (LOW, HIGH): genotype quality below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+
+### `api.vcf.chain_annotate(VcfChainAnnotateParams)`
+
+CLI: `wgsextract vcf chain-annotate`.
+
+Run the chain; output role `annotated_vcf`; `annotations_applied` is a
+metric.
+
+`VcfChainAnnotateParams`: Several annotations applied in turn, as `chain_annotated.vcf.gz`;
+steps whose tool or data is missing are skipped with a warning.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The VCF to read when ``vcf_input`` is unset. |
+| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the VCF's folder). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `annotations` | `str` | `'clinvar,revel,phylop,gnomad,vep'` | `--annotations` | Comma-separated list of annotations to apply in order (default: clinvar,revel,phylop,gnomad,vep). |
+| `keep_intermediates` | `bool` | `False` | `--keep-intermediates` | Keep intermediate VCF files generated during the chain process. |
 
 ## `api.lineage`
 

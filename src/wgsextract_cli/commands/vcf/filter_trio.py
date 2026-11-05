@@ -1,9 +1,10 @@
-import argparse
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfFilterParams, VcfTrioParams
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import canonical_build
 from wgsextract_cli.core.dependency_checks import (
@@ -30,7 +31,7 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 
-from .basic import _select_vcf_input, record_variants, require_vcf_input
+from .basic import record_variants, require_vcf_input, vcf_input_handler
 from .trio_alignments import (
     CLUSTER_DISTANCE,
     DEFAULT_MIN_DEPTH,
@@ -42,6 +43,10 @@ from .trio_alignments import (
     trio_contig_lengths,
     write_isolated_denovo,
 )
+
+
+def _text(path: Path | None) -> str | None:
+    return os.fspath(path) if path else None
 
 
 def write_gaps_bed(ref_path: str, bed_path: str) -> bool:
@@ -72,8 +77,8 @@ def write_gaps_bed(ref_path: str, bed_path: str) -> bool:
     return True
 
 
-def cmd_filter(args: argparse.Namespace) -> None:
-    input_file = require_vcf_input(args)
+def run_filter(params: VcfFilterParams) -> None:
+    input_file = require_vcf_input(params)
     verify_paths_exist({"--input": input_file})
 
     verify_dependencies(["bcftools", "tabix"])
@@ -81,19 +86,19 @@ def cmd_filter(args: argparse.Namespace) -> None:
 
     logging.debug(f"Input file: {str(absolute_path(input_file))}")
 
-    outdir = args.outdir or str(absolute_path(input_file).parent)
+    outdir = os.fspath(params.outdir or absolute_path(input_file).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
     out_vcf = str(Path(outdir, "filtered.vcf.gz"))
 
     # Resolve reference if needed for gap filtering or gene resolution
     md5_sig = calculate_bam_md5(input_file, None)
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
+    lib = ReferenceLibrary(params.ref, md5_sig, input_path=input_file)
     logging.debug(f"Resolved reference: {lib.fasta}")
 
     # Gene-based region resolution
-    region = args.region
-    if args.gene:
+    region = params.region
+    if params.gene:
         from wgsextract_cli.core.gene_map import gene_coords
 
         maps = [
@@ -102,20 +107,20 @@ def cmd_filter(args: argparse.Namespace) -> None:
         ]
         resolved_region = gene_coords(
             lib.resource_root(*maps) or str(absolute_path(input_file).parent),
-            args.gene,
+            params.gene,
             lib.build or "hg38",
         )
-        logging.info(f"Resolved gene {args.gene} to {resolved_region}")
+        logging.info(f"Resolved gene {params.gene} to {resolved_region}")
         region = resolved_region
 
     region_args = ["-r", region] if region else []
-    expr_args = ["-i", args.expr] if args.expr else []
+    expr_args = ["-i", params.expr] if params.expr else []
 
     input_vcf = ensure_vcf_prepared(input_file)
     logging.info(LOG_MESSAGES["vcf_filtering"].format(input=input_vcf, output=out_vcf))
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_filter_") as work:
         exclude_args = []
-        if getattr(args, "exclude_near_gaps", False):
+        if params.exclude_near_gaps:
             gaps_bed = str(Path(work, "gaps.bed"))
             if not lib.fasta:
                 warn(
@@ -142,6 +147,9 @@ def cmd_filter(args: argparse.Namespace) -> None:
         except (OSError, subprocess.SubprocessError, RuntimeError) as e:
             raise WGSExtractError(f"VCF filtering failed: {e}") from e
     record_variants(out_vcf, "filtered_vcf", vcf_record_count(out_vcf))
+
+
+cmd_filter = vcf_input_handler(VcfFilterParams, run_filter)
 
 
 # bcftools genotype classes: "mis" is a missing genotype (a parent with no record
@@ -207,14 +215,14 @@ def _is_gvcf(vcf: str) -> bool:
     )
 
 
-def _gvcf_merge_args(args: argparse.Namespace, vcfs: list[str]) -> list[str]:
+def _gvcf_merge_args(params: VcfTrioParams, vcfs: list[str]) -> list[str]:
     """`--gvcf <ref>` when an input is a gVCF: bcftools then fills each sample's
     reference block in at the other samples' sites. Without it, a parent's
     block that doesn't start at the child's site reads as missing, and the de
     novo list fills with variants the parent was checked for."""
     if not any(_is_gvcf(v) for v in vcfs):
         return []
-    ref = ReferenceLibrary(getattr(args, "ref", None), None, input_path=vcfs[0]).fasta
+    ref = ReferenceLibrary(params.ref, None, input_path=vcfs[0]).fasta
     if not ref:
         warn(
             "gvcf_reference_missing",
@@ -225,12 +233,12 @@ def _gvcf_merge_args(args: argparse.Namespace, vcfs: list[str]) -> list[str]:
     return ["--gvcf", ref]
 
 
-def cmd_trio(args: argparse.Namespace) -> None:
+def run_trio(params: VcfTrioParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
 
-    proband = args.proband or _select_vcf_input(args)
-    mother = args.mother
-    father = args.father
+    proband = _text(params.proband or params.vcf_input or params.input)
+    mother = _text(params.mother)
+    father = _text(params.father)
     if not proband or not mother or not father:
         raise WGSExtractError(
             "Proband (--proband, --vcf-input, or --input), --mother, and --father "
@@ -238,17 +246,17 @@ def cmd_trio(args: argparse.Namespace) -> None:
         )
     verify_paths_exist({"--proband": proband, "--mother": mother, "--father": father})
 
-    outdir = args.outdir or str(absolute_path(proband).parent)
+    outdir = os.fspath(params.outdir or absolute_path(proband).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     result = current_result()
     result.set_manifest_stem(Path(outdir, "trio"))
     for path, role in ((proband, "proband"), (mother, "mother"), (father, "father")):
         result.add_input(path, role)
-    modes = [args.mode] if args.mode != "all" else list(_TRIO_FILTERS)
+    modes = [params.mode] if params.mode != "all" else list(_TRIO_FILTERS)
 
     alignments = [is_alignment(p) for p in (proband, mother, father)]
     if all(alignments):
-        _trio_from_alignments(args, [proband, mother, father], outdir, modes)
+        _trio_from_alignments(params, [proband, mother, father], outdir, modes)
         return
     if any(alignments):
         raise WGSExtractError(
@@ -259,8 +267,8 @@ def cmd_trio(args: argparse.Namespace) -> None:
     m_vcf = ensure_vcf_prepared(mother)
     f_vcf = ensure_vcf_prepared(father)
     p_idx, m_idx, f_idx = trio_sample_indices(p_vcf, m_vcf, f_vcf)
-    region_args = ["-r", args.region] if getattr(args, "region", None) else []
-    gvcf_args = _gvcf_merge_args(args, [p_vcf, m_vcf, f_vcf])
+    region_args = ["-r", params.region] if params.region else []
+    gvcf_args = _gvcf_merge_args(params, [p_vcf, m_vcf, f_vcf])
 
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_trio_") as work:
         # gVCF merging fetches reference bases even on parent-only contigs.
@@ -315,6 +323,9 @@ def cmd_trio(args: argparse.Namespace) -> None:
                 _warn_if_parental_refs_unconfident(out_vcf, m_idx, f_idx)
 
 
+cmd_trio = vcf_input_handler(VcfTrioParams, run_trio)
+
+
 def _warn_if_parental_refs_unconfident(out_vcf: str, m_idx: int, f_idx: int) -> None:
     """De novo calls from VCFs rest on the parents' 0/0 calls; from gVCF reference
     blocks (often GQ 0, from another pipeline) those say nothing, and the de novo
@@ -345,7 +356,7 @@ def _warn_if_parental_refs_unconfident(out_vcf: str, m_idx: int, f_idx: int) -> 
 
 
 def _trio_from_alignments(
-    args: argparse.Namespace, alignments: list[str], outdir: str, modes: list[str]
+    params: VcfTrioParams, alignments: list[str], outdir: str, modes: list[str]
 ) -> None:
     from wgsextract_cli.core.builds import (
         is_hg37_build,
@@ -361,7 +372,7 @@ def _trio_from_alignments(
     # Joint calling compares reads at the same positions: the chromosomes being
     # called must have the same names and lengths in all three (extra decoy or
     # alt contigs don't matter).
-    region = getattr(args, "region", None)
+    region = params.region
     called = [trio_contig_lengths(a, region) for a in alignments]
     if not called[0]:
         raise WGSExtractError(
@@ -383,7 +394,7 @@ def _trio_from_alignments(
                 f"{', '.join(differing[:5])}); realign them to one reference."
             )
     lib = ReferenceLibrary(
-        args.ref, calculate_bam_md5(proband, None), input_path=proband
+        params.ref, calculate_bam_md5(proband, None), input_path=proband
     )
     if not lib.fasta:
         raise WGSExtractError(
@@ -400,7 +411,7 @@ def _trio_from_alignments(
             "file to the reference library (see 'wgsextract ref bootstrap')."
         )
     # The parents' sexes are their roles; the proband's comes from chrX/chrY.
-    proband_sex = getattr(args, "proband_sex", None)
+    proband_sex = params.proband_sex
     if not proband_sex:
         inferred = sample_sex(proband, outdir)
         if inferred not in ("Male", "Female"):
@@ -412,20 +423,20 @@ def _trio_from_alignments(
     proband_sex = "M" if proband_sex == "male" else "F"
     for alignment in alignments:
         warn_about_alignment(alignment, lib.fasta)
-    threads = int(get_resource_defaults(getattr(args, "threads", None), None)[0])
+    threads = int(get_resource_defaults(params.threads, None)[0])
     joint = joint_trio_vcf(
         alignments,
         [proband_sex, "F", "M"],
         lib.fasta,
         ploidy_args,
         str(Path(outdir, "trio_joint.vcf.gz")),
-        getattr(args, "region", None),
+        params.region,
         threads,
     )
     logging.info(f"Joint trio genotypes: {joint}")
     current_result().set_reference(lib.fasta, lib.build)
     current_result().add_output(joint, "trio_joint")
-    min_depth = getattr(args, "min_depth", None) or DEFAULT_MIN_DEPTH
+    min_depth = params.min_depth or DEFAULT_MIN_DEPTH
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_trio_") as work:
         split = split_multiallelic(joint, str(Path(work, "split.vcf.gz")))
         for mode in modes:

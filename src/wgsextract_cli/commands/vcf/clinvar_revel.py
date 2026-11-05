@@ -1,8 +1,8 @@
-import argparse
 import logging
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfClinvarParams, VcfRevelParams
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -19,8 +19,10 @@ from .annotation_helpers import (
     prepare_tabix_annotation,
     record_annotated,
     require_annotation_file,
+    resource,
     run_min_score_filter,
 )
+from .basic import vcf_input_handler
 
 CLINVAR_ANNOTATED = "clinvar_annotated.vcf.gz"
 CLINVAR_PATHOGENIC = "clinvar_pathogenic.vcf.gz"
@@ -28,14 +30,14 @@ CLINVAR_COLUMNS = ("CLNSIG", "CLNDN")
 REVEL_ANNOTATED = "revel_annotated.vcf.gz"
 
 
-def cmd_clinvar(args: argparse.Namespace) -> None:
+def run_clinvar(params: VcfClinvarParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file, outdir, lib = annotation_context(args)
+    input_file, outdir, lib = annotation_context(params)
     logging.info(LOG_MESSAGES["vcf_clinvar_start"].format(input=input_file))
 
     clinvar_vcf = require_annotation_file(
-        args.clinvar_file or lib.clinvar_vcf, "vcf_clinvar_missing", "clinvar"
+        resource(params.clinvar_file, lib.clinvar_vcf), "vcf_clinvar_missing", "clinvar"
     )
     logging.info(LOG_MESSAGES["vcf_clinvar_resolve"].format(path=clinvar_vcf))
 
@@ -48,7 +50,7 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
         ann_out,
         outdir,
         "ClinVar",
-        threads=getattr(args, "threads", None),
+        threads=params.threads,
     )
 
     path_out = str(Path(outdir, CLINVAR_PATHOGENIC))
@@ -58,7 +60,7 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
         summary = variant_confidence.label_vcf(
             ann_out,
             path_out,
-            variant_confidence.thresholds_from(args),
+            variant_confidence.thresholds_from(params),
             include='CLNSIG ~ "Pathogenic" || CLNSIG ~ "Likely_pathogenic"',
             summary_columns=CLINVAR_COLUMNS,
         )
@@ -80,14 +82,14 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vcf_clinvar_done"].format(output=path_out))
 
 
-def cmd_revel(args: argparse.Namespace) -> None:
+def run_revel(params: VcfRevelParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file, outdir, lib = annotation_context(args)
+    input_file, outdir, lib = annotation_context(params)
     logging.info(LOG_MESSAGES["vcf_revel_start"].format(input=input_file))
 
     revel_file = require_annotation_file(
-        args.revel_file or lib.revel_file, "vcf_revel_missing", "revel"
+        resource(params.revel_file, lib.revel_file), "vcf_revel_missing", "revel"
     )
     logging.info(LOG_MESSAGES["vcf_revel_resolve"].format(path=revel_file))
 
@@ -101,7 +103,7 @@ def cmd_revel(args: argparse.Namespace) -> None:
             ann_out,
             outdir,
             "REVEL",
-            threads=getattr(args, "threads", None),
+            threads=params.threads,
         )
     else:
         # Annovar REVEL TSV: #Chr, Start, End, Ref, Alt, REVEL
@@ -113,9 +115,13 @@ def cmd_revel(args: argparse.Namespace) -> None:
             outdir,
             "REVEL",
             ['##INFO=<ID=REVEL,Number=1,Type=Float,Description="REVEL score">'],
-            threads=getattr(args, "threads", None),
+            threads=params.threads,
         )
 
     run_min_score_filter(
-        ann_out, outdir, args.min_score, "REVEL", "revel", "REVEL", "vcf_revel_done"
+        ann_out, outdir, params.min_score, "REVEL", "revel", "REVEL", "vcf_revel_done"
     )
+
+
+cmd_clinvar = vcf_input_handler(VcfClinvarParams, run_clinvar)
+cmd_revel = vcf_input_handler(VcfRevelParams, run_revel)

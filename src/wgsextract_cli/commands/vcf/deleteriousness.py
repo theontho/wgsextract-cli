@@ -1,8 +1,8 @@
-import argparse
 import logging
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfCaddParams, VcfGerpParams
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -18,8 +18,10 @@ from .annotation_helpers import (
     annotation_context,
     prepare_tabix_annotation,
     require_annotation_file,
+    resource,
     run_min_score_filter,
 )
+from .basic import vcf_input_handler
 from .bigwig_scores import annotate_from_bigwig
 
 CADD_ANNOTATED = "cadd_annotated.vcf.gz"
@@ -33,16 +35,16 @@ _CADD_HEADER = [
 GERP_ANNOTATED = "gerp_annotated.vcf.gz"
 
 
-def cmd_cadd(args: argparse.Namespace) -> None:
+def run_cadd(params: VcfCaddParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file, outdir, lib = annotation_context(args)
+    input_file, outdir, lib = annotation_context(params)
     logging.info(LOG_MESSAGES["vcf_cadd_start"].format(input=input_file))
 
     snv_file = require_annotation_file(
-        args.cadd_file or lib.cadd_file, "vcf_cadd_missing", "cadd"
+        resource(params.cadd_file, lib.cadd_file), "vcf_cadd_missing", "cadd"
     )
-    indel_file = args.cadd_indel_file or lib.cadd_indel_file
+    indel_file = resource(params.cadd_indel_file, lib.cadd_indel_file)
     logging.info(LOG_MESSAGES["vcf_cadd_resolve"].format(path=snv_file))
     if indel_file:
         logging.info(LOG_MESSAGES["vcf_cadd_resolve"].format(path=indel_file))
@@ -61,7 +63,7 @@ def cmd_cadd(args: argparse.Namespace) -> None:
             outdir,
             "CADD",
             _CADD_HEADER,
-            threads=getattr(args, "threads", None),
+            threads=params.threads,
         )
     else:
         indel_tsv = prepare_tabix_annotation(indel_file, "CADD indel")
@@ -76,7 +78,7 @@ def cmd_cadd(args: argparse.Namespace) -> None:
                 work,
                 "CADD",
                 _CADD_HEADER,
-                threads=getattr(args, "threads", None),
+                threads=params.threads,
             )
             annotate_vcf(
                 snv_out,
@@ -85,13 +87,13 @@ def cmd_cadd(args: argparse.Namespace) -> None:
                 ann_out,
                 work,
                 "CADD indel",
-                threads=getattr(args, "threads", None),
+                threads=params.threads,
             )
 
     run_min_score_filter(
         ann_out,
         outdir,
-        args.min_score,
+        params.min_score,
         "CADD_PHRED",
         "cadd",
         "CADD",
@@ -99,14 +101,14 @@ def cmd_cadd(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_gerp(args: argparse.Namespace) -> None:
+def run_gerp(params: VcfGerpParams) -> None:
     verify_dependencies(["bcftools", "tabix", "bgzip"])
     log_dependency_info(["bcftools", "tabix", "bgzip"])
-    input_file, outdir, lib = annotation_context(args)
+    input_file, outdir, lib = annotation_context(params)
     logging.info(LOG_MESSAGES["vcf_gerp_start"].format(input=input_file))
 
     gerp_file = require_annotation_file(
-        args.gerp_file or lib.gerp_file, "vcf_gerp_missing", "gerp"
+        resource(params.gerp_file, lib.gerp_file), "vcf_gerp_missing", "gerp"
     )
     logging.info(LOG_MESSAGES["vcf_gerp_resolve"].format(path=gerp_file))
     ann_out = str(Path(outdir, GERP_ANNOTATED))
@@ -118,9 +120,13 @@ def cmd_gerp(args: argparse.Namespace) -> None:
         "GERP++ RS conservation score",
         ann_out,
         outdir,
-        threads=getattr(args, "threads", None),
+        threads=params.threads,
     )
 
     run_min_score_filter(
-        ann_out, outdir, args.min_score, "GERP", "gerp", "GERP", "vcf_gerp_done"
+        ann_out, outdir, params.min_score, "GERP", "gerp", "GERP", "vcf_gerp_done"
     )
+
+
+cmd_cadd = vcf_input_handler(VcfCaddParams, run_cadd)
+cmd_gerp = vcf_input_handler(VcfGerpParams, run_gerp)

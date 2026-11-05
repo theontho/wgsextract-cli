@@ -8,14 +8,23 @@ import typing
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from ._params import Params, from_namespace, param_fields
+from ._params import Params, fixed_length, from_namespace, param_fields
 from ._runtime import run_inline
 
 P = TypeVar("P", bound=Params)
 
 
-def add_arguments(parser: argparse.ArgumentParser, cls: type[Params]) -> None:
-    """Add an option for every non-shared field of ``cls``, in field order."""
+def add_arguments(
+    parser: argparse.ArgumentParser, cls: type[Params], *, config_defaults: bool = False
+) -> None:
+    """Add an option for every non-shared field of ``cls``, in field order.
+
+    With ``config_defaults``, an option whose field has a ``config_key``
+    defaults to that setting, so the run's recorded parameters show the value
+    in effect (as the shared options' do).
+    """
+    from wgsextract_cli.core.config import settings
+
     groups: dict[str, argparse._MutuallyExclusiveGroup] = {}
     sections: dict[str, argparse._ArgumentGroup] = {}
     for item in param_fields(cls):
@@ -45,6 +54,8 @@ def add_arguments(parser: argparse.ArgumentParser, cls: type[Params]) -> None:
             kwargs["required"] = True
         elif spec.action == "append":
             kwargs["default"] = None if item.default is None else list(item.default)
+        elif config_defaults and spec.config_key:
+            kwargs["default"] = settings.get(spec.config_key, item.default)
         else:
             kwargs["default"] = item.default
         if spec.action == "store_true":
@@ -53,8 +64,10 @@ def add_arguments(parser: argparse.ArgumentParser, cls: type[Params]) -> None:
             kwargs["action"] = "append"
         elif spec.action == "boolean_optional":
             kwargs["action"] = argparse.BooleanOptionalAction
+        if item.tuple_length is not None:
+            kwargs["nargs"] = item.tuple_length
         if spec.action in ("store", "append"):
-            value_type = spec.cli_type or _value_type(item.base_type)
+            value_type = spec.cli_type or _value_type(_element_type(item.base_type))
             if value_type is not None:
                 kwargs["type"] = value_type
             if spec.choices is not None:
@@ -66,6 +79,11 @@ def add_arguments(parser: argparse.ArgumentParser, cls: type[Params]) -> None:
 
 def _value_type(tp: Any) -> Callable[[str], Any] | None:
     return tp if tp in (int, float) else None
+
+
+def _element_type(tp: Any) -> Any:
+    """A fixed-length tuple's element type (``tuple[float, float]``: float)."""
+    return typing.get_args(tp)[0] if fixed_length(tp) is not None else tp
 
 
 def cli_handler(

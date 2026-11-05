@@ -95,7 +95,7 @@ def test_json_schema_describes_every_field(cls):
     for item in api._params.param_fields(cls):
         if item.spec.path:
             prop = schema["properties"][item.name]
-            if prop["type"] == "array":  # bam merge's input files
+            if prop["type"] in ("array", ["array", "null"]):  # lists of files
                 prop = prop["items"]
             assert prop["type"] in ("string", ["string", "null"])
             assert prop["format"] == "path"
@@ -391,6 +391,51 @@ def test_qc_vcf_reports_bcftools_stats(fake_data, tmp_path):
     assert stats.read_text().startswith("# This file was produced by bcftools stats")
     with pytest.raises(api.UsageError, match="--input is required"):
         api.QcVcfParams()
+
+
+def _vcf_records(vcf: Path, *args: str) -> list[str]:
+    out = subprocess.run(
+        ["bcftools", "view", "-H", *args, str(vcf)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return out.stdout.splitlines()
+
+
+@needs_tools("bcftools", "tabix")
+def test_vcf_filter_and_table_read_vcf_input(fake_data, tmp_path):
+    vcf = FAKE_DIR / "fake.vcf.gz"
+    unused = tmp_path / "unused.bam"
+    filtered = api.vcf.filter(
+        api.VcfFilterParams(
+            input=unused, vcf_input=vcf, region="chr1", expr="QUAL>30", outdir=tmp_path
+        )
+    )
+    assert_valid(filtered)
+    assert [Path(i.path).name for i in filtered.inputs] == ["fake.vcf.gz"]
+    out = tmp_path / "filtered.vcf.gz"
+    expected = _vcf_records(vcf, "-r", "chr1", "-i", "QUAL>30")
+    assert expected and _vcf_records(out) == expected
+
+    table = api.vcf.table(
+        api.VcfTableParams(input=out, outdir=tmp_path, no_sqlite=True)
+    )
+    assert_valid(table)
+    (row_file,) = [o for o in table.outputs if o.role == "variant_table"]
+    assert row_file.metrics["rows"] > 0
+    assert not list(tmp_path.glob("*.sqlite"))
+
+
+def test_vcf_confidence_thresholds_are_two_non_negative_numbers():
+    vcf = Path("in.vcf.gz")
+    params = api.VcfGnomadParams(input=vcf, confidence_depth=[5, 12.5])
+    assert params.confidence_depth == (5, 12.5)
+    with pytest.raises(api.UsageError, match="takes 2 values"):
+        api.VcfClinvarParams(input=vcf, confidence_gq=(10,))
+    for bad in (-1, float("nan")):
+        with pytest.raises(api.UsageError, match="non-negative"):
+            api.VcfPharmcatParams(input=vcf, confidence_depth=(bad, 20))
 
 
 @needs_tools("bwa", "samblaster", "samtools")

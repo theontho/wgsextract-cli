@@ -120,7 +120,7 @@ def _setting(key: str) -> float:
     return float(value) if isinstance(value, int | float) else 0.0
 
 
-def thresholds_from(args: argparse.Namespace | None = None) -> Thresholds:
+def thresholds_from(args: object | None = None) -> Thresholds:
     """Thresholds from config.toml, overridden by --confidence-depth/-gq."""
     depth = getattr(args, "confidence_depth", None)
     gq = getattr(args, "confidence_gq", None)
