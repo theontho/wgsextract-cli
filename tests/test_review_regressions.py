@@ -79,8 +79,9 @@ def test_annotation_resources_are_found_under_any_build_spelling(tmp_path):
     clinvar.touch()
 
     lib = _library(tmp_path)
-    assert lib.revel_file == str(revel)
-    assert lib.clinvar_vcf == str(clinvar)
+    # Case-insensitive filesystems (Windows, macOS) may report another spelling.
+    assert lib.revel_file and os.path.samefile(lib.revel_file, revel)
+    assert lib.clinvar_vcf and os.path.samefile(lib.clinvar_vcf, clinvar)
 
 
 def test_empty_resource_settings_discover_installed_library_data(monkeypatch, tmp_path):

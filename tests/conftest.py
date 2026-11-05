@@ -1,4 +1,5 @@
 import os
+import signal
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -176,6 +177,17 @@ def _fresh_tool_caches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     clear_tool_caches()
     yield
     clear_tool_caches()
+
+
+@pytest.fixture(autouse=True)
+def _restore_signal_handlers() -> Iterator[None]:
+    """Tests that run the CLI's entry point install its SIGINT/SIGTERM
+    handlers (exit 128+N); put Python's back so a later test sees Ctrl-C as
+    KeyboardInterrupt whatever ran before it on the same worker."""
+    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    yield
+    for sig, handler in saved.items():
+        signal.signal(sig, handler)
 
 
 @pytest.fixture
