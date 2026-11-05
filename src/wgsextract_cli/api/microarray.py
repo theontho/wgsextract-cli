@@ -56,6 +56,7 @@ class MicroarrayParams(Params):
         "CSV, gzip or ZIP; repeat per selected format",
         metavar="FORMAT=PATH",
         action="append",
+        local_only=True,
     )
     strand_ambiguous: str | None = param(
         None,

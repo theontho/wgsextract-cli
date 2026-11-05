@@ -389,6 +389,16 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract report-issue --run out/sample.vcf.gz.manifest.json --open",
         "wgsextract report-issue --title 'vcf snp hangs' --description 'Stops at 40%.'",
     ),
+    "serve": _h(
+        "Prints the server's address and token, also saved to "
+        "state/server/server.json (setting state_directory) for you only; "
+        "jobs and their logs go in state/server/jobs. Each operation writes "
+        "its usual outputs and result manifest.",
+        "wgsextract serve --allow ~/wgs",
+        "wgsextract serve --port 8765 --max-jobs 2",
+        "wgsextract serve --mcp --allow ~/wgs",
+        "wgsextract serve --openapi",
+    ),
     "example-genome list": _h(
         "Prints the curated examples; writes no files.",
         "wgsextract example-genome list",

@@ -32,7 +32,10 @@ class ParamSpec:
     global options every command parser already has; the generator doesn't add
     them again. ``config_key`` names the config.toml setting a ``None`` value
     falls back to. ``required_message`` is the usage error raised when a
-    required value is missing on the command line.
+    required value is missing on the command line. ``local_only`` fields are
+    set only on the command line, in config.toml or by a Python caller, never
+    by a server request: their value names a program to run, or a file the
+    server's path checks can't see.
     """
 
     help: str | None = None
@@ -48,6 +51,7 @@ class ParamSpec:
     config_key: str | None = None
     required_message: str | None = None
     doc: str | None = None
+    local_only: bool = False
 
     @property
     def description(self) -> str:
@@ -71,6 +75,7 @@ def param(
     config_key: str | None = None,
     required_message: str | None = None,
     doc: str | None = None,
+    local_only: bool = False,
 ) -> Any:
     """Declare a Params field; omit ``default`` for a required one.
 
@@ -91,6 +96,7 @@ def param(
         config_key=config_key,
         required_message=required_message,
         doc=doc,
+        local_only=local_only,
     )
     return dataclasses.field(default=default, metadata={_SPEC: spec})
 

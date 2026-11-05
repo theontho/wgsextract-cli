@@ -168,6 +168,7 @@ COMMAND_NEEDS: dict[str, CommandNeeds] = {
     "example-genome download": _n(DOWNLOAD, optional="curl"),
     "report": _n(SECONDS, scale=" from existing results"),
     "report-issue": _n(SECONDS, scale=""),
+    "serve": _n(SECONDS, scale=" to start; runs until stopped"),
     "bam sort": _n(HOURS, *_SAM, optional="bcftools sambamba"),
     "bam index": _n(MINUTES, *_SAM, optional="sambamba"),
     "bam unindex": _n(INSTANT, *_SAM),

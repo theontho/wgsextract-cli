@@ -43,6 +43,7 @@ class MtHaplogroupParams(Params):
         None,
         help="Path to haplogrep executable or JAR (optional if in PATH)",
         config_key="haplogrep_executable",
+        local_only=True,
     )
     qc_min_depth: float | None = depth_param()
 

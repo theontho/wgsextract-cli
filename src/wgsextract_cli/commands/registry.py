@@ -22,6 +22,7 @@ from . import (
     report,
     report_issue,
     sample,
+    serve,
     sign,
     vcf,
     vep,
@@ -51,6 +52,7 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     methylation,
     report,
     report_issue,
+    serve,
 )
 
 CORE = "core"
@@ -157,6 +159,9 @@ COMMAND_TIERS: tuple[CommandTier, ...] = (
     ),
     CommandTier("sign", ADVANCED, "Checksum and sign output files; verify them."),
     CommandTier("benchmark", ADVANCED, "Time the main workflows on test data."),
+    CommandTier(
+        "serve", ADVANCED, "Local HTTP/JSON and MCP server for apps and AI agents."
+    ),
 )
 
 # Subcommands whose tier differs from their command group's: specialist,
