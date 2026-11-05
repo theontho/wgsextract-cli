@@ -17,8 +17,8 @@ except ModuleNotFoundError:
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "site_src"
 OUTPUT_DIR = ROOT / "site"
-BASE_URL = "https://theontho.github.io/wgsextract-cli"
-GITHUB_URL = "https://github.com/theontho/wgsextract-cli"
+BASE_URL = "https://wgsextract.github.io/wgsextract-cli"
+GITHUB_URL = "https://github.com/WGSExtract/wgsextract-cli"
 ABBR_FILE = SOURCE_DIR / "abbr.toml"
 SOCIAL_IMAGE_URL = f"{BASE_URL}/assets/social-preview.webp"
 SOCIAL_IMAGE_ALT = "WGSExtract CLI social preview showing the desktop app screenshot."

@@ -39,7 +39,7 @@ permissions:
 env:
   # The app as users get it: the latest WGS Extract app release (or the one
   # given as app_release), or the builds of the Distribution run given as app_run.
-  GUI_REPO: theontho/gui-for-cli
+  GUI_REPO: WGSExtract/gui-for-cli
   APP_RUN: ${{ inputs.app_run }}
   APP_RELEASE: ${{ inputs.app_release }}
   # `tree`: the app sets up this CLI tree. `pinned` (weekly): the CLI release the
@@ -73,7 +73,7 @@ jobs:
         run: python3 scripts/installlab/lab.py run linux --install-dir "WGS Extract" --out out/installlab/ci-linux-spaced
       - name: Update the latest published release to this tree
         run: |
-          latest=$(curl -fsIL -o /dev/null -w '%{url_effective}' https://github.com/theontho/wgsextract-cli/releases/latest)
+          latest=$(curl -fsIL -o /dev/null -w '%{url_effective}' https://github.com/WGSExtract/wgsextract-cli/releases/latest)
           python3 scripts/installlab/lab.py run linux --update-from "${latest##*/}" --out out/installlab/ci-linux-update
       - name: Every sabotaged install must fail
         if: env.WEEKLY == 'true'

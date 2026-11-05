@@ -6,7 +6,7 @@
 
 An independent command-line recreation of [WGS Extract](https://github.com/WGSExtract/WGSExtract-Dev/). It wraps samtools, bcftools, bwa/minimap2, GATK, Haplogrep, VEP and other tools and includes native Yleaf-derived Y-DNA analysis, so you can inspect BAM/CRAM files, simulate consumer microarray files, extract Y/mtDNA data, call and annotate variants, and manage reference genomes from scripts or the terminal. [Pixi](https://pixi.sh) provides Python and the bioinformatics tools on macOS, Linux, and Windows.
 
-Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate graphical app is available from [gui-for-cli](https://github.com/theontho/gui-for-cli/releases).
+Documentation site: <https://wgsextract.github.io/wgsextract-cli/>. A separate graphical app is available from [gui-for-cli](https://github.com/WGSExtract/gui-for-cli/releases).
 
 Y-DNA prediction credits Yleaf's authors at Erasmus MC: Arwin Ralf, Diego
 Montiel Gonzalez, Kaiyin Zhong, Manfred Kayser and Bram van Wersch.
@@ -26,21 +26,21 @@ are not yet qualified. DeepVariant has an explicit
 Java or x86-emulation fallback. See [Linux ARM64](docs/linux-arm64.md).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/WGSExtract/wgsextract-cli/main/install.sh | sh
 ```
 
 Native Linux ARM64 needs a release that includes ARM64 support; v0.6.5 and
 earlier do not. Until a supporting release is available, select `main` explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | WGSEXTRACT_REF=main sh
+curl -fsSL https://raw.githubusercontent.com/WGSExtract/wgsextract-cli/main/install.sh | WGSEXTRACT_REF=main sh
 ```
 
 The bootstrap script comes from `main`, but it installs the latest published GitHub release, not `main`. It creates `wgsextract-cli/` in the current directory (or next to a downloaded `install.sh`) containing the app (`app/`), Pixi files (`.pixi/`), the `wgsextract` launcher, and `uninstall.sh`. On macOS it checks for the Xcode Command Line Tools first.
 
 Windows: clone or download the repository and run `install_windows.bat` from PowerShell. It installs Pixi when missing, then the CLI and its native Windows tools (WGS Extract's own builds of samtools, bcftools, BWA, bwa-mem2, minimap2, fastp and samblaster) into the Pixi environment. No WSL or MSYS2 is needed. See [docs/windows.md](docs/windows.md).
 
-The [install guide](https://theontho.github.io/wgsextract-cli/install.html) covers platform notes, download verification, and the reference library in more detail.
+The [install guide](https://wgsextract.github.io/wgsextract-cli/install.html) covers platform notes, download verification, and the reference library in more detail.
 
 ### Installer options
 
@@ -141,6 +141,8 @@ complete reference genomes are not hashed.
 Output files are named after the full input stem: `HG002.chr20.bam` produces `HG002.chr20_sorted.bam`, `HG002.chr20_coverage.tsv`, and so on. Outputs go to `--outdir`, the configured `outdir`, or the `--genome` folder.
 
 What commands detect about a sample (sex, sequencing platform, build, depth) is recorded once in its genome folder's `wgsextract.sample.toml`, tied to each input's fingerprint, so later commands don't detect it again. Correct a wrong call with `wgsextract sample set --genome ID --sex Female`; see [docs/sample-workspace.md](docs/sample-workspace.md).
+
+`wgsextract report --genome ID` summarises a sample's results in one local, offline report (HTML, Markdown and JSON, plus a findings table): sample overview and QC, Y and mtDNA haplogroups, pharmacogenomics, ClinVar pathogenic calls in the ACMG SF v3.2 genes and the microarray files. Each finding has a confidence label and a link to its evidence. It reads earlier runs' manifests and runs nothing itself; sections not run yet show the command to run. These are technical results, not a diagnosis. See [docs/personal-report.md](docs/personal-report.md).
 
 ## Commands
 
@@ -338,7 +340,7 @@ outputs are unchanged.
 - Microarray quality gates are opt-in: `--min-gq 20 --min-dp 5` requires sample FORMAT/GQ and FORMAT/DP at least those values; a missing required field is a no-call, not a pass. bcftools can omit GQ on reference-only records, which also become no-calls under an enabled GQ threshold. Both defaults are `0` (disabled), and FILTER values remain accepted unless `--exclude-filtered` is selected. A multi-sample VCF (for example a joint-called cohort) needs `--sample` to choose whose kit to write. With VCF input, absent markers on represented contigs are assumed homozygous reference by default; `--no-assume-hom-ref` instead writes no-calls. An ordinary variant-only VCF cannot establish coverage or reference genotypes at absent sites. A gVCF can: markers inside its `0/0` reference blocks are reference calls and markers no record covers are no-calls, unless `--assume-hom-ref` or `microarray_assume_hom_ref` is given (see [docs/interop.md](docs/interop.md#bringing-vcfs-back)). Enabled quality thresholds also prevent unsupported reference imputation without GQ/DP.
 - `microarray --call-reasons` adds `<sample>_CombinedKit_reasons.tsv`, a complete target-level table with the usual four fields plus `CALL_REASON`, in the input build. It distinguishes `no_reads` (no aligned base evidence under standard read-flag filters), `low_mapq` (evidence exists only below MAPQ 10), low/missing GQ or DP, `filtered`, `missing_gt`, unsupported alleles and absent VCF markers/contigs; reference-filled sites are labeled `assumed_hom_ref`. The legacy four-column CombinedKit and vendor schemas stay unchanged. Reason-only mode also preserves legacy unsupported-VCF skips/imputation; unsupported records become explicit no-calls when quality/FILTER gates are selected. BAM/CRAM reporting adds two depth passes per requested interval using indexed traversal with `--region`; without a region, it reads the whole alignment twice. Reporting is disabled by default.
 - These microarray options have matching top-level `config.toml` settings: `microarray_min_gq`, `microarray_min_dp`, `microarray_assume_hom_ref`, `microarray_exclude_filtered` and `microarray_call_reasons`. Explicit CLI values override configuration, including `--min-gq 0`, `--assume-hom-ref`, `--no-exclude-filtered` and `--no-call-reasons`. Per-vendor profiles retain existing haploid, allele-order, quoting and no-call behavior; declaring a vendor's I/D encoding does not enable indel calling.
-- `microarray`, the `vcf` callers and the haplogroup commands warn when a BAM/CRAM's mean depth is too low for the genotypes they make (below 8x on autosomes, 3x on chrY/mtDNA), and `microarray` warns afterwards when its autosomal genotypes look low-pass or imputed (over 88% homozygous) or its vendor files have over 10% no-calls. The depth comes from `info --detailed`'s cache, CRAM container headers or a BAM index, so the check is cheap; outputs are never changed. Thresholds are `qc_*` settings in `config.toml`, and `--qc-min-depth DEPTH` (0 disables) overrides the depth threshold for one run. See [what each warning means](docs/genotype-qc.md).
+- `microarray`, the `vcf` callers and the haplogroup commands warn when a BAM/CRAM's mean depth is too low for the genotypes they make (below 15x on autosomes, 3x on chrY/mtDNA), and `microarray` warns afterwards when its autosomal genotypes look low-pass or imputed (over 88% homozygous) or its vendor files have over 10% no-calls. The depth comes from `info --detailed`'s cache, CRAM container headers or a BAM index, so the check is cheap; outputs are never changed. Thresholds are `qc_*` settings in `config.toml`, and `--qc-min-depth DEPTH` (0 disables) overrides the depth threshold for one run. See [what each warning means](docs/genotype-qc.md).
 - `vcf clinvar`, `vcf gnomad --max-af`, `vcf pharmcat` and `analyze`'s discovery report label each reported call `high`, `moderate` or `low` confidence, with reason codes, from its depth, genotype quality, allele balance, mapping quality and strand bias. The labels are in the VCF (`INFO/WGSE_CONF`), a `.confidence.tsv` and the result manifest. A label rates the sequencing evidence, not whether a variant causes disease: confirm any finding with an accredited laboratory. Thresholds are `confidence_*` settings in `config.toml`, with `--confidence-depth LOW HIGH` and `--confidence-gq LOW HIGH` overrides. See [the rules, their rationale and their validation](docs/variant-confidence.md).
 - `microarray --indel-manifest FORMAT=PATH` optionally calls sequence-defined insertion/deletion probes from a matching GRCh37 Illumina manifest (CSV, gzip or ZIP). Repeat for explicitly selected 23andMe, Ancestry or MyHeritage layouts. Full reference contexts and DNA alleles must verify; unsupported/absent or quality/identity-rejected calls stay missing. The separate caller leaves the SNP CombinedKit unchanged. See [manifest requirements, real encoding evidence and coverage limits](docs/microarray-indels.md); proprietary probe definitions and Ancestry probe-order reproduction are not inferred.
 - `info chip --input <raw file>` identifies a consumer microarray raw-data file (plain, gzip or ZIP): vendor and chip from the header, and the revision from its marker list, since vendors change markers without renaming a chip. An identical marker list matches with confidence 1; otherwise confidence is the marker-ID Jaccard similarity to the closest [catalogued revision](src/wgsextract_cli/assets/microarray/revisions/README.md), halved when two revisions are equally close. It names the `--formats` template a revision matches, or the closest one with the markers it adds and drops. `--list` prints the catalogue; with `--json` the detection (or catalogue) is the result manifest's `details`. Nothing is exported or changed.
@@ -592,7 +594,7 @@ Keep larger runs last and budget their CPU, memory and working space.
 
 ## Reporting a problem
 
-`wgsextract report-issue` builds a bug report about the last command you ran and opens it as a pre-filled [GitHub issue](https://github.com/theontho/wgsextract-cli/issues/new/choose):
+`wgsextract report-issue` builds a bug report about the last command you ran and opens it as a pre-filled [GitHub issue](https://github.com/WGSExtract/wgsextract-cli/issues/new/choose):
 
 ```bash
 wgsextract report-issue                 # the last run
@@ -607,7 +609,7 @@ Nothing is uploaded. The command prints the report and its link and saves the fu
 ## Development
 
 ```bash
-git clone https://github.com/theontho/wgsextract-cli.git
+git clone https://github.com/WGSExtract/wgsextract-cli.git
 cd wgsextract-cli
 ./scripts/dev_setup.sh   # Windows: powershell -ExecutionPolicy Bypass -File scripts\dev_setup.ps1
 # open a new terminal if the script installed Pixi or just
@@ -668,7 +670,7 @@ pixi run pytest tests/test_smoke_real_basics.py \
 
 Options include `--real-input`, `--real-ref`, `--real-vcf`, `--real-region`, `--real-targets`, `--real-fastq-r1`/`--real-fastq-r2`, `--fake-data`, and `--full-data` (see `tests/conftest.py`). Alternatively, set `real_genome_test_path` and `real_genome_tests_enabled = true` in `config.toml`. Setting `dev_download_cache = true` caches downloads under `$XDG_CACHE_HOME/wgsextract/downloads` (`~/.cache/wgsextract/downloads` by default) for reuse across test runs, pruned after `dev_download_cache_ttl_seconds` (default one week).
 
-`wgsextract qc fake-data` generates synthetic BAM/CRAM/VCF/FASTQ files for tests and bug reports; see the [workflows page](https://theontho.github.io/wgsextract-cli/workflows.html#testing).
+`wgsextract qc fake-data` generates synthetic BAM/CRAM/VCF/FASTQ files for tests and bug reports; see the [workflows page](https://wgsextract.github.io/wgsextract-cli/workflows.html#testing).
 
 To cut a release, and get it into the WGS Extract app, see [docs/releasing.md](docs/releasing.md).
 

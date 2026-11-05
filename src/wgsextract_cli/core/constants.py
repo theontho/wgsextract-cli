@@ -421,7 +421,7 @@ N_ADJUST = {
 N_ADJUST["19"] = N_ADJUST["37"]
 
 # Reference Library Bootstrap
-BOOTSTRAP_URL = "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-reference-bootstrap.tar.gz"
+BOOTSTRAP_URL = "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-reference-bootstrap.tar.gz"
 BOOTSTRAP_FILENAME = "wgsextract-reference-bootstrap.tar.gz"
 
 # Delly mappability map files `ref status` reports (Delly 2 no longer needs them).

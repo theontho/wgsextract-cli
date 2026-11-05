@@ -19,12 +19,23 @@ from wgsextract_cli.commands._help_catalog import COMMAND_HELP
 from wgsextract_cli.commands._help_topics import HELP_TOPICS
 from wgsextract_cli.commands._next_steps import NEXT_STEPS
 from wgsextract_cli.commands.registry import COMMAND_TIERS, CORE
+from wgsextract_cli.core.config import KNOWN_SETTINGS
 from wgsextract_cli.core.results import CommandResult, FileRecord
 from wgsextract_cli.main import main
 
 ROOT = Path(__file__).resolve().parents[1]
 ANSI = re.compile(r"\x1b\[")
-JOURNEY = ["info", "microarray", "lineage", "extract", "realign", "align", "vcf", "vep"]
+JOURNEY = [
+    "info",
+    "microarray",
+    "lineage",
+    "extract",
+    "realign",
+    "align",
+    "vcf",
+    "vep",
+    "report",
+]
 
 
 @pytest.fixture(scope="module")
@@ -306,6 +317,14 @@ def test_help_topics_are_listed_readable_and_their_examples_parse(capsys, root):
     main(["help", "--json", "manifests"])
     (topic,) = json.loads(capsys.readouterr().out)["topics"]
     assert topic["name"] == "manifests" and topic["body"]
+
+
+def test_coverage_topic_quotes_the_default_depth_thresholds(capsys):
+    main(["help", "coverage"])
+    text = " ".join(capsys.readouterr().out.split())
+    diploid = KNOWN_SETTINGS["qc_min_diploid_depth"][0]
+    haploid = KNOWN_SETTINGS["qc_min_haploid_depth"][0]
+    assert f"warn below {diploid:g}x on autosomes and {haploid:g}x on chrY" in text
 
 
 def test_typed_commands_embed_their_input_schema(capsys, root):

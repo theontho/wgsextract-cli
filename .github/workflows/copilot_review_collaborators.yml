@@ -1,8 +1,10 @@
 # The "Copilot review for default branch" ruleset only reviews PRs whose
 # author has Copilot access, so collaborators without a Copilot plan get no
-# automatic review. This requests one on their behalf with the repo owner's
-# token (COPILOT_REVIEW_TOKEN: fine-grained PAT, this repo only, Pull requests
-# read/write); the review's AI credits are billed to the token's owner.
+# automatic review. This requests one on their behalf with a maintainer's
+# token (COPILOT_REVIEW_TOKEN: fine-grained PAT, resource owner WGSExtract, this
+# repo only, Pull requests read/write); the review's AI credits are billed to
+# the token's owner. Authors with their own Copilot license are skipped, since
+# the ruleset already reviews their PRs.
 #
 # pull_request_target runs with secrets, so this job must never check out or
 # execute PR code; it only calls the GitHub API.
@@ -20,7 +22,7 @@ jobs:
     if: >-
       !github.event.pull_request.draft &&
       github.event.pull_request.user.type == 'User' &&
-      github.event.pull_request.user.login != github.repository_owner &&
+      !contains(fromJSON('["theontho"]'), github.event.pull_request.user.login) &&
       contains(fromJSON('["COLLABORATOR", "MEMBER"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -105,8 +105,8 @@ historical full x64 comparison, not a fresh same-branch full benchmark.
 Full MEM2 is 19.84% slower (within 20%); clean full bcftools calling is
 30.61% faster. Regional pricing and core topology affect performance/USD.
 
-See [PR #273](https://github.com/theontho/wgsextract-cli/pull/273) and
-[issue #236](https://github.com/theontho/wgsextract-cli/issues/236) for measured
+See [PR #273](https://github.com/WGSExtract/wgsextract-cli/pull/273) and
+[issue #236](https://github.com/WGSExtract/wgsextract-cli/issues/236) for measured
 hardware, controls and qualification limits. Support here does not imply
 that an untested ARM tool or x86-emulated executable is qualified.
 

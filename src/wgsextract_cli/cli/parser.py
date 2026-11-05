@@ -65,7 +65,7 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # father_vcf = "/path/to/father.vcf.gz"
 
 # --- Genotype QC warnings (see docs/genotype-qc.md) ---
-# qc_min_diploid_depth = 8.0  # autosomes; 0 disables
+# qc_min_diploid_depth = 15.0  # autosomes; 0 disables
 # qc_min_haploid_depth = 3.0  # chrY, mtDNA, a man's chrX; 0 disables
 # qc_min_autosomal_homozygosity = 0.6
 # qc_max_autosomal_homozygosity = 0.88
@@ -109,7 +109,8 @@ class WgsArgumentParser(argparse.ArgumentParser):
             text += "\n" + advanced_note(self.prog, len(self.advanced_actions))
         command_help = getattr(self, "command_help", None)
         if command_help is not None:
-            text += "\n" + contract_text(command_help, use_color())
+            needs = getattr(self, "command_needs", None)
+            text += "\n" + contract_text(command_help, use_color(), needs)
         return text
 
     def format_usage(self) -> str:

@@ -23,13 +23,13 @@ A microarray or SNP chip file is not a complete genome. It is a compact table of
 
 Start with one target format and a small region if you are checking plumbing. Every run writes the combined kit (all chips' markers); `--formats all` writes only that, and a comma-separated list adds vendor files. If a target site has too little coverage or ambiguous data, the simulated result may be missing or no-called depending on the format and command behavior.
 
-Consumer exports use hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; the command fails early if it is missing. Native CHM13v2 input can also project to GRCh37/rCRS exports, but only with the exact **original chrM, masked-Y** analysis reference and required installed assets. Other CHM13 variants are rejected; ambiguous mappings stay no-calls. See [CHM13 requirements](https://github.com/theontho/wgsextract-cli/blob/main/docs/microarray-chm13.md){.inline-link}.
+Consumer exports use hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; the command fails early if it is missing. Native CHM13v2 input can also project to GRCh37/rCRS exports, but only with the exact **original chrM, masked-Y** analysis reference and required installed assets. Other CHM13 variants are rejected; ambiguous mappings stay no-calls. See [CHM13 requirements](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/microarray-chm13.md){.inline-link}.
 
 Haploid calls follow vendor conventions: 23andMe writes chrY, chrM, and male non-PAR chrX as one letter (`A`); the other formats double them (`AA`). Heterozygous calls are alphabetical. Updated MyHeritage GSA and Ancestry layouts are separately selectable without removing older IDs. Optional quality thresholds, `--strand-ambiguous no-call`, `--resolve-rsids` and `--call-reasons` add conservative filtering and diagnostics without changing defaults. Calls are written on the GRCh37 forward strand; `--quirks vendor` instead writes the markers a template's vendor revision is publicly known to have reported on the reverse strand that way.
 
-AADR 1240K, HO and 1240K+HO research panels write both PLINK and EIGENSTRAT files. The opt-in `aadr_2m` panel needs an explicit `ref aadr --install --ref LIBRARY` first; it is not included in `all`, requires an installed forward chain for hg38, and does not support CHM13/T2T. See [AADR coordinates and allele conventions](https://github.com/theontho/wgsextract-cli/blob/main/docs/aadr.md){.inline-link}.
+AADR 1240K, HO and 1240K+HO research panels write both PLINK and EIGENSTRAT files. The opt-in `aadr_2m` panel needs an explicit `ref aadr --install --ref LIBRARY` first; it is not included in `all`, requires an installed forward chain for hg38, and does not support CHM13/T2T. See [AADR coordinates and allele conventions](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/aadr.md){.inline-link}.
 
-Insertion/deletion probes are opt-in with `--indel-manifest FORMAT=PATH`, using an applicable, sequence-defined manufacturer manifest. Unsupported probes or missing evidence stay no-calls; this is not unrestricted indel discovery. See [manifest requirements](https://github.com/theontho/wgsextract-cli/blob/main/docs/microarray-indels.md){.inline-link}.
+Insertion/deletion probes are opt-in with `--indel-manifest FORMAT=PATH`, using an applicable, sequence-defined manufacturer manifest. Unsupported probes or missing evidence stay no-calls; this is not unrestricted indel discovery. See [manifest requirements](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/microarray-indels.md){.inline-link}.
 :::
 
 ::: code-panel title=microarray-snp-chip.sh subtitle="common formats"
@@ -144,7 +144,7 @@ wgsextract vcf pharmcat --vcf-input calls.vcf.gz \
 ### SNP and InDel calls
 SNP and InDel workflows target small sequence changes. They are often the first full-genome variant calls people run, but they still need a matching reference, sorted/indexed alignments, and enough coverage.
 
-DeepVariant uses an already-installed local runner or Docker image (standard x86 image `google/deepvariant:1.10.0`); Docker/images are never installed by calling. On Apple Silicon the x86 image runs under slow emulation; native Windows DeepVariant is unsupported. On `main` after v0.6.5, native Linux ARM64 CPU calling supports **WGS only**, using `localhost/wgsextract-deepvariant:1.10.0-arm64`, built locally with `bash packaging/deepvariant-arm64/build.sh out/deepvariant-arm64-build`. Other models and `--checkpoint` are refused; GATK and Parabricks remain gated on ARM64. See [native ARM64 DeepVariant setup and qualification](https://github.com/theontho/wgsextract-cli/blob/main/docs/deepvariant-arm64.md){.inline-link}.
+DeepVariant uses an already-installed local runner or Docker image (standard x86 image `google/deepvariant:1.10.0`); Docker/images are never installed by calling. On Apple Silicon the x86 image runs under slow emulation; native Windows DeepVariant is unsupported. Since v0.6.6, native Linux ARM64 CPU calling supports **WGS only**, using `localhost/wgsextract-deepvariant:1.10.0-arm64`, built locally with `bash packaging/deepvariant-arm64/build.sh out/deepvariant-arm64-build`. Other models and `--checkpoint` are refused; GATK and Parabricks remain gated on ARM64. See [native ARM64 DeepVariant setup and qualification](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/deepvariant-arm64.md){.inline-link}.
 :::
 
 ::: card
@@ -159,11 +159,11 @@ Annotation tools such as VEP add biological context. Download annotation data wi
 :::
 
 ::: callout
-{{ text: **DeepVariant and CRAM 3.1:** v0.6.5 still needs BAM or a manual CRAM 3.0 conversion to avoid the container's older htslib decoder bug. On `main` after v0.6.5, [#294](https://github.com/theontho/wgsextract-cli/pull/294){.inline-link} automatically stages CPU DeepVariant CRAM 3.1+ input as indexed CRAM 3.0, honors requested regions, checks disk space and cleans up afterward. The original stays unchanged; allow extra disk and transcode time. BAM, CRAM 3.0 and Parabricks inputs are unchanged. }}
+{{ text: **DeepVariant and CRAM 3.1:** the DeepVariant container's older htslib cannot decode CRAM 3.1. Since v0.6.6, [#294](https://github.com/WGSExtract/wgsextract-cli/pull/294){.inline-link} automatically stages CPU DeepVariant CRAM 3.1+ input as indexed CRAM 3.0, honors requested regions, checks disk space and cleans up afterward. The original stays unchanged; allow extra disk and transcode time. BAM, CRAM 3.0 and Parabricks inputs are unchanged. }}
 :::
 
 ::: callout
-{{ text: **NVIDIA GPU option:** `align`, `realign`, `vcf gatk` and `vcf deepvariant` accept `--gpu` for Parabricks on Linux x86_64. Prepare Docker, NVIDIA Container Toolkit, a suitable GPU (16 GB+), and the Parabricks image yourself; the CLI only validates them. Native Windows/macOS and Linux ARM64 GPU paths are unsupported; WSL2 is untested. Ultima flow workflows are not supported by this path. See [GPU setup](https://github.com/theontho/wgsextract-cli#nvidia-gpus-parabricks){.inline-link} and [hardware and acceleration](https://github.com/theontho/wgsextract-cli/blob/main/docs/hardware.md){.inline-link}. }}
+{{ text: **NVIDIA GPU option:** `align`, `realign`, `vcf gatk` and `vcf deepvariant` accept `--gpu` for Parabricks on Linux x86_64. Prepare Docker, NVIDIA Container Toolkit, a suitable GPU (16 GB+), and the Parabricks image yourself; the CLI only validates them. Native Windows/macOS and Linux ARM64 GPU paths are unsupported; WSL2 is untested. Ultima flow workflows are not supported by this path. See [GPU setup](https://github.com/WGSExtract/wgsextract-cli#nvidia-gpus-parabricks){.inline-link} and [hardware and acceleration](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/hardware.md){.inline-link}. }}
 :::
 :::
 :::
@@ -181,11 +181,11 @@ If you plan to compare outputs with third-party services, choose the reference b
 
 An explicit `--aligner` is always used as given, and combinations that make no sense (for example `--aligner bwa` with a PacBio platform) are rejected rather than silently changed. minimap2 accepts the PacBio preset names `ccs` and `subread`, mapped to `map-hifi` and `map-pb`. `realign` checks free disk space before starting and reuses previously extracted FASTQs when they exist. Ultima Genomics BAM/CRAMs (`PL:ULTIMA`) are recognized and aligned with BWA-MEM, preserving available flow tags (`tp`, `t0`) in the correct orientation. GATK supplies flow-mode duplicate marking; without it, samtools marking is used with a warning. bcftools uses `-X ultima`; GATK flow calling and DeepVariant's `ULTIMA` model additionally require flow metadata and tags.
 
-Ultima data includes MyHeritage and Nebula/DNA360 WGS. Automatic DeepVariant `ULTIMA` selection requires an Ultima read group, its flow order (`FO`), and detected flow tags; prepare the experimental `google/deepvariant:gh1100-ultima` image for that path, which is not enabled on ARM64. MyHeritage CRAMs without flow tags are called as ordinary short reads instead: by default DeepVariant selects `WGS`, using `google/deepvariant:1.10.0` on Linux x86_64/macOS or the locally built ARM64 image on Linux ARM64. The selected image must already be installed for the Docker path. Low-pass MyHeritage WGS (about 2x) is too shallow for reliable genotypes without imputation, which WGS Extract does not provide. MyHeritage Ultima read-name recognition in `info` is merged on `main` after v0.6.5.
+Ultima data includes MyHeritage and Nebula/DNA360 WGS. Automatic DeepVariant `ULTIMA` selection requires an Ultima read group, its flow order (`FO`), and detected flow tags; prepare the experimental `google/deepvariant:gh1100-ultima` image for that path, which is not enabled on ARM64. MyHeritage CRAMs without flow tags are called as ordinary short reads instead: by default DeepVariant selects `WGS`, using `google/deepvariant:1.10.0` on Linux x86_64/macOS or the locally built ARM64 image on Linux ARM64. The selected image must already be installed for the Docker path. Low-pass MyHeritage WGS (about 2x) is too shallow for reliable genotypes without imputation, which WGS Extract does not provide. `info` recognizes MyHeritage's Ultima read names (v0.6.6 and later).
 
-`align --platform ont` uses minimap2's `map-ont` preset, but Oxford Nanopore variant calling is **unvalidated**, not a supported end-to-end promise. Track real-data validation and caller/model work in [#301](https://github.com/theontho/wgsextract-cli/issues/301){.inline-link}.
+Oxford Nanopore reads are detected from `PL:ONT` read groups or UUID read names (or set `--platform ont`): alignment uses minimap2's `map-ont` preset and keeps MM/ML methylation tags, DeepVariant selects `ONT_R104` on x86-64, `vcf sv` uses Sniffles, and `vcf clair3` is an optional Linux x86-64 caller. Whole-genome ONT calling is still **unvalidated**, not a supported end-to-end promise; see the [Nanopore guide](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/ont.md){.inline-link}. Track real-data validation and caller/model work in [#301](https://github.com/WGSExtract/wgsextract-cli/issues/301){.inline-link}.
 
-Eligible small paired realignments can stream into BWA/BWA-MEM2 without FASTQ intermediates; full 30x genomes still use the file-based path. Fixed BWA batches and memory/disk preflight help reproducibility and planning, but do not guarantee runtime.
+Paired short-read realignment streams into BWA/BWA-MEM2 without FASTQ intermediates whenever one collate bucket fits in RAM beside alignment, including 30x genomes; otherwise it uses the file-based path. Fixed BWA batches and memory/disk preflight help reproducibility and planning, but do not guarantee runtime.
 :::
 
 ::: code-panel title=fastq-to-bam.sh subtitle="raw data path"
@@ -277,7 +277,7 @@ wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-l
 ## Benchmark a reproducible workflow
 Start with the smoke profile, then choose a larger profile or release-backed dataset with `benchmark --help`. The default is synthetic; `--dataset real` uses the mini-genome, while `real-1x` and `real-30x` use public WGS data. Reports record tool versions, machine details, timings and per-step logs. Compare matched inputs, references and resources; a tiny smoke result is not a full-genome speed claim.
 
-The [microarray benchmarks](https://github.com/theontho/wgsextract-cli/blob/main/docs/microarray-benchmarks.md){.inline-link} document vendor concordance and parallel measurements.
+The [microarray benchmarks](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/microarray-benchmarks.md){.inline-link} document vendor concordance and parallel measurements.
 :::
 
 ::: code-panel title=benchmark.sh subtitle="small first"

@@ -40,7 +40,7 @@ def _setting(key: str, override: float | None = None) -> float:
 
 DEPTH_HELP = (
     "Warn below this mean depth for this run; 0 disables (default: config "
-    "qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)"
+    "qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)"
 )
 
 
@@ -261,6 +261,28 @@ def _format_depth(depth: float) -> str:
     return f"{depth:,.0f}x" if depth >= 100 else f"{depth:.1f}x"
 
 
+def low_depth_targets(
+    depths: Mapping[str, float],
+    targets: Iterable[str],
+    min_depth: float | None = None,
+) -> list[tuple[str, float, float, bool]]:
+    """(target, depth, threshold, haploid) for each target whose mean depth is
+    below what its genotypes need: qc_min_diploid_depth for autosomes and a
+    woman's chrX, qc_min_haploid_depth for chrY, mtDNA and a man's chrX;
+    `min_depth` overrides both."""
+    diploid = _setting("qc_min_diploid_depth", min_depth)
+    haploid = _setting("qc_min_haploid_depth", min_depth)
+    male = depths.get(CHR_Y, 0.0) > 0.25 * depths.get(CHR_X, 0.0) > 0
+    low = []
+    for target in (t for t in TARGETS if t in set(targets)):
+        depth = depths.get(target)
+        is_haploid = target in (CHR_Y, MTDNA) or (target == CHR_X and male)
+        threshold = haploid if is_haploid else diploid
+        if depth is not None and threshold and depth < threshold:
+            low.append((target, depth, threshold, is_haploid))
+    return low
+
+
 def warn_low_depth(
     alignment: str,
     targets: Iterable[str],
@@ -269,15 +291,13 @@ def warn_low_depth(
     ref: str | None = None,
     min_depth: float | None = None,
 ) -> dict[str, float] | None:
-    """Warn when a target's mean depth is below what its genotypes need:
-    qc_min_diploid_depth for autosomes and a woman's chrX, qc_min_haploid_depth
-    for chrY, mtDNA and a man's chrX; `min_depth` overrides both."""
+    """Warn about each of `targets` that low_depth_targets finds too shallow."""
     targets = [t for t in TARGETS if t in set(targets)]
     if not targets or not alignment.lower().endswith((".bam", ".cram")):
         return None
-    diploid = _setting("qc_min_diploid_depth", min_depth)
-    haploid = _setting("qc_min_haploid_depth", min_depth)
-    if not diploid and not haploid:
+    if not _setting("qc_min_diploid_depth", min_depth) and not _setting(
+        "qc_min_haploid_depth", min_depth
+    ):
         return None
     found = target_depths(alignment, outdir, ref)
     if found is None or not any(t in found[0] for t in targets):
@@ -289,13 +309,9 @@ def warn_low_depth(
     depths, source = found
     summary = ", ".join(f"{t} {_format_depth(d)}" for t, d in depths.items())
     logging.info(f"Mean depth from {source}: {summary}")
-    male = depths.get(CHR_Y, 0.0) > 0.25 * depths.get(CHR_X, 0.0) > 0
-    for target in targets:
-        depth = depths.get(target)
-        is_haploid = target in (CHR_Y, MTDNA) or (target == CHR_X and male)
-        threshold = haploid if is_haploid else diploid
-        if depth is None or not threshold or depth >= threshold:
-            continue
+    for target, depth, threshold, is_haploid in low_depth_targets(
+        depths, targets, min_depth
+    ):
         setting = "qc_min_haploid_depth" if is_haploid else "qc_min_diploid_depth"
         consequence = (
             "haplogroups may stop at an upstream branch or be wrong"

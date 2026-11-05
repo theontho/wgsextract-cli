@@ -125,7 +125,7 @@ KNOWN_SETTINGS = {
         "vendor reported known reverse-strand markers (vendor)",
     ),
     "qc_min_diploid_depth": (
-        8.0,
+        15.0,
         "Warn before microarray/VCF genotypes below this mean autosomal depth "
         "(0 disables)",
     ),

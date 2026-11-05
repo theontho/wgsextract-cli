@@ -33,7 +33,7 @@ gatk4 = ">=4.6.2.0,<5"
 # The sidecar implements GKL 0.8.11's JNI ABI bundled with this GATK version.
 gatk4 = "==4.6.2.0"
 # gatk-windows-tools-begin
-gkl = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/gkl-0.8.11-wgse_1.conda", sha256 = "b8849e9de930702f3caf8c473c4ed3f3c9b179b92a082100f76ba24ee8d3084d" }
+gkl = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/gkl-0.8.11-wgse_1.conda", sha256 = "b8849e9de930702f3caf8c473c4ed3f3c9b179b92a082100f76ba24ee8d3084d" }
 # gatk-windows-tools-end
 
 # PharmCAT's pipeline is a release download the user extracts (see
@@ -85,14 +85,14 @@ haplogrep = ">=2.4,<3"
 # `python packaging/windows/pin.py <tag>`, then `pixi lock`. For partial releases,
 # update only the selected URL/SHA-256 entries by hand; never use pin.py.
 # windows-tools-begin
-bcftools = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/bcftools-1.24-wgse_3.conda", sha256 = "c6c2d65cb85851a7518cc607c86994a5a8679a57c6bc3d288104e43edd7db476" }
-bwa = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/bwa-0.7.19-wgse_2.conda", sha256 = "57948195595bb267e46388964acc6402b13f79a2daacea482eb0e38780a38d0a" }
-bwa-mem2 = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/bwa-mem2-2.3-wgse_2.conda", sha256 = "6af688b38b1ef3eb1d15dbc72485292734cce8f630972c2cd19cfda3231501b8" }
-fastp = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/fastp-1.4.0-wgse_1.conda", sha256 = "c219c35b71aa091e981765f47cf29db0a3b8e91721363bb87e62c27b6abe0b57" }
-htslib = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/htslib-1.24-wgse_2.conda", sha256 = "b50f7db30db61457651e0290b49b021d6a0f5031c7f3016a7086ff7a6ecf4812" }
-minimap2 = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/minimap2-2.31-wgse_1.conda", sha256 = "099ae6b6ac4c2d16d540b25e2e1e0e9a4365b30a34ad646ea954c1949870436b" }
-samblaster = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/samblaster-0.1.26-wgse_1.conda", sha256 = "4e844c9a8cc682de207b0de0dd37da7ae8bb4c17fe493feba8969a4898f8e94b" }
-samtools = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-8/samtools-1.24-wgse_3.conda", sha256 = "89098a71873e1df35d7468b46a67e5a26a891617d627d695461c96839969d9a1" }
+bcftools = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/bcftools-1.24-wgse_3.conda", sha256 = "c6c2d65cb85851a7518cc607c86994a5a8679a57c6bc3d288104e43edd7db476" }
+bwa = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/bwa-0.7.19-wgse_2.conda", sha256 = "57948195595bb267e46388964acc6402b13f79a2daacea482eb0e38780a38d0a" }
+bwa-mem2 = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/bwa-mem2-2.3-wgse_2.conda", sha256 = "6af688b38b1ef3eb1d15dbc72485292734cce8f630972c2cd19cfda3231501b8" }
+fastp = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/fastp-1.4.0-wgse_1.conda", sha256 = "c219c35b71aa091e981765f47cf29db0a3b8e91721363bb87e62c27b6abe0b57" }
+htslib = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/htslib-1.24-wgse_2.conda", sha256 = "b50f7db30db61457651e0290b49b021d6a0f5031c7f3016a7086ff7a6ecf4812" }
+minimap2 = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/minimap2-2.31-wgse_1.conda", sha256 = "099ae6b6ac4c2d16d540b25e2e1e0e9a4365b30a34ad646ea954c1949870436b" }
+samblaster = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/samblaster-0.1.26-wgse_1.conda", sha256 = "4e844c9a8cc682de207b0de0dd37da7ae8bb4c17fe493feba8969a4898f8e94b" }
+samtools = { url = "https://github.com/WGSExtract/wgsextract-cli/releases/download/windows-tools-8/samtools-1.24-wgse_3.conda", sha256 = "89098a71873e1df35d7468b46a67e5a26a891617d627d695461c96839969d9a1" }
 # windows-tools-end
 
 # FreeBayes' only osx-arm64 build pins htslib 1.21, which conflicts with the
@@ -210,6 +210,7 @@ pre-commit = ">=4.6.2,<5"
 uv = ">=0.13.1,<0.14"
 nodejs = ">=24"
 jsonschema = ">=4.23,<5"
+markdown-it-py = ">=3,<5"
 
 [feature.dev.tasks]
 pytest = "pytest"
@@ -228,6 +229,7 @@ validate-actions = "python scripts/validate_github_actions.py"
 lint = "ruff check . && python scripts/validate_site_sources.py && actionlint && python scripts/validate_github_actions.py"
 format = "ruff format ."
 typecheck = "mypy src/wgsextract_cli"
+test-smells = { cmd = "python scripts/test_smells.py", description = "Advisory: flag change-detector patterns in test lines added since origin/main." }
 package-smoke = "python scripts/package_smoke.py"
 jscpd = "npx --yes jscpd@5.4.2 src/wgsextract_cli --reporters console,json --output out/jscpd --min-lines 5 --min-tokens 50 --ignore '**/__pycache__/**' --ignore '**/.mypy_cache/**'"
 site-build = "python scripts/build_site.py"

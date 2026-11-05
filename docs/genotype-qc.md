@@ -18,7 +18,7 @@ mtDNA for `mt-haplogroup`.
 
 | Target | Default warning threshold | Why |
 | --- | --- | --- |
-| Autosomes, a woman's chrX | below 8x (`qc_min_diploid_depth`) | Both alleles of a heterozygous site need several reads each; below about 8x many are called homozygous or missed. |
+| Autosomes, a woman's chrX | below 15x (`qc_min_diploid_depth`) | Both alleles of a heterozygous site need several reads each. In a [downsampled 1000 Genomes genome](microarray-benchmarks.md#accuracy-versus-coverage), `microarray` called 4% of heterozygous chip sites homozygous at 15x, 13% at 10x and 21% at 8x. |
 | chrY, mtDNA, a man's chrX | below 3x (`qc_min_haploid_depth`) | One allele per site needs fewer reads, but below about 3x haplogroups often stop at an upstream branch. |
 
 mtDNA has hundreds of copies per cell, so even a 1x genome usually has more
@@ -47,8 +47,8 @@ check is skipped with an informational message.
 After `microarray` writes its files, the autosomal genotypes are checked:
 
 - **Homozygosity of the CombinedKit's called genotypes.** Directly sequenced
-  genomes give about 70–80%; a whole genome downsampled to 3.4x gave 90%.
-  Above 88% (`qc_max_autosomal_homozygosity`) usually means a low-pass or
+  genomes give about 70–80%; one downsampled genome gave 78% at 30x, 88% at
+  5x and 94% at 3x. Above 88% (`qc_max_autosomal_homozygosity`) usually means a low-pass or
   heavily imputed input; below 60%
   (`qc_min_autosomal_homozygosity`) suggests a contaminated or mixed sample.
   The heterozygous/homozygous ratio is logged with it.
@@ -64,7 +64,7 @@ Both need at least 1,000 sites to say anything.
 Thresholds are `config.toml` settings:
 
 ```toml
-qc_min_diploid_depth = 8.0         # 0 disables
+qc_min_diploid_depth = 15.0        # 0 disables
 qc_min_haploid_depth = 3.0         # 0 disables
 qc_min_autosomal_homozygosity = 0.6
 qc_max_autosomal_homozygosity = 0.88

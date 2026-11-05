@@ -76,7 +76,7 @@ def test_bam_index_depth_warns_per_target_threshold(sample, caplog):
         CHR_X,
         CHR_Y,
     ]
-    assert "below the 8x that diploid" in warnings[0]
+    assert "below the 15x that diploid" in warnings[0]
     assert "below the 3x that haploid" in warnings[1]
     assert "Mean depth from the BAM index" in caplog.text
 

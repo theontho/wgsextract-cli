@@ -69,9 +69,9 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
         args.outdir = str(genome_dir)
 
     command = getattr(args, "command", None)
-    if command == "sample":
-        # The genome folder is the workspace; its alignment, if there is just
-        # one, is the file whose facts are shown.
+    if command in ("sample", "report"):
+        # The genome folder is the workspace (and the folder reported on);
+        # its alignment, if there is just one, is the file whose facts are shown.
         if "workspace" not in explicit_dests:
             args.workspace = str(genome_dir)
         if "input" not in explicit_dests:
