@@ -244,11 +244,11 @@ def test_requests_are_validated_and_confined_to_allowed_folders(
 
 
 SLOW_SAMTOOLS = """
-import os, sys, time
+import os, subprocess, sys, time
 if sys.argv[1:2] == ["coverage"]:
     open(os.path.join({pids!r}, str(os.getpid())), "w").close()
     time.sleep(600)
-os.execv({real!r}, [{real!r}, *sys.argv[1:]])
+sys.exit(subprocess.run([{real!r}, *sys.argv[1:]]).returncode)
 """
 
 

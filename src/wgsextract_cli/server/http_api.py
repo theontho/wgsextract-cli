@@ -135,20 +135,24 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         query = parse_qs(url.query)
         try:
-            self._check_request(url.path)
-            for route_method, pattern, route in ROUTES:
-                match = pattern.fullmatch(url.path)
-                if match and route_method == method:
-                    route(self, match, query)
-                    return
-            raise RequestError(404, "not_found", f"No route {method} {url.path}.")
-        except RequestError as e:
-            self._send_error(e)
-        except (BrokenPipeError, ConnectionResetError):
+            try:
+                self._check_request(url.path)
+                for route_method, pattern, route in ROUTES:
+                    match = pattern.fullmatch(url.path)
+                    if match and route_method == method:
+                        route(self, match, query)
+                        return
+                raise RequestError(404, "not_found", f"No route {method} {url.path}.")
+            except RequestError as e:
+                self._send_error(e)
+            except ConnectionError:
+                raise
+            except Exception as e:
+                logging.exception(f"{method} {url.path} failed")
+                self._send_error(RequestError(500, "internal", f"Internal error: {e}"))
+        except ConnectionError:
+            # The client went away (closed, reset or aborted); nobody to answer.
             self.close_connection = True
-        except Exception as e:
-            logging.exception(f"{method} {url.path} failed")
-            self._send_error(RequestError(500, "internal", f"Internal error: {e}"))
 
     def do_GET(self) -> None:  # noqa: N802
         self._dispatch("GET")
