@@ -626,3 +626,26 @@ def test_long_read_disk_reads_compression_from_the_file_and_counts_fastqs(tmp_pa
     [disk] = [disk for disk in estimate.resources[1:] if disk.paths]
     assert disk.estimated_bytes is not None
     assert 10**6 < disk.components["extracted_fastqs"] < 3 * 10**6
+
+
+def test_long_read_disk_covers_the_measured_spills_and_cram_output():
+    """#474: the long-read CRAM -> CRAM realign disk budget must not fall below
+    what samtools sort and the CRAM writer were measured to use."""
+    mib = 1024**2
+    # measured: out/474-475/spill-hs38/result.txt, HG002 ONT chr20 slice onto
+    # hs38, samtools sort -@1 -m 8M: 70,339,983 B of CRAM in, a 310,407,552 B
+    # spill peak and 133,758,318 B of CRAM out.
+    small = resources.long_read_disk("chr20.cram", 70_339_983, "CRAM", 8 * mib)
+    assert small.spill >= 310_407_552
+    # measured: out/474-475/supplementary_inflation.txt, minimap2 -Y adds 1.91x
+    # the bases as supplementary records in that slice but at most 1.70x in the
+    # genome regions sampled; the CRAM output grows with them.
+    assert small.output >= 133_758_318 * 1.70 / 1.91
+
+    # measured: out/474-475/attempt2_spill_progress.txt, #431 attempt 2
+    # (--threads 4 --memory 192M, so a 4 x 192 MiB sort buffer): 42,570,898,460
+    # B of spills mid-merge once 10,728,434,251 B of the CRAM had been read.
+    genome = resources.long_read_disk(
+        "PAO83395.pass.cram", 10_728_434_251, "CRAM", 4 * 192 * mib
+    )
+    assert genome.spill > 42_570_898_460

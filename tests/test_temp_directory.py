@@ -267,6 +267,8 @@ def test_long_read_cram_realign_budgets_its_spills_and_cram_output(
     volumes.sizes[cram] = 100 * 10**9
     # (output GB, --tmp-dir GB): 1.7e11 B of CRAM; 3e11 B of spills plus the
     # 32 spill files samtools sort merges beside them.
+    # test_long_read_disk_covers_the_measured_spills_and_cram_output anchors
+    # these ratios to the measurements.
     budgets = (159, 285)
     volumes.free[output] = budgets[0] - (short == "output")
     volumes.free[scratch] = budgets[1] - (short == "scratch")
