@@ -505,7 +505,11 @@ _PARABRICKS_MODES = {
 
 
 def _deepvariant_gpu(params: VcfDeepvariantParams) -> None:
-    from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
+    from wgsextract_cli.core.parabricks import (
+        call_variants,
+        plan_gpu_memory,
+        verify_parabricks,
+    )
 
     refusal = (
         "--gpu (Parabricks) runs DeepVariant's WGS, WES, PACBIO and ONT_R104 models; "
@@ -516,6 +520,9 @@ def _deepvariant_gpu(params: VcfDeepvariantParams) -> None:
         raise UsageError(refusal)
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
+    fit = plan_gpu_memory(
+        "deepvariant", "deepvariant", check=not params.no_gpu_memory_check
+    )
     setup = setup_caller(params)
     outdir, ref = setup.outdir, setup.ref
     input_file, region = str(params.input), params.region
@@ -529,7 +536,7 @@ def _deepvariant_gpu(params: VcfDeepvariantParams) -> None:
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     call_variants(
         "deepvariant", input_file, ref, out_vcf, region,
-        _PARABRICKS_MODES[model_type],
+        _PARABRICKS_MODES[model_type] + fit,
     )  # fmt: skip
     ensure_vcf_indexed(out_vcf)
     record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, region))

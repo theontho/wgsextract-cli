@@ -22,6 +22,7 @@ from tests.htslib_helpers import (
     write_fasta,
     write_read_pairs,
 )
+from wgsextract_cli import api
 from wgsextract_cli.core import parabricks
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import (
@@ -43,8 +44,10 @@ def linux(monkeypatch):
 
 
 @pytest.fixture
-def gpu(tmp_path, monkeypatch, linux):
-    """A GPU host: its nvidia-smi and Docker come first on PATH."""
+def gpu(tmp_path, monkeypatch, linux, ram):
+    """A GPU host with an RTX 3090 and 128 GB of RAM: its nvidia-smi and
+    Docker come first on PATH."""
+    ram(128 * 10**9)
     host = FakeParabricks(tmp_path / "gpu", parabricks.DEFAULT_IMAGE)
     monkeypatch.setenv("PATH", f"{host.bin}{os.pathsep}{os.environ['PATH']}")
     return host
@@ -324,3 +327,150 @@ def test_gpu_deepvariant_refuses_a_custom_checkpoint(tmp_path, linux):
             "vcf", "deepvariant", "--gpu", "--input", str(tmp_path / "x.bam"),
             "--checkpoint", str(tmp_path / "model.ckpt"),
         )  # fmt: skip
+
+
+def _gpu_align(tmp_path, genome, check=True, **options):
+    """align --gpu of 100 read pairs; the result."""
+    seq, ref = genome
+    r1, r2 = tmp_path / "reads" / "s_R1.fq", tmp_path / "reads" / "s_R2.fq"
+    write_read_pairs(seq, r1, r2, range(0, 5_000, 50))
+    params = api.AlignParams(
+        r1=r1, r2=r2, ref=ref, gpu=True, outdir=tmp_path / "out", **options
+    )
+    return api.align.align(params, check=check)
+
+
+def _codes(result):
+    return [w.code for w in result.warnings]
+
+
+@posix_only
+@needs_tools("bwa", "samtools")
+def test_a_shared_gpu_aligns_in_low_memory_mode(tmp_path, gpu, genome):
+    # #365: fq2bam sizes its streams from the GPU's total memory, so with
+    # another program on the GPU its default mode runs out of memory.
+    gpu.set_gpus((24_576, 6_000))
+    result = _gpu_align(tmp_path, genome)
+    assert (tmp_path / "out" / "s_aligned.bam").is_file()
+    assert "parabricks_low_memory" in _codes(result)
+    ((tool, args),) = gpu.runs()
+    # contract: Parabricks' documented way to use fewer GPU streams.
+    assert tool == "fq2bam" and "--low-memory" in args
+
+
+@posix_only
+@needs_tools("bwa", "samtools")
+def test_a_free_gpu_aligns_in_the_default_mode(tmp_path, gpu, genome):
+    result = _gpu_align(tmp_path, genome)
+    assert not {"parabricks_low_memory", "parabricks_memory"} & set(_codes(result))
+    ((_, args),) = gpu.runs()
+    assert "--low-memory" not in args
+
+
+@posix_only
+@needs_tools("minimap2", "samtools")
+def test_a_16_gb_gpu_runs_minimap2_in_low_memory_mode(tmp_path, gpu, genome):
+    gpu.set_gpus((15_360, 300))  # a T4
+    seq, ref = genome
+    reads = tmp_path / "reads" / "movie.fq"
+    _hifi_fastq(seq, reads)
+    result = api.align.align(
+        api.AlignParams(
+            r1=reads, ref=ref, gpu=True, platform="hifi", outdir=tmp_path / "out"
+        )
+    )
+    assert "parabricks_low_memory" in _codes(result)
+    ((tool, args),) = gpu.runs()
+    assert tool == "minimap2" and "--low-memory" in args
+
+
+@posix_only
+@needs_tools("samtools", "bcftools", "tabix")
+def test_a_16_gb_gpu_runs_haplotypecaller_in_low_memory_mode(tmp_path, gpu):
+    gpu.set_gpus((15_360, 300))
+    sample = snp_sample(tmp_path, read_group="@RG\tID:rg\tSM:S")
+    run_wgsextract(
+        "vcf", "gatk", "--gpu", "--input", sample.bam, "--ref", sample.ref,
+        "--outdir", str(tmp_path / "out"), "-r", "chr1:1000-1100",
+    )  # fmt: skip
+    assert (tmp_path / "out" / "gatk.vcf.gz").is_file()
+    ((tool, args),) = gpu.runs()
+    # contract: haplotypecaller's own low-memory option.
+    assert tool == "haplotypecaller" and "--htvc-low-memory" in args
+
+
+@posix_only
+@pytest.mark.parametrize(
+    ("gpus", "message"),
+    [
+        ((12_288, 0), "GPU with 16 GB"),
+        ((24_576, 14_000), "free GPU memory"),
+    ],
+)
+def test_a_gpu_too_small_or_too_busy_is_refused_before_running(
+    tmp_path, gpu, genome, gpus, message
+):
+    gpu.set_gpus(gpus)
+    with pytest.raises(api.CommandFailed, match=message):
+        _gpu_align(tmp_path, genome)
+    assert gpu.runs() == []
+
+
+@posix_only
+@needs_tools("bwa", "samtools")
+def test_the_memory_check_can_be_overridden(tmp_path, gpu, genome):
+
+    gpu.set_gpus((24_576, 14_000))
+    result = _gpu_align(tmp_path, genome, check=False, no_gpu_memory_check=True)
+    # Parabricks was tried, and its out-of-memory failure reported.
+    assert result.status == "failed" and result.error
+    assert "out of memory" in result.error.message
+    assert gpu.runs()
+
+
+@posix_only
+@needs_tools("bwa", "samtools")
+def test_a_host_with_too_little_ram_is_refused(tmp_path, gpu, genome, ram):
+    # #365: fq2bam peaked at 33 GiB of RAM; a 24 GiB container was killed.
+    ram(32 * 10**9)
+    with pytest.raises(api.CommandFailed, match="GiB of RAM"):
+        _gpu_align(tmp_path, genome)
+    assert gpu.runs() == []
+
+
+@posix_only
+@needs_tools("bwa", "samtools")
+def test_ram_held_by_other_programs_warns_and_runs(tmp_path, gpu, genome, ram):
+    # #365: lin-big's 62 GB, most of it in use by other programs.
+    ram(62 * 10**9, available=20 * 1024**3)
+    result = _gpu_align(tmp_path, genome)
+    assert result.status == "ok"
+    assert "parabricks_host_memory" in _codes(result)
+    assert gpu.runs()
+
+
+@posix_only
+def test_gpu_memory_reported_as_unknown_runs_with_the_defaults(
+    tmp_path, gpu, genome, monkeypatch
+):
+    # Unified-memory GPUs (DGX Spark's GB10) report no memory of their own.
+    smi = gpu.bin / "nvidia-smi"
+    smi.write_text(
+        smi.read_text().split("\n")[0] + "\nprint('0, NVIDIA GB10, [N/A], [N/A]')\n"
+    )
+    assert parabricks.gpu_memory()[0].free_bytes is None
+    assert parabricks.plan_gpu_memory("minimap2", "align", report=False) == []
+
+
+@posix_only
+@needs_tools("samtools")
+def test_realign_refuses_a_busy_gpu_before_extracting_reads(tmp_path, gpu):
+    gpu.set_gpus((24_576, 14_000))
+    sample = snp_sample(tmp_path, read_group="@RG\tID:rg\tSM:S\tPL:ILLUMINA")
+    out = tmp_path / "out"
+    with pytest.raises(WGSExtractError, match="free GPU memory"):
+        run_wgsextract(
+            "realign", "--gpu", "--input", sample.bam, "--ref", sample.ref,
+            "--outdir", str(out),
+        )  # fmt: skip
+    assert not list(out.glob("*.fastq.gz")) and gpu.runs() == []

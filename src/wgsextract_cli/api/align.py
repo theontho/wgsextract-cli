@@ -25,6 +25,7 @@ from ._shared import (
     force_steps_param,
     input_param,
     memory_param,
+    no_gpu_memory_check_param,
     optional_input_param,
     outdir_param,
     ref_param,
@@ -86,6 +87,7 @@ class AlignParams(Params):
         choices=ALIGNERS,
     )
     gpu: bool = param(False, help=GPU_HELP, action="store_true")
+    no_gpu_memory_check: bool = no_gpu_memory_check_param()
     sample: str | None = param(
         None, help="Sample name for the read group (default: the reads' file name)."
     )
@@ -154,6 +156,7 @@ class RealignParams(Params):
         choices=ALIGNERS,
     )
     gpu: bool = param(False, help=GPU_HELP, action="store_true")
+    no_gpu_memory_check: bool = no_gpu_memory_check_param()
     platform: str | None = param(
         None,
         help="Sequencing platform (default: detected from read groups or read "

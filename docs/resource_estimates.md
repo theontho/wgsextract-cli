@@ -103,6 +103,55 @@ few threads it has, so on hs38 no setting fits in less than about 12 GiB.
 WGSExtract does not offer minimap2's `-I` (split index): a split index of hs38
 needs `--split-prefix` and a merge pass, and maps more slowly.
 
+## NVIDIA GPUs (Parabricks)
+
+With `--gpu`, `align`, `realign`, `vcf deepvariant` and `vcf gatk` read each
+GPU's total and free memory from `nvidia-smi` before starting Parabricks, and
+report a `gpu` row beside the host `memory` row. pbrun uses every GPU, so the
+least free memory of any GPU counts.
+
+- A GPU with less than 16 GB (a T4 reports 15 GiB) is refused.
+- When less memory is free than a tool's default mode needs, the tool runs
+  with its low-memory option, `--low-memory` for fq2bam and minimap2 and
+  `--htvc-low-memory` for HaplotypeCaller. The run logs this and records a
+  `parabricks_low_memory` warning. fq2bam sizes its work from the GPU's
+  *total* memory, so it needs its low-memory mode whenever another program
+  holds more than about 2 GiB of the GPU.
+- When even the low-memory mode won't fit, the command stops before running
+  anything. DeepVariant has no low-memory mode.
+- Each tool also needs host RAM: about 34 GiB for fq2bam (minimap2 is assumed
+  to match), 25 GiB for DeepVariant and 18 GiB for HaplotypeCaller, whatever
+  the GPU mode. A computer with less RAM than that is refused. When it has
+  enough but other programs hold it, so less is available, the run continues
+  with a `parabricks_host_memory` warning: available memory moves, and the
+  kernel can often reclaim cache. The log also notes when the host has less
+  RAM than NVIDIA recommends (100 GB for one or two GPUs, 49 GB a GPU beyond
+  that).
+- `--no-gpu-memory-check` runs anyway, with a `parabricks_memory` warning.
+  When `nvidia-smi` reports no memory (`[N/A]`), Parabricks runs with its
+  defaults.
+
+Measured with Parabricks 4.8.0 on an RTX 3090 (24 GiB), 4 CPUs, on chr20 of
+HG00096 (8.6 M read pairs, hs38DH). Another process held the "other" memory
+with `cudaMalloc`:
+
+| Run | GPU peak | Host RAM peak | Result |
+| --- | ---: | ---: | --- |
+| fq2bam | 21.5 GiB | 32.7 GiB | ok |
+| fq2bam, 8 GiB held by another process (15.3 GiB free) | | | out of memory |
+| fq2bam `--low-memory` | 13.5 GiB | 30.1 GiB | ok, also with 15.3 GiB free |
+| fq2bam `--low-memory`, 12.3 GiB free | | | out of memory |
+| DeepVariant | 12.9 GiB | 24.2 GiB | ok, also with 15.3 GiB free |
+| DeepVariant, 12.3 GiB free | | | out of memory |
+| HaplotypeCaller | 17.2 GiB | 16.6 GiB | ok |
+| HaplotypeCaller `--htvc-low-memory` | 10.7 GiB | 16.6 GiB | ok, also with 15.3 GiB free |
+
+The low-memory runs took as long as the defaults on this data. With the
+container's RAM capped (no swap), every run was killed: fq2bam at 24 and
+16 GiB, also with `--low-memory --memory-limit 8`; DeepVariant at 16 GiB;
+HaplotypeCaller at 12 GiB. fq2bam's `--memory-limit 16` left its peak at
+33 GiB. minimap2's 18 GB default need is NVIDIA's figure, not measured here.
+
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource
 estimate is unavailable, and lets the command continue. Existing dependency,
@@ -112,8 +161,9 @@ These are conservative estimates, **not reservations, memory limits or
 guarantees**. When size or free-space measurement is unavailable the row says
 `UNKNOWN`, never a misleading `OK`. Regional disk estimates deliberately retain
 whole-input upper bounds rather than guessing coverage. CPU models do not
-describe GPU/Parabricks or pbmm2 pipelines; see
-[hardware and acceleration](hardware.md) for GPU alignment.
+describe pbmm2 pipelines; Parabricks has its own memory check
+([above](#nvidia-gpus-parabricks)), and [hardware and acceleration](hardware.md)
+covers GPU alignment.
 
 ## GUI/API integration
 

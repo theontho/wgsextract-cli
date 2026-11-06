@@ -86,6 +86,13 @@ Requirements, which the CLI checks but doesn't install:
 - Docker with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/);
 - the Parabricks image (`parabricks_image` in `config.toml`).
 
+Before starting Parabricks, the CLI reads the GPU's free memory from
+`nvidia-smi`. When another program holds part of the GPU, it uses the tool's
+low-memory mode. When even that won't fit, or the computer has too little RAM
+(fq2bam needs about 34 GiB), it stops before running;
+`--no-gpu-memory-check` overrides this. NVIDIA recommends 100 GB of RAM for
+one or two GPUs, but the 62 GB host measured below works. See [resource estimates](resource_estimates.md#nvidia-gpus-parabricks).
+
 How much faster:
 
 | Hardware | 30x genome, FASTQ to sorted, duplicate-marked BAM | Source |

@@ -1044,13 +1044,14 @@ def _align_gpu_bwa(args: argparse.Namespace) -> None:
 
     setup = _prepare_alignment(args, ["samtools"], "GPU alignment")
     verify_parabricks()
+    fit = _gpu_memory_options(args, "fq2bam")
     ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
     # fq2bam requires a PU (platform unit) in the read group.
     rg = read_group(args, setup.stem) + f"\\tPU:{setup.stem}"
     reads = [host_path(args.r1)] + ([host_path(args.r2)] if args.r2 else [])
     fq_arg = "--in-fq" if args.r2 else "--in-se-fq"
-    _gpu_align(args, setup, "fq2bam", [fq_arg, *reads, rg], reads)
+    _gpu_align(args, setup, "fq2bam", [fq_arg, *reads, rg, *fit], reads)
 
 
 def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
@@ -1061,6 +1062,7 @@ def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
         raise UsageError("Long-read alignment takes single-end input; drop --r2.")
     setup = _prepare_alignment(args, ["samtools"], "GPU long-read alignment")
     verify_parabricks()
+    fit = _gpu_memory_options(args, "minimap2")
     reads = host_path(args.r1)
     in_arg = "--in-bam" if reads.lower().endswith(".bam") else "--in-fq"
     sample = getattr(args, "sample", None) or pair_stem(setup.stem)
@@ -1071,12 +1073,23 @@ def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
         "minimap2",
         [in_arg, reads, "--preset", preset]
         + ["--read-group-sm", sample, "--read-group-lb", sample]
-        + ["--read-group-pl", platform, "--read-group-id-prefix", setup.stem],
+        + ["--read-group-pl", platform, "--read-group-id-prefix", setup.stem]
+        + fit,
         [reads],
     )
     # From an unaligned BAM, Parabricks keeps the BAM's own read groups, which
     # PacBio writes without the sample name callers need.
     _ensure_read_group_sample(_gpu_output_path(args, setup), sample, setup.ref)
+
+
+def _gpu_memory_options(args: argparse.Namespace, tool: str) -> list[str]:
+    """Check the GPUs' and the host's memory for Parabricks ``tool``, and the
+    options that fit it to them."""
+    from wgsextract_cli.core.parabricks import plan_gpu_memory
+
+    return plan_gpu_memory(
+        tool, "align", check=not getattr(args, "no_gpu_memory_check", False)
+    )
 
 
 def _gpu_output_path(args: argparse.Namespace, setup: _AlignSetup) -> str:

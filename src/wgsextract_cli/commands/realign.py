@@ -292,6 +292,8 @@ def run(args: argparse.Namespace) -> None:
         _check_long_read_options(args)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     selected_aligner = align_cmd.select_aligner(args)
+    if getattr(args, "gpu", False):
+        _check_gpu(args)
     if (
         selected_aligner == "pbmm2"
         and configured_temp_directory()
@@ -337,6 +339,20 @@ def run(args: argparse.Namespace) -> None:
             memory=memory,
             input_cram_opt=input_cram_opt,
         )
+
+
+def _check_gpu(args: argparse.Namespace) -> None:
+    """Refuse a GPU setup or GPU memory that can't run fq2bam before the
+    FASTQs are extracted; alignment plans its options when it starts."""
+    from wgsextract_cli.core.parabricks import plan_gpu_memory, verify_parabricks
+
+    verify_parabricks()
+    plan_gpu_memory(
+        "fq2bam",
+        "realign",
+        check=not getattr(args, "no_gpu_memory_check", False),
+        report=False,
+    )
 
 
 def _check_long_read_options(args: argparse.Namespace) -> None:
