@@ -41,9 +41,6 @@ class AppPlatform:
     # exits; even `defaults delete` leaves it). Excused only if the copy the
     # scenario saved (uninstall-preferences.plist) has no keys at all.
     emptied_preferences: str = ""
-    # The scenario writes timeline.tsv (when steps ran, when the app started
-    # and exited), so the oracle can check nothing ran beside setup.
-    timeline: bool = False
 
 
 MACOS = AppPlatform(
@@ -106,7 +103,6 @@ LINUX = AppPlatform(
     window_text="metric webAppRendered_ms=",
     installed=["file\t/usr/share/applications/WGSExtract.desktop"],
     install_marker="/dev.guiforcli.web.embed.wgsextract/BundleWorkspaces",
-    timeline=True,
 )
 # What a shell prints when a command it ran was ended by that signal.
 SIGNAL_TEXT = {"Terminated": "SIGTERM", "Killed": "SIGKILL"}
@@ -201,8 +197,7 @@ class GuiOracle(Oracle):
             )
         except (OSError, ValueError, KeyError) as e:
             self.record("app.setup", False, f"no setup result: {e!r}{stopped}")
-        if self.app.timeline:
-            self.check_setup_alone()
+        self.check_setup_alone()
         try:
             report = self.result_file("bundle-report.json")
             planned = [s["id"] for s in json.loads(PLAN.read_text())["steps"]]

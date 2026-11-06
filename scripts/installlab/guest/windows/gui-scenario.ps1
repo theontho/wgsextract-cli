@@ -38,12 +38,22 @@ function Save-Snapshot([string]$Name) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Inventory (Join-Path $R "inventory-$Name.txt") $R
 }
 
+# What happened when, in milliseconds: the oracle tells from it what stopped a
+# setup step, and whether anything ran beside setup (gui_oracle.py).
+function Add-Mark([string]$Event) {
+    $ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    [System.IO.File]::AppendAllText((Join-Path $R "timeline.tsv"), "$ms`t$Event`n", $Utf8)
+}
+
 function Step([string]$Name, [string[]]$Command, [string]$Cwd = $env:USERPROFILE) {
-    Invoke-Step -Evidence $Evidence -Name $Name -WorkingDirectory $Cwd -Command $Command | Out-Null
+    Add-Mark "step-start $Name"
+    $rc = Invoke-Step -Evidence $Evidence -Name $Name -WorkingDirectory $Cwd -Command $Command
+    Add-Mark "step-end $Name $rc"
 }
 
 # A step written in PowerShell: <name>.log gets its output, <name>.rc is 1 if it threw.
 function PsStep([string]$Name, [scriptblock]$Block) {
+    Add-Mark "step-start $Name"
     $start = Get-Date
     $rc = 0
     # Output collected line by line, so what ran before a failure stays in the log.
@@ -53,6 +63,7 @@ function PsStep([string]$Name, [scriptblock]$Block) {
     Write-Text (Join-Path $Evidence "$Name.log") ($out -join "`n")
     Write-Text (Join-Path $Evidence "$Name.rc") "$rc"
     Write-Text (Join-Path $Evidence "$Name.seconds") ([int]((Get-Date) - $start).TotalSeconds)
+    Add-Mark "step-end $Name $rc"
     Write-Host "step $Name rc=$rc"
 }
 
@@ -102,6 +113,48 @@ function Get-AppProcesses {
         $_.Path -and (($install -and $_.Path.StartsWith($install.Trim('"'), "OrdinalIgnoreCase")) -or
             $_.Path.StartsWith($Workspace, "OrdinalIgnoreCase"))
     }
+}
+
+# Notes when setup's event log grows, so the oracle can tell what came before
+# each event.
+$script:EventsSeen = 0
+function Add-EventsMark([string]$Events) {
+    $lines = 0
+    if (Test-Path -LiteralPath $Events) { $lines = @(Get-Content -LiteralPath $Events).Count }
+    if ($lines -ne $script:EventsSeen) { $script:EventsSeen = $lines; Add-Mark "setup-events $lines" }
+}
+
+# Closing the window ends the app's backend and what it runs; what won't stop
+# is stopped. Every way out of setup comes here, so no later step runs beside
+# setup: the app's Uninstall stops every process under the runtime folder, a
+# running install included (#448). Throws if the app had to be killed; what
+# can't be stopped ends the scenario, and the evidence it then lacks fails the verdict.
+function Close-App([string]$Reason, [string]$Events) {
+    Add-Mark "harness-closes-app $Reason"
+    if (Get-Process -Name $AppProcess -ErrorAction SilentlyContinue) {
+        try { Invoke-InSession "close" @{ processName = $AppProcess } 120 }
+        catch { "closing the window failed: $($_.Exception.Message)" }
+    }
+    $killed = $false
+    $deadline = (Get-Date).AddSeconds(60)
+    while (@(Get-AppProcesses).Count -gt 0) {
+        if ((Get-Date) -ge $deadline) {
+            if ($killed) {
+                Add-Mark "harness-aborts could not stop the app"
+                Write-Host "could not stop: $(@(Get-AppProcesses).Path -join ', ')"
+                exit 1
+            }
+            "still running 60 s after the window closed: $(@(Get-AppProcesses).Path -join ', ')"
+            Add-Mark "harness-kills-app still running 60 s after the window closed"
+            Get-AppProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+            $killed = $true
+            $deadline = (Get-Date).AddSeconds(10)
+        }
+        Start-Sleep -Seconds 1
+    }
+    Add-EventsMark $Events
+    Add-Mark "app-closed"
+    if ($killed) { throw "the app and what it started had to be killed" }
 }
 
 Save-Snapshot "baseline"
@@ -193,35 +246,48 @@ PsStep "setup" {
         GUI_FOR_CLI_SETUP_EVENTS_LOG = $events
     }
     if ($lab.LAB_CLI_ARCHIVE_URL) { $appEnv.WGSEXTRACT_ARCHIVE_URL = $lab.LAB_CLI_ARCHIVE_URL }
-    # Opening the app from the Start menu; it runs its own setup.
-    Invoke-InSession "launch" @{
-        exe = Join-Path $InstallDir "$AppProcess.exe"; cwd = $InstallDir; env = $appEnv
-        stdout = Join-Path $R "app-stdout.txt"; stderr = Join-Path $R "app-stderr.txt"
-    } 120
-    $started = Get-Date
-    $deadline = $started.AddHours(3)
-    $complete = $null
-    while (-not $complete) {
-        if ((Get-Date) -ge $deadline) { throw "setup did not finish within 3 hours" }
-        $running = @(Get-AppProcesses)
-        if (-not ($running | Where-Object { $_.ProcessName -eq $AppProcess })) { throw "the app exited during setup" }
-        # The window starts setup as soon as it has loaded; without its backend it never will.
-        if (-not (Test-Path -LiteralPath $events)) {
-            if (-not ($running | Where-Object { $_.ProcessName -eq "node" })) { throw "the app's backend (node) is not running" }
-            if ((Get-Date) -ge $started.AddMinutes(20)) { throw "setup did not start within 20 minutes" }
+    $why = "setup complete"
+    try {
+        # Opening the app from the Start menu; it runs its own setup.
+        Invoke-InSession "launch" @{
+            exe = Join-Path $InstallDir "$AppProcess.exe"; cwd = $InstallDir; env = $appEnv
+            stdout = Join-Path $R "app-stdout.txt"; stderr = Join-Path $R "app-stderr.txt"
+        } 120
+        $main = Get-Process -Name $AppProcess -ErrorAction SilentlyContinue | Select-Object -First 1
+        Add-Mark "app-launched $($main.Id)"
+        $started = Get-Date
+        $deadline = $started.AddHours(3)
+        $complete = $null
+        while (-not $complete) {
+            Add-EventsMark $events
+            if ((Get-Date) -ge $deadline) { throw "setup did not finish within 3 hours" }
+            $running = @(Get-AppProcesses)
+            if (-not ($running | Where-Object { $_.ProcessName -eq $AppProcess })) {
+                # Started by the desktop session's task, so its status is not ours to read.
+                Add-Mark "app-exited unknown"
+                Add-EventsMark $events
+                throw "the app exited during setup"
+            }
+            # The window starts setup as soon as it has loaded; without its backend it never will.
+            if (-not (Test-Path -LiteralPath $events)) {
+                if (-not ($running | Where-Object { $_.ProcessName -eq "node" })) { throw "the app's backend (node) is not running" }
+                if ((Get-Date) -ge $started.AddMinutes(20)) { throw "setup did not start within 20 minutes" }
+            }
+            Start-Sleep -Seconds 5
+            if (Test-Path -LiteralPath $events) {
+                $complete = Get-Content -LiteralPath $events -Encoding UTF8 | ForEach-Object { $_ | ConvertFrom-Json } |
+                    Where-Object { $_.type -eq "complete" } | Select-Object -Last 1
+            }
         }
-        Start-Sleep -Seconds 15
-        if (Test-Path -LiteralPath $events) {
-            $complete = Get-Content -LiteralPath $events -Encoding UTF8 | ForEach-Object { $_ | ConvertFrom-Json } |
-                Where-Object { $_.type -eq "complete" } | Select-Object -Last 1
-        }
+        Add-EventsMark $events
+        Write-Text (Join-Path $R "setup-result.json") ($complete.result | ConvertTo-Json -Depth 8)
+        "setup: $($complete.result.status)"
+    } catch {
+        $why = $_.Exception.Message
+        throw
+    } finally {
+        Close-App $why $events
     }
-    Write-Text (Join-Path $R "setup-result.json") ($complete.result | ConvertTo-Json -Depth 8)
-    "setup: $($complete.result.status)"
-    Invoke-InSession "close" @{ processName = $AppProcess } 120
-    Start-Sleep -Seconds 5
-    $left = @(Get-AppProcesses)
-    if ($left.Count -gt 0) { throw "still running after the window closed: $($left.Path -join ', ')" }
 }
 
 Copy-Item -LiteralPath (Join-Path $env:LOCALAPPDATA "$AppIdentifier\logs\backend.log") `
