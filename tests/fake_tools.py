@@ -850,6 +850,25 @@ with open(LOG, "a") as out:
     out.write(json.dumps({"tool": tool, "args": args}) + "\n")
 if not os.environ.get("FAKE_GPUS"):
     sys.exit("pbrun: no CUDA-capable device is detected")
+# GPU memory each mode allocates (MiB), as measured on an RTX 3090: fq2bam's
+# default streams fill most of each GPU's total memory, whatever is free.
+# Unified-memory GPUs (None) don't run out.
+with open(GPUS) as source:
+    gpus = [g for g in json.load(source) if g is not None]
+low = {"fq2bam": "--low-memory", "minimap2": "--low-memory",
+       "haplotypecaller": "--htvc-low-memory"}.get(tool)
+
+
+def need(gpu):
+    if low in args:
+        return {"haplotypecaller": 11_001}.get(tool, 13_865)
+    if tool == "fq2bam":
+        return gpu["total"] - 2_527
+    return {"minimap2": 17_500, "haplotypecaller": 17_563}.get(tool, 13_211)
+
+
+if any(g["total"] - g["used"] < need(g) for g in gpus):
+    sys.exit(f"pbrun {tool}: cudaErrorMemoryAllocation: out of memory")
 
 
 def opt(name):
@@ -942,12 +961,28 @@ else:
 """
 
 
+_FAKE_NVIDIA_SMI = r"""
+import json, sys
+
+if any(a.startswith("--query-gpu=") for a in sys.argv):
+    with open(GPUS) as source:
+        for i, g in enumerate(json.load(source)):
+            if g is None:
+                print(f"{i}, NVIDIA GB10, [N/A], [N/A]")
+            else:
+                print(f"{i}, NVIDIA GeForce RTX 3090, {g['total']}, {g['total'] - g['used']}")
+else:
+    print("NVIDIA-SMI (fake)")
+"""
+
+
 class FakeParabricks:
     """A GPU host: ``bin`` holds an ``nvidia-smi`` and a FakeDocker with the
     NVIDIA runtime and ``image``, whose ``pbrun`` aligns with the real bwa and
     minimap2 (map-pbmm2 as map-hifi) and calls a homozygous variant at the
     start of each interval it's given (-L literals, --interval-file BEDs).
-    ``runs`` are the pbrun commands, as (tool, args)."""
+    ``runs`` are the pbrun commands, as (tool, args). ``set_gpus`` sets the
+    GPUs' memory (MiB) that nvidia-smi reports and pbrun runs out of."""
 
     def __init__(self, root: Path, image: str) -> None:
         import shutil
@@ -958,12 +993,28 @@ class FakeParabricks:
         }
         self.bin = root / "bin"
         self.log = root / "pbrun.jsonl"
-        python_tool(self.bin, "nvidia-smi", "print('NVIDIA-SMI (fake)')")
-        header = f"LOG = {str(self.log)!r}\nTOOLS = {tools!r}\n"
+        self.gpus = root / "gpus.json"
+        self.set_gpus((24_576, 0))
+        python_tool(
+            self.bin, "nvidia-smi", f"GPUS = {str(self.gpus)!r}\n" + _FAKE_NVIDIA_SMI
+        )
+        header = (
+            f"LOG = {str(self.log)!r}\nTOOLS = {tools!r}\nGPUS = {str(self.gpus)!r}\n"
+        )
         python_tool(root / "image", "pbrun", header + _FAKE_PBRUN)
         self.docker = FakeDocker(self.bin, root / "image")
         self.docker.set(gpus=True, runtimes='{"nvidia":{},"runc":{}}')
         self.docker.add_image(image)
+
+    def set_gpus(self, *gpus: tuple[int, int] | None) -> None:
+        """GPUs as (total, used) MiB, or None for one that reports its memory
+        as [N/A]; an RTX 3090 with nothing else on it."""
+        self.gpus.parent.mkdir(parents=True, exist_ok=True)
+        self.gpus.write_text(
+            json.dumps(
+                [None if g is None else {"total": g[0], "used": g[1]} for g in gpus]
+            )
+        )
 
     def runs(self) -> list[tuple[str, list[str]]]:
         if not self.log.exists():

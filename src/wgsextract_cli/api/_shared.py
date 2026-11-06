@@ -173,3 +173,13 @@ def check_confidence(params: Any) -> None:
     from wgsextract_cli.core.variant_confidence import thresholds_from
 
     thresholds_from(params)
+
+
+def no_gpu_memory_check_param() -> Any:
+    return param(
+        False,
+        help="With --gpu, run Parabricks despite too little GPU or host memory.",
+        doc="Run Parabricks despite too little GPU or host memory; the "
+        "low-memory options are still chosen to fit.",
+        action="store_true",
+    )
