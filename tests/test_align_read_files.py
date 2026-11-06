@@ -70,14 +70,9 @@ def test_minimap2_aligns_long_reads_from_a_bam(tmp_path, genome, platform):
     assert all("MM:Z:C+m,0,1;" in r[11:] for r in primary)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="pbmm2 has no Windows build")
-@needs_tools("samtools", "minimap2")
-def test_pbmm2_aligns_a_pacbio_bam_without_a_platform(tmp_path, genome, monkeypatch):
-    """pbmm2 reads a PacBio BAM itself, so the short-read refusal must not
-    stop 'align --r1 x.bam --aligner pbmm2' when --platform is left out."""
-    seq, ref = genome
-    bam, reads = _hifi_bam(tmp_path, seq)
-    # pbmm2 is an optional PacBio tool: this one maps with the real minimap2.
+def _fake_pbmm2(tmp_path, monkeypatch):
+    """pbmm2 is an optional PacBio tool: this one maps with the real minimap2
+    and, like pbmm2, reads only BAM, FASTQ and FASTA."""
     tools = {t: shutil.which(t) for t in ("samtools", "minimap2")}
     python_tool(
         tmp_path / "bin",
@@ -85,6 +80,8 @@ def test_pbmm2_aligns_a_pacbio_bam_without_a_platform(tmp_path, genome, monkeypa
         f"""import subprocess, sys
 T = {tools!r}
 _, ref, reads, out = sys.argv[1:5]
+if reads.lower().endswith((".cram", ".sam")):
+    sys.exit("pbmm2: unsupported input file type: " + reads)
 fq = subprocess.run([T["samtools"], "fastq", reads], capture_output=True, check=True)
 sam = subprocess.run([T["minimap2"], "-ax", "map-hifi", ref, "-"], input=fq.stdout,
                      capture_output=True, check=True)
@@ -93,6 +90,16 @@ subprocess.run([T["samtools"], "sort", "-o", out, "-"], input=sam.stdout, check=
     )
     monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
     clear_tool_caches()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="pbmm2 has no Windows build")
+@needs_tools("samtools", "minimap2")
+def test_pbmm2_aligns_a_pacbio_bam_without_a_platform(tmp_path, genome, monkeypatch):
+    """pbmm2 reads a PacBio BAM itself, so the short-read refusal must not
+    stop 'align --r1 x.bam --aligner pbmm2' when --platform is left out."""
+    seq, ref = genome
+    bam, reads = _hifi_bam(tmp_path, seq)
+    _fake_pbmm2(tmp_path, monkeypatch)
     out = tmp_path / "out"
 
     run_wgsextract(
@@ -240,3 +247,33 @@ def test_a_cram_of_long_reads_decodes_with_its_own_reference(
         assert [(r[0], r[2], r[3]) for r in primary] == [("o1", target, "501")]
         assert primary[0][9] == seq[500:2500]
         assert "MM:Z:C+m,0,1;" in primary[0][11:]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="pbmm2 has no Windows build")
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize("suffix", [".sam", ".cram"])
+def test_pacbio_reads_pbmm2_cannot_read_align_with_minimap2(
+    tmp_path, genome, monkeypatch, suffix
+):
+    """#460 re-review: --aligner auto picked pbmm2 for PacBio reads in a CRAM
+    or SAM, which pbmm2 can't read. auto now takes minimap2, which decodes them
+    with samtools; an explicit --aligner pbmm2 is refused before any output."""
+    seq, ref = genome
+    bam, reads = _hifi_bam(tmp_path, seq)
+    path = str(tmp_path / f"hifi{suffix}")
+    run_command(["samtools", "view", "-h", "-T", str(ref), "-o", path, bam]
+                + (["-C"] if suffix == ".cram" else []))  # fmt: skip
+    _fake_pbmm2(tmp_path, monkeypatch)
+    common = ["--ref", str(ref), "--threads", "1", "--memory", "256M"]
+
+    with pytest.raises(UsageError, match="pbmm2 reads BAM"):
+        run_wgsextract("align", "--r1", path, "--aligner", "pbmm2",
+                       "--outdir", str(tmp_path / "refused"), *common)  # fmt: skip
+    assert not (tmp_path / "refused").exists()
+
+    run_wgsextract("align", "--r1", path, "--outdir", str(tmp_path / "out"), *common)
+
+    primary = _view(tmp_path / "out" / "hifi_aligned.bam", "-F", "0x904")
+    assert sorted(r[0] for r in primary) == sorted(reads)
+    assert {(r[2], r[3]) for r in primary} == {("chr1", "501"), ("chr1", "4001")}
+    assert all("MM:Z:C+m,0,1;" in r[11:] for r in primary)

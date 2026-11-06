@@ -31,7 +31,7 @@ from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.output_checks import record_alignment_output
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import fastq_input_statistics
-from wgsextract_cli.core.reference_assets import is_fasta_path
+from wgsextract_cli.core.reference_assets import header_sequences, is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
@@ -167,7 +167,11 @@ def select_aligner(args: argparse.Namespace) -> str:
             raise UsageError("Ultima reads are single-end: drop --r2.")
         return "bwa" if aligner == "auto" else aligner
     if aligner == "auto":
-        if args.platform in PACBIO_PLATFORMS and get_tool_path("pbmm2") is not None:
+        if (
+            args.platform in PACBIO_PLATFORMS
+            and not _needs_read_extraction(args.r1)
+            and get_tool_path("pbmm2") is not None
+        ):
             aligner = "pbmm2"
         elif long_read or args.preset:
             aligner = "minimap2"
@@ -216,14 +220,15 @@ def pacbio_platform(header: str) -> str:
 
 
 def _alignment_file_platform(args: argparse.Namespace) -> str | None:
-    """The platform of PacBio reads in a BAM/SAM --r1 (such as the *.ccs.bam or
-    *.subreads.bam that --genome picks): they align as long reads."""
+    """The platform of PacBio reads in a BAM/CRAM/SAM --r1 (such as the
+    *.ccs.bam or *.subreads.bam that --genome picks): they align as long reads."""
     reads = args.r1
-    if args.platform or not str(reads or "").lower().endswith((".bam", ".sam")):
+    if args.platform or not _is_alignment_file(reads or ""):
         return None
-    if input_platform(reads, strict=True) != "pacbio":
+    input_ref = getattr(args, "input_ref", None)
+    if input_platform(reads, input_ref, strict=True) != "pacbio":
         return None
-    platform = pacbio_platform(get_bam_header(reads))
+    platform = pacbio_platform(get_bam_header(reads, input_ref))
     logging.info(
         "Detected PacBio reads in %s: aligning them as long reads (--platform %s).",
         reads,
@@ -236,6 +241,28 @@ def _is_alignment_file(path: object) -> bool:
     return str(path).lower().endswith((".bam", ".cram", ".sam"))
 
 
+def _needs_read_extraction(path: object) -> bool:
+    """CRAM and SAM reads, which pbmm2 and Parabricks can't read: only
+    samtools fastq (in the minimap2 path) decodes them."""
+    return str(path or "").lower().endswith((".cram", ".sam"))
+
+
+def _refuse_unreadable_reads(args: argparse.Namespace, aligner: str) -> None:
+    reads = args.r1
+    if not _needs_read_extraction(reads):
+        return
+    if getattr(args, "gpu", False):
+        raise UsageError(
+            f"{reads} is a CRAM/SAM, and --gpu (Parabricks) reads FASTQ or a BAM. "
+            "Align it without --gpu, or convert it to BAM first."
+        )
+    if aligner == "pbmm2":
+        raise UsageError(
+            f"{reads} is a CRAM/SAM, and pbmm2 reads BAM, FASTQ or FASTA. "
+            "Use --aligner minimap2 (or auto)."
+        )
+
+
 def run(args: argparse.Namespace) -> None:
     _cram_reference(args)
     args.platform = _alignment_file_platform(args) or resolve_platform(args, args.r1)
@@ -243,6 +270,7 @@ def run(args: argparse.Namespace) -> None:
     if args.platform == "ultima":
         align_ultima(args, args.r1, getattr(args, "_input_cram_opt", None))
         return
+    _refuse_unreadable_reads(args, aligner)
     # pbmm2 reads a PacBio BAM itself, whatever platform was resolved.
     if not is_long_read(args) and aligner != "pbmm2":
         _refuse_short_read_alignment_file(args)
@@ -270,6 +298,8 @@ def _cram_reference(args: argparse.Namespace) -> None:
     fasta = getattr(args, "input_ref", None)
     if fasta:
         verify_paths_exist({"--input-ref": fasta})
+    elif not header_sequences(get_bam_header(reads)):
+        return  # Unaligned reads: the CRAM holds every base itself.
     elif args.ref and Path(args.ref).is_file() and cram_encoded_with(args.ref, reads):
         fasta = args.ref
     else:

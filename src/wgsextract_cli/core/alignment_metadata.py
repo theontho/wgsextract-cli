@@ -7,7 +7,11 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput
 
 from .builds import build_from_chr1_length
-from .reference_assets import header_sequences, sequence_dictionary
+from .reference_assets import (
+    header_sequences,
+    read_fai_lengths,
+    sequence_dictionary,
+)
 from .reference_models import sequence_lengths
 from .utils import run_command
 
@@ -116,14 +120,24 @@ def get_vcf_build(vcf_path: str) -> str | None:
 
 def cram_encoded_with(fasta: PathInput, cram: PathInput) -> bool:
     """Whether a CRAM's @SQ names, lengths and (where recorded) M5 sequence
-    checksums all match a FASTA, so samtools can decode the CRAM with it."""
+    checksums all match a FASTA, so samtools can decode the CRAM with it.
+
+    Names and lengths come from the .fai first: the M5s, which samtools dict
+    computes by reading the whole FASTA when it has no .dict, are compared only
+    when those match and the CRAM records them."""
     reads = header_sequences(get_bam_header(fspath(cram)))
+    if not reads:
+        return False
+    names = [(r.get("SN"), r.get("LN")) for r in reads]
+    lengths = read_fai_lengths(fasta)
+    if lengths and names != [(n, str(ln)) for n, ln in lengths.items()]:
+        return False
+    if lengths and not any(r.get("M5") for r in reads):
+        return True
     ref = sequence_dictionary(fasta)
-    if not reads or not ref or len(reads) != len(ref):
+    if not ref or names != [(f.get("SN"), f.get("LN")) for f in ref]:
         return False
     return all(
-        r.get("SN") == f.get("SN")
-        and r.get("LN") == f.get("LN")
-        and (not r.get("M5") or r["M5"].lower() == f.get("M5", "").lower())
+        not r.get("M5") or r["M5"].lower() == f.get("M5", "").lower()
         for r, f in zip(reads, ref, strict=True)
     )
