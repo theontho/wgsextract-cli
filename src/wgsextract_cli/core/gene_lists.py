@@ -14,7 +14,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from importlib import resources
 from pathlib import Path
@@ -49,6 +49,13 @@ class Gene:
     note: str
     # Per build (or ANY_BUILD), every interval of the gene.
     spans: Mapping[str, tuple[Span, ...]]
+    # The list's mode of inheritance (AD, AR, SD, XL), upper case; "" unknown.
+    inheritance: str = ""
+
+    @property
+    def recessive(self) -> bool:
+        """Whether the list reports the gene only with two P/LP alleles."""
+        return self.inheritance == "AR"
 
 
 @dataclass(frozen=True)
@@ -245,14 +252,20 @@ def _read_tsv(text: str, path: Path) -> tuple[Gene, ...]:
         symbol = (row.get("gene") or "").strip()
         if symbol:
             genes.append(
-                Gene(symbol, row.get("category") or "", row.get("note") or "", spans)
+                Gene(
+                    symbol,
+                    row.get("category") or "",
+                    row.get("note") or "",
+                    spans,
+                    (row.get("inheritance") or "").strip().upper(),
+                )
             )
     return _merged(genes)
 
 
 def _merged(genes: list[Gene]) -> tuple[Gene, ...]:
     """One gene per symbol, with the intervals of all its rows (the first
-    row's category and note)."""
+    row's category, note and inheritance)."""
     by_symbol: dict[str, Gene] = {}
     for gene in genes:
         old = by_symbol.get(gene.symbol)
@@ -262,7 +275,7 @@ def _merged(genes: list[Gene]) -> tuple[Gene, ...]:
         spans = {b: tuple(old.spans.get(b, ())) for b in (*old.spans, *gene.spans)}
         for build, intervals in gene.spans.items():
             spans[build] += tuple(intervals)
-        by_symbol[gene.symbol] = Gene(old.symbol, old.category, old.note, spans)
+        by_symbol[gene.symbol] = replace(old, spans=spans)
     return tuple(by_symbol.values())
 
 

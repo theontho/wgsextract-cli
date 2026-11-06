@@ -8,7 +8,7 @@ Usage (from the repository root):
         --output out/report-gene-lists [--write-manifest]
 
 The curated lists are ``scripts/report_gene_lists/<id>.tsv`` (gene,
-category, note: facts from the cited paper's table, notes paraphrased). Spans
+category, inheritance, note: facts from the cited paper's table, notes paraphrased). Spans
 (1-based, inclusive) are each gene's MANE Select (GRCh38) or RefSeq Select
 (GRCh37) transcript on the primary chromosomes of the pinned annotation
 releases below, verified against NCBI's md5checksums.txt. Each span is
@@ -54,7 +54,7 @@ RELEASES = {
     ),
 }
 UCSC = "https://hgdownload.soe.ucsc.edu/goldenPath/{build}/database/refGene.txt.gz"
-COLUMNS = ("gene", "category", "hg19_chrom", "hg19_start", "hg19_end",
+COLUMNS = ("gene", "category", "inheritance", "hg19_chrom", "hg19_start", "hg19_end",
            "hg38_chrom", "hg38_start", "hg38_end", "note")  # fmt: skip
 # Each list's display metadata; the curated file's header carries the source.
 LISTS = {
@@ -235,7 +235,7 @@ def _rows(
     genes: list[dict[str, str]], spans: dict[str, dict[str, Span]]
 ) -> Iterator[str]:
     for gene in genes:
-        cells = [gene["gene"], gene["category"]]
+        cells = [gene["gene"], gene["category"], gene["inheritance"]]
         for build in ("hg19", "hg38"):
             chrom, start, end = spans[build][gene["gene"]]
             cells += [chrom, str(start), str(end)]
@@ -248,7 +248,7 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path, help="downloads (default: OUTPUT/cache)")
-    parser.add_argument("--release", default="report-gene-lists-v2")
+    parser.add_argument("--release", default="report-gene-lists-v3")
     parser.add_argument("--write-manifest", action="store_true")
     args = parser.parse_args()
     cache = args.cache or args.output / "cache"
