@@ -1179,7 +1179,15 @@ LINUX_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
         "file\t/usr/share/applications/WGSExtract.desktop",
     ),
     "no-window": lambda r: (r / "app-stdout.txt").write_text(""),
+    # The #448 race: a later step started while the app was still running setup.
+    "step-beside-setup": lambda r: _step_beside_setup(r / "timeline.tsv"),
 }
+
+
+def _step_beside_setup(timeline: Path) -> None:
+    rows = timeline.read_text().splitlines()
+    ms = next(r.split("\t")[0] for r in rows if "\tapp-launched " in r)
+    _append(timeline, f"{int(ms) + 1}\tstep-start uninstall")
 
 
 def _planted(results: Path) -> dict[str, str]:

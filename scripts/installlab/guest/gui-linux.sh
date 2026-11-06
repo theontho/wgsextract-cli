@@ -28,15 +28,24 @@ APP_ID="dev.guiforcli.web.embed.wgsextract"
 WORKSPACE="$HOME/.local/share/$APP_ID/BundleWorkspaces/wgs-extract"
 # A desktop session's runtime folder (logind's /run/user/<uid>), where dconf
 # keeps its runtime state; without one it falls back to ~/.cache/dconf.
-export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
-mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+export XDG_RUNTIME_DIR
+mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+
+# What happened when, in milliseconds: the oracle tells from it what stopped a
+# setup step (gui_oracle.py).
+mark() {
+    printf '%s\t%s\n' "$(date +%s%3N)" "$*" >> "$R/timeline.tsv"
+}
 
 step() {
     name="$1"
     shift
     start=$(date +%s)
+    mark "step-start $name"
     "$@" > "$EVIDENCE/$name.log" 2>&1
     rc=$?
+    mark "step-end $name $rc"
     echo "$rc" > "$EVIDENCE/$name.rc"
     echo $(( $(date +%s) - start )) > "$EVIDENCE/$name.seconds"
     echo "scenario step $name rc=$rc"
@@ -60,20 +69,66 @@ install_app() {
         test -f /usr/share/applications/WGSExtract.desktop
 }
 
+# The app this scenario started, by its process ID. Matching command lines
+# (app_pids) misses it until the background shell has exec'd it (#448).
+app_alive() {
+    kill -0 "$app_pid" 2>/dev/null &&
+        ! grep -q '^State:[[:space:]]*Z' "/proc/$app_pid/status" 2>/dev/null
+}
+
+# Closing the window: the app ends its backend and everything it started.
+# Every way out of setup closes the app, so no later step runs beside its
+# setup; the app's Uninstall stops whatever runs from the runtime (#448).
+close_app() {
+    mark "harness-closes-app $1"
+    pkill -TERM -u "$(id -u)" -f "^$APP_BIN" || true
+    for _ in $(seq 60); do
+        if ! app_alive && [ -z "$(app_pids)" ]; then
+            wait "$app_pid"
+            mark "app-exited $?"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "still running after the window closed: $(app_pids)"
+    pkill -KILL -u "$(id -u)" -f "$APP_DIR/|$APP_BIN" || true
+    mark "harness-kills-app still running after the window closed"
+    return 1
+}
+
 app_setup() {
     events="$R/setup-events.ndjson"
     # Opening the app; it runs its own setup.
     env GUI_FOR_CLI_AUTO_RUN_SETUP=1 GUI_FOR_CLI_SETUP_EVENTS_LOG="$events" \
         ${LAB_CLI_ARCHIVE_URL:+WGSEXTRACT_ARCHIVE_URL="$LAB_CLI_ARCHIVE_URL"} \
         xvfb-run -a -s "-screen 0 1280x800x24" "$APP_BIN" > "$R/app-stdout.txt" 2> "$R/app-stderr.txt" &
+    app_pid=$!
+    mark "app-launched $app_pid"
     started=$(date +%s)
-    while ! grep -q '"type":"complete"' "$events" 2>/dev/null; do
-        if [ -z "$(app_pids)" ]; then echo "the app exited during setup"; return 1; fi
-        if [ ! -s "$events" ] && [ $(( $(date +%s) - started )) -gt 1200 ]; then
-            echo "setup did not start within 20 minutes"; return 1
+    seen=0
+    while :; do
+        lines=0
+        [ -f "$events" ] && lines=$(wc -l < "$events")
+        [ "$lines" = "$seen" ] || { seen=$lines; mark "setup-events $lines"; }
+        grep -q '"type":"complete"' "$events" 2>/dev/null && break
+        if ! app_alive; then
+            wait "$app_pid"
+            rc=$?
+            mark "app-exited $rc"
+            echo "the app exited during setup (exit status $rc)"
+            return 1
         fi
-        if [ $(( $(date +%s) - started )) -gt 10800 ]; then echo "setup did not finish within 3 hours"; return 1; fi
-        sleep 15
+        if [ ! -s "$events" ] && [ $(( $(date +%s) - started )) -gt 1200 ]; then
+            echo "setup did not start within 20 minutes"
+            close_app "setup did not start within 20 minutes"
+            return 1
+        fi
+        if [ $(( $(date +%s) - started )) -gt 10800 ]; then
+            echo "setup did not finish within 3 hours"
+            close_app "setup did not finish within 3 hours"
+            return 1
+        fi
+        sleep 2
     done
     python3 - "$events" "$R/setup-result.json" <<'EOF'
 import json, sys
@@ -82,11 +137,7 @@ complete = [e for e in results if e.get("type") == "complete"][-1]
 json.dump(complete["result"], open(sys.argv[2], "w"), indent=2)
 print("setup:", complete["result"]["status"])
 EOF
-    # Closing the window: the app ends its backend and everything it started.
-    pkill -TERM -u "$(id -u)" -f "^$APP_BIN" || true
-    for _ in $(seq 60); do [ -z "$(app_pids)" ] && return 0; sleep 1; done
-    echo "still running after the window closed: $(app_pids)"
-    return 1
+    close_app "setup complete"
 }
 
 app_actions() {
@@ -136,10 +187,13 @@ printf 'pixi-home\t%s\n' "$pixi_home" >> "$R/preexisting-tools.txt"
 if [ "$MODE" = "control" ]; then
     # A different WebKitGTK app (webkit-window.py) is installed, open for 4
     # minutes and removed: what GTK, WebKit and Mesa keep for any such app.
-    deps="gir1.2-webkit2-4.1 python3-gi"
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q $deps > "$R/control-apt.log" 2>&1
+    set -- gir1.2-webkit2-4.1 python3-gi
+    # The log is the user's own file; only apt-get needs root.
+    # shellcheck disable=SC2024
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" > "$R/control-apt.log" 2>&1
     xvfb-run -a -s "-screen 0 1280x800x24" python3 "$HERE/webkit-window.py" 240 > "$R/control-window.log" 2>&1
-    sudo DEBIAN_FRONTEND=noninteractive apt-get remove --autoremove -y -q $deps >> "$R/control-apt.log" 2>&1
+    # shellcheck disable=SC2024
+    sudo DEBIAN_FRONTEND=noninteractive apt-get remove --autoremove -y -q "$@" >> "$R/control-apt.log" 2>&1
     snapshot after_install
     snapshot after_uninstall
     echo "scenario finished"

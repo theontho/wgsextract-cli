@@ -153,3 +153,112 @@ def test_mutations_plant_the_run_machines_paths(tmp_path, monkeypatch, meta, hom
 
     (tmp_path / "lab-run.json").write_text(json.dumps(meta))
     assert lab._planted(tmp_path)["home"] == home
+
+
+def _linux_run(results: Path, timeline: list[str] | None, signal_text: str) -> None:
+    (results / "lab-run.json").write_text(json.dumps({"target": "linux"}))
+    events = [
+        {"type": "step-start", "step": {"id": "install-wgsextract"}},
+        {"type": "output", "id": "install-wgsextract", "text": "Installing Pixi...\n"},
+        {
+            "type": "step-complete",
+            "result": {
+                "id": "install-wgsextract",
+                "status": "failed",
+                "exitCode": 1,
+                "signal": None,
+                "stderr": signal_text,
+            },
+        },
+        {"type": "complete", "result": {"status": "failed", "results": []}},
+    ]
+    (results / "setup-events.ndjson").write_text(
+        "".join(json.dumps(e) + "\n" for e in events)
+    )
+    if timeline is not None:
+        (results / "timeline.tsv").write_text("".join(f"{t}\n" for t in timeline))
+
+
+def _linux_checks(results: Path) -> dict[str, str]:
+    import gui_oracle
+
+    current = gui_oracle.GuiOracle(results, "nonce", {}, signed=False)
+    current.check_app_reports()
+    return {c.name: ("ok: " if c.ok else "FAIL: ") + c.detail for c in current.checks}
+
+
+# Issue #448: the harness missed the just-launched app, ran the later steps
+# beside its setup, and the app's Uninstall TERMed install.sh ("Terminated").
+RACED = [
+    "1000\tstep-start setup",
+    "1010\tapp-launched 42",
+    "1030\tsetup-events 0",
+    "1040\tstep-end setup 1",
+    "1050\tstep-start optional_tools",
+    "1060\tstep-end optional_tools 1",
+    "1070\tstep-start actions",
+    "3000\tstep-end actions 1",
+    "3010\tstep-start uninstall",
+    "3900\tsetup-events 3",
+]
+
+
+def test_a_setup_step_terminated_by_a_step_run_beside_it_names_that_step(oracle):
+    _linux_run(oracle.results, RACED, "Terminated\n")
+    checks = _linux_checks(oracle.results)
+    assert checks["app.setup"].startswith("FAIL")
+    assert "install-wgsextract got SIGTERM" in checks["app.setup"]
+    assert "scenario step 'uninstall'" in checks["app.setup"]
+    assert checks["app.setup_alone"] == (
+        "FAIL: the app was never seen to exit; steps started while the app ran "
+        "setup: optional_tools, actions, uninstall"
+    )
+
+
+def test_a_setup_step_terminated_when_the_harness_closed_the_app_blames_it(oracle):
+    _linux_run(
+        oracle.results,
+        [
+            "1000\tstep-start setup",
+            "1010\tapp-launched 42",
+            "5000\tsetup-events 2",
+            "9000\tharness-closes-app setup did not finish within 3 hours",
+            "9500\tsetup-events 4",
+            "9600\tapp-exited 0",
+            "9700\tstep-end setup 1",
+            "9800\tstep-start optional_tools",
+        ],
+        "Terminated\n",
+    )
+    checks = _linux_checks(oracle.results)
+    assert "the lab harness (harness-closes-app" in checks["app.setup"]
+    assert checks["app.setup_alone"].startswith("ok: the app ran setup alone")
+
+
+def test_without_a_timeline_the_terminator_is_unknown_and_setup_alone_fails(oracle):
+    _linux_run(oracle.results, None, "Killed\n")
+    checks = _linux_checks(oracle.results)
+    assert (
+        "install-wgsextract got SIGKILL, from an unknown process" in checks["app.setup"]
+    )
+    assert checks["app.setup_alone"] == "FAIL: no timeline.tsv"
+
+
+def test_an_ordinary_setup_failure_blames_no_one(oracle):
+    _linux_run(oracle.results, RACED, "pixi: not found\n")
+    assert "got SIG" not in _linux_checks(oracle.results)["app.setup"]
+
+
+def test_the_step_beside_setup_mutation_fails_a_clean_timeline(oracle):
+    import lab
+
+    _linux_run(
+        oracle.results,
+        ["1000\tstep-start setup", "1010\tapp-launched 42", "9000\tapp-exited 0"],
+        "",
+    )
+    assert _linux_checks(oracle.results)["app.setup_alone"].startswith("ok")
+    lab.LINUX_GUI_MUTATIONS["step-beside-setup"](oracle.results)
+    assert _linux_checks(oracle.results)["app.setup_alone"] == (
+        "FAIL: steps started while the app ran setup: uninstall"
+    )
