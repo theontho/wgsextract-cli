@@ -313,6 +313,39 @@ Unplaced, alt and decoy contigs under 1 Mb share one pooled sample, which
 sets the Other row. Sampling needs the BAM/CRAM index: without one, `info`
 warns, falls back to the record estimate and caches it until an index appears.
 Unaligned reads have no depth to sample, so it is cached as zero.
+
+### Read lengths and mapping rate
+
+For ONT and PacBio input, `info` also reports the read N50 and, with
+`--detailed`, a read-length histogram and the percentage of reads that map
+([#338](https://github.com/WGSExtract/wgsextract-cli/issues/338)). Neither
+adds a pass over the reads:
+
+- The N50 and histogram come from the primary reads among the first 20,000
+  records, which `info` reads anyway. When those are the whole file the N50 is
+  exact; otherwise it is labelled an estimate.
+- The index counts mapped and unmapped records, but a long read often has
+  several supplementary or secondary records. So the share of mapped records
+  that are primary is sampled from records that start in evenly spaced 10 kb
+  windows, which counts short split records as fairly as whole reads. That
+  turns mapped records into mapped reads. It needs the index and a mapped
+  read, so unaligned input reports no mapping rate.
+
+`info` warns (`short_read_n50`) when the N50 is under 3 kb, below the roughly
+4 kb peak of buccal-swab ONT runs, and (`low_mapped_read_fraction`) when under
+95% of reads map. Both are recorded in the result manifest, and the
+`<input>_qc` table gains `read_n50` and `mapped_read_pct` columns.
+
+| Input | Read N50 | Mapped reads (`info --detailed`) | Truth (`samtools flagstat`) |
+|---|---|---|---|
+| ONT chr20 + chrY slice, 5.4 GB BAM | 31,740 (estimate) | 100.0% (34 s) | N50 31,874; 100.0% |
+| The slice's chr20:10-12M and chrY:2.8-7M reads, mapped to chr20 only | 32,412 (estimate) | 90.8%, warns (10 s) | N50 32,114; 90.77% (98.3% of records) |
+| HiFi chr20:10-12M slice ([#388](https://github.com/WGSExtract/wgsextract-cli/issues/388)) | 13,607 (exact) | 100.0% (2 s) | N50 13,607; 100.0% |
+| The same HiFi reads, unaligned | 13,607 (exact) | none (unaligned) | N50 13,607 |
+| Whole genome, 104 GB CRAM | 31,203 (estimate) | 99.76% (207 s) | pending |
+
+The mapped-reads sample decodes only each CRAM record's flag, position and
+CIGAR, which took it from 156 s to 38 s on the whole-genome CRAM.
 `qc vcf` ran on the chr20 DeepVariant VCF (106,665 PASS SNVs, Ts/Tv 1.74).
 
 Small-variant calling on the whole genome was not run: 32 h of realignment

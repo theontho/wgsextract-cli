@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,7 @@ from wgsextract_cli.core.messages import LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_models import identify_reference, sequence_lengths
-from wgsextract_cli.core.results import current_result, human_output
+from wgsextract_cli.core.results import current_result, human_output, warn
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.sequencing import platform_from_metadata
 from wgsextract_cli.core.table_writer import (
@@ -53,7 +54,10 @@ from .metrics import (
     DEPTH_COUNTED,
     DEPTH_SAMPLED,
     LONG_READ_MIN_LEN,
+    MIN_LONG_READ_MAPPED_PCT,
+    MIN_LONG_READ_N50,
     SEX_INFERENCE_VERSION,
+    IdxStat,
     SexCall,
     contig_key,
     determine_sequencer,
@@ -61,6 +65,8 @@ from .metrics import (
     get_file_stats,
     infer_sex_call,
     load_n_counts,
+    long_read_lengths,
+    long_read_mapped_pct,
     parse_idxstats,
     record_sex,
     run_body_sample,
@@ -71,6 +77,7 @@ from .render import (
     run_full_coverage,
     run_sampled_coverage,
     sampled_mapped_bases,
+    sampled_primary_share,
 )
 
 COVERAGE_COMMANDS = ("calculate-coverage", "coverage-sample")
@@ -167,6 +174,12 @@ QC_TABLE = tuple(
         ("reads_mapped_m", "REAL", "Mapped reads, in millions."),
         ("reads_raw_m", "REAL", "All reads, in millions."),
         ("reads_mapped_pct", "REAL", "Mapped reads as a percentage of all reads."),
+        ("read_n50", "REAL", "Long reads' N50 in bp (from the sampled reads)."),
+        (
+            "mapped_read_pct",
+            "REAL",
+            "Long reads mapped, as a percentage of reads rather than records.",
+        ),
     )
 )
 
@@ -339,6 +352,7 @@ def _record_info(data: dict[str, Any]) -> None:
         duplicate_pct=health.get("duplicate_pct"),
         alt_aware=health.get("alt_aware"),
     )
+    _record_long_read_qc(data.get("read_lengths"))
     if "gender" in data:
         result.add_metrics(sex=data["gender"], **data.get("metrics", {}))
         if data["gender"] == "Unknown":
@@ -361,6 +375,37 @@ def _record_info(data: dict[str, Any]) -> None:
                 depth=round(ard, 3),
                 threshold=10,
             )
+
+
+def _record_long_read_qc(lengths: dict[str, Any] | None) -> None:
+    """#338: library failures show up as short reads and poor mapping."""
+    if not lengths:
+        return
+    result = current_result()
+    n50 = lengths.get("read_n50")
+    mapped = lengths.get("mapped_read_pct")
+    result.add_metrics(read_n50=n50)
+    if mapped is not None:
+        result.add_metrics(mapped_read_pct=mapped)
+    if n50 and n50 < MIN_LONG_READ_N50:
+        warn(
+            "short_read_n50",
+            f"Read N50 is {n50:,} bp ({lengths['method']}), under "
+            f"{MIN_LONG_READ_N50:,} bp: reads this short usually mean degraded "
+            "DNA or a failed library.",
+            read_n50=n50,
+            exact=bool(lengths.get("exact")),
+            threshold=MIN_LONG_READ_N50,
+        )
+    if mapped is not None and mapped < MIN_LONG_READ_MAPPED_PCT:
+        warn(
+            "low_mapped_read_fraction",
+            f"Only {mapped:.1f}% of reads map, under "
+            f"{MIN_LONG_READ_MAPPED_PCT:.0f}%: check for contamination, a failed "
+            "library or the wrong reference.",
+            mapped_read_pct=mapped,
+            threshold=MIN_LONG_READ_MAPPED_PCT,
+        )
 
 
 def _guess_ref_model(
@@ -400,10 +445,9 @@ def _fast_metrics(
     ref_model_str, ref_fname = ref_model
 
     t0 = time.time()
-    _count, avg_len, std_len, avg_tlen, std_tlen, is_paired, first_qname = (
-        run_body_sample(input_p, cram_opt)
-    )
+    sample = run_body_sample(input_p, cram_opt)
     logging.debug(f"Body sampling took {time.time() - t0:.3f}s")
+    avg_len, first_qname = sample.avg_len, sample.first_qname
 
     return {
         "filename": Path(input_p).name,
@@ -417,10 +461,13 @@ def _fast_metrics(
         "ref_model_str": ref_model_str,
         "suggested_ref_file": ref_fname,
         "avg_read_len": avg_len,
-        "std_read_len": std_len,
-        "is_paired": is_paired,
-        "avg_insert_size": avg_tlen,
-        "std_insert_size": std_tlen,
+        "std_read_len": sample.std_len,
+        "is_paired": sample.is_paired,
+        "avg_insert_size": sample.avg_tlen,
+        "std_insert_size": sample.std_tlen,
+        "read_lengths": long_read_lengths(sample)
+        if avg_len > LONG_READ_MIN_LEN
+        else None,
         "sequencer": determine_sequencer(first_qname, header),
         "first_qname": first_qname,
         "alignment_health": alignment_health(
@@ -578,6 +625,28 @@ def _warn_depth_needs_index(input_file: str) -> None:
 InfoLikeParams = InfoParams | CalculateCoverageParams | CoverageSampleParams
 
 
+def _mapped_reads(
+    input_file: str,
+    ref: str | None,
+    idx_stats: Sequence[IdxStat],
+    temp_parent: str,
+) -> dict[str, Any]:
+    """Long reads' mapped percentage, from idxstats and the primary share of
+    records sampled through the index (#338)."""
+    try:
+        sampled = sampled_primary_share(input_file, ref, idx_stats, temp_parent)
+    except (OSError, WGSExtractError) as e:
+        logging.warning(f"Could not sample the mapped reads of {input_file}: {e}")
+        return {}
+    if sampled is None:
+        return {}
+    share, records = sampled
+    return {
+        "mapped_read_pct": long_read_mapped_pct(idx_stats, share),
+        "mapped_read_method": f"estimate from {records:,} sampled records",
+    }
+
+
 def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     """``info`` and its coverage subcommands; ``as_csv`` prints the detailed
     table as CSV (CLI only)."""
@@ -680,6 +749,10 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
             f"{data.get('ref_model_str')!r}, not {ref_model[0]!r}"
         )
         data = {}
+    # Long reads' length QC is part of the fast metrics since #338.
+    if data.get("avg_read_len", 0) > LONG_READ_MIN_LEN and not data.get("read_lengths"):
+        logging.debug(f"Ignoring cache {json_cache}: it has no read-length QC")
+        data = {}
     # Likewise the sequencer, from the cached first read name and the header.
     if data.get("avg_read_len"):
         data["sequencer"] = determine_sequencer(data.get("first_qname"), header)
@@ -755,17 +828,19 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     if data["depth_needs_index"]:
         _warn_depth_needs_index(input_file)
     elif long_reads:
+        temp_parent = configured_temp_directory() or outdir
         try:
             mapped_bases = sampled_mapped_bases(
-                input_file,
-                resolved_ref,
-                idx_stats,
-                configured_temp_directory() or outdir,
+                input_file, resolved_ref, idx_stats, temp_parent
             )
         except (OSError, WGSExtractError) as e:
             logging.warning(
                 f"Could not sample the depth of {Path(input_file).name}, so long "
                 f"reads' depth is estimated from their records and overstated: {e}"
+            )
+        if data.get("read_lengths") and mapped_bases:
+            data["read_lengths"].update(
+                _mapped_reads(input_file, resolved_ref, idx_stats, temp_parent)
             )
     data.update(
         _detailed_metrics(

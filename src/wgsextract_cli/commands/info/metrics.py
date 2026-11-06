@@ -90,9 +90,24 @@ def get_file_stats(filepath: str) -> tuple[float, bool]:
     return size_gb, indexed
 
 
-def run_body_sample(
-    filepath: str, cram_opt: Sequence[str]
-) -> tuple[int, float, float, float, float, bool, str | None]:
+class BodySample(NamedTuple):
+    reads: int
+    avg_len: float
+    std_len: float
+    avg_tlen: float
+    std_tlen: float
+    is_paired: bool
+    first_qname: str | None
+    # Lengths of the sampled primary reads.
+    lengths: tuple[int, ...] = ()
+    # The sample reached the end of the file, so it holds every read.
+    complete: bool = False
+
+
+BODY_SAMPLE_RECORDS = 20000
+
+
+def run_body_sample(filepath: str, cram_opt: Sequence[str]) -> BodySample:
     """Sample first 20k reads to calculate length, insert size, and read type."""
     logging.info(LOG_MESSAGES["sampling_metrics"].format(filename=Path(filepath).name))
     cmd = ["samtools", "view", *cram_opt, filepath]
@@ -101,6 +116,7 @@ def run_body_sample(
     tlen_values = []
     len_values = []
     first_qname = None
+    complete = False
 
     proc = None
     try:
@@ -111,9 +127,10 @@ def run_body_sample(
             stderr=subprocess.DEVNULL,
         )
         assert proc.stdout is not None
-        for _ in range(20000):
+        for _ in range(BODY_SAMPLE_RECORDS):
             line = proc.stdout.readline()
             if not line:
+                complete = proc.wait() == 0
                 break
             fields = line.split("\t")
             if len(fields) < 11:
@@ -170,7 +187,73 @@ def run_body_sample(
     )
     is_paired = paired_count > (count / 2) if count > 0 else False
 
-    return count, avg_len, std_len, avg_tlen, std_tlen, is_paired, first_qname
+    return BodySample(
+        count,
+        avg_len,
+        std_len,
+        avg_tlen,
+        std_tlen,
+        is_paired,
+        first_qname,
+        tuple(len_values),
+        complete,
+    )
+
+
+# Upper bounds of the long-read length histogram's bins, in bp.
+READ_LENGTH_BINS = (1_000, 2_000, 5_000, 10_000, 20_000, 50_000, 100_000)
+# Library failures show up as short reads (#338). Home buccal-swab ONT runs
+# peak near 4 kb, so an N50 under 3 kb is unusually short even for them.
+MIN_LONG_READ_N50 = 3_000
+MIN_LONG_READ_MAPPED_PCT = 95.0
+
+
+def n50(lengths: Sequence[int]) -> int:
+    """The length L such that reads at least L long hold half the bases."""
+    half, running = sum(lengths) / 2, 0
+    for length in sorted(lengths, reverse=True):
+        running += length
+        if running >= half:
+            return length
+    return 0
+
+
+def long_read_lengths(sample: BodySample) -> dict[str, Any]:
+    """N50 and length histogram of the long reads among the first records of
+    the file, which `info` reads anyway: exact when that is every read."""
+    lengths = sample.lengths
+    total = sum(lengths) or 1
+    histogram = []
+    low = 0
+    for high in (*READ_LENGTH_BINS, None):
+        in_bin = [n for n in lengths if n >= low and (high is None or n < high)]
+        histogram.append(
+            {
+                "min_bp": low,
+                "max_bp": high,
+                "reads": len(in_bin),
+                "reads_pct": round(100 * len(in_bin) / (len(lengths) or 1), 2),
+                "bases_pct": round(100 * sum(in_bin) / total, 2),
+            }
+        )
+        low = high or 0
+    return {
+        "read_n50": n50(lengths),
+        "sampled_reads": len(lengths),
+        "exact": sample.complete,
+        "method": f"all {len(lengths):,} primary reads"
+        if sample.complete
+        else f"estimate from the first {len(lengths):,} primary reads",
+        "length_histogram": histogram,
+    }
+
+
+def long_read_mapped_pct(idx_stats: Sequence[IdxStat], primary_share: float) -> float:
+    """Percentage of reads (not records) mapped. idxstats counts every mapped
+    record, so only the sampled primary share of them are reads."""
+    primary = sum(s["mapped"] for s in idx_stats) * primary_share
+    unmapped = sum(s["unmapped"] for s in idx_stats)
+    return round(100 * primary / (primary + unmapped), 2) if primary else 0.0
 
 
 def load_n_counts(ref_path: str | None) -> dict[str, int]:

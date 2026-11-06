@@ -139,6 +139,17 @@ ALIGNMENT_COLUMNS = [
         hidden=True,
     ),
     Column("avg_read_len", "Read length", "Average read length", format="{:,.0f}"),
+    Column("read_n50", "Read N50", "Long reads' N50 in bp", format="{:,.0f}"),
+    Column(
+        "mapped_read_pct",
+        "% Reads mapped",
+        "Long reads mapped, counting each read once rather than each record",
+        format="{:,.1f}",
+        scale="RdYlGn",
+        suffix="%",
+        min=0.0,
+        max=100.0,
+    ),
     Column(
         "avg_insert_size",
         "Insert size",
