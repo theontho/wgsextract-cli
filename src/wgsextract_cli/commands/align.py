@@ -169,7 +169,7 @@ def select_aligner(args: argparse.Namespace) -> str:
     if aligner == "auto":
         if (
             args.platform in PACBIO_PLATFORMS
-            and not _needs_read_extraction(args.r1)
+            and not _needs_read_extraction(getattr(args, "r1", None))
             and get_tool_path("pbmm2") is not None
         ):
             aligner = "pbmm2"
