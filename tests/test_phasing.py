@@ -19,6 +19,7 @@ from tests.htslib_helpers import needs_htslib, needs_tools, run_wgsextract
 from wgsextract_cli import api
 from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.cli.platform_support import verify_platform_support
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import clear_tool_caches, get_tool_path
 from wgsextract_cli.core.dependency_checks import MissingDependencyError
 from wgsextract_cli.core.results import CommandResult
@@ -78,7 +79,8 @@ def aligned(tmp_path_factory) -> tuple[Path, Path]:
 
 def _phase(aligned, tmp_path: Path, **params) -> CommandResult:
     bam, ref = aligned
-    params.setdefault("vcf_input", _write_calls(tmp_path / "calls.vcf"))
+    if "vcf_input" not in params:
+        params["vcf_input"] = _write_calls(tmp_path / "calls.vcf")
     return api.vcf.phase(
         api.VcfPhaseParams(
             input=bam, ref=ref, outdir=tmp_path / "phased", threads=2, **params
@@ -121,6 +123,7 @@ def test_phaser_recovers_the_giab_haplotypes_and_tags_reads(aligned, tmp_path, p
         [swapped[gt] for gt in expected],
     )
     assert result.metrics["phaser"] == phaser
+    assert {r.role for r in result.inputs} >= {"input", "vcf_input"}
     assert result.metrics["phase_blocks"] == 1
     assert result.metrics["phased_variants"] == len(calls)
     blocks = outputs["phase_blocks"].read_text().splitlines()
@@ -189,6 +192,22 @@ def test_the_reads_sample_is_phased_in_a_multi_sample_vcf(aligned, tmp_path):
 
 @needs_tools("whatshap", "minimap2")
 @needs_htslib
+def test_the_api_phases_the_configured_default_vcf(aligned, tmp_path, monkeypatch):
+    # #464 review: the API ignored default_input_vcf, unlike the CLI.
+    calls = _write_calls(tmp_path / "configured.vcf")
+    monkeypatch.setitem(settings, "default_input_vcf", str(calls))
+    bam, ref = aligned
+    result = api.vcf.phase(
+        api.VcfPhaseParams(
+            input=bam, ref=ref, outdir=tmp_path / "out", phaser="whatshap"
+        )
+    )
+    assert str(calls) in {r.path for r in result.inputs if r.role == "vcf_input"}
+    assert result.metrics["phased_variants"] > 0
+
+
+@needs_tools("whatshap", "minimap2")
+@needs_htslib
 def test_short_reads_get_a_warning_and_no_longphase(aligned, tmp_path):
     bam, ref = aligned
     header = _run("samtools", "view", "-H", str(bam)).replace("PL:ONT", "PL:ILLUMINA")
@@ -202,8 +221,9 @@ def test_short_reads_get_a_warning_and_no_longphase(aligned, tmp_path):
         )  # fmt: skip
     _run("samtools", "index", str(illumina))
 
-    with pytest.raises(api.CommandFailed, match="LongPhase phases Nanopore or Pac"):
-        _phase((illumina, ref), tmp_path, phaser="longphase")
+    if get_tool_path("longphase"):
+        with pytest.raises(api.CommandFailed, match="LongPhase phases Nanopore or"):
+            _phase((illumina, ref), tmp_path, phaser="longphase")
     result = _phase((illumina, ref), tmp_path)
     assert result.metrics["phaser"] == "whatshap"
     assert [w.code for w in result.warnings] == ["short_read_phasing"]
@@ -238,6 +258,133 @@ def test_windows_is_refused_before_inputs_are_resolved(monkeypatch):
         verify_platform_support(args)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="vcf phase is refused first")
 def test_a_vcf_is_required(tmp_path):
     with pytest.raises(UsageError, match="--vcf-input"):
         run_wgsextract("vcf", "phase", "--input", str(tmp_path / "reads.bam"))
+
+
+def _reheadered(bam: Path, out: Path, edit) -> Path:
+    header = out.with_suffix(".header.sam")
+    header.write_text(edit(_run("samtools", "view", "-H", str(bam))))
+    with out.open("wb") as stream:
+        subprocess.run(
+            [get_tool_path("samtools"), "reheader", str(header), str(bam)],
+            stdout=stream, check=True,
+        )  # fmt: skip
+    _run("samtools", "index", str(out))
+    return out
+
+
+@needs_tools("whatshap", "minimap2")
+@needs_htslib
+def test_reads_of_several_samples_are_refused(aligned, tmp_path):
+    # #464 review: the phasers ignore read groups, so another sample's reads
+    # would be phased in with this one's.
+    bam, ref = aligned
+    mixed = _reheadered(
+        bam, tmp_path / "mixed.bam", lambda h: h + "@RG\tID:other\tSM:HG003\n"
+    )
+    with pytest.raises(api.CommandFailed, match="several samples.*HG002, HG003"):
+        _phase((mixed, ref), tmp_path, phaser="whatshap")
+
+
+HLA = "HLA-A*01:01:01:01"
+
+
+@pytest.fixture(scope="module")
+def two_contigs(aligned, tmp_path_factory) -> tuple[Path, Path]:
+    """(BAM, reference): the reads split between chr20 and an hs38DH-style
+    HLA contig holding the same sequence, as a two-contig genome."""
+    bam, ref = aligned
+    tmp = tmp_path_factory.mktemp("two_contigs")
+    sequence = "".join(ref.read_text().splitlines()[1:])
+    ref2 = tmp / "ref.fa"
+    ref2.write_text(f">chr20\n{sequence}\n>{HLA}\n{sequence}\n")
+    sam = _run("samtools", "view", "-h", "--no-PG", str(bam)).splitlines()
+    lines = []
+    for i, line in enumerate(sam):
+        if line.startswith("@SQ"):
+            line += f"\n@SQ\tSN:{HLA}\tLN:{len(sequence)}"
+        elif not line.startswith("@") and i % 2:
+            fields = line.split("\t")
+            fields[2] = HLA
+            line = "\t".join(f for f in fields if not f.startswith("SA:Z:"))
+        lines.append(line)
+    (tmp / "reads.sam").write_text("\n".join(lines) + "\n")
+    out = tmp / "reads.bam"
+    _run("samtools", "sort", "-o", str(out), str(tmp / "reads.sam"))
+    _run("samtools", "index", str(out))
+    return out, ref2
+
+
+@needs_tools("whatshap", "minimap2")
+@needs_htslib
+def test_whatshap_phases_contigs_with_colons_in_parallel(two_contigs, tmp_path):
+    # #464 review: `bcftools view -r` split "HLA-A*01:01:01:01" at the colons.
+    calls = _write_calls(tmp_path / "chr20.vcf")
+    text = calls.read_text().replace(
+        "##contig=<ID=chr20,length=12000>",
+        f"##contig=<ID=chr20,length=12000>\n##contig=<ID={HLA},length=12000>",
+    )
+    rows = [line for line in text.splitlines() if line.startswith("chr20\t")]
+    both = tmp_path / "both.vcf"
+    both.write_text(text + "".join(f"{HLA}{r[5:]}\n" for r in rows))
+
+    result = _phase(two_contigs, tmp_path, vcf_input=both, phaser="whatshap")
+
+    (vcf,) = (r.path for r in result.outputs if r.role == "phased_variants")
+    phased = _run("bcftools", "query", "-i", 'GT~"|"', "-f", "%CHROM\n", vcf)
+    assert set(phased.split()) == {"chr20", HLA}
+
+
+@needs_tools("minimap2")
+@needs_htslib
+@pytest.mark.parametrize(
+    "phaser",
+    [
+        pytest.param("whatshap", marks=needs_tools("whatshap")),
+        pytest.param("longphase", marks=needs_tools("longphase")),
+    ],
+)
+def test_reads_on_a_contig_without_calls_are_kept_untagged(
+    two_contigs, tmp_path, phaser
+):
+    # #464 review: WhatsHap haplotag failed on a read contig missing from the
+    # VCF header (whole-genome reads, chr20-only calls).
+    bam, _ref = two_contigs
+    result = _phase(two_contigs, tmp_path, phaser=phaser, haplotag=True)
+
+    (tagged,) = (r.path for r in result.outputs if r.role == "haplotagged_alignments")
+    assert _run("samtools", "view", "-c", tagged, HLA) == _run(
+        "samtools", "view", "-c", str(bam), HLA
+    )
+    assert "HP:i:" in _run("samtools", "view", tagged, "chr20")
+    assert "HP:i:" not in _run("samtools", "view", tagged, HLA)
+
+
+@needs_tools("minimap2")
+@needs_htslib
+@pytest.mark.parametrize(
+    "phaser",
+    [
+        pytest.param("whatshap", marks=needs_tools("whatshap")),
+        pytest.param("longphase", marks=needs_tools("longphase")),
+    ],
+)
+def test_several_regions_are_tagged_and_nothing_else(aligned, tmp_path, phaser):
+    # #464 review: several --region intervals broke WhatsHap's haplotag
+    # arguments, and LongPhase tagged the whole file.
+    bam, ref = aligned
+    regions = ["chr20:2000-2500", "chr20:9000-9500"]
+
+    result = _phase(
+        aligned, tmp_path, phaser=phaser, haplotag=True, region=",".join(regions)
+    )
+
+    (tagged,) = (r.path for r in result.outputs if r.role == "haplotagged_alignments")
+    names = set(_run("samtools", "view", tagged).split("\n")) - {""}
+    overlapping = _run("samtools", "view", "-M", str(bam), *regions)
+    assert {n.split("\t")[0] for n in names} == {
+        line.split("\t")[0] for line in overlapping.splitlines()
+    }

@@ -18,9 +18,10 @@ import sys
 import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 
 from wgsextract_cli.api._cli import cli_handler
 from wgsextract_cli.api.vcf import VcfPhaseParams
@@ -92,9 +93,17 @@ def phase_sample(vcf: str, header: str) -> str:
     samples = vcf_samples(vcf)
     if not samples:
         raise UsageError(f"{vcf} has no samples (genotypes) to phase.")
+    names = {group["SM"] for group in read_groups(header) if group.get("SM")}
+    # The phasers use every read (their @RG SM may not match the VCF's name),
+    # so another individual's reads would be phased in.
+    if len(names) > 1:
+        raise UsageError(
+            f"The reads hold several samples ({', '.join(sorted(names))}); "
+            "phasing needs one sample's reads. Extract that sample's read "
+            "groups first, e.g. `samtools view -r GROUP`."
+        )
     if len(samples) == 1:
         return samples[0]
-    names = {group["SM"] for group in read_groups(header) if group.get("SM")}
     matches = [s for s in samples if s in names]
     if len(matches) == 1:
         return matches[0]
@@ -177,21 +186,37 @@ def run_whatshap(
     parts = []
     for i, contigs in enumerate(batches):
         part = str(Path(work, f"batch{i}.vcf.gz"))
-        run_command(
-            ["bcftools", "view", "-r", ",".join(contigs), "-Oz", "-o", part, vcf]
-        )
+        # A regions file, as `-r` can't parse contig names with ':' (HLA-*).
+        regions = str(Path(work, f"batch{i}.regions.txt"))
+        with open(regions, "w", newline="\n") as f:
+            f.writelines(f"{contig}\t1\t2147483647\n" for contig in contigs)
+        run_command(["bcftools", "view", "-R", regions, "-Oz", "-o", part, vcf])
         parts.append((part, str(Path(work, f"batch{i}.phased.vcf.gz"))))
     env = _tool_env()
+    cancelled = Event()
 
     def phase(part: tuple[str, str]) -> None:
-        run_command(
-            whatshap_phase_command(part[0], reads, ref, sample, part[1]),
-            env=env,
+        if cancelled.is_set():
+            return
+        run_pipeline(
+            [whatshap_phase_command(part[0], reads, ref, sample, part[1])],
             stdin=subprocess.DEVNULL,
+            env=env,
+            description="WhatsHap phase",
+            cancel_event=cancelled,
         )
 
+    # A failed or interrupted batch stops the others rather than waiting on them.
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
-        list(pool.map(phase, parts))
+        futures = [pool.submit(phase, part) for part in parts]
+        try:
+            for future in as_completed(futures):
+                future.result()
+        except BaseException:
+            cancelled.set()
+            for future in futures:
+                future.cancel()
+            raise
     concat = str(Path(work, "concat.bcf"))
     run_command(["bcftools", "concat", "-Ob", "-o", concat, *(p for _in, p in parts)])
     run_command(["bcftools", "sort", "-T", work, "-Oz", "-o", out, concat])
@@ -302,7 +327,7 @@ def haplotag_command(
             "--sample", sample, "--output-threads", str(threads), "-o", output,
         ]  # fmt: skip
         if regions:
-            command += ["--regions", *regions]
+            command += ["--regions", regions[0]]
         return [*command, vcf, reads]
     prefix = output.rsplit(".", 1)[0]
     command = [
@@ -311,7 +336,7 @@ def haplotag_command(
     ]  # fmt: skip
     if output.endswith(".cram"):
         command.append("--cram")
-    if len(regions) == 1:
+    if regions:
         command += ["--region", regions[0]]
     return command
 
@@ -328,6 +353,7 @@ def run_phase(params: VcfPhaseParams) -> None:
     require_a_phaser(params.phaser)
     vcf = str(params.vcf_input)
     verify_paths_exist({"--vcf-input": vcf})
+    current_result().add_input(vcf, "vcf_input")
     setup = setup_caller(params)
     threads, outdir, ref = int(setup.threads), setup.outdir, setup.ref
     reads, region = str(params.input), params.region
@@ -394,6 +420,24 @@ def run_phase(params: VcfPhaseParams) -> None:
         haplotag(phaser, out_vcf, reads, ref, sample, threads, outdir, region)
 
 
+def _missing_contig_lines(vcf: str, header: str) -> list[str]:
+    """``##contig`` lines for the reads' @SQ contigs that the VCF lacks."""
+    out = run_command(["bcftools", "view", "-h", vcf], capture_output=True).stdout
+    known = {
+        line.split("ID=", 1)[1].split(",", 1)[0].rstrip(">")
+        for line in out.splitlines()
+        if line.startswith("##contig=<")
+    }
+    lines = []
+    for line in header.splitlines():
+        if not line.startswith("@SQ"):
+            continue
+        tags = dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
+        if tags.get("SN") and tags["SN"] not in known:
+            lines.append(f"##contig=<ID={tags['SN']},length={tags.get('LN', 0)}>")
+    return lines
+
+
 def haplotag(
     phaser: str, vcf: str, reads: str, ref: str, sample: str, threads: int,
     outdir: str, region: str | None,
@@ -405,13 +449,31 @@ def haplotag(
     logging.info(f"Tagging reads by haplotype with {phaser} into {output}")
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_haplotag_") as work:
         # GT and PS only: LongPhase 2.1 takes a FORMAT field such as GIAB's IPS
-        # for PS and aborts.
+        # for PS and aborts. Every read contig is declared, as WhatsHap fails on
+        # a contig the VCF lacks (a chr20-only VCF with whole-genome reads); its
+        # reads are written untagged.
+        contigs = str(Path(work, "contigs.txt"))
+        with open(contigs, "w", newline="\n") as f:
+            f.writelines(
+                line + "\n"
+                for line in _missing_contig_lines(vcf, get_bam_header(reads, ref))
+            )
         slim = str(Path(work, "phased.vcf.gz"))
         run_command(
             ["bcftools", "annotate", "-x", "INFO,^FORMAT/GT,FORMAT/PS",
-             "-Oz", "-o", slim, vcf]
+             "-h", contigs, "-Oz", "-o", slim, vcf]
         )  # fmt: skip
         ensure_vcf_indexed(slim)
+        if len(regions) > 1:
+            # LongPhase takes one region, and WhatsHap writes a read once per
+            # region it overlaps, unsorted; so tag the reads of all of them.
+            subset = str(Path(work, "regions.bam"))
+            run_command(
+                ["samtools", "view", "-M", "-b", "--reference", ref,
+                 "-@", str(threads), "-o", subset, reads, *regions]
+            )  # fmt: skip
+            run_command(["samtools", "index", subset])
+            reads, regions = subset, []
         staged = str(Path(work, f"haplotagged{suffix}"))
         run_command(
             haplotag_command(

@@ -1057,8 +1057,12 @@ class VcfPhaseParams(_CallerParams):
     COMMAND = "vcf phase"
 
     input: Path = input_param("BAM or CRAM of the sample's reads.")
-    vcf_input: Path | None = _vcf_input_param(
-        "VCF of the sample's calls to phase (default: config default_input_vcf)"
+    vcf_input: Path | None = param(
+        None,
+        help="VCF of the sample's calls to phase (default: config default_input_vcf)",
+        path="file",
+        config_key="default_input_vcf",
+        doc="The calls to phase, read with ``input`` (not instead of it).",
     )
     region: str | None = _region_param(
         "Phase only these regions (e.g. chr20 or chr20:1-1000000, comma-separated)"

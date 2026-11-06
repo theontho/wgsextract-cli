@@ -1286,7 +1286,7 @@ HP/PS tags to `haplotagged.bam` (or `.cram`).
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Phase only these regions (e.g. chr20 or chr20:1-1000000, comma-separated) |
-| `vcf_input` | `Path \| None` | `None` | `--vcf-input` | The VCF to read; wins over ``input``. On the CLI, --vcf-input defaults to config default_input_vcf when --input isn't given. |
+| `vcf_input` | `Path \| None` | `None` (config `default_input_vcf`) | `--vcf-input` | The calls to phase, read with ``input`` (not instead of it). |
 | `phaser` | `str \| None` | `None` | `--phaser` | Phasing tool (default: longphase for Nanopore and PacBio reads when it is installed, else whatshap). LongPhase is refused for other reads. One of: `whatshap`, `longphase` |
 | `haplotag` | `bool` | `False` | `--haplotag` | Also write the reads tagged with their haplotype (HP) and phase block (PS) to haplotagged.bam (.cram for CRAM input). |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |

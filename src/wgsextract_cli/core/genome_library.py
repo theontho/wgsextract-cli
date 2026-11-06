@@ -233,6 +233,14 @@ def _set_vcf_input(
         if "input" not in explicit_dests and hasattr(args, "input"):
             args.input = None
         return
+    if vcf_cmd == "phase":
+        # Two inputs: the genome's calls and its reads, each unless given.
+        if not ("vcf_input" in explicit_dests and getattr(args, "vcf_input", None)):
+            args.vcf_input = str(
+                _resolve_category(genome_dir, config, "vcf", VCF_SUFFIXES)
+            )
+        _set_alignment_input(args, genome_dir, config, explicit_dests)
+        return
     if "vcf_input" in explicit_dests and getattr(args, "vcf_input", None):
         return
     should_resolve_vcf = getattr(args, "qc_cmd", None) == "vcf" or (

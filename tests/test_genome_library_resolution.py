@@ -156,6 +156,24 @@ def test_vcf_calling_commands_resolve_the_alignment(library):
     assert args.vcf_input is None
 
 
+def test_phase_resolves_both_the_calls_and_the_reads(library):
+    # #464 review: `vcf phase --genome` resolved only one of its two inputs.
+    genome = _genome(library, "ken", "ken.bam", "calls/ken.vcf.gz")
+
+    args = _select("ken", command="vcf", vcf_cmd="phase", vcf_input=None)
+    assert args.input == str(genome / "ken.bam")
+    assert args.vcf_input == str(genome / "calls" / "ken.vcf.gz")
+
+    args = _select(
+        "ken", {"vcf_input"}, command="vcf", vcf_cmd="phase", vcf_input="mine.vcf"
+    )
+    assert (args.input, args.vcf_input) == (str(genome / "ken.bam"), "mine.vcf")
+
+    args = _select("ken", {"input"}, command="vcf", vcf_cmd="phase", vcf_input=None)
+    assert args.input is None
+    assert args.vcf_input == str(genome / "calls" / "ken.vcf.gz")
+
+
 def test_explicit_vcf_input_is_kept(library):
     _genome(library, "ken", "a.vcf.gz", "b.vcf.gz")
 
