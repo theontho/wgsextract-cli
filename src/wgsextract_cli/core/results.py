@@ -395,7 +395,7 @@ class CommandResult:
         self._tool_versions: dict[str, str] = {}
         self._manifest_stem: Path | None = None
         self._clock = time.monotonic()
-        self._text_lock = threading.Lock()
+        self._text_lock = threading.RLock()
         self._text: list[str] = []
         self._text_sink: Callable[[str], object] | None = None
 
