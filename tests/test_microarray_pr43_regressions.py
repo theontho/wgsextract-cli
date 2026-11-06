@@ -18,15 +18,17 @@ from tests.htslib_helpers import (
     write_fasta,
 )
 from tests.microarray_helpers import microarray_params
+from wgsextract_cli.api.microarray import MicroarrayParams
 from wgsextract_cli.commands import _microarray_combined, _microarray_vcf, microarray
 from wgsextract_cli.core import variant_files
 from wgsextract_cli.core.builds import ploidy_for_build
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.microarray_utils import (
     liftover_hg38_to_hg19,
+    resolve_format_key,
     write_formatted_line,
 )
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
 
 LENGTH = 400
 _rng = random.Random(43)
@@ -66,11 +68,11 @@ def test_reference_model_aliases_get_their_builds_sex_aware_ploidy(
         ("23andme-v5-2025", "23andMe_V5_2025"),
         ("ancestry_v2_2024", "Ancestry_V2_2024"),
         ("nucleus", "Nucleus_V1"),
-        ("My-Custom-Format", "my_custom_format"),
+        ("23andMe_SNPs_API", "23andMe_SNPs_API"),
     ],
 )
 def test_microarray_format_aliases_match_template_names(format_key, expected):
-    assert microarray._resolve_microarray_format(format_key) == expected
+    assert resolve_format_key(format_key) == expected
 
 
 def test_convert_microarray_outputs_preserves_vendor_wgsextract_error(tmp_path):
@@ -437,3 +439,12 @@ def test_microarray_vcf_region_normalizes_to_input_vcf_chromosome_style():
     assert _microarray_vcf._normalize_region_args_for_input(
         ["-r", "chr1"], ["1", "MT"]
     ) == ["-r", "1"]
+
+
+@pytest.mark.parametrize("formats", ["23andme_v5,../../x", "my-custom-format"])
+def test_unknown_microarray_formats_are_refused(tmp_path, formats):
+    # #351 security review: an unknown name was used in template and output
+    # paths, with a generic .txt fallback.
+    with pytest.raises(UsageError, match="Unknown microarray format"):
+        MicroarrayParams(input=tmp_path / "a.bam", formats=formats)
+    MicroarrayParams(input=tmp_path / "a.bam", formats="aadr_1240k+ho,23andMe_V35")

@@ -14,7 +14,7 @@ from wgsextract_cli.commands.benchmark.chip import (
     read_chip_export,
     score_chip,
 )
-from wgsextract_cli.commands.microarray import _MICROARRAY_TEMPLATE_MAP
+from wgsextract_cli.core.microarray_utils import FORMAT_ALIASES
 
 
 @pytest.mark.parametrize(
@@ -44,7 +44,7 @@ def test_real_layouts_keep_nocalls(tmp_path: Path, name: str, text: str) -> None
 
 
 def test_registry_covers_every_consumer_format() -> None:
-    assert set(CONSUMER_FORMATS) == set(_MICROARRAY_TEMPLATE_MAP.values())
+    assert set(CONSUMER_FORMATS) == set(FORMAT_ALIASES.values())
 
 
 def test_duplicates_stay_quarantined_and_aliases_normalize(tmp_path: Path) -> None:

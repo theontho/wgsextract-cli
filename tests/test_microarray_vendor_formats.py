@@ -18,7 +18,7 @@ from wgsextract_cli.core.microarray_utils import (
     convert_to_vendor_format,
     liftover_hg38_to_hg19,
 )
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 KIT = [
     ("rs1", "1", "1000", "AC"),
@@ -224,10 +224,12 @@ def test_23andme_api_reads_its_chrom_position_rsid_template(tmp_path):
     assert out.splitlines()[1:] == ["rs1\t1\t1000\tAC", "rsX\tX\t5000\tGG"]
 
 
-def test_unknown_format_falls_back_to_tab_separated(tmp_path):
-    out = _convert(tmp_path, "Custom_V1", ".txt", "", "rs3\t1\t3000\nrsY\tY\t6000\n")
+def test_an_unknown_format_is_refused_even_with_a_template_of_that_name(tmp_path):
+    # #351 security review: the name is part of the template and output paths.
+    with pytest.raises(WGSExtractError, match="Unknown microarray format"):
+        _convert(tmp_path, "Custom_V1", ".txt", "", "rs3\t1\t3000\n")
 
-    assert out == "rs3\t1\t3000\tGT\nrsY\tY\t6000\tTT\n"
+    assert not (tmp_path / "out.txt").exists()
 
 
 def test_a_corrupt_body_leaves_no_partial_vendor_file(tmp_path):
@@ -286,8 +288,8 @@ def test_all_writes_only_the_combined_kit(tmp_path):
     assert [p.name for p in outdir.iterdir()] == ["sample_CombinedKit.txt"]
 
 
-def test_unknown_format_without_a_template_names_the_format(tmp_path):
-    with pytest.raises(WGSExtractError, match="Failed to generate nonsense_v9"):
+def test_an_unknown_format_is_refused_by_name(tmp_path):
+    with pytest.raises(UsageError, match="Unknown microarray format 'nonsense_v9'"):
         _convert_outputs(tmp_path, "nonsense_v9")
 
 

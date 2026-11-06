@@ -141,6 +141,15 @@ class MicroarrayParams(Params):
     )
     qc_min_depth: float | None = depth_param()
 
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from wgsextract_cli.core.microarray_aadr import aadr_panel
+        from wgsextract_cli.core.microarray_utils import resolve_format_key
+
+        for item in self.formats.split(","):
+            if aadr_panel(item) is None:
+                resolve_format_key(item)
+
 
 def generate(
     params: MicroarrayParams,

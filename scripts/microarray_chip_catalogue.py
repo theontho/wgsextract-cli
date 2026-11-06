@@ -354,9 +354,9 @@ def _closest_template(
 
 
 def _relation(name: str, relation: str, added: int, removed: int) -> dict[str, Any]:
-    from wgsextract_cli.commands.microarray import _MICROARRAY_TEMPLATE_MAP
+    from wgsextract_cli.core.microarray_utils import FORMAT_ALIASES
 
-    keys = sorted(k for k, v in _MICROARRAY_TEMPLATE_MAP.items() if v == name)
+    keys = sorted(k for k, v in FORMAT_ALIASES.items() if v == name)
     return {
         "name": name,
         "formats": keys[-1] if keys else name.lower(),

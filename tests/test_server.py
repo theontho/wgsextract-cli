@@ -527,6 +527,14 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
             403,
             "path_not_allowed",
         ),
+        # #351 security review: an unknown format name became part of the
+        # template and output paths, so "../" read and wrote outside them.
+        (
+            "microarray",
+            {"input": "{work}/a.bam", "outdir": "{work}", "formats": "../../x"},
+            400,
+            "usage",
+        ),
         ("nope", {}, 404, "unknown_op"),
         # PR #422 review: these were 500 "internal" errors, or jobs with
         # values the schema forbids.
