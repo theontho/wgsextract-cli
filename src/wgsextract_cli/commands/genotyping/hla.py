@@ -246,6 +246,8 @@ def cmd_hla(args: argparse.Namespace) -> None:
         if Path(aln.outdir, name).is_file():
             result.add_output(Path(aln.outdir, name), role)
     release = _index_release(index)
+    if release:
+        result.add_metrics(ipd_imgt_hla_release=release)
     logging.info(f"HLA alleles{f' ({release})' if release else ''}:")
     for gene in REPORTED_GENES:
         call = calls.get(gene)

@@ -42,12 +42,12 @@ TSV_HEADER = (
 # Three genes in the built-in lists' format, with their NCBI RefSeq spans.
 MINI_LIST = (
     "# A test gene list\n"
-    "gene\tcategory\thg19_chrom\thg19_start\thg19_end\thg38_chrom\thg38_start\t"
-    "hg38_end\tnote\n"
-    "BRCA2\tcancer\tchr13\t32889645\t32974405\tchr13\t32315077\t32400268\t\n"
-    "MUTYH\tcancer\tchr1\t45794914\t45806112\tchr1\t45329242\t45340440\t"
+    "gene\tcategory\tinheritance\thg19_chrom\thg19_start\thg19_end\thg38_chrom\t"
+    "hg38_start\thg38_end\tnote\n"
+    "BRCA2\tcancer\tAD\tchr13\t32889645\t32974405\tchr13\t32315077\t32400268\t\n"
+    "MUTYH\tcancer\tAR\tchr1\t45794914\t45806112\tchr1\t45329242\t45340440\t"
     "two P/LP variants (biallelic) are reportable\n"
-    "PLN\tcardiovascular\tchr6\t118869459\t118882879\tchr6\t118548296\t"
+    "PLN\tcardiovascular\tAD\tchr6\t118869459\t118882879\tchr6\t118548296\t"
     "118561716\t\n"
 )
 SPANS = {"BRCA2": ("chr13", 32315077, 32400268), "MUTYH": ("chr1", 45329242, 45340440)}
@@ -267,7 +267,8 @@ def test_sections_follow_the_runs_and_missing_ones_say_how_to_run(sample):
     assert hints["overview"] == ["wgsextract info --detailed -i HG002.cram"]
     assert hints["lineage"] == ["wgsextract lineage y-haplogroup -i HG002.cram"]
     assert hints["pharmacogenomics"] == [
-        "wgsextract vcf pharmcat --vcf-input HG002.vcf.gz"
+        "wgsextract vcf pharmcat --vcf-input HG002.vcf.gz",
+        "wgsextract typing hla -i HG002.cram",
     ]
     assert hints["microarray"] == ["wgsextract microarray -i HG002.cram"]
     assert hints["clinvar"] == []
@@ -346,16 +347,21 @@ def test_built_in_lists_match_the_cited_acmg_sf_tables():
     assert (v32["HFE"], v33["HFE"]) == ("miscellaneous", "metabolism")
 
 
-def _clinvar_table(folder: Path, *calls: tuple[str, int, str, str]) -> None:
-    """Replace the sample's ClinVar calls with (chrom, pos, CLNSIG, GENEINFO)."""
+GENOTYPES = {"het": "0/1", "hom": "1/1", "haploid": "1"}
+
+
+def _clinvar_table(folder: Path, *calls: tuple[Any, ...]) -> None:
+    """Replace the sample's ClinVar calls with (chrom, pos, CLNSIG, GENEINFO
+    [, zygosity]); heterozygous unless given."""
     table = folder / "clinvar_pathogenic.confidence.tsv"
-    table.write_text(
-        TSV_HEADER.replace("CLNDN\n", "CLNDN\tGENEINFO\n")
-        + "".join(
-            f"{chrom}\t{pos}\tC\tT\t0/1\thet\thigh\t\t30\t99\t0.5\t{sig}\tx\t{info}\n"
-            for chrom, pos, sig, info in calls
+    rows = []
+    for chrom, pos, sig, info, *zygosity in calls:
+        zyg = zygosity[0] if zygosity else "het"
+        rows.append(
+            f"{chrom}\t{pos}\tC\tT\t{GENOTYPES[zyg]}\t{zyg}\thigh\t\t30\t99\t0.5\t"
+            f"{sig}\tx\t{info}\n"
         )
-    )
+    table.write_text(TSV_HEADER.replace("CLNDN\n", "CLNDN\tGENEINFO\n") + "".join(rows))
 
 
 def test_built_in_list_is_downloaded_once_and_checked_on_each_use(sample, served_lists):
@@ -428,6 +434,81 @@ def test_geneinfo_names_the_gene_and_spans_are_the_fallback(sample):
     }
     assert findings["chr6:2000"]["note"].startswith("MUTYH: ")
     assert clinvar["counts"]["outside_gene_list"] == 1
+
+
+@pytest.mark.parametrize(
+    ("mutyh", "status"),
+    [
+        (("het",), "carrier"),
+        (("het", "het"), "possible_biallelic"),
+        (("hom",), "biallelic"),
+        (("haploid",), "biallelic"),
+    ],
+)
+def test_recessive_genes_count_calls_by_zygosity_for_carrier_status(
+    sample, mutyh, status
+):
+    # Issue #398: an AR gene is reportable only with two P/LP alleles.
+    chrom, pos = _mid("MUTYH")
+    _clinvar_table(
+        sample,
+        *((chrom, pos + i, "Pathogenic", "MUTYH:4595", z) for i, z in enumerate(mutyh)),
+        (*_mid("BRCA2"), "Pathogenic", "BRCA2:675", "hom"),
+    )
+    report = pr.build_report(sample)
+    jsonschema.validate(json.loads(json.dumps(report)), pr.load_schema())
+    clinvar = report["sections"]["clinvar"]
+    genes = {g["gene"]: g for g in clinvar["genes"]}
+    assert genes["MUTYH"]["inheritance"] == "AR"
+    assert genes["MUTYH"]["status"] == status
+    zygosity = ("heterozygous", "homozygous", "hemizygous")
+    assert [genes["MUTYH"][z] for z in zygosity] == [
+        mutyh.count(z) for z in ("het", "hom", "haploid")
+    ]
+    # A dominant gene's calls are counted but get no carrier status.
+    assert (genes["BRCA2"]["homozygous"], genes["BRCA2"]["status"]) == (1, None)
+    shown = status.replace("_", " ")
+    assert f"Recessive genes: MUTYH {shown}." in clinvar["summary"]
+    assert ("phase unknown" in genes["MUTYH"]["status_text"]) == (
+        status == "possible_biallelic"
+    )
+    markdown = pr.render_markdown(report)
+    assert f"| MUTYH | AR | {' | '.join(str(genes['MUTYH'][z]) for z in zygosity)} " \
+        f"| **{shown}**: " in markdown  # fmt: skip
+    page = _Page()
+    page.feed(pr.render_html(report))
+    assert shown in page.text
+
+
+def test_a_list_without_inheritance_counts_calls_but_gives_no_status(sample, tmp_path):
+    listed = tmp_path / "genes.tsv"
+    listed.write_text("gene\nMUTYH\n")
+    chrom, pos = _mid("MUTYH")
+    _clinvar_table(sample, (chrom, pos, "Pathogenic", "MUTYH:4595", "hom"))
+    clinvar = pr.build_report(sample, gene_list=listed)["sections"]["clinvar"]
+    assert clinvar["genes"] == [
+        {
+            "gene": "MUTYH",
+            "inheritance": None,
+            "heterozygous": 0,
+            "homozygous": 1,
+            "hemizygous": 0,
+            "status": None,
+            "status_text": "",
+        }
+    ]
+    assert "Recessive genes" not in clinvar["summary"]
+
+
+def test_a_call_in_two_listed_genes_counts_for_each(sample):
+    _clinvar_table(
+        sample,
+        ("chr6", 2000, "Pathogenic", "BRCA2:675|MUTYH:4595"),
+        ("chr6", 3000, "Pathogenic", "MUTYH:4595"),
+    )
+    clinvar = pr.build_report(sample)["sections"]["clinvar"]
+    genes = {g["gene"]: (g["heterozygous"], g["status"]) for g in clinvar["genes"]}
+    assert genes == {"BRCA2": (1, None), "MUTYH": (2, "possible_biallelic")}
 
 
 def test_gene_list_from_the_flag_or_config_is_a_tsv_or_bed(
@@ -922,7 +1003,10 @@ def test_failed_pharmcat_and_clinvar_runs_show_their_errors(sample):
     pgx = sections["pharmacogenomics"]
     assert pgx["status"] == "ok"  # Cyrius ran
     assert "vcf pharmcat needs java" in pgx["error"]
-    assert [m["command"].split()[1:3] for m in pgx["missing"]] == [["vcf", "pharmcat"]]
+    assert [m["command"].split()[1:3] for m in pgx["missing"]] == [
+        ["vcf", "pharmcat"],
+        ["typing", "hla"],
+    ]
 
 
 def test_messages_from_runs_keep_paths_out_of_the_documents(sample, tmp_path):

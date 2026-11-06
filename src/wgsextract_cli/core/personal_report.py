@@ -702,7 +702,8 @@ def _pharmacogenomics(ctx: _Context) -> dict[str, Any]:
         ctx.sources, _command_or_role("vcf pharmcat", "pharmcat_phenotypes")
     )
     cyrius = latest(ctx.sources, _command("typing cyp2d6"))
-    section = _section("pharmacogenomics", [pharmcat, cyrius], ctx)
+    hla = latest(ctx.sources, _command("typing hla"))
+    section = _section("pharmacogenomics", [pharmcat, cyrius, hla], ctx)
     if pharmcat is not None and pharmcat.status == "ok":
         _pharmcat_findings(section, pharmcat, ctx)
     else:
@@ -718,6 +719,14 @@ def _pharmacogenomics(ctx: _Context) -> dict[str, Any]:
             section,
             "CYP2D6 star alleles (Cyrius, ~30x WGS)",
             ctx.command_for("typing cyp2d6", ctx.alignment, "cram"),
+        )
+    if hla is not None and hla.status == "ok":
+        _hla_findings(section, hla, ctx)
+    else:
+        _missing(
+            section,
+            "HLA-A and HLA-B alleles (T1K)",
+            ctx.command_for("typing hla", ctx.alignment, "cram"),
         )
     count = len(section["findings"])
     section["summary"] = f"{count} gene call{'s' * (count != 1)}." if count else ""
@@ -819,6 +828,55 @@ def _cyrius_finding(section: dict[str, Any], source: Source, ctx: _Context) -> N
     )
 
 
+def _hla_findings(section: dict[str, Any], source: Source, ctx: _Context) -> None:
+    """The HLA-A and HLA-B diplotypes ``typing hla`` called (those PharmCAT
+    takes), labelled by T1K's allele qualities."""
+    from wgsextract_cli.commands.genotyping.hla import PHARMCAT_GENES, parse_t1k
+
+    evidence = source.output("hla_genotypes")
+    try:
+        calls = {c.gene: c for c in parse_t1k(str(evidence))} if evidence else None
+    except (OSError, ValueError) as e:
+        section["warnings"].append(
+            {"code": "unreadable_evidence", "message": f"T1K genotypes: {e}"}
+        )
+        calls = None
+    release = source.metrics.get("ipd_imgt_hla_release")
+    for gene in PHARMCAT_GENES:
+        diplotype = source.metrics.get(gene)
+        call = (calls or {}).get(gene)
+        qualities = [q for _, q in call.alleles] if call else []
+        if not diplotype:
+            label, reasons = variant_confidence.LOW, ["no_call"]
+        elif not qualities:
+            label, reasons = variant_confidence.MODERATE, ["quality_unknown"]
+        else:
+            label, reasons = variant_confidence.HIGH, []
+        detail = "; ".join(
+            x
+            for x in (
+                f"T1K quality {', '.join(map(str, qualities))}" if qualities else "",
+                str(release or ""),
+            )
+            if x
+        )
+        section["findings"].append(
+            _finding(
+                "pharmacogenomics",
+                f"{gene} alleles (T1K)",
+                str(diplotype or "no confident call"),
+                detail=detail or None,
+                gene=gene,
+                confidence=label,
+                reasons=reasons,
+                basis="T1K allele quality (above 0 for each allele, as T1K recommends)",
+                evidence=ctx.rel(evidence),
+                region=f"gene {gene}",
+                manifest=ctx.rel(source.manifest),
+            )
+        )
+
+
 def _int(value: Any) -> int | None:
     try:
         return int(float(value))
@@ -877,6 +935,7 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
             )
     outside = unplaced = 0
     findings = []
+    zygosities: dict[str, tuple[gene_lists.Gene, list[str]]] = {}
     for call in () if unavailable else calls:
         pos = _int(call.get("pos"))
         chrom = str(call.get("chrom") or "")
@@ -887,6 +946,10 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         if not genes:
             outside += 1
             continue
+        for gene in genes:
+            zygosities.setdefault(gene.symbol, (gene, []))[1].append(
+                str(call.get("zygosity") or "")
+            )
         significance = str(call.get("CLNSIG") or "").replace("_", " ")
         # A variant ClinVar places in several listed genes is one finding.
         symbols = "/".join(g.symbol for g in genes)
@@ -925,6 +988,9 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
     order = {label: i for i, label in enumerate(CONFIDENCE)}
     findings.sort(key=lambda f: (order.get(f["confidence"], 9), f["gene"] or ""))
     section["findings"] = findings
+    section["genes"] = sorted(
+        (_gene_calls(g, z) for g, z in zygosities.values()), key=lambda g: g["gene"]
+    )
     section["build"] = build
     section["counts"] = {
         "carried": len(calls),
@@ -962,12 +1028,55 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
                 "spans. See the full table.",
             }
         )
+    flagged = [
+        f"{g['gene']} {g['status'].replace('_', ' ')}"
+        for g in section["genes"]
+        if g["status"]
+    ]
     section["summary"] = (
         f"{len(findings)} call{'s' * (len(findings) != 1)} in "
         f"{described['name']} genes; {outside} more elsewhere"
-        + (f"; {unplaced} not placed." if unplaced else ".")
+        + (f"; {unplaced} not placed" if unplaced else "")
+        + (f". Recessive genes: {', '.join(flagged)}" if flagged else "")
+        + "."
     )
     return section
+
+
+# A recessive gene's P/LP calls, by zygosity: one copy, or (maybe) both.
+GENE_STATUS = {
+    "biallelic": "a homozygous or hemizygous P/LP call: both copies affected",
+    "possible_biallelic": "two or more heterozygous P/LP calls; phase unknown, so "
+    "they may be on the same copy (cis) rather than one on each (trans)",
+    "carrier": "one heterozygous P/LP call: a carrier of one affected copy",
+}
+
+
+def _gene_calls(gene: gene_lists.Gene, zygosities: Sequence[str]) -> dict[str, Any]:
+    """A listed gene's P/LP calls by zygosity, and for a gene the list reports
+    only when biallelic (AR) whether this sample is a carrier or (possibly)
+    biallelic. Phase is not known, so two heterozygous calls are only
+    possibly biallelic."""
+    het = zygosities.count("het")
+    hom = zygosities.count("hom")
+    hemi = zygosities.count("haploid")
+    status = None
+    if gene.recessive:
+        if hom or hemi:
+            status = "biallelic"
+        elif het >= 2:
+            status = "possible_biallelic"
+        elif het:
+            status = "carrier"
+    return {
+        "gene": gene.symbol,
+        "inheritance": gene.inheritance or None,
+        "heterozygous": het,
+        "homozygous": hom,
+        "hemizygous": hemi,
+        "status": status,
+        "status_text": GENE_STATUS.get(status or "", ""),
+    }
 
 
 def _call_genes(
@@ -1349,6 +1458,25 @@ def _html_section_body(name: str, section: Mapping[str, Any], base: str) -> list
                 f'<p class="muted">Every carried ClinVar P/LP call: '
                 f"{_link(section['all_calls'], _href(section['all_calls'], base))}</p>"
             )
+        if section.get("genes"):
+            out.append("<table><tr><th>Gene</th><th>Inheritance</th>"
+                       "<th>Heterozygous</th><th>Homozygous</th><th>Hemizygous</th>"
+                       "<th>Recessive gene</th></tr>")  # fmt: skip
+            for g in section["genes"]:
+                status = (g["status"] or "").replace("_", " ")
+                out.append(
+                    f"<tr><td>{_h(g['gene'])}</td><td>{_h(g['inheritance'] or '')}</td>"
+                    f'<td class="n">{g["heterozygous"]}</td>'
+                    f'<td class="n">{g["homozygous"]}</td>'
+                    f'<td class="n">{g["hemizygous"]}</td><td>{_h(status)}'
+                    + (
+                        f'<br><span class="muted">{_h(g["status_text"])}</span>'
+                        if status
+                        else ""
+                    )
+                    + "</td></tr>"
+                )
+            out.append("</table>")
     elif name == "microarray" and section["files"]:
         out.append("<table><tr><th>File</th><th>Format</th><th>Sites</th>"
                    "<th>Called</th><th>No-call rate</th></tr>")  # fmt: skip
@@ -1486,6 +1614,25 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
                 out.append(
                     f"Every carried ClinVar P/LP call: {_md_link(section['all_calls'], href)}"
                 )
+            if section.get("genes"):
+                out += [
+                    "",
+                    "| Gene | Inheritance | Heterozygous | Homozygous | Hemizygous "
+                    "| Recessive gene |",
+                    "|---|---|---|---|---|---|",
+                ]
+                for g in section["genes"]:
+                    status = (g["status"] or "").replace("_", " ")
+                    out.append(
+                        f"| {_md(g['gene'])} | {_md(g['inheritance'])} | "
+                        f"{g['heterozygous']} | {g['homozygous']} | {g['hemizygous']} | "
+                        + (
+                            f"**{_md(status)}**: {_md(g['status_text'])}"
+                            if status
+                            else ""
+                        )
+                        + " |"
+                    )
         if name == "microarray" and section["files"]:
             out += [
                 "",

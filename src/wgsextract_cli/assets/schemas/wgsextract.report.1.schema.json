@@ -75,6 +75,24 @@
               "type": "object",
               "required": ["carried", "in_gene_list", "outside_gene_list", "high", "moderate", "low"],
               "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "genes": {
+              "type": "array",
+              "description": "Each listed gene with P/LP calls, counted by zygosity.",
+              "items": {
+                "type": "object",
+                "required": ["gene", "inheritance", "heterozygous", "homozygous", "hemizygous", "status", "status_text"],
+                "additionalProperties": false,
+                "properties": {
+                  "gene": {"type": "string"},
+                  "inheritance": {"type": ["string", "null"], "description": "The gene list's mode of inheritance (AD, AR, SD, XL); null when it gives none."},
+                  "heterozygous": {"type": "integer", "minimum": 0},
+                  "homozygous": {"type": "integer", "minimum": 0},
+                  "hemizygous": {"type": "integer", "minimum": 0, "description": "Haploid calls (one allele in the genotype)."},
+                  "status": {"enum": ["biallelic", "possible_biallelic", "carrier", null], "description": "For a gene the list reports only when biallelic (AR): biallelic (a homozygous or hemizygous call), possible_biallelic (two or more heterozygous calls; phase unknown) or carrier (one heterozygous call). Null for other genes."},
+                  "status_text": {"type": "string", "description": "The status explained; empty when status is null."}
+                }
+              }
             }
           }
         },

@@ -16,9 +16,11 @@ from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_
 from wgsextract_cli.commands.genotyping import common, hla, repeats
 from wgsextract_cli.commands.info.metrics import SEX_INFERENCE_VERSION
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.personal_report import build_report
 from wgsextract_cli.core.pixi_tools import _join_command
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import calculate_bam_md5
+from wgsextract_cli.main import main
 
 pytestmark = needs_tools("samtools")
 
@@ -342,6 +344,42 @@ def test_hla_extraction_uses_hg19_mhc_and_numeric_names(tmp_path, hla_setup):
     names, _ = json.loads(hla_setup.reads.read_text())
     assert names == ["in"]
     assert (tmp_path / "s.hla.pharmcat.tsv").exists()
+
+
+def test_report_shows_the_hla_calls_with_t1k_quality(tmp_path, mhc_bam, hla_setup):
+    # Issue #398: `report` shows `typing hla` like the CYP2D6 call.
+    hla_setup.genotype.write_text(
+        T1K_GENOTYPE.replace(
+            "HLA-A*24:02:01:01\t80.12\t45", "HLA-A*24:02:01:01\t9.1\t0"
+        )
+    )
+    out = tmp_path / "out"
+    main(["typing", "hla", "-i", str(mhc_bam), "--hla-index", str(hla_setup.index),
+          "-o", str(out), "--config", str(tmp_path / "config.toml")])  # fmt: skip
+    found = {
+        f["gene"]: f
+        for f in build_report(out)["sections"]["pharmacogenomics"]["findings"]
+    }
+    a, b = found["HLA-A"], found["HLA-B"]
+    assert (a["value"], a["confidence"], a["confidence_reasons"]) == (
+        "no confident call",
+        "low",
+        ["no_call"],
+    )
+    assert (b["value"], b["confidence"]) == ("*57:01/*08:01", "high")
+    assert b["detail"] == "T1K quality 33, 28; IPD-IMGT/HLA 3.56.0"
+    assert b["evidence"]["file"] == "NA12878.t1k_genotype.tsv"
+
+    # Without T1K's genotypes the qualities are unknown.
+    (out / "NA12878.t1k_genotype.tsv").unlink()
+    found = {
+        f["gene"]: f
+        for f in build_report(out)["sections"]["pharmacogenomics"]["findings"]
+    }
+    assert (found["HLA-B"]["confidence"], found["HLA-B"]["confidence_reasons"]) == (
+        "moderate",
+        ["quality_unknown"],
+    )
 
 
 def test_hla_index_must_exist(tmp_path, mhc_bam, hla_setup):

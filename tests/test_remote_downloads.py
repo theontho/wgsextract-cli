@@ -105,3 +105,18 @@ def test_built_in_gene_list_downloads_and_matches_its_pins(
             placed = [g.symbol for g in loaded.genes_at(build, chrom, pos)]
             assert placed == [], f"{build} {neighbour} call placed in {placed}"
     assert [g.symbol for g in loaded.genes_at("hg38", "chr2", 47_450_000)] == ["MSH2"]
+    # #398: Table 1's inheritance; AR genes get carrier status in `report`.
+    recessive = {"MUTYH", "CASQ2", "TRDN", "BTD", "HFE", "GAA", "RPE65", "ATP7B"}
+    x_linked = {"GLA", "OTC"}
+    if pinned["version"] == "3.3":
+        recessive.add("CYP27A1")
+        x_linked.add("ABCD1")
+    by_mode: dict[str, set[str]] = {}
+    for g in loaded.genes:
+        by_mode.setdefault(g.inheritance, set()).add(g.symbol)
+    assert set(by_mode) == {"AD", "AR", "SD", "XL"}
+    assert (by_mode["AR"], by_mode["XL"], by_mode["SD"]) == (
+        recessive,
+        x_linked,
+        {"LDLR"},
+    )
