@@ -21,6 +21,7 @@ from tests.htslib_helpers import (
     sam_to_bam,
     write_fasta,
 )
+from wgsextract_cli import api
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -148,6 +149,21 @@ def _microarray(bam: str, fasta: str, outdir: Path, *extra: str) -> None:
         *("--formats", "23andme_v3,ftdna_v2", "--threads", "2"),
         *extra,
     )
+
+
+def test_parallel_genotyping_reports_each_finished_chromosome(tmp_path, library):
+    fasta, seqs = library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    events: list[api.ProgressEvent] = []
+    params = api.MicroarrayParams(
+        input=Path(bam), ref=Path(fasta), outdir=tmp_path / "out", threads=2,
+        formats="23andme_v3,ftdna_v2",
+    )  # fmt: skip
+    api.microarray.generate(params, progress=events.append)
+    contig = [event for event in events if event.stage == "contig"]
+    assert sorted(event.message.split(" (")[0] for event in contig) == sorted(CONTIGS)
+    assert [event.fraction for event in contig] == [0.25, 0.5, 0.75, 1.0]
+    assert contig[-1].message.endswith("(4/4 contigs)")
 
 
 def test_male_kit_genotypes_and_no_calls(tmp_path, library):

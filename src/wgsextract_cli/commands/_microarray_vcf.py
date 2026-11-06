@@ -7,13 +7,16 @@ import tempfile
 import time
 from array import array
 from bisect import bisect_left, bisect_right
+from concurrent.futures import Future
+from functools import partial
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.download_progress import CancelEvent
 from wgsextract_cli.core.microarray_quality import quality_policy
+from wgsextract_cli.core.progress import ContigProgress
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -88,6 +91,11 @@ def _target_tab_chromosomes(ref_vcf_tab: str) -> list[str]:
         logging.debug(f"Could not list target chromosomes for {ref_vcf_tab}: {e}")
         return []
     return [line.strip() for line in (res.stdout or "").splitlines() if line.strip()]
+
+
+def _report_contig(progress: ContigProgress, chrom: str, future: Future[Any]) -> None:
+    if not future.cancelled() and future.exception() is None:
+        progress.done(chrom)
 
 
 def _parallel_contigs(
@@ -532,6 +540,7 @@ def _prepare_microarray_vcf(
             # callers need no __main__ guard; an API cancel stops their tools
             # through the shared process registry.
             stop = Event()
+            progress = ContigProgress(contigs)
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
                     chrom: executor.submit(
@@ -549,6 +558,8 @@ def _prepare_microarray_vcf(
                     )
                     for chrom in contigs
                 }
+                for chrom, future in futures.items():
+                    future.add_done_callback(partial(_report_contig, progress, chrom))
                 try:
                     results = {
                         chrom: future.result() for chrom, future in futures.items()

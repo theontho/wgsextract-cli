@@ -17,7 +17,7 @@ import pytest
 
 from wgsextract_cli.cli import dispatch
 from wgsextract_cli.core import live_status, utils
-from wgsextract_cli.core.progress import Heartbeat
+from wgsextract_cli.core.progress import ContigProgress, Heartbeat
 from wgsextract_cli.core.utils import popen, run_command, wait_with_cancel
 
 
@@ -218,6 +218,15 @@ def test_only_long_commands_at_a_terminal_without_json_or_quiet_get_it(
 def test_steps_do_nothing_without_a_display():
     with live_status.step("samtools view"):
         live_status.detail("10 reads")
+
+
+def test_finished_contigs_reach_the_line_through_progress_events():
+    with _terminal() as tty:
+        line = live_status.LiveStatus("vcf snp", tty, delay=0, interval=0.01)
+        with line, dispatch._rendering_progress(line):
+            ContigProgress(["chr1", "chr2"], {"chr1": 3, "chr2": 1}).done("chr1")
+            _wait_for(lambda: "chr1 (1/2 contigs)" in tty.getvalue())
+    assert _screen(tty.getvalue()) == []
 
 
 def test_heartbeat_counts_reach_the_line_through_progress_events():

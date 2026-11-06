@@ -217,6 +217,7 @@ def detail(text: str) -> None:
 
 
 def show_progress(event: "ProgressEvent") -> None:
-    """Render an API progress event: a heartbeat's count becomes the detail."""
-    if event.stage == "heartbeat":
+    """Render an API progress event: a heartbeat's count or the last finished
+    contig becomes the detail."""
+    if event.stage in ("heartbeat", "contig"):
         detail(event.message)

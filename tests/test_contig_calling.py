@@ -12,6 +12,7 @@ import pytest
 
 from tests.fake_tools import python_tool, require_bare_name_fakes
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
+from wgsextract_cli import api
 from wgsextract_cli.commands.vcf import contig_calling
 from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
@@ -66,6 +67,34 @@ def _call(
         "--threads", str(threads), "--outdir", str(output), *extra,
     )  # fmt: skip
     return str(output / f"{kind}s.vcf.gz")
+
+
+def _contig_events(events: list[api.ProgressEvent]) -> list[tuple[str, float]]:
+    contig = [event for event in events if event.stage == "contig"]
+    assert all(event.fraction is not None for event in contig)
+    return [(event.message, event.fraction or 0.0) for event in contig]
+
+
+@needs_htslib
+def test_parallel_calling_reports_each_finished_contig(
+    multicontig_sample: tuple[str, str], tmp_path: Path
+) -> None:
+    bam, ref = multicontig_sample
+    events: list[api.ProgressEvent] = []
+    params = api.VcfSnpParams(
+        input=Path(bam), ref=Path(ref), outdir=tmp_path, threads=3,
+        parallel=True, ploidy="GRCh38",
+    )  # fmt: skip
+    api.vcf.snp(params, progress=events.append)
+    reported = _contig_events(events)
+    names = {"chr20", "chr21", "empty", "chrX", "chrY", "chrM", "HLA-A*01:01:01:01"}
+    assert {message.split(" (")[0] for message, _ in reported} == names
+    assert [message.split(" (")[1] for message, _ in reported] == [
+        f"{done}/7 contigs)" for done in range(1, 8)
+    ]
+    fractions = [fraction for _, fraction in reported]
+    assert fractions == sorted(fractions) and fractions[-1] == 1.0
+    assert events[-1].stage == "finish"
 
 
 def _female(sample: tuple[str, str], root: Path) -> tuple[str, str]:
