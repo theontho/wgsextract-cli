@@ -205,6 +205,15 @@ public:
 // The suffix-array rows mem_chain() passes to bwt_sa() for these intervals, in
 // its order: at most max_occ evenly spaced rows per interval. The casts spell
 // out C's implicit conversions so any wrap-around behaves identically.
+// The number of rows append_rows() adds for these intervals.
+inline size_t row_count(const Intervals &intervals, int max_occ) {
+    size_t total = 0;
+    for (const bwtintv_t &interval : intervals)
+        total += interval.x[2] > static_cast<uint64_t>(max_occ) ? static_cast<size_t>(max_occ)
+            : static_cast<size_t>(interval.x[2]);
+    return total;
+}
+
 inline void append_rows(const Intervals &intervals, int max_occ, std::vector<uint64_t> &rows) {
     for (const bwtintv_t &interval : intervals) {
         const bwtintv_t *p = &interval;

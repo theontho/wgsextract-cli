@@ -19,6 +19,8 @@ using namespace wgse::seeding;
 
 constexpr size_t threadgroup_size = 64;
 constexpr size_t locate_rows_per_dispatch = size_t(1) << 21;
+// Prepared batches whose pairs are not all mapped yet; bounds memory for large -K.
+constexpr size_t max_outstanding_batches = 3;
 
 bool enabled = false;
 // Cleared by the first GPU failure; the remaining batches use the CPU.
@@ -31,6 +33,9 @@ bool all_on_gpu = false;
 // Reads per GPU batch: smaller batches finish a chunk sooner, larger ones keep
 // more of the GPU busy.
 size_t gpu_batch_reads = 16384;
+// Rows one batch may locate on the GPU (bounds its host buffers at large -c);
+// the remaining reads' rows use upstream bwt_sa().
+size_t locate_rows_per_batch = locate_rows_per_dispatch;
 std::string execution_failure;
 std::unique_ptr<GpuSeeds> gpu;
 std::unique_ptr<GpuLocate> locator;
@@ -62,9 +67,14 @@ thread_local Cursor cursor;
 // Reads whose GPU positions were not all consumed in order; expected to stay 0.
 std::atomic<size_t> locate_misses{0};
 
+void finish_cursor() {
+    if (cursor.next < cursor.count) locate_misses.fetch_add(1, std::memory_order_relaxed);
+    cursor = {};
+}
+
 std::mutex totals_mutex;
 size_t gpu_reads = 0, cpu_reads = 0, fallback_reads = 0, wasted_reads = 0;
-size_t gpu_batches = 0, located_rows = 0;
+size_t gpu_batches = 0, located_rows = 0, unlocated_reads = 0;
 double gpu_seconds = 0, locate_seconds = 0, map_seconds = 0, cpu_wait_seconds = 0;
 
 SeedKernel &kernel() {
@@ -136,11 +146,12 @@ struct Batch {
     // chunks (-K) do not keep every batch until the chunk ends.
     std::atomic<long> pending{0};
 
+    // Swapping (unlike assigning {}) also returns the vectors' capacity.
     void release() {
-        output = {};
-        rows = {};
-        positions = {};
-        prepared = {};
+        std::vector<Intervals>().swap(output);
+        std::vector<uint64_t>().swap(rows);
+        std::vector<uint64_t>().swap(positions);
+        std::vector<Prepared>().swap(prepared);
     }
 };
 
@@ -160,13 +171,16 @@ public:
     void run() {
         auto start = Clock::now();
         std::vector<std::thread> threads;
+        threads.reserve(size_t(opt_->n_threads));
         try {
             for (int tid = 0; tid < opt_->n_threads; ++tid)
                 threads.emplace_back(&Scheduler::cpu, this, tid);
-        } catch (const std::system_error &) {
+        } catch (const std::exception &) {
             // Map with the threads that started; the caller covers a missing tid.
         }
-        gpu_loop();
+        // The GPU waits for workers to drain its batches, so it needs at least one.
+        if (threads.empty()) stop_gpu();
+        else gpu_loop();
         if (threads.size() < size_t(opt_->n_threads)) cpu(static_cast<int>(threads.size()));
         for (auto &thread : threads) thread.join();
         map_seconds += seconds(start);
@@ -180,11 +194,12 @@ private:
     void *data_;
     const int stride_;
     std::mutex mutex_;
-    std::condition_variable changed_;
+    std::condition_variable changed_, drained_;
     // Pairs [0, front_) and [back_, n) are taken; [0, ready_) are prepared or
     // were given up by the GPU; the GPU is packing [ready_, claimed_) if packing_.
     long front_ = 0, back_, ready_ = 0, claimed_ = 0;
     bool packing_ = false, gpu_stopped_ = false;
+    size_t outstanding_ = 0;
     std::vector<const Prepared *> prepared_;
     // The batch of each pair in [0, ready_).
     std::vector<Batch *> owner_;
@@ -240,10 +255,17 @@ private:
                 unprepared += stride_;
             }
             worker_(data_, pair, tid);
+            // The pair's last read has no later wgse_metal_take() to check its rows.
+            finish_cursor();
             current = {};
             if (accelerated) {
                 Batch *batch = owner_[size_t(pair)];
-                if (batch->pending.fetch_sub(1, std::memory_order_acq_rel) == 1) batch->release();
+                if (batch->pending.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                    batch->release();
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    --outstanding_;
+                    drained_.notify_one();
+                }
             }
         }
     }
@@ -263,7 +285,12 @@ private:
             for (;;) {
                 long first, last;
                 {
-                    std::lock_guard<std::mutex> lock(mutex_);
+                    std::unique_lock<std::mutex> lock(mutex_);
+                    // Pairs of outstanding batches are taken before any steal, so
+                    // their workers finish them and wake this loop.
+                    drained_.wait(lock, [this] {
+                        return ready_ >= back_ || outstanding_ < max_outstanding_batches;
+                    });
                     if (ready_ >= back_) break;
                     first = ready_;
                     last = claimed_ = std::min(back_, first + pairs_per_batch);
@@ -289,15 +316,18 @@ private:
                 // Pairs stolen from the back are >= back_; after this no CPU
                 // thread steals below ready_, so the front maps the rest.
                 const long published = std::min(last, back_);
+                Batch *owner = batch.get();
+                // If this throws, ready_ is unchanged and the CPU maps the pairs.
+                batches_.push_back(std::move(batch));
                 if (published > first) {
-                    batch->pending.store(published - first, std::memory_order_relaxed);
-                    std::fill(owner_.begin() + first, owner_.begin() + published, batch.get());
+                    owner->pending.store(published - first, std::memory_order_relaxed);
+                    std::fill(owner_.begin() + first, owner_.begin() + published, owner);
+                    ++outstanding_;
                 } else {
-                    batch->release();
+                    owner->release();
                 }
                 ready_ = last;
                 ++gpu_batches;
-                batches_.push_back(std::move(batch));
                 changed_.notify_all();
             }
         } catch (const std::exception &error) {
@@ -320,11 +350,24 @@ private:
         std::vector<char> usable_read(batch.output.size(), 1);
         for (long i : gpu->failed) usable_read[size_t(i)] = 0;
         std::vector<size_t> offsets(batch.output.size() + 1, 0);
+        std::vector<char> located(batch.output.size(), 0);
         const bool locate = locator && opt_->max_occ > 0;
         if (locate) {
             auto phase = Clock::now();
+            size_t total = 0;
             for (size_t i = 0; i < batch.output.size(); ++i) {
-                if (usable_read[i]) append_rows(batch.output[i], opt_->max_occ, batch.rows);
+                if (!usable_read[i]) continue;
+                const size_t count = row_count(batch.output[i], opt_->max_occ);
+                if (count <= locate_rows_per_batch - total) {
+                    located[i] = 1;
+                    total += count;
+                } else {
+                    ++unlocated_reads;
+                }
+            }
+            batch.rows.reserve(total);
+            for (size_t i = 0; i < batch.output.size(); ++i) {
+                if (located[i]) append_rows(batch.output[i], opt_->max_occ, batch.rows);
                 offsets[i + 1] = batch.rows.size();
             }
             if (inject_locate_failure)
@@ -338,7 +381,7 @@ private:
             if (!usable_read[i]) continue;
             Prepared &entry = batch.prepared[i];
             entry.intervals = &batch.output[i];
-            if (locate) {
+            if (located[i]) {
                 entry.rows = batch.rows.data() + offsets[i];
                 entry.positions = batch.positions.data() + offsets[i];
                 entry.count = offsets[i + 1] - offsets[i];
@@ -387,8 +430,7 @@ extern "C" int wgse_metal_map(const mem_opt_t *opt, const bwt_t *bwt, int n,
 }
 
 extern "C" int wgse_metal_take(const uint8_t *seq, bwtintv_v *out) {
-    if (cursor.next < cursor.count) locate_misses.fetch_add(1, std::memory_order_relaxed);
-    cursor = {};
+    finish_cursor();
     const Prepared *entry = current.seq[0] == seq ? current.prepared[0]
         : current.seq[1] == seq ? current.prepared[1] : nullptr;
     if (!entry) return 0;
@@ -438,8 +480,9 @@ bool wgse_metal_execution_failed(std::string &reason) {
 
 void wgse_finish_backend() {
     fprintf(stderr, "[wgse-bwa] gpu_batches=%zu gpu_reads=%zu cpu_reads=%zu fallback_reads=%zu "
-        "wasted_reads=%zu located_rows=%zu locate_misses=%zu\n", gpu_batches, gpu_reads,
-        cpu_reads, fallback_reads, wasted_reads, located_rows, locate_misses.load());
+        "wasted_reads=%zu unlocated_reads=%zu located_rows=%zu locate_misses=%zu\n", gpu_batches,
+        gpu_reads, cpu_reads, fallback_reads, wasted_reads, unlocated_reads, located_rows,
+        locate_misses.load());
     fprintf(stderr, "[wgse-bwa] seconds gpu=%.3f locate=%.3f map=%.3f cpu_wait=%.3f\n",
         gpu_seconds, locate_seconds, map_seconds, cpu_wait_seconds);
     locator.reset();
@@ -460,6 +503,10 @@ void wgse_inject_gpu_failure() {
 
 void wgse_inject_locate_failure() {
     inject_locate_failure = true;
+}
+
+void wgse_set_gpu_locate_rows(size_t rows) {
+    locate_rows_per_batch = rows;
 }
 
 void wgse_set_gpu_locate(bool enable) {

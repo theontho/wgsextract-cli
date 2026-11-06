@@ -151,7 +151,12 @@ void locate(const char *prefix, bwt_t &bwt, GpuSeeds &gpu, SeedKernel &kernel,
         }
     };
     std::vector<uint64_t> rows, expected, actual;
-    for (const auto &intervals : seeds) append_rows(intervals, opt.max_occ, rows);
+    size_t counted = 0;
+    for (const auto &intervals : seeds) {
+        append_rows(intervals, opt.max_occ, rows);
+        counted += row_count(intervals, opt.max_occ);
+    }
+    if (counted != rows.size()) throw std::runtime_error("row_count does not match append_rows");
     check(rows, expected, actual);
     printf("locate_parity=exact rows=%zu sa_intv=%d\n", rows.size(), bwt.sa_intv);
     if (bwt.seq_len < (uint64_t(1) << 24)) {

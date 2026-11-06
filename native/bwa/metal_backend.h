@@ -41,4 +41,6 @@ void wgse_set_gpu_batch(size_t reads);
 void wgse_inject_gpu_failure();
 void wgse_inject_locate_failure();
 void wgse_set_gpu_locate(bool enable);
+// Rows one GPU batch may locate; reads beyond it use upstream bwt_sa().
+void wgse_set_gpu_locate_rows(size_t rows);
 #endif

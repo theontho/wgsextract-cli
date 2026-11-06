@@ -83,6 +83,16 @@ int run(int argc, char **argv) {
             }
             wgse_set_gpu_batch(static_cast<size_t>(reads));
             command_index += 2;
+        } else if (strcmp(option, "--gpu-locate-rows") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long rows = strtol(value, &end, 10);
+            if (end == value || *end || rows < 0 || rows > (1L << 21)) {
+                fprintf(stderr, "--gpu-locate-rows requires 0..2097152 rows\n");
+                return 2;
+            }
+            wgse_set_gpu_locate_rows(static_cast<size_t>(rows));
+            command_index += 2;
 #endif
         } else break;
     }
