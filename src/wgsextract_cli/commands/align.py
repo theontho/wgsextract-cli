@@ -669,14 +669,27 @@ _RG_PLATFORMS = {
 }
 
 
-def read_group(args: argparse.Namespace, stem: str) -> str:
+def read_group(args: argparse.Namespace, stem: str, description: str = "") -> str:
     """The @RG line for -R (bwa, minimap2 expand the \\t). Variant callers and
     multi-sample tools need each sample's own SM, and GATK requires a read group
     with a platform. The default sample is the reads' name without its mate
     marker (family.mother_R1 -> family.mother), so different people stay apart."""
     sample = getattr(args, "sample", None) or pair_stem(stem)
     platform = _RG_PLATFORMS.get(getattr(args, "platform", None) or "", "ILLUMINA")
-    return f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}\\tPL:{platform}"
+    line = f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}\\tPL:{platform}"
+    return line + (f"\\tDS:{description}" if description else "")
+
+
+def _read_group_descriptions(reads: str, input_ref: str | None) -> str:
+    """The DS of a BAM/CRAM's read groups, which name the basecaller models
+    (Dorado's basecall_model=..., that Clair3's model choice reads) or PacBio's
+    READTYPE; several distinct ones are all kept."""
+    descriptions = dict.fromkeys(
+        group["DS"]
+        for group in ultima.read_groups(get_bam_header(reads, input_ref))
+        if group.get("DS")
+    )
+    return " ".join(descriptions)
 
 
 def _bwa_setup(
@@ -1249,6 +1262,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
     upstream: list[Sequence[object]] = []
     reads = args.r1
+    description = ""
     if is_long_read(args):
         if args.r2:
             raise UsageError("Long reads are single-end: drop --r2.")
@@ -1258,6 +1272,9 @@ def align_minimap2(args: argparse.Namespace) -> None:
             upstream = [
                 long_read_fastq_command(reads, getattr(args, "_input_cram_opt", []))
             ]
+            description = _read_group_descriptions(
+                reads, getattr(args, "input_ref", None)
+            )
         elif not is_fasta_path(reads):
             # FASTQ comments can mix ONT runid/ch metadata with SAM tags;
             # minimap2 -y alone would emit invalid SAM for those comments.
@@ -1269,7 +1286,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
         if upstream:
             align_cmd += ["-y"]
             reads = "-"
-    align_cmd += ["-R", read_group(args, setup.stem), setup.ref, reads]
+    align_cmd += ["-R", read_group(args, setup.stem, description), setup.ref, reads]
     try:
         run_streamed_alignment(
             align_cmd + ([args.r2] if args.r2 else []),

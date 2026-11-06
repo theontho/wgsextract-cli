@@ -39,7 +39,17 @@ OPTIONAL_TOOLS = [
     "cyrius",
     "run-t1k",
     "ExpansionHunter",
+    "dorado",
 ]
+
+# Optional tools users install themselves (no Pixi environment): how to.
+INSTALL_HINTS = {
+    "dorado": "Dorado is ONT's basecaller and isn't installed with WGS Extract: "
+    "download the release for your system from "
+    "https://github.com/nanoporetech/dorado#installation, unpack it and put its "
+    "bin folder on PATH, or set dorado_executable in config.toml (or pass "
+    "basecall --dorado-path).",
+}
 
 
 def required_dependency_tools(include_python: bool = True) -> list[str]:

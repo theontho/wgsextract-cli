@@ -5,6 +5,7 @@ from . import (
     align,
     analyze,
     bam,
+    basecall,
     benchmark,
     deps,
     examples,
@@ -44,6 +45,7 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     ref,
     align,
     realign,
+    basecall,
     pet,
     vep,
     analyze,
@@ -155,6 +157,11 @@ COMMAND_TIERS: tuple[CommandTier, ...] = (
         "methylation",
         ADVANCED,
         "5mC/5hmC methylation from Nanopore and PacBio reads.",
+    ),
+    CommandTier(
+        "basecall",
+        ADVANCED,
+        "Nanopore POD5 signal to reads with Dorado (optional).",
     ),
     CommandTier(
         "panel",

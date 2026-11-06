@@ -267,6 +267,7 @@ exposed as an application configuration setting.
 | `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
 | `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, streaming paired reads into BWA or reusing FASTQs |
+| `basecall` | Nanopore POD5 to an unaligned BAM with ONT's Dorado (optional, installed separately), with `MM`/`ML` modification tags for `align`; [docs](docs/ont.md#basecalling) |
 | `panel` | `bed`: genes and presets (pharmacogenes, HLA, autoimmune, ACMG SF, cardiac) to a padded, merged BED for Nanopore adaptive sampling ([docs](docs/ont.md#adaptive-sampling-targets)) |
 | `pet-align` | Align dog or cat FASTQs and call variants |
 | `qc` | `fastp`, `fastqc`, `multiqc` (FastQC, bcftools stats and our metrics in one report), `multiqc-metrics` (MultiQC custom content from manifests; [pipeline interop](docs/interop.md)), `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |

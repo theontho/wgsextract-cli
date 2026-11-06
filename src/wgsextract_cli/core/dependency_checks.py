@@ -26,6 +26,7 @@ from .dependencies import (
     tool_versions,
 )
 from .tool_catalog import (
+    INSTALL_HINTS,
     OPTIONAL_TOOLS,
     PIXI_TOOL_ENVS,
     optional_dependency_tools,
@@ -343,6 +344,9 @@ def verify_dependencies(
             )
             if commands:
                 message += ". Run: " + "; ".join(commands)
+            hints = [INSTALL_HINTS[tool] for tool in missing if tool in INSTALL_HINTS]
+            if hints:
+                message += ". " + " ".join(hints)
             if sys.platform == "win32" and "gatk" in missing:
                 repair = (
                     "Re-run install_windows.bat or run "
@@ -401,7 +405,9 @@ def _missing_tool_hint(tool: str) -> str | None:
     if unsupported:
         return f"Error: {unsupported}"
     command = pixi_install_command(tool)
-    return f"Run: {command}" if command else None
+    if command:
+        return f"Run: {command}"
+    return INSTALL_HINTS.get(tool)
 
 
 def check_all_dependencies(

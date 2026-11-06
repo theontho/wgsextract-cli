@@ -15,7 +15,10 @@ may be reported, but reporting does not select their alignment workflows.
 CPU ONT alignment uses minimap2 `map-ont`, carries `MM`, `ML` and `MN` through
 `samtools fastq -T MM,ML,MN` and `minimap2 -y`, and soft-clips supplementary
 alignments (`-Y`) so the modification coordinates still describe the full read.
-Sorting retains these tags.
+Sorting retains these tags. Long reads from a BAM/CRAM keep its read groups'
+descriptions (`DS`, where Dorado names its `basecall_model` and
+`modbase_models`, and PacBio its `READTYPE`) in the new read group, so
+`vcf clair3` can still choose its model from them.
 FASTQ input first passes through `samtools import -T MM,ML,MN`, so ordinary
 ONT `runid`/channel comments do not become invalid SAM fields with `-y`.
 Realignment streams single-end tagged FASTQ instead
@@ -69,6 +72,49 @@ wgsextract bam merge run1.bam run2.bam --sample HG002 --output HG002.bam
   merge warns (`mod_tags_partial`, `mod_models_differ`).
 - **Coverage.** For indexed inputs, each run's and the combined autosomal
   depth are printed and recorded in the result.
+
+## Basecalling
+
+`basecall` turns POD5 signal (a file, or a folder searched recursively) into an
+unaligned BAM with ONT's [Dorado](https://github.com/nanoporetech/dorado), 1.0
+or newer. Dorado is optional and isn't installed with WGS Extract: download the
+release for your system, then put its `bin` folder on PATH, set
+`dorado_executable` in config.toml, or pass `--dorado-path`. A missing or older
+Dorado stops the command with that hint before anything runs. FAST5 input is
+refused with the `pod5 convert fast5` command that converts it.
+
+```bash
+wgsextract basecall --input pod5/ --modified-bases 5mCG_5hmCG
+wgsextract align --r1 pod5.hac.5mCG_5hmCG.bam --ref hs38.fa.gz
+wgsextract methylation pileup --input pod5.hac.5mCG_5hmCG_aligned.bam --ref hs38.fa.gz
+```
+
+- **Models.** `--model` is `fast`, `hac` (the default) or `sup`, optionally
+  pinned (`sup@v5.2.0`), or a downloaded model folder. Dorado picks the model
+  for the run's chemistry from the POD5 and downloads it, and the modification
+  models `--modified-bases` names (`5mCG_5hmCG`, `5mC_5hmC`, `6mA`, ...), into
+  the models folder: `--models-dir`, else `dorado_models_directory` in
+  config.toml, else `dorado-models` in the WGS Extract cache. Later runs reuse
+  them.
+- **Device.** `--device auto` (the default) uses the GPU of a Mac with Apple
+  silicon (`metal`), else an NVIDIA GPU that `nvidia-smi -L` lists
+  (`cuda:all`), else the CPU, which the run warns about
+  (`basecall_on_cpu`). `--device cpu`, `metal`, `cuda:all` or `cuda:0,1`
+  choose one.
+- **Output.** `<POD5 file or folder stem>.<model>[.<modifications>].bam` beside
+  the POD5 input, or in `--outdir`, so a `sup` re-basecall doesn't replace the
+  `hac` BAM. It keeps Dorado's read group (`PL:ONT`, the models in `DS`) and
+  read tags, `MM`/`ML` included, so `align --r1` detects ONT and carries the
+  modifications into the aligned BAM. The manifest records the reads, device,
+  Dorado version and models, and with `--modified-bases` how many reads got
+  `MM`/`ML` tags; it warns (`no_modification_tags`) when none did, and
+  (`no_reads`) when Dorado wrote no reads.
+- **Subsets.** `--read-ids FILE` basecalls only the listed reads.
+  `--regions-bed panel.bed --alignment sample_aligned.bam` re-basecalls the
+  reads the alignment maps in those regions, for example with `--model sup`
+  for a gene panel after a `hac` run. A read Dorado split is named by its
+  parent (`pi` tag), the ID its signal has in the POD5; unmapped reads are
+  left out. Both write `<stem>.<model>[.<modifications>].subset.bam`.
 
 ## Small variants
 
