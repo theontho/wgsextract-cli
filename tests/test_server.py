@@ -318,6 +318,30 @@ def test_a_ref_job_saving_beside_its_fasta_waits_for_that_folder(
         assert (first["status"], count["status"]) == ("running", "queued")
 
 
+def test_a_phase_job_saving_beside_its_reads_waits_for_that_folder(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #464 review: vcf phase writes beside its BAM, but the lock took the
+    # VCF's folder, so it ran alongside a job writing the BAM's folder.
+    bam, ref = fake_data
+    reads = work / "reads.bam"
+    shutil.copy(bam, reads)
+    calls_dir = tmp_path / "calls"
+    calls_dir.mkdir()
+    calls = calls_dir / "calls.vcf.gz"
+    calls.write_bytes(b"")
+    with _serve(tmp_path, [work, calls_dir, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, phase = client.request(
+            "POST",
+            "/ops/vcf/phase",
+            {"input": str(reads), "vcf_input": str(calls), "ref": str(ref)},
+        )
+        assert status == 202, phase
+        assert (first["status"], phase["status"]) == ("running", "queued")
+
+
 @pytest.mark.parametrize(
     ("op", "params"),
     [

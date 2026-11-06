@@ -12,7 +12,7 @@ field, else config.toml, else the reference library (``ref``); see
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -1080,6 +1080,11 @@ class VcfPhaseParams(_CallerParams):
         action="store_true",
     )
     qc_min_depth: float | None = depth_param()
+
+    def write_folders(self) -> Iterator[Path]:
+        # With no outdir, the outputs go beside the reads, not the VCF.
+        if self.outdir is None:
+            yield Path(self.input).expanduser().absolute().parent
 
 
 def cnv(

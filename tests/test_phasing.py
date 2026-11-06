@@ -264,6 +264,15 @@ def test_a_vcf_is_required(tmp_path):
         run_wgsextract("vcf", "phase", "--input", str(tmp_path / "reads.bam"))
 
 
+@needs_tools("whatshap", "minimap2")
+@needs_htslib
+def test_a_region_without_calls_is_refused_plainly(aligned, tmp_path):
+    # #464 review: an empty selection lost the PS header and failed with
+    # bcftools' "no such tag FORMAT/PS" instead of saying what was wrong.
+    with pytest.raises(api.CommandFailed, match="no variants for HG002 in chr20:1-20"):
+        _phase(aligned, tmp_path, phaser="whatshap", region="chr20:1-20")
+
+
 def _reheadered(bam: Path, out: Path, edit) -> Path:
     header = out.with_suffix(".header.sam")
     header.write_text(edit(_run("samtools", "view", "-H", str(bam))))

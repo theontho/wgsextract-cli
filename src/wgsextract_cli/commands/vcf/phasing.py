@@ -141,6 +141,10 @@ def prepare_vcf(vcf: str, sample: str, region: str | None, out: str) -> None:
         description="Preparing the VCF to phase",
     )
     ensure_vcf_indexed(out)
+    records = run_command(["bcftools", "index", "-n", out], capture_output=True)
+    if records.stdout.strip() == "0":
+        where = f" in {region}" if region else ""
+        raise UsageError(f"{vcf} has no variants for {sample}{where} to phase.")
 
 
 def contig_batches(vcf: str, batches: int) -> list[list[str]]:
