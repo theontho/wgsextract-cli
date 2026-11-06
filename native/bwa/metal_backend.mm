@@ -595,12 +595,10 @@ private:
         stage.failed = false;
         begin(pair, batch);
         void *chains = wgse_worker1_chain(data_, pair, tid, stage_extension, &stage);
+        // Out of memory before chaining: upstream's worker1 maps the pair instead.
+        if (!chains) worker_(data_, pair, tid);
         end();
-        if (!chains) {
-            // Out of memory: upstream's worker1 maps the pair from the start.
-            worker_(data_, pair, tid);
-            return;
-        }
+        if (!chains) return;
         extend_tally.skipped += stage.skipped;
         stage.skipped = 0;
         size_t base_offset = 0, job_offset = 0;
@@ -1376,6 +1374,10 @@ void wgse_set_gpu_extend_pairs(size_t pairs) {
 
 void wgse_set_gpu_extend_batches(size_t batches) {
     extend_batch_count = batches;
+}
+
+size_t wgse_gpu_extend_pool_pairs() {
+    return extend_batch_pairs * extend_batch_count;
 }
 
 void wgse_inject_extend_failure() {

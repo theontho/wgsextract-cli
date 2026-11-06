@@ -155,6 +155,12 @@ int run(int argc, char **argv) {
 #endif
         } else break;
     }
+#ifdef WGSE_METAL_BENCHMARK_TOOLS
+    if (wgse_gpu_extend_pool_pairs() > 16384) {
+        fprintf(stderr, "--gpu-extend-pairs times --gpu-extend-batches must not exceed 16384\n");
+        return 2;
+    }
+#endif
     const std::string command = argc > command_index ? argv[command_index] : "";
     if (command == "--help" || command == "-h") {
         help();

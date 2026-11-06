@@ -90,6 +90,8 @@ void wgse_set_gpu_extend(bool enable);
 void wgse_set_gpu_extend_pairs(size_t pairs);
 // GPU extension batches; when none is free, CPU threads extend themselves.
 void wgse_set_gpu_extend_batches(size_t batches);
+// Pairs across all extension batches, which bound their memory (about 12 KiB each).
+size_t wgse_gpu_extend_pool_pairs();
 void wgse_inject_extend_failure();
 // Also run each GPU seed extension on the CPU and count differences.
 void wgse_verify_gpu_extend();
