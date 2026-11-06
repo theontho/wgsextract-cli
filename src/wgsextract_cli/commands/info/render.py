@@ -245,6 +245,12 @@ def _cram_reference_opts(input_p: str, ref_p: str | None) -> list[str]:
     return []
 
 
+def _input_reference_opts(input_p: str, ref_p: str | None) -> list[str]:
+    """The CRAM reference for tools without --reference, such as flagstat."""
+    opts = _cram_reference_opts(input_p, ref_p)
+    return ["--input-fmt-option", f"reference={opts[1]}"] if opts else []
+
+
 def _is_fresh_output(path: str, input_p: str) -> bool:
     """True when ``path`` is a non-empty file written after ``input_p`` last changed."""
     try:
@@ -699,7 +705,7 @@ def exact_mapped_read_pct(
     with tempfile.TemporaryDirectory(dir=temp_parent) as tmp:
         counts = _flagstat_counts(
             [["samtools", "flagstat", "-O", "tsv", *_COUNT_FIELDS,
-              *_cram_reference_opts(input_p, ref_p), input_p]],
+              *_input_reference_opts(input_p, ref_p), input_p]],
             ("primary", "primary mapped"),
             tmp,
             "Mapping counts",

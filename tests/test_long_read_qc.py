@@ -2,11 +2,13 @@
 and warns when the N50 is short or too few reads map."""
 
 import random
+import subprocess
 
 import pytest
 
 from tests.htslib_helpers import needs_htslib, sam_to_bam, write_fasta
 from wgsextract_cli import api
+from wgsextract_cli.core.dependencies import get_tool_path
 
 LENGTH = 300_000
 QUAL = "5"
@@ -193,3 +195,21 @@ def test_sampled_primary_share_does_not_overweight_chrm(tmp_path):
     sampled = sampled_primary_share(bam, None, parse_idxstats(bam)[0], str(tmp_path))
     assert sampled is not None
     assert sampled[0] == pytest.approx(470 / 750, abs=0.03)
+
+
+@needs_htslib
+def test_a_cram_gets_the_same_exact_mapped_fraction_as_its_bam(genome, tmp_path):
+    """Review of #461: flagstat rejected --reference, so a small CRAM got no
+    mapped fraction and redid the detailed analysis on every run."""
+    bam = _ont_bam(tmp_path / "ont.bam", genome)
+    cram = tmp_path / "ont.cram"
+    samtools = get_tool_path("samtools")
+    subprocess.run(
+        [samtools, "view", "-C", "-T", genome[1], "-o", str(cram), bam], check=True
+    )
+    subprocess.run([samtools, "index", str(cram)], check=True)
+    expected = _info(bam, genome, tmp_path)
+    for _run in ("measured", "cached"):
+        result = _info(cram, genome, tmp_path / "cram")
+        assert result.metrics["mapped_read_pct"] == expected.metrics["mapped_read_pct"]
+        assert "mapped_read_pct" in _codes(result)["low_mapped_read_fraction"]
