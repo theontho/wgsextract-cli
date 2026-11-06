@@ -31,6 +31,8 @@ OPTIONAL_TOOLS = [
     "run_deepvariant",
     "run_clair3.sh",
     "modkit",
+    "whatshap",
+    "longphase",
     "curl",
     "java",
     "haplogrep3",
@@ -58,6 +60,8 @@ PLATFORM_ONLY_TOOLS = {
     "ExpansionHunter": ("linux", "darwin"),
     "run_clair3.sh": ("linux",),
     "modkit": ("linux", "darwin"),
+    "whatshap": ("linux", "darwin"),
+    "longphase": ("linux", "darwin"),
 }
 
 
@@ -102,6 +106,8 @@ PIXI_TOOL_ENVS = {
     "ExpansionHunter": "expansionhunter",
     "run_clair3.sh": "clair3",
     "modkit": "modkit",
+    "whatshap": "phasing",
+    "longphase": "phasing",
     # Only through their own environments (never a `python` on PATH): pixi_env_tool.
     "pharmcat_python": "pharmcat",
     "cyrius_python": "cyrius",

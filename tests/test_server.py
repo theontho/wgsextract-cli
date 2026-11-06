@@ -821,7 +821,7 @@ def test_path_guard_refuses_file_operands_in_expressions():
         assert refused.value.code == "path_not_allowed"
 
 
-_CALLER_OPS = ("cnv", "sv", "freebayes", "gatk", "deepvariant", "clair3")
+_CALLER_OPS = ("cnv", "sv", "freebayes", "gatk", "deepvariant", "clair3", "phase")
 _CALLER_PATHS = [
     (f"vcf/{name}", item)
     for name in _CALLER_OPS

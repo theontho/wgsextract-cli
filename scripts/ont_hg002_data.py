@@ -9,6 +9,11 @@ reads from ONT's public HG002 alignment, trimmed to a 12 kb window of chr20
 around a homozygous 313 bp deletion, with their 5mC/5hmC MM/ML tags rewritten
 for the trimmed sequence, every second read dropped (about 18x), the
 reference window, and the GIAB truth in it.
+
+``phasing-fixture`` builds ``tests/fixtures/ont_hg002_phasing`` the same way
+(#341) from a 12 kb window of chr20 with 25 heterozygous variants, without the
+modification tags, and with the GIAB truth's phased genotypes (hifiasm phase
+transfer).
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs" / "data" / "ont_hg002_manifest.json"
 FIXTURE = ROOT / "tests" / "fixtures" / "ont_hg002"
+PHASING_FIXTURE = ROOT / "tests" / "fixtures" / "ont_hg002_phasing"
 
 CRAM_URL = (
     "https://ont-open-data.s3.amazonaws.com/giab_2023.05/analysis/hg002/sup/"
@@ -32,8 +38,13 @@ CRAM_URL = (
 GIAB = "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son"
 SMALL_TRUTH_URL = f"{GIAB}/NISTv4.2.1/GRCh38/HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz"
 SV_TRUTH_URL = f"{GIAB}/v5.0q/HG002_GRCh38_v5.0q_stvar.vcf.gz"
+PHASED_TRUTH_URL = (
+    f"{GIAB}/NISTv4.2.1/GRCh38/SupplementaryFiles/"
+    "HG002_GRCh38_1_22_v4.2.1_benchmark_hifiasm_v11_phasetransfer.vcf.gz"
+)
 CONTIG = "chr20"
 WINDOW = (14_542_000, 14_554_000)  # 0-based, half-open
+PHASING_WINDOW = (14_255_000, 14_267_000)
 MIN_READ = 500
 SV_INFO = ("SVTYPE", "SVLEN")
 
@@ -85,10 +96,12 @@ def _modification_tags(read, start: int, end: int) -> list[str]:
     return ["MM:Z:" + ";".join(mm) + ";", "ML:B:C," + ",".join(ml)]
 
 
-def _trimmed_reads(cram: str, ref: str) -> list[str]:
+def _trimmed_reads(
+    cram: str, ref: str, window: tuple[int, int], modifications: bool
+) -> list[str]:
     import pysam
 
-    lo, hi = WINDOW
+    lo, hi = window
     records = []
     with pysam.AlignmentFile(cram, reference_filename=ref) as alignments:
         for read in alignments.fetch(CONTIG, lo, hi):
@@ -109,17 +122,17 @@ def _trimmed_reads(cram: str, ref: str) -> list[str]:
                 continue
             seq = read.get_forward_sequence()[first:last]
             qual = read.get_forward_qualities()[first:last]
-            tags = _modification_tags(read, first, last)
+            tags = _modification_tags(read, first, last) if modifications else []
             header = "\t".join([f"@{read.query_name}", *tags])
             quals = "".join(chr(q + 33) for q in qual)
             records.append(f"{header}\n{seq}\n+\n{quals}\n")
     return sorted(records)
 
 
-def _truth(url: str) -> list[str]:
+def _truth(url: str, window: tuple[int, int]) -> list[str]:
     """Truth records inside the window, shifted to its coordinates, with
     only GT and the SVTYPE/SVLEN INFO fields."""
-    lo, hi = WINDOW
+    lo, hi = window
     region = f"{CONTIG}:{lo + 1}-{hi}"
     out = subprocess.run(
         ["bcftools", "view", "-H", "-r", region, url],
@@ -143,19 +156,44 @@ def _truth(url: str) -> list[str]:
     return ["\t".join(r) for r in rows]
 
 
-def fixture(cram: str, ref: str) -> None:
+def _window_files(
+    cram: str, ref: str, outdir: Path, window: tuple[int, int], modifications: bool
+) -> None:
+    """The reference window as ref.fa and the reads in it as reads.fastq.gz."""
     import pysam
 
-    lo, hi = WINDOW
-    FIXTURE.mkdir(parents=True, exist_ok=True)
-    window = pysam.FastaFile(ref).fetch(CONTIG, lo, hi).upper()
-    fasta = FIXTURE / "ref.fa"
-    lines = [window[i : i + 60] for i in range(0, len(window), 60)]
-    fasta.write_text(f">{CONTIG}\n" + "\n".join(lines) + "\n")
+    lo, hi = window
+    outdir.mkdir(parents=True, exist_ok=True)
+    sequence = pysam.FastaFile(ref).fetch(CONTIG, lo, hi).upper()
+    lines = [sequence[i : i + 60] for i in range(0, len(sequence), 60)]
+    (outdir / "ref.fa").write_text(f">{CONTIG}\n" + "\n".join(lines) + "\n")
+    with gzip.GzipFile(outdir / "reads.fastq.gz", "wb", mtime=0) as handle:
+        reads = _trimmed_reads(cram, ref, window, modifications)
+        handle.write("".join(reads).encode())
 
-    reads = FIXTURE / "reads.fastq.gz"
-    with gzip.GzipFile(reads, "wb", mtime=0) as handle:
-        handle.write("".join(_trimmed_reads(cram, ref)).encode())
+
+def _write_provenance(outdir: Path, provenance: dict) -> None:
+    files = sorted(p for p in outdir.iterdir() if p.name != "provenance.json")
+    provenance["sha256"] = {p.name: _sha256(p) for p in files}
+    (outdir / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    for p in files:
+        print(f"{p}: {p.stat().st_size} bytes")
+
+
+def _read_provenance(selection: str) -> dict:
+    return {
+        "url": CRAM_URL,
+        "license": "CC BY 4.0 (Oxford Nanopore Technologies open data)",
+        "basecaller": "dna_r10.4.1_e8.2_400bps_sup@v4.0.0",
+        "selection": "primary alignments overlapping the window, trimmed to "
+        "their aligned span inside it, reads whose SHA-256 of the name is "
+        f"odd dropped, pieces under {MIN_READ} bp dropped; {selection}",
+    }
+
+
+def fixture(cram: str, ref: str) -> None:
+    lo, hi = WINDOW
+    _window_files(cram, ref, FIXTURE, WINDOW, modifications=True)
 
     header = [
         "##fileformat=VCFv4.2",
@@ -169,30 +207,43 @@ def fixture(cram: str, ref: str) -> None:
         ("truth_small.vcf", SMALL_TRUTH_URL),
         ("truth_sv.vcf", SV_TRUTH_URL),
     ):
-        (FIXTURE / name).write_text("\n".join(header + _truth(url)) + "\n")
+        (FIXTURE / name).write_text("\n".join(header + _truth(url, WINDOW)) + "\n")
 
-    files = sorted(p for p in FIXTURE.iterdir() if p.name != "provenance.json")
     provenance = {
         "sample": "HG002 (GIAB NA24385)",
-        "reads": {
-            "url": CRAM_URL,
-            "license": "CC BY 4.0 (Oxford Nanopore Technologies open data)",
-            "basecaller": "dna_r10.4.1_e8.2_400bps_sup@v4.0.0",
-            "selection": "primary alignments overlapping the window, trimmed to "
-            "their aligned span inside it, reads whose SHA-256 of the name is "
-            f"odd dropped, pieces under {MIN_READ} bp dropped; MM/ML rewritten "
-            "for the trimmed sequence, in the sequencing orientation",
-        },
+        "reads": _read_provenance(
+            "MM/ML rewritten for the trimmed sequence, in the sequencing orientation"
+        ),
         "reference": "GRCh38 no-alt analysis set (hs38), "
         f"{CONTIG}:{lo + 1}-{hi} as contig {CONTIG}",
         "coordinate_offset": lo,
         "truth": {"small": SMALL_TRUTH_URL, "sv": SV_TRUTH_URL},
         "builder": "scripts/ont_hg002_data.py fixture",
-        "sha256": {p.name: _sha256(p) for p in files},
     }
-    (FIXTURE / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
-    for p in files:
-        print(f"{p}: {p.stat().st_size} bytes")
+    _write_provenance(FIXTURE, provenance)
+
+
+def phasing_fixture(cram: str, ref: str) -> None:
+    lo, hi = PHASING_WINDOW
+    _window_files(cram, ref, PHASING_FIXTURE, PHASING_WINDOW, modifications=False)
+    header = [
+        "##fileformat=VCFv4.2",
+        f"##contig=<ID={CONTIG},length={hi - lo}>",
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG002",
+    ]
+    truth = _truth(PHASED_TRUTH_URL, PHASING_WINDOW)
+    (PHASING_FIXTURE / "truth_phased.vcf").write_text("\n".join(header + truth) + "\n")
+    provenance = {
+        "sample": "HG002 (GIAB NA24385)",
+        "reads": _read_provenance("modification tags dropped"),
+        "reference": "GRCh38 no-alt analysis set (hs38), "
+        f"{CONTIG}:{lo + 1}-{hi} as contig {CONTIG}",
+        "coordinate_offset": lo,
+        "truth": {"phased_small": PHASED_TRUTH_URL},
+        "builder": "scripts/ont_hg002_data.py phasing-fixture",
+    }
+    _write_provenance(PHASING_FIXTURE, provenance)
 
 
 def main() -> None:
@@ -201,14 +252,17 @@ def main() -> None:
     get = sub.add_parser("fetch", help="Download and verify the slices and truth.")
     get.add_argument("--outdir", type=Path, default=ROOT / "out" / "ont_hg002")
     get.add_argument("names", nargs="*", help="Assets to fetch (default: all).")
-    build = sub.add_parser("fixture", help="Rebuild tests/fixtures/ont_hg002.")
-    build.add_argument("--cram", default=CRAM_URL, help="ONT HG002 CRAM or URL.")
-    build.add_argument("--ref", required=True, help="GRCh38 no-alt FASTA (hs38).")
+    for name, target in (("fixture", FIXTURE), ("phasing-fixture", PHASING_FIXTURE)):
+        build = sub.add_parser(name, help=f"Rebuild {target.relative_to(ROOT)}.")
+        build.add_argument("--cram", default=CRAM_URL, help="ONT HG002 CRAM or URL.")
+        build.add_argument("--ref", required=True, help="GRCh38 no-alt FASTA (hs38).")
     args = parser.parse_args()
     if args.command == "fetch":
         fetch(args.outdir, args.names)
-    else:
+    elif args.command == "fixture":
         fixture(args.cram, args.ref)
+    else:
+        phasing_fixture(args.cram, args.ref)
 
 
 if __name__ == "__main__":

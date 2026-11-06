@@ -107,10 +107,11 @@ jobs:
           environments: >-
             dev
             pacbio
+            phasing
       # Clair3's environment is too large for CI; the rest must run, not skip.
       - name: Run ONT HG002 fixture tests
         shell: bash
         run: |
           mkdir -p out
-          pixi run -e dev pytest tests/test_ont_hg002.py -k "not clair3" -rs | tee out/ont-hg002.txt
+          pixi run -e dev pytest tests/test_ont_hg002.py tests/test_phasing.py -k "not clair3" -rs | tee out/ont-hg002.txt
           ! grep -q skipped out/ont-hg002.txt

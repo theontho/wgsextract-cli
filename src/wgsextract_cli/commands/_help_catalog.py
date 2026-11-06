@@ -199,6 +199,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "clair3.vcf.gz (+ .tbi).",
         "wgsextract vcf clair3 --input ont.bam",
     ),
+    "vcf phase": _h(
+        "phased.vcf.gz (+ .tbi) and phased.blocks.tsv; with --haplotag, "
+        "haplotagged.bam or .cram (+ index).",
+        "wgsextract vcf phase --input ont.bam --vcf-input clair3.vcf.gz",
+        "wgsextract vcf phase --input hifi.bam --vcf-input calls.vcf.gz --haplotag",
+    ),
     "vcf sv": _h(
         "sv.vcf.gz (Delly), pbsv.vcf.gz or sniffles.vcf.gz (+ .tbi).",
         "wgsextract vcf sv --input sample.cram",

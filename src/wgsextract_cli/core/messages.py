@@ -57,6 +57,7 @@ CLI_HELP = {
     "cmd_gatk": "Industry-standard GATK HaplotypeCaller. Best for high-accuracy clinical-grade SNP and InDel calling using local de novo assembly.",
     "cmd_deepvariant": "Google's Deep Variant variant caller. Supports WGS/WES and PacBio HiFi models; uses a neural network to achieve superior accuracy by 'looking' at read alignments as images. (Not tested on macOS.)",
     "cmd_clair3": "Clair3 small-variant caller for Oxford Nanopore reads (optional; Linux x86-64 only, install with `pixi install -e clair3`). DeepVariant remains the default ONT caller.",
+    "cmd_phase": "Phase a sample's heterozygous calls with its reads (WhatsHap, or LongPhase for Nanopore and PacBio), and optionally tag the reads by haplotype. Optional; Linux and macOS, install with `pixi install -e phasing`.",
     "cmd_annotate": "Add external metadata (like population frequencies or disease risk) to your VCF file.",
     "cmd_filter": "Filter your results. Use this to focus on specific genes of interest or to remove low-quality 'noisy' variant calls.",
     "cmd_vcf-to-fasta": "Build your personal consensus genome: the reference FASTA with your variants applied (heterozygous SNVs as IUPAC codes by default), and N where a gVCF has no call.",

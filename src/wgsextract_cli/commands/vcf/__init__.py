@@ -20,6 +20,7 @@ from wgsextract_cli.api.vcf import (
     VcfIndelParams,
     VcfPharmcatParams,
     VcfPharmgkbParams,
+    VcfPhaseParams,
     VcfPhylopParams,
     VcfRevelParams,
     VcfSnpParams,
@@ -57,6 +58,7 @@ from .filter_trio import (
     cmd_trio,
 )
 from .pharmcat import cmd_pharmcat
+from .phasing import cmd_phase
 from .population import (
     cmd_gnomad,
     cmd_phylop,
@@ -168,6 +170,10 @@ def register(
         )
         add_arguments(caller_parser, caller_cls)
         caller_parser.set_defaults(func=caller_func)
+    _add_vcf_command(
+        vcf_subs, base_parser, "phase", CLI_HELP["cmd_phase"],
+        VcfPhaseParams, cmd_phase,
+    )  # fmt: skip
 
     for name, help_text, cls, func in (
         ("clinvar", "Annotate VCF with ClinVar pathogenicity data.",
