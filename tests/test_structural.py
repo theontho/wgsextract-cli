@@ -156,7 +156,7 @@ def test_cnv_region_cant_be_read_as_a_samtools_option(tmp_path):
     # Review of PR #454: a region "-o<file>" made the region cut write <file>.
     bam, ref = _sample(tmp_path)
     written = tmp_path / "written.sam"
-    with pytest.raises(api.CommandFailed):
+    with pytest.raises(api.UsageError, match="isn't a region"):
         api.vcf.cnv(
             api.VcfCnvParams(
                 input=Path(bam), ref=Path(ref), outdir=tmp_path / "cnv",
