@@ -42,7 +42,7 @@ jobs:
           cmake --install out/build --prefix out/prefix
           mkdir -p out/packages
           for tool in wgse-bwa wgse-bwa-mem2; do
-            # Each package has its own version: "wgse-bwa 0.2.0; BWA 0.7.19".
+            # Each package has its own version: "wgse-bwa 0.3.0; BWA 0.7.19".
             version=$("out/prefix/bin/$tool" --version | sed -n 's/^[^ ]* \([^;]*\);.*/\1/p')
             test -n "$version"
             otool -L "out/prefix/bin/$tool"

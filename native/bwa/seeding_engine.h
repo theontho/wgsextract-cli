@@ -21,6 +21,7 @@ using Intervals = std::vector<bwtintv_t>;
 static_assert(sizeof(SeedInterval) == sizeof(bwtintv_t));
 static_assert(offsetof(SeedInterval, info) == offsetof(bwtintv_t, info));
 static_assert(sizeof(SeedParameters) == 80 && sizeof(SeedRead) == 8);
+static_assert(sizeof(LocateParameters) == 72);
 
 inline double seconds(Clock::time_point start) {
     return std::chrono::duration<double>(Clock::now() - start).count();
@@ -63,14 +64,15 @@ struct CpuJob {
 // makes Metal unavailable; only a missing unified-memory device is unsupported.
 struct SeedKernel {
     wgse::metal::Runtime runtime;
-    id<MTLComputePipelineState> pipeline = nil;
+    id<MTLComputePipelineState> pipeline = nil, locate = nil;
 
     SeedKernel() {
         if (runtime.device()) pipeline = runtime.compile(wgse_seeding_source, "collect_seeds");
+        if (pipeline) locate = runtime.compile(wgse_seeding_source, "locate_rows");
     }
     bool hardware_supported() const { return runtime.device() != nil; }
     bool available(std::string &reason) const {
-        reason = pipeline ? "" : runtime.failure().empty() ? "seeding kernel unavailable"
+        reason = pipeline && locate ? "" : runtime.failure().empty() ? "seeding kernel unavailable"
             : runtime.failure();
         return reason.empty();
     }
@@ -198,6 +200,86 @@ public:
             fallback_seconds = seconds(start);
         }
         for (const auto &seeds : out) intervals += seeds.size();
+    }
+};
+// The suffix-array rows mem_chain() passes to bwt_sa() for these intervals, in
+// its order: at most max_occ evenly spaced rows per interval. The casts spell
+// out C's implicit conversions so any wrap-around behaves identically.
+// The number of rows append_rows() adds for these intervals.
+inline size_t row_count(const Intervals &intervals, int max_occ) {
+    size_t total = 0;
+    for (const bwtintv_t &interval : intervals)
+        total += interval.x[2] > static_cast<uint64_t>(max_occ) ? static_cast<size_t>(max_occ)
+            : static_cast<size_t>(interval.x[2]);
+    return total;
+}
+
+inline void append_rows(const Intervals &intervals, int max_occ, std::vector<uint64_t> &rows) {
+    for (const bwtintv_t &interval : intervals) {
+        const bwtintv_t *p = &interval;
+        int step, count;
+        int64_t k;
+        const uint64_t limit = static_cast<uint64_t>(max_occ);
+        step = p->x[2] > limit ? static_cast<int>(p->x[2] / limit) : 1;
+        for (k = count = 0; static_cast<uint64_t>(k) < p->x[2] && count < max_occ;
+            k += step, ++count)
+            rows.push_back(p->x[0] + static_cast<uint64_t>(k));
+    }
+}
+
+// Resolves suffix-array rows to reference positions (bwt_sa) on the GPU,
+// sharing the BWT and the sampled suffix array with the CPU in place.
+class GpuLocate {
+public:
+    wgse::metal::Runtime &runtime;
+    id<MTLComputePipelineState> pipeline;
+    id<MTLBuffer> parameters = nil, rows = nil, positions = nil, sa = nil;
+    size_t capacity;
+    double kernel_seconds = 0;
+
+    GpuLocate(SeedKernel &kernel, size_t rows_per_dispatch)
+        : runtime(kernel.runtime), pipeline(kernel.locate), capacity(rows_per_dispatch) {
+        if (!pipeline) throw std::runtime_error("locate kernel unavailable");
+        parameters = runtime.allocate(sizeof(LocateParameters));
+        rows = runtime.allocate(capacity * sizeof(uint64_t));
+        positions = runtime.allocate(capacity * sizeof(uint64_t));
+        if (!parameters || !rows || !positions)
+            throw std::runtime_error("GPU locate allocation failed");
+    }
+
+    // Returns false (CPU locate) for suffix-array samples the kernel cannot index.
+    static bool supported(const bwt_t &bwt) {
+        return bwt.sa && bwt.sa_intv > 0 && (bwt.sa_intv & (bwt.sa_intv - 1)) == 0
+            && bwt.n_sa == (bwt.seq_len + bwt.sa_intv) / bwt.sa_intv;
+    }
+
+    void configure(const bwt_t &bwt) {
+        LocateParameters p{};
+        p.primary = bwt.primary;
+        p.seq_len = bwt.seq_len;
+        p.sa_intv = static_cast<uint64_t>(bwt.sa_intv);
+        std::copy_n(bwt.L2, 5, p.l2);
+        p.sa_shift = static_cast<uint32_t>(__builtin_ctzll(p.sa_intv));
+        memcpy(parameters.contents, &p, sizeof(p));
+    }
+
+    void run(id<MTLBuffer> index, const std::vector<uint64_t> &input,
+        std::vector<uint64_t> &output, size_t group) {
+        kernel_seconds = 0;
+        output.resize(input.size());
+        for (size_t offset = 0; offset < input.size(); offset += capacity) {
+            @autoreleasepool {
+                size_t count = std::min(capacity, input.size() - offset);
+                memcpy(rows.contents, input.data() + offset, count * sizeof(uint64_t));
+                static_cast<LocateParameters *>(parameters.contents)->count =
+                    static_cast<uint32_t>(count);
+                double elapsed = 0;
+                if (!runtime.dispatch(pipeline, {index, sa, parameters, rows, positions},
+                    count, group, elapsed)) throw std::runtime_error(runtime.failure());
+                kernel_seconds += elapsed;
+                memcpy(output.data() + offset, positions.contents, count * sizeof(uint64_t));
+            }
+        }
     }
 };
 } // namespace wgse::seeding

@@ -36,6 +36,11 @@ struct SeedParameters {
     SeedU32 scratch_limit, output_limit, padding;
 };
 
+struct LocateParameters {
+    SeedU64 primary, seq_len, sa_intv, l2[5];
+    SeedU32 count, sa_shift;
+};
+
 enum SeedStatus : SeedU32 {
     seed_ok = 0,
     seed_length_limit = 1,

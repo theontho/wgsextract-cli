@@ -1,5 +1,5 @@
-// BWA 0.7.19's bidirectional FM-index traversal and three-pass MEM collection.
-// Adapted from bwt.c/bwamem.c (Heng Li et al., MIT; see SEEDING-LICENSE).
+// BWA 0.7.19's bidirectional FM-index traversal, three-pass MEM collection and
+// suffix-array locate. Adapted from bwt.c/bwamem.c (Heng Li et al., MIT; see SEEDING-LICENSE).
 // seeding_types.h is prepended by CMake for runtime compilation.
 
 struct SeedVector {
@@ -229,4 +229,42 @@ kernel void collect_seeds(device const uint *bwt [[buffer(0)]],
         out.set(j, value);
     }
     results[tid].count = out.size;
+}
+
+// bwt_sa(): walk inverse-Psi (LF) steps to the next sampled suffix-array row.
+// Mirrors bwt_invPsi/bwt_occ/bwt_B0 in bwt.c exactly, including sa[0] == -1.
+ulong locate_occ(device const uint *bwt, ulong k, uint c, constant LocateParameters &p) {
+    if (k == p.seq_len) return p.l2[c + 1] - p.l2[c];
+    k -= k >= p.primary;
+    device const uint *block = bwt + (k >> 7) * 16;
+    ulong count = reinterpret_cast<device const ulong *>(block)[c];
+    uint pattern = c * 0x55555555u, end = uint(k & 127) >> 4;
+    for (uint i = 0; i < end; ++i) {
+        uint x = block[8 + i] ^ pattern;
+        count += popcount(~(x | (x >> 1)) & 0x55555555u);
+    }
+    uint x = block[8 + end] ^ pattern;
+    uint keep = ~((1u << ((~uint(k) & 15) * 2)) - 1);
+    return count + popcount(~(x | (x >> 1)) & 0x55555555u & keep);
+}
+
+kernel void locate_rows(device const uint *bwt [[buffer(0)]],
+    device const ulong *sa [[buffer(1)]],
+    constant LocateParameters &p [[buffer(2)]],
+    device const ulong *rows [[buffer(3)]],
+    device ulong *positions [[buffer(4)]],
+    uint id [[thread_position_in_grid]]) {
+    if (id >= p.count) return;
+    ulong k = rows[id], steps = 0, mask = p.sa_intv - 1;
+    while (k & mask) {
+        ++steps;
+        if (k == p.primary) {
+            k = 0;
+            continue;
+        }
+        ulong x = k - (k > p.primary);
+        uint c = (bwt[(x >> 7 << 4) + 8 + ((x & 127) >> 4)] >> ((~uint(x) & 15) << 1)) & 3;
+        k = p.l2[c] + locate_occ(bwt, k, c, p);
+    }
+    positions[id] = steps + sa[k >> p.sa_shift];
 }

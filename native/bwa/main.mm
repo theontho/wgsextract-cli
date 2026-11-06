@@ -19,10 +19,10 @@ void help() {
         "  capabilities --json       report Metal availability\n"
         "  --version                 print executable and engine version\n"
         "Options precede the command and affect only mem. The default CPU backend is unmodified BWA.\n"
-        "--metal (EXPERIMENTAL) seeds most reads on the GPU while the CPU maps the rest,\n"
-        "with identical output. It fails if Metal is unavailable, and exits 1 after\n"
-        "finishing on the CPU if a GPU batch fails; --backend auto falls back to the CPU\n"
-        "in both cases.\n"
+        "--metal (EXPERIMENTAL) finds and locates the seeds of most reads on the GPU\n"
+        "while the CPU maps the rest, with identical output. It fails if Metal is\n"
+        "unavailable, and exits 1 after finishing on the CPU if a GPU batch fails;\n"
+        "--backend auto falls back to the CPU in both cases.\n"
         "SAM is written to stdout; diagnostics to stderr.\n"
         "Not qualified for clinical use.\n",
         name, version, engine_version, name, name);
@@ -54,17 +54,44 @@ int run(int argc, char **argv) {
         } else if (strcmp(option, "--gpu-inject-failure") == 0) {
             wgse_inject_gpu_failure();
             ++command_index;
-        } else if (strcmp(option, "--gpu-percent") == 0 || strcmp(option, "--gpu-policy") == 0) {
-            if (argc <= command_index + 1) return 2;
-            const char *value = argv[command_index + 1];
-            char *end = nullptr;
-            long percent = strcmp(value, "all") == 0 ? 100 : strcmp(value, "hybrid") == 0 ? 80
-                : strcmp(option, "--gpu-percent") == 0 ? strtol(value, &end, 10) : 0;
-            if ((end && (end == value || *end)) || percent < 1 || percent > 100) {
-                fprintf(stderr, "%s requires 1..100, all or hybrid\n", option);
+        } else if (strcmp(option, "--gpu-inject-locate-failure") == 0) {
+            wgse_inject_locate_failure();
+            ++command_index;
+        } else if (strcmp(option, "--gpu-locate") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            if (strcmp(value, "on") && strcmp(value, "off")) {
+                fprintf(stderr, "--gpu-locate requires on or off\n");
                 return 2;
             }
-            wgse_set_gpu_percent(static_cast<int>(percent));
+            wgse_set_gpu_locate(strcmp(value, "on") == 0);
+            command_index += 2;
+        } else if (strcmp(option, "--gpu-policy") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            if (strcmp(value, "all") && strcmp(value, "hybrid")) {
+                fprintf(stderr, "--gpu-policy requires all or hybrid\n");
+                return 2;
+            }
+            wgse_set_gpu_policy(strcmp(value, "all") == 0);
+            command_index += 2;
+        } else if (strcmp(option, "--gpu-batch") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long reads = strtol(value, &end, 10);
+            if (end == value || *end || reads < 2 || reads > 65536) {
+                fprintf(stderr, "--gpu-batch requires 2..65536 reads\n");
+                return 2;
+            }
+            wgse_set_gpu_batch(static_cast<size_t>(reads));
+            command_index += 2;
+        } else if (strcmp(option, "--gpu-locate-rows") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long rows = strtol(value, &end, 10);
+            if (end == value || *end || rows < 0 || rows > (1L << 21)) {
+                fprintf(stderr, "--gpu-locate-rows requires 0..2097152 rows\n");
+                return 2;
+            }
+            wgse_set_gpu_locate_rows(static_cast<size_t>(rows));
             command_index += 2;
 #endif
         } else break;

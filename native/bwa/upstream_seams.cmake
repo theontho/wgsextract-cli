@@ -17,14 +17,20 @@ seam_replace(mem_source "mem_collect_intv(opt, bwt, len, seq, aux);"
 seam_replace(mem_source
     "kt_for(opt->n_threads, worker1, &w, (opt->flag&MEM_F_PE)? n>>1 : n);"
     "if (!wgse_metal_map(opt, bwt, n, seqs, worker1, &w))\n\t\tkt_for(opt->n_threads, worker1, &w, (opt->flag&MEM_F_PE)? n>>1 : n);")
+seam_replace(mem_source "s.rbeg = tmp.pos = bwt_sa(bwt, p->x[0] + k);"
+    "s.rbeg = tmp.pos = wgse_metal_sa(bwt, p->x[0] + k);")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/seed_oracle.c.in" oracle_source)
 file(WRITE "${generated}/bwamem.c"
     "#include \"metal_backend.h\"\n${mem_source}\n${oracle_source}")
 
-# Metal shares the BWT in place, which needs page-aligned storage.
+# Metal shares the BWT and the restored (not the index-time) suffix array in
+# place, which needs page-aligned storage.
 file(READ "${bwa_SOURCE_DIR}/bwt.c" bwt_source)
 seam_replace(bwt_source "calloc(bwt->bwt_size, 4)"
     "(wgse_metal_enabled() ? wgse_metal_calloc(bwt->bwt_size, 4) : calloc(bwt->bwt_size, 4))")
+seam_replace(bwt_source
+    "bwt->sa = (bwtint_t*)calloc(bwt->n_sa, sizeof(bwtint_t));\n\tbwt->sa[0] = -1;"
+    "bwt->sa = (bwtint_t*)(wgse_metal_enabled() ? wgse_metal_calloc(bwt->n_sa, sizeof(bwtint_t)) : calloc(bwt->n_sa, sizeof(bwtint_t)));\n\tbwt->sa[0] = -1;")
 file(WRITE "${generated}/bwt.c" "#include \"metal_backend.h\"\n${bwt_source}")
 
 file(READ "${bwa_SOURCE_DIR}/main.c" main_source)

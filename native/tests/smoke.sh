@@ -85,6 +85,11 @@ else
             fi
             echo "Routing kept every batch on the CPU; Metal output matches CPU"
         else
+            # wgse-bwa also locates seeds on the GPU; mem_chain must use every row.
+            if grep -q 'locate_misses=' metal.log; then
+                grep -q 'locate_misses=0$' metal.log
+                [ "$mode" != force-gpu ] || grep -Eq 'located_rows=[1-9]' metal.log
+            fi
             echo "Metal alignments match CPU"
         fi
     elif grep -q '"metal_hardware_supported":true' capabilities.json; then

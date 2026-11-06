@@ -17,9 +17,11 @@ printed by `--version`.
 
 ## Installing
 
-The `macos-aligners-2` prerelease has `wgse-bwa` 0.2.0 and `wgse-bwa-mem2`
+The `macos-aligners-3` prerelease has `wgse-bwa` 0.3.0 and `wgse-bwa-mem2`
 0.1.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
-later; `macos-aligners-1` has `wgse-bwa` 0.1.0, which aligns on the CPU only.
+later. Earlier prereleases: `macos-aligners-2` has `wgse-bwa` 0.2.0, whose
+`--metal` seeds on the GPU but locates seeds on the CPU; `macos-aligners-1`
+has `wgse-bwa` 0.1.0, which aligns on the CPU only.
 
 Download into an empty directory with `gh` (or `curl`), which avoids the
 browser quarantine flag that Gatekeeper applies to these ad-hoc-signed
@@ -28,8 +30,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-2 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-2 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-3 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-3 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -48,7 +50,7 @@ wgse-bwa-mem2 capabilities --json
 
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
-`xattr -dr com.apple.quarantine wgse-bwa-0.2.0-macos-arm64` (and
+`xattr -dr com.apple.quarantine wgse-bwa-0.3.0-macos-arm64` (and
 `wgse-bwa-mem2-0.1.0-macos-arm64`).
 
 ## Usage
@@ -78,11 +80,14 @@ them):
 What runs on the GPU:
 
 - `wgse-bwa`: exact SMEM seeding (BWA's three-pass FM-index interval
-  collection). Each chunk of reads (`-K`) is split: the GPU seeds 80% of the
-  pairs while the CPU threads map the other 20%, then the CPU extends the
-  GPU-seeded pairs from their cached intervals. Reads the GPU cannot seed
-  exactly (over 512 bp, too many intervals, or seeding options wider than 32
-  bits) are seeded by upstream's CPU code; on HG002 this is 0.3% of reads.
+  collection) and, from 0.3.0, suffix-array locate of the seeds (`bwt_sa`).
+  Within each chunk of reads (`-K`) the GPU prepares batches of pairs from the
+  front while the CPU threads extend the prepared pairs from the cached
+  intervals and positions; when none is ready, a CPU thread maps an unprepared
+  pair from the back of the chunk with upstream's code. On HG002 the GPU
+  prepares about 88% of the pairs. Reads the GPU cannot seed exactly (over
+  512 bp, too many intervals, or seeding options wider than 32 bits) are seeded
+  by upstream's CPU code; on HG002 this is 0.3% of reads.
 - `wgse-bwa-mem2`: batches seed extension across worker threads, keeping small
   batches on the CPU.
 
@@ -95,7 +100,14 @@ BWA-MEM2 trades memory for speed. Building its human index needs roughly
 ordinary desktops. On hs38 with 150 bp HG002 pairs, `wgse-bwa` built the index
 with a 6.2 GiB peak in 100 minutes, and aligning peaked at 5.3 GiB with 1 thread
 and 5.9 GiB with 9 threads (default `-K`), or about 75 MiB per extra thread.
-`wgse-bwa --metal` adds about 0.4 GiB, mostly the GPU's seed output buffer.
+`wgse-bwa --metal` adds about 0.4 GiB, mostly the GPU's seed output buffer;
+suffix-array locate shares the index's sampled suffix array with the GPU in
+place and adds about 32 MiB. Its host memory does not grow with `-K` or `-c`:
+at most three prepared batches wait for the CPU threads, and each locates at
+most 2^21 rows (32 MiB); the rows of further reads are located on the CPU.
+With `--metal` the GPU uses the whole index
+(4.3 GiB for hs38) in place, so it stays resident while aligning; it has not
+been tested on 8 GB Macs.
 `wgse-bwa-mem2 --metal` adds under 100 MB of GPU buffers.
 
 ## Performance
@@ -104,18 +116,21 @@ Measured on an M1 Pro (8P+2E cores, 32 GB). All runs in each group produced
 identical alignments.
 
 Full genome (hs38, first 5M HG002 30x NovaSeq pairs, `-K 10000000`). Each row
-is the mean of its runs. The 0.2.0 rows are two interleaved runs each on AC power:
+is the mean of its runs. The 0.3.0 and 0.2.0 `--metal` rows come from one
+session on AC power that interleaved them with the 0.3.0 CPU (two runs each,
+three for 0.3.0 `--metal`):
 
 | Aligner | Threads | Time | Peak RSS | vs CPU |
 | --- | --- | --- | --- | --- |
 | Bioconda bwa 0.7.19 | 9 | 528.5 s | 5.4 GiB | — |
 | `wgse-bwa` 0.1.0 | 9 | 527.4 s | 5.4 GiB | — |
-| `wgse-bwa` 0.2.0 | 9 | 481.2 s | 5.4 GiB | — |
-| `wgse-bwa --metal` 0.2.0 | 9 | 425.4 s | 5.8 GiB | −11.6% |
+| `wgse-bwa` 0.3.0 | 9 | 482.7 s | 5.4 GiB | — |
+| `wgse-bwa --metal` 0.2.0 (seeding) | 9 | 423.4 s | 5.8 GiB | −12.3% |
+| `wgse-bwa --metal` 0.3.0 (seeding and locate) | 9 | 297.0 s | 5.8 GiB | −38.5% |
 
-An earlier interleaved session on battery gave 501.8 s (CPU) and 436.9 s
-(Metal). On 200k of those pairs `--metal` saved 10% with 9 threads, 11% with 4
-and 14% with 1.
+An earlier session measured 481.2 s (CPU) and 425.4 s (0.2.0 `--metal`). On
+200k of those pairs 0.3.0 `--metal` saved 33% with 9 threads, 41% with 4 and
+50% with 1.
 
 The BWA-MEM2 human index cannot be built on this machine, so BWA-MEM2 was
 measured with 10.6M read pairs against a small reference (chr20 fragment, Y,
@@ -136,9 +151,10 @@ optimization and mimalloc each changed the 200k-pair time by about 1% or less,
 and mimalloc changed the full-genome time by 0.4%.
 
 On hs38 BWA's time splits roughly into SMEM collection (19%), suffix-array
-locate (23%) and extension with mate rescue (45%). `--metal` moves only SMEM
-collection to the GPU, for most pairs, so it can save at most about a fifth of
-the run.
+locate (23%) and extension with mate rescue (45%). `--metal` 0.2.0 moved only
+SMEM collection to the GPU, so it could save at most about a fifth of the run;
+0.3.0 also locates the seeds there, for about 88% of the pairs, which leaves
+mostly extension on the CPU threads.
 
 ## Building
 
@@ -160,8 +176,8 @@ both executables, and publishes them when run with a `macos-aligners-N` tag.
 ## Licences
 
 `wgse-bwa` combines BWA (GPL-3.0) with the code in `bwa/` and `metal-common/`
-(GPL-3.0-or-later); its Metal seeding kernel is adapted from BWA's MIT-licensed
-`bwt.c` and `bwamem.c` (`METAL-SEEDING-LICENSE`).
+(GPL-3.0-or-later); its Metal seeding and locate kernels are adapted from BWA's
+MIT-licensed `bwt.c` and `bwamem.c` (`METAL-SEEDING-LICENSE`).
 `wgse-bwa-mem2` combines BWA-MEM2 (MIT), sse2neon
 (MIT) and safestringlib (MIT) with the code in `bwa-mem2/` (GPL-3.0-or-later,
 like this repository). Each package ships its licences, including this

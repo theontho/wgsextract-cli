@@ -1,4 +1,4 @@
-The Metal seeding traversal is adapted from BWA's bwt.c and bwamem.c.
+The Metal seeding traversal and suffix-array locate are adapted from BWA's bwt.c and bwamem.c.
 These upstream portions are provided under the following licence:
 
 The MIT License

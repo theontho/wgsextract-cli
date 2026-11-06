@@ -53,6 +53,12 @@ grep -Eq 'scratch=[1-9][0-9]*' scratch-fallback.log
     --output-limit 1 > output-fallback.log 2>&1
 cat output-fallback.log
 grep -Eq 'output=[1-9][0-9]*' output-fallback.log
+# GPU suffix-array locate, in dispatches smaller than one batch's rows.
+"$benchmark" reference.fa reads.fq --reads 2048 --batch 257 --verify-only --locate \
+    --locate-batch 4093 > locate.log 2>&1
+cat locate.log
+grep -Eq 'locate_parity=exact rows=[1-9][0-9]*' locate.log
+grep -q 'locate_all=exact' locate.log
 
 # Tiny indexes exercise sentinel/block boundaries and absent DNA symbols.
 awk 'BEGIN {
@@ -70,6 +76,10 @@ awk 'BEGIN {
 "$aligner" index tiny.fa > tiny-index.log 2>&1
 "$benchmark" tiny.fa tiny.fq --reads 1000 --batch 257 --verify-only > tiny-parity.log 2>&1
 cat tiny-parity.log
+"$benchmark" tiny.fa tiny.fq --reads 1000 --batch 257 --verify-only --locate \
+    > tiny-locate.log 2>&1
+cat tiny-locate.log
+grep -q 'locate_all=exact' tiny-locate.log
 
 # Regression (PR #444 review): a chunk whose GPU reads overflow, followed by a
 # chunk with no GPU-eligible reads (all over 512 bp), must not reuse the first
@@ -103,13 +113,68 @@ grep -q 'concurrent_parity=exact' concurrent-parity.log
     > metal-edges.sam 2> metal-edges.log
 same cpu-edges.sam metal-edges.sam
 grep -Eq 'gpu_batches=[1-9][0-9]* .*fallback_reads=[1-9][0-9]*' metal-edges.log
+# Every GPU-located row is consumed by mem_chain in order.
+grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0$' metal-edges.log
+"$aligner" --gpu-policy all --gpu-locate off --metal mem -t 1 -K 10000 reference.fa reads.fq \
+    > seeds-only.sam 2> seeds-only.log
+same cpu-edges.sam seeds-only.sam
+grep -Eq 'gpu_batches=[1-9][0-9]* .*located_rows=0 ' seeds-only.log
+
+# -c changes how many rows mem_chain visits and how it steps through repeats.
+for occ in 1 7 50; do
+    "$aligner" mem -t 2 -c "$occ" -K 20000 reference.fa reads.fq > "cpu-c$occ.sam" \
+        2> "cpu-c$occ.log"
+    "$aligner" --gpu-policy all --gpu-batch 300 --metal mem -t 2 -c "$occ" -K 20000 \
+        reference.fa reads.fq > "metal-c$occ.sam" 2> "metal-c$occ.log"
+    same "cpu-c$occ.sam" "metal-c$occ.sam"
+    grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0$' "metal-c$occ.log"
+done
+
+# Regression (PR #455 review): a per-batch locate cap leaves the remaining
+# reads' rows to upstream bwt_sa() without changing the alignments.
+"$aligner" --gpu-policy all --gpu-batch 300 --gpu-locate-rows 1000 --metal mem -t 2 -c 50 \
+    -K 20000 reference.fa reads.fq > metal-capped.sam 2> metal-capped.log
+same cpu-c50.sam metal-capped.sam
+grep -Eq 'unlocated_reads=[1-9][0-9]* located_rows=[1-9][0-9]* locate_misses=0$' metal-capped.log
+
+# Regression (PR #455 review): paired-end reads across many GPU batches, more
+# than the scheduler keeps outstanding, so later batches' mate offsets are used.
+awk 'BEGIN {
+    srand(455)
+    while ((getline line < "reference.fa") > 0) {
+        if (line ~ /^>/) name = substr(line, 2)
+        else ref[name] = ref[name] line
+    }
+    complement["A"] = "T"; complement["C"] = "G"; complement["G"] = "C"; complement["T"] = "A"
+    for (p = 1; p <= 600; ++p) {
+        source = p % 9 == 0 ? ref["tandem"] : ref["random"]
+        insert = 250 + int(rand() * 250)
+        start = 1 + int(rand() * (length(source) - insert))
+        left = substr(source, start, 101)
+        right = substr(source, start + insert - 101, 101)
+        if (p % 4 == 0) left = substr(left, 1, 50) (substr(left, 51, 1) == "A" ? "C" : "A") substr(left, 52)
+        mate = ""
+        for (i = 101; i >= 1; --i) mate = mate complement[substr(right, i, 1)]
+        quality = ""
+        for (i = 1; i <= 101; ++i) quality = quality "I"
+        printf "@pair%d/1\n%s\n+\n%s\n", p, left, quality > "pairs-R1.fq"
+        printf "@pair%d/2\n%s\n+\n%s\n", p, mate, quality > "pairs-R2.fq"
+    }
+}'
+"$aligner" mem -t 3 reference.fa pairs-R1.fq pairs-R2.fq > cpu-pairs.sam 2> cpu-pairs.log
+"$aligner" --gpu-policy all --gpu-batch 64 --metal mem -t 3 reference.fa pairs-R1.fq \
+    pairs-R2.fq > metal-pairs.sam 2> metal-pairs.log
+same cpu-pairs.sam metal-pairs.sam
+grep -Eq 'gpu_batches=([4-9]|[1-9][0-9]+) gpu_reads=1200 ' metal-pairs.log
+grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0$' metal-pairs.log
 
 "$aligner" mem -t 3 -K 20000 -k 11 -r 1.1 -s 5 -y 0 reference.fa reads.fq \
     > cpu-options.sam 2> cpu-options.log
 "$aligner" --metal mem -t 3 -K 20000 -k 11 -r 1.1 -s 5 -y 0 reference.fa reads.fq \
     > metal-options.sam 2> metal-options.log
 same cpu-options.sam metal-options.sam
-grep -Eq 'gpu_batches=[1-9][0-9]* .*cpu_reads=[1-9][0-9]*' metal-options.log
+# How the hybrid policy splits pairs depends on timing; only parity is fixed.
+grep -Eq 'gpu_batches=[0-9]+ ' metal-options.log
 
 # A 64-bit -y value must use upstream collection, not silently narrow to 32 bits.
 "$aligner" mem -t 3 -y 2147483648 tiny.fa tiny.fq > cpu-wide.sam 2> cpu-wide.log
@@ -130,3 +195,15 @@ same cpu-default.sam failed-metal.sam
     > failed-auto.sam 2> failed-auto.log
 grep -q 'CPU fallback: injected GPU failure' failed-auto.log
 same cpu-default.sam failed-auto.sam
+
+# A failed locate dispatch is handled like a failed seeding batch.
+status=0
+"$aligner" --gpu-inject-locate-failure --gpu-policy all --metal mem -t 3 -K 20000 \
+    reference.fa reads.fq > failed-locate.sam 2> failed-locate.log || status=$?
+test "$status" -eq 1
+grep -q 'CPU fallback: injected GPU locate failure' failed-locate.log
+same cpu-default.sam failed-locate.sam
+"$aligner" --gpu-inject-locate-failure --gpu-policy all --backend auto mem -t 3 -K 20000 \
+    reference.fa reads.fq > failed-locate-auto.sam 2> failed-locate-auto.log
+grep -q 'CPU fallback: injected GPU locate failure' failed-locate-auto.log
+same cpu-default.sam failed-locate-auto.sam
