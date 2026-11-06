@@ -293,12 +293,17 @@ class McpServer:
                 # The client gave up on it, so it expects no response.
                 self._cancelled.discard(request_id)
                 return
+        try:
+            text = json.dumps(payload, separators=(",", ":"))
+        except (TypeError, ValueError) as e:
+            # Every call gets a response, even one whose result can't be sent.
+            logging.exception("MCP tool result is not JSON")
+            payload = {"error": {"code": "internal", "message": str(e)}}
+            text, failed = json.dumps(payload, separators=(",", ":")), True
         self._reply(
             request_id,
             {
-                "content": [
-                    {"type": "text", "text": json.dumps(payload, separators=(",", ":"))}
-                ],
+                "content": [{"type": "text", "text": text}],
                 "structuredContent": payload,
                 "isError": failed,
             },

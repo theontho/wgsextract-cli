@@ -9,6 +9,7 @@ import ntpath
 import os
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -1738,7 +1739,13 @@ def test_variant_lookups_filter_and_page_every_table_format(
             None,
         )
 
-        for bad in ({"limit": 0}, {"rsid": "2"}, {"region": "chr1:9-1"}, {"x": 1}):
+        # Review of #487: an empty start or end, a non-ASCII digit and a
+        # cursor past SQLite's integers were 500s.
+        for bad in (
+            {"limit": 0}, {"rsid": "2"}, {"region": "chr1:9-1"}, {"x": 1},
+            {"region": "chr1:,"}, {"region": "chr1:1-,"}, {"cursor": "\u00b2"},
+            {"cursor": str(2**63)}, {"cursor": "-1"},
+        ):  # fmt: skip
             status, answer = lookup(**bad)
             assert (status, answer["error"]["code"]) == (400, "usage"), bad
         outside = tmp_path / table.name
@@ -1805,6 +1812,26 @@ def test_report_lookup_reads_a_samples_newest_report(tmp_path, work):
         os.utime(elsewhere, (time.time() + 60, time.time() + 60))
         status, answer = lookup(sample)
         assert (status, answer["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_a_blob_in_a_variant_database_is_returned_as_text(
+    tmp_path, work, variant_tables
+):
+    # Review of #487: SQLite stores any type in any column; a BLOB made the
+    # MCP query_variants call hang with no reply, and HTTP fail.
+    db = work / "blob_variants.sqlite"
+    shutil.copy(variant_tables["sqlite"], db)
+    with contextlib.closing(sqlite3.connect(db)) as con, con:
+        con.execute("UPDATE variants SET gene = ? WHERE rsid = 'rs4'", (b"GENEB",))
+    mcp = Mcp("--allow", str(work))
+    result = mcp.call("query_variants", path=str(db), rsid="rs4")
+    assert result["isError"] is False
+    assert [r["gene"] for r in result["structuredContent"]["rows"]] == ["GENEB"]
+    assert mcp.close() == 0
+    with _serve(tmp_path, [work]) as client:
+        text = urllib.parse.urlencode({"path": str(db), "rsid": "rs4"})
+        status, answer = client.request("GET", f"/variants?{text}")
+    assert (status, [r["gene"] for r in answer["rows"]]) == (200, ["GENEB"])
 
 
 def test_mcp_offers_lookups_without_allow_jobs(work, variant_tables):

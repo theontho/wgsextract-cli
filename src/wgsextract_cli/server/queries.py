@@ -30,7 +30,9 @@ MAX_ROWS = 1000
 _FAR = 2**62
 CONFIDENCE_RANK = {"low": 0, "moderate": 1, "high": 2}
 _TYPES = {c.name: c.type for c in COLUMNS}
-_REGION = re.compile(r"(?P<chrom>[^:\s]+)(?::(?P<start>[\d,]+)(?:-(?P<end>[\d,]+))?)?")
+_REGION = re.compile(
+    r"(?P<chrom>[^:\s]+)(?::(?P<start>\d[\d,]*)(?:-(?P<end>\d[\d,]*))?)?"
+)
 _RSID = re.compile(r"rs\d+")
 _SIGNIFICANCE_SPLIT = re.compile(r"[/|,]")
 
@@ -214,6 +216,16 @@ def _parquet_rows(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
             yield number, row
 
 
+def _json_value(value: Any) -> Any:
+    """SQLite's typing is per value: a BLOB (or anything else that isn't
+    JSON) in any column is returned as text."""
+    if value is None or isinstance(value, (str, int, float)):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return str(value)
+
+
 def _sqlite_rows(
     path: Path, after: int, where: list[str], values: list[Any]
 ) -> Iterator[tuple[int, dict[str, Any]]]:
@@ -225,7 +237,7 @@ def _sqlite_rows(
             f"SELECT rowid, * FROM variants WHERE {sql} ORDER BY rowid",  # noqa: S608
             [after, *values],
         ):
-            values_ = dict(row)
+            values_ = {k: _json_value(v) for k, v in dict(row).items()}
             yield values_.pop("rowid"), values_
     except sqlite3.Error as e:
         raise RequestError(
@@ -248,7 +260,8 @@ def query_variants(guard: PathGuard, arguments: Mapping[str, Any]) -> dict[str, 
     least = CONFIDENCE_RANK.get(str(arguments.get("min_confidence") or ""), -1)
     limit = int(arguments.get("limit") or 50)
     cursor = str(arguments.get("cursor") or "0")
-    if not cursor.isdigit():
+    # ASCII digits only (str.isdigit accepts "²"), within SQLite's integers.
+    if not re.fullmatch(r"[0-9]+", cursor) or int(cursor) > _FAR:
         raise RequestError(400, "usage", "cursor must be a next_cursor value.")
     after = int(cursor)
 
