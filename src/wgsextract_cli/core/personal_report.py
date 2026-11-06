@@ -1086,6 +1086,16 @@ GENE_STATUS = {
 }
 
 
+def _split_index(origin: Sequence[str]) -> bool:
+    """Whether ``origin`` (an ``--old-rec-tag`` split on ``|``) names one ALT
+    of its record by number."""
+    return (
+        len(origin) == 5
+        and origin[4].isdigit()
+        and 1 <= int(origin[4]) <= len(origin[3].split(","))
+    )
+
+
 def _gene_calls(
     gene: gene_lists.Gene, calls: Sequence[Mapping[str, Any]], complete: bool = True
 ) -> dict[str, Any]:
@@ -1094,7 +1104,7 @@ def _gene_calls(
     biallelic, with the weakest confidence of those calls. Phase is not
     known, and a haploid or partly called genotype (``1/.``) doesn't show the
     other copy, so these make the gene only possibly biallelic. Two ALTs split
-    from one call (``1/2``) are on opposite copies: biallelic."""
+    from one diploid call (``1/2``) are on opposite copies: biallelic."""
     het = hom = hemi = partial = 0
     split_alts: dict[str, set[str]] = {}
     for call in calls:
@@ -1104,12 +1114,11 @@ def _gene_calls(
             partial += 1
         elif zygosity == "het":
             het += 1
-            # CHR|POS|REF|ALTS|IDX of the record it was split from.
-            record, _, index = str(
-                call.get(variant_confidence.SPLIT_TAG) or ""
-            ).rpartition("|")
-            if record:
-                split_alts.setdefault(record, set()).add(index)
+            # CHR|POS|REF|ALTS|IDX of the record it was split from. Beside a
+            # reference copy (0/1/2) the two ALTs leave one copy unaffected.
+            origin = str(call.get(variant_confidence.SPLIT_TAG) or "").split("|")
+            if len(alleles) == 2 and _split_index(origin):
+                split_alts.setdefault("|".join(origin[:4]), set()).add(origin[4])
         elif zygosity == "hom":
             hom += 1
         elif zygosity == "haploid":

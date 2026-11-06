@@ -514,6 +514,8 @@ def _bgzipped_vcf(path: Path, info: str, rows: list[str]) -> str:
         # Two separate het calls: phase unknown.
         (["{pos} . A C 50 PASS . GT 0/1", "{next} . A G 50 PASS . GT 0/1"],
          "possible_biallelic"),
+        # Review of #485: a triploid 0/1/2 keeps a reference copy.
+        (["{pos} . A C,G 50 PASS . GT 0/1/2"], "possible_biallelic"),
     ],
 )  # fmt: skip
 def test_two_pathogenic_alts_of_one_call_are_biallelic(sample, calls, status):
@@ -543,6 +545,22 @@ def test_two_pathogenic_alts_of_one_call_are_biallelic(sample, calls, status):
         status,
     )
     assert f"MUTYH {status.replace('_', ' ')}" in clinvar_section["summary"]
+
+
+def test_a_split_tag_without_alt_numbers_proves_nothing(sample):
+    # Review of #485: an input normalized elsewhere may carry a four-field
+    # OLD_MULTIALLELIC (no ALT number); two het calls sharing its record part
+    # are still of unknown phase.
+    chrom, pos = _mid("MUTYH")
+    header = TSV_HEADER.replace("CLNDN\n", "CLNDN\tGENEINFO\tOLD_MULTIALLELIC\n")
+    rows = [
+        f"{chrom}\t{pos}\tA\t{alt}\t0/1\thet\thigh\t\t30\t99\t0.5\tPathogenic\t"
+        f"MAP\tMUTYH:4595\t{chrom}|{pos}|A|{alt}\n"
+        for alt in ("C", "G")
+    ]
+    (sample / "clinvar_pathogenic.confidence.tsv").write_text(header + "".join(rows))
+    (mutyh,) = pr.build_report(sample)["sections"]["clinvar"]["genes"]
+    assert (mutyh["heterozygous"], mutyh["status"]) == (2, "possible_biallelic")
 
 
 def test_a_status_from_weak_calls_says_so(sample):
