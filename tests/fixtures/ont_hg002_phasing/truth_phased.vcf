@@ -1,0 +1,38 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr20,length=12000>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	HG002
+chr20	30	.	G	A	.	PASS	.	GT	1|0
+chr20	332	.	T	C	.	PASS	.	GT	1|0
+chr20	363	.	G	A	.	PASS	.	GT	1|0
+chr20	1009	.	G	C	.	PASS	.	GT	1|0
+chr20	1139	.	G	T	.	PASS	.	GT	1|0
+chr20	1460	.	T	A	.	PASS	.	GT	1|0
+chr20	1611	.	T	G	.	PASS	.	GT	1|0
+chr20	2283	.	T	TA	.	PASS	.	GT	1|0
+chr20	2348	.	A	G	.	PASS	.	GT	1|0
+chr20	2465	.	A	G	.	PASS	.	GT	1|0
+chr20	2897	.	TC	T	.	PASS	.	GT	1|0
+chr20	3220	.	A	G	.	PASS	.	GT	1|0
+chr20	3374	.	T	A	.	PASS	.	GT	1|1
+chr20	3389	.	AT	A	.	PASS	.	GT	1|0
+chr20	3707	.	T	G	.	PASS	.	GT	1|0
+chr20	4373	.	G	A	.	PASS	.	GT	0|1
+chr20	4627	.	G	C	.	PASS	.	GT	0|1
+chr20	6138	.	T	G	.	PASS	.	GT	0|1
+chr20	6262	.	G	GT	.	PASS	.	GT	0|1
+chr20	6732	.	TACTG	T	.	PASS	.	GT	0|1
+chr20	6881	.	AT	A	.	PASS	.	GT	0|1
+chr20	7364	.	T	G	.	PASS	.	GT	0|1
+chr20	8972	.	AACACAC	AAC,A	.	PASS	.	GT	1|2
+chr20	9176	.	A	AG	.	PASS	.	GT	1|1
+chr20	9211	.	T	G	.	PASS	.	GT	1|1
+chr20	9325	.	A	G	.	PASS	.	GT	0|1
+chr20	10234	.	C	A	.	PASS	.	GT	1|1
+chr20	10453	.	A	G	.	PASS	.	GT	0|1
+chr20	10611	.	A	G	.	PASS	.	GT	0|1
+chr20	10768	.	G	C	.	PASS	.	GT	0|1
+chr20	10869	.	C	T	.	PASS	.	GT	0|1
+chr20	11361	.	C	A	.	PASS	.	GT	0|1
+chr20	11676	.	G	A	.	PASS	.	GT	0|1
+chr20	11927	.	T	C	.	PASS	.	GT	1|1
