@@ -1,5 +1,6 @@
 from argparse import Namespace
 
+from wgsextract_cli import api
 from wgsextract_cli.commands import repair
 
 
@@ -12,14 +13,7 @@ def test_repair_vcf_file_mode_writes_repaired_vcf(tmp_path):
         encoding="utf-8",
     )
 
-    repair.repair_vcf(
-        Namespace(
-            input=str(input_vcf),
-            outdir=str(tmp_path),
-            output=None,
-            _explicit_dests={"input"},
-        )
-    )
+    api.repair.ftdna_vcf(api.RepairFtdnaVcfParams(input=input_vcf, outdir=tmp_path))
 
     output = tmp_path / "ftdna_repaired.vcf"
     assert "DP1" in output.read_text(encoding="utf-8")
@@ -34,13 +28,10 @@ def test_repair_vcf_file_mode_defaults_to_input_directory(tmp_path):
         encoding="utf-8",
     )
 
-    repair.repair_vcf(
-        Namespace(
-            input=str(input_vcf), outdir=None, output=None, _explicit_dests={"input"}
-        )
-    )
+    result = api.repair.ftdna_vcf(api.RepairFtdnaVcfParams(input=input_vcf))
 
     assert "DP1" in (tmp_path / "ftdna_repaired.vcf").read_text(encoding="utf-8")
+    assert result.metrics["repaired_records"] == 1
 
 
 def test_repair_vcf_config_default_input_keeps_stream_mode(tmp_path, monkeypatch):

@@ -41,6 +41,7 @@ GROUPS = (
     api.lineage,
     api.microarray,
     api.ref,
+    api.repair,
     api.report,
     api.sample,
     api.support,

@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import IO, TextIO
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.repair import RepairFtdnaBamParams, RepairFtdnaVcfParams
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
@@ -41,10 +43,7 @@ def register(
         parents=[base_parser],
         help=CLI_HELP["cmd_repair-ftdna-bam"],
     )
-    bam_parser.add_argument(
-        "--output",
-        help="Output repaired BAM path. Defaults to <outdir>/<input>_repaired.bam.",
-    )
+    add_arguments(bam_parser, RepairFtdnaBamParams)
     bam_parser.set_defaults(func=repair_bam)
 
     vcf_parser = repair_subs.add_parser(
@@ -52,16 +51,13 @@ def register(
         parents=[base_parser],
         help=CLI_HELP["cmd_repair-ftdna-vcf"],
     )
-    vcf_parser.add_argument(
-        "--output",
-        help="Output repaired VCF path. Defaults to <outdir>/<input>_repaired.vcf.",
-    )
+    add_arguments(vcf_parser, RepairFtdnaVcfParams)
     vcf_parser.set_defaults(func=repair_vcf)
 
 
 def repair_bam(args: argparse.Namespace) -> None:
     if _input_was_explicit(args) and args.input:
-        repair_bam_file(args)
+        _cli_repair_bam(args)
         return
     # Pipe mode: samtools view -h in.bam | wgsextract repair ftdna-bam | samtools view -b
     _refuse_json_in_pipe_mode()
@@ -71,7 +67,7 @@ def repair_bam(args: argparse.Namespace) -> None:
 
 def repair_vcf(args: argparse.Namespace) -> None:
     if _input_was_explicit(args) and args.input:
-        repair_vcf_file(args)
+        _cli_repair_vcf(args)
         return
     # Pipe mode: bcftools view in.vcf | wgsextract repair ftdna-vcf > out.vcf
     _refuse_json_in_pipe_mode()
@@ -79,23 +75,24 @@ def repair_vcf(args: argparse.Namespace) -> None:
     repair_vcf_stream(sys.stdin, sys.stdout)
 
 
-def repair_bam_file(args: argparse.Namespace) -> None:
+def repair_bam_file(params: RepairFtdnaBamParams) -> None:
     """Stream samtools view -h | repair | samtools view -b without temp SAM files."""
-    input_path = args.input
+    input_path = str(params.input)
     if not Path(input_path).is_file():
         raise WGSExtractError(f"Input BAM/CRAM does not exist: {input_path}")
     verify_dependencies(["samtools"])
-    output_path = _repair_output_path(args, ".bam")
+    output_path = _repair_output_path(params, ".bam")
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     cram_opt: list[str] = []
     if input_path.lower().endswith(".cram"):
         md5 = calculate_bam_md5(input_path, None)
-        ref = ReferenceLibrary(args.ref, md5, input_path=input_path).fasta or args.ref
+        ref_arg = str(params.ref) if params.ref else None
+        ref = ReferenceLibrary(ref_arg, md5, input_path=input_path).fasta or ref_arg
         if not ref or not Path(ref).is_file():
             raise WGSExtractError(
                 f"No reference FASTA for {input_path}"
-                + (f" at {args.ref}" if args.ref else "; pass --ref.")
+                + (f" at {ref_arg}" if ref_arg else "; pass --ref.")
             )
         cram_opt = ["-T", ref]
 
@@ -149,11 +146,11 @@ def repair_bam_file(args: argparse.Namespace) -> None:
     logging.info("Repaired FTDNA BAM written to %s", output_path)
 
 
-def repair_vcf_file(args: argparse.Namespace) -> None:
-    input_path = args.input
+def repair_vcf_file(params: RepairFtdnaVcfParams) -> None:
+    input_path = str(params.input)
     if not Path(input_path).is_file():
         raise WGSExtractError(f"Input VCF/BCF does not exist: {input_path}")
-    output_path = _repair_output_path(args, ".vcf")
+    output_path = _repair_output_path(params, ".vcf")
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     if input_path.lower().endswith(".bcf"):
         with tempfile.NamedTemporaryFile(
@@ -234,15 +231,16 @@ def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> tuple[int,
     return records, repaired
 
 
-def _repair_output_path(args: argparse.Namespace, extension: str) -> str:
-    if args.output:
-        output = str(absolute_path(str(args.output)))
+def _repair_output_path(
+    params: RepairFtdnaBamParams | RepairFtdnaVcfParams, extension: str
+) -> str:
+    if params.output:
+        output = str(absolute_path(str(params.output)))
     else:
-        outdir = args.outdir or str(absolute_path(args.input).parent)
-        output = str(
-            absolute_path(Path(outdir, f"{input_stem(args.input)}_repaired{extension}"))
-        )
-    if Path(output).resolve() == Path(args.input).resolve():
+        outdir = params.outdir or absolute_path(params.input).parent
+        name = f"{input_stem(str(params.input))}_repaired{extension}"
+        output = str(absolute_path(Path(outdir, name)))
+    if Path(output).resolve() == Path(params.input).resolve():
         raise WGSExtractError(f"Output {output} would overwrite the input.")
     return output
 
@@ -263,3 +261,7 @@ def _open_text_variant_input(path: str) -> TextIO:
     if path.lower().endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8", errors="replace")
     return open(path, encoding="utf-8", errors="replace")
+
+
+_cli_repair_bam = cli_handler(RepairFtdnaBamParams, repair_bam_file)
+_cli_repair_vcf = cli_handler(RepairFtdnaVcfParams, repair_vcf_file)
