@@ -30,7 +30,7 @@ from wgsextract_cli.api._params import to_namespace
 from wgsextract_cli.api.align import RealignParams
 from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import available_memory, check_mapping_memory
-from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.alignment_metadata import cram_encoded_with, get_bam_header
 from wgsextract_cli.core.atomic_output import atomic_output
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -45,10 +45,8 @@ from wgsextract_cli.core.read_counts import (
 )
 from wgsextract_cli.core.reference_assets import (
     find_fasta_by_signature,
-    header_sequences,
     input_stem,
     resolve_reference_library,
-    sequence_dictionary,
 )
 from wgsextract_cli.core.resource_estimates import (
     PreflightEstimate,
@@ -197,21 +195,6 @@ def _preflight_disk_space(
         )
 
 
-def _encodes(fasta: str, cram: str) -> bool:
-    """Whether a CRAM's @SQ names, lengths and (where recorded) M5 sequence
-    checksums all match a FASTA, so samtools can decode the CRAM with it."""
-    reads = header_sequences(get_bam_header(cram))
-    ref = sequence_dictionary(fasta)
-    if not reads or not ref or len(reads) != len(ref):
-        return False
-    return all(
-        r.get("SN") == f.get("SN")
-        and r.get("LN") == f.get("LN")
-        and (not r.get("M5") or r["M5"].lower() == f.get("M5", "").lower())
-        for r, f in zip(reads, ref, strict=True)
-    )
-
-
 def _input_cram_reference(args: argparse.Namespace) -> list[str]:
     """samtools -T option for decoding a CRAM input; empty for BAM."""
     if not args.input.lower().endswith(".cram"):
@@ -223,7 +206,7 @@ def _input_cram_reference(args: argparse.Namespace) -> list[str]:
     signature = calculate_bam_md5(args.input)
     target = getattr(args, "ref", None)
     # Re-mapping to the same build (e.g. with a newer aligner) decodes with --ref.
-    if target and Path(target).is_file() and _encodes(target, args.input):
+    if target and Path(target).is_file() and cram_encoded_with(target, args.input):
         fasta: str | None = target
     else:
         fasta = find_fasta_by_signature(

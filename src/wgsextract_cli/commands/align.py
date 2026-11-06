@@ -18,7 +18,7 @@ from wgsextract_cli.core.alignment_memory import (
     check_mapping_memory,
     estimate_mapping_memory,
 )
-from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.alignment_metadata import cram_encoded_with, get_bam_header
 from wgsextract_cli.core.atomic_output import atomic_outputs_enabled, safe_output
 from wgsextract_cli.core.dependencies import get_tool_path as get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -203,11 +203,45 @@ def select_aligner(args: argparse.Namespace) -> str:
 _GPU_MINIMAP2_PRESETS = {"map-hifi": "map-hifi", "map-ont": "map-ont"}
 
 
+def pacbio_platform(header: str) -> str:
+    """ "clr" when every read group is of subreads (READTYPE=SUBREAD), else
+    "pacbio" (HiFi/CCS)."""
+    types = {
+        field.split("=", 1)[1].upper()
+        for group in ultima.read_groups(header)
+        for field in group.get("DS", "").split(";")
+        if field.upper().startswith("READTYPE=")
+    }
+    return "clr" if types == {"SUBREAD"} else "pacbio"
+
+
+def _alignment_file_platform(args: argparse.Namespace) -> str | None:
+    """The platform of PacBio reads in a BAM/SAM --r1 (such as the *.ccs.bam or
+    *.subreads.bam that --genome picks): they align as long reads."""
+    reads = args.r1
+    if args.platform or not str(reads or "").lower().endswith((".bam", ".sam")):
+        return None
+    if input_platform(reads, strict=True) != "pacbio":
+        return None
+    platform = pacbio_platform(get_bam_header(reads))
+    logging.info(
+        "Detected PacBio reads in %s: aligning them as long reads (--platform %s).",
+        reads,
+        platform,
+    )
+    return platform
+
+
+def _is_alignment_file(path: object) -> bool:
+    return str(path).lower().endswith((".bam", ".cram", ".sam"))
+
+
 def run(args: argparse.Namespace) -> None:
-    args.platform = resolve_platform(args, args.r1)
+    _cram_reference(args)
+    args.platform = _alignment_file_platform(args) or resolve_platform(args, args.r1)
     aligner = select_aligner(args)
     if args.platform == "ultima":
-        align_ultima(args, args.r1)
+        align_ultima(args, args.r1, getattr(args, "_input_cram_opt", None))
         return
     # pbmm2 reads a PacBio BAM itself, whatever platform was resolved.
     if not is_long_read(args) and aligner != "pbmm2":
@@ -223,11 +257,37 @@ def run(args: argparse.Namespace) -> None:
         align_bwa(args)
 
 
+def _cram_reference(args: argparse.Namespace) -> None:
+    """The FASTA a CRAM --r1 decodes with: --input-ref, else --ref when it
+    encoded the CRAM. realign passes the one it found as _input_cram_opt."""
+    reads = str(args.r1 or "")
+    if (
+        not reads.lower().endswith(".cram")
+        or not Path(reads).is_file()
+        or getattr(args, "_input_cram_opt", None)
+    ):
+        return
+    fasta = getattr(args, "input_ref", None)
+    if fasta:
+        verify_paths_exist({"--input-ref": fasta})
+    elif args.ref and Path(args.ref).is_file() and cram_encoded_with(args.ref, reads):
+        fasta = args.ref
+    else:
+        raise UsageError(
+            f"{reads} is a CRAM, and --ref doesn't match the reference it was "
+            "encoded with. Pass that FASTA with --input-ref, or realign the CRAM "
+            f"with 'wgsextract realign --input {reads} --ref <reference>', which "
+            "also finds it in the reference library."
+        )
+    args.input_ref = str(fasta)
+    args._input_cram_opt = ["--reference", str(fasta)]
+
+
 def _refuse_short_read_alignment_file(args: argparse.Namespace) -> None:
     """Short-read aligners read FASTQ; pairing reads out of a BAM/CRAM is
     realign's job (#447)."""
     for reads in (args.r1, args.r2):
-        if reads and str(reads).lower().endswith((".bam", ".cram", ".sam")):
+        if reads and _is_alignment_file(reads):
             raise UsageError(
                 f"{reads} is a BAM/CRAM/SAM file, and short reads align from "
                 f"FASTQ. Realign its reads with 'wgsextract realign --input "
@@ -1163,19 +1223,22 @@ def align_minimap2(args: argparse.Namespace) -> None:
         if args.r2:
             raise UsageError("Long reads are single-end: drop --r2.")
         # Soft clipping keeps SEQ and the modification coordinates consistent.
-        align_cmd += ["-y", "-Y"]
-        if reads.lower().endswith((".bam", ".cram", ".sam")):
+        align_cmd += ["-Y"]
+        if _is_alignment_file(reads):
             upstream = [
                 long_read_fastq_command(reads, getattr(args, "_input_cram_opt", []))
             ]
-        else:
+        elif not is_fasta_path(reads):
             # FASTQ comments can mix ONT runid/ch metadata with SAM tags;
             # minimap2 -y alone would emit invalid SAM for those comments.
             upstream = [
                 ["samtools", "import", "-u", "-T", LONG_READ_TAGS, "-0", reads],
                 ["samtools", "fastq", "-n", "-T", LONG_READ_TAGS, "-"],
             ]
-        reads = "-"
+        # FASTA has no qualities (samtools would invent them) and no tags.
+        if upstream:
+            align_cmd += ["-y"]
+            reads = "-"
     align_cmd += ["-R", read_group(args, setup.stem), setup.ref, reads]
     try:
         run_streamed_alignment(

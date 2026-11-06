@@ -639,13 +639,13 @@ CLI: `wgsextract align`.
 
 Align reads to a reference (see `AlignParams`).
 
-`AlignParams`: Align FASTQ reads (or a BAM/CRAM of long or Ultima reads) to `ref` as
-`<reads stem>_aligned.bam` (or `.cram`) with its index. `r1` is
-required; the CLI's `--genome` may fill it in from a sample workspace.
+`AlignParams`: Align FASTQ reads (or a BAM/CRAM of long or Ultima reads) to `ref` as `<reads stem>_aligned.bam` (or `.cram`) with its index.
+`r1` is required; the CLI's `--genome` may fill it in from a sample
+workspace.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
-| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ, or a BAM/CRAM of long or Ultima reads (short reads in a BAM/CRAM go through realign). |
+| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ (or FASTA of long reads), or a BAM/CRAM of long reads (PacBio is detected) or of Ultima reads. Short reads in a BAM/CRAM go through realign. |
 | `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, for pairs. |
 | `preset` | `str \| None` | `None` | `--preset` | minimap2 preset for non-BWA alignment. Defaults to map-hifi for PacBio and map-ont for ONT. One of: `sr`, `map-pb`, `map-hifi`, `map-ont`, `ccs`, `subread` |
 | `platform` | `str \| None` | `None` | `--platform` | Sequencing platform; selects platform-specific alignment tooling (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
@@ -656,6 +656,7 @@ required; the CLI's `--genome` may fill it in from a sample workspace.
 | `format` | `str` | `'BAM'` | `--format` | Output format: BAM or CRAM (written with the target reference). One of: `BAM`, `CRAM` |
 | `input` | `Path \| None` | `None` | `--input`, `-i` | An aligned BAM/CRAM of the same sample whose header picks the reference from the library when ref is unset. |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `input_ref` | `Path \| None` | `None` | `--input-ref` | Reference FASTA a CRAM --r1 was encoded with (default: --ref when its sequence names, lengths and MD5s match the CRAM). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder, else the reads'). |
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 | `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |

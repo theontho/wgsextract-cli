@@ -9,7 +9,10 @@ import pytest
 
 from tests.fake_tools import python_tool
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
+from wgsextract_cli.cli.parser import build_parser, parse_args
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
+from wgsextract_cli.core.genome_library import apply_genome_selection
 from wgsextract_cli.core.utils import UsageError, run_command
 
 TAGS = "\tMM:Z:C+m,0,1;\tML:B:C,255,128"
@@ -31,7 +34,7 @@ def genome(tmp_path):
     return seq, write_fasta(tmp_path / "ref.fa", {"chr1": seq})
 
 
-def _hifi_bam(tmp_path, seq):
+def _hifi_bam(tmp_path, seq, name="hifi.bam", read_group="@RG\tID:r\tPL:PACBIO\tSM:s"):
     reads = {"m1/1/ccs": seq[500:2500], "m1/2/ccs": _revcomp(seq[4000:6000])}
     records = [
         f"{name}\t4\t*\t0\t0\t*\t*\t0\t0\t{read}\t{'I' * len(read)}{TAGS}"
@@ -41,7 +44,7 @@ def _hifi_bam(tmp_path, seq):
     # aligned once, from its primary record.
     copy = records[0].split("\t")
     records += ["\t".join([copy[0], flag, *copy[2:]]) for flag in ("260", "2052")]
-    bam = sam_to_bam(["@RG\tID:r\tPL:PACBIO\tSM:s", *records], tmp_path / "hifi.bam")
+    bam = sam_to_bam([read_group, *records], tmp_path / name)
     return bam, reads
 
 
@@ -135,3 +138,105 @@ def test_short_reads_in_a_bam_are_sent_to_realign(tmp_path, genome, aligner):
         for i, start in enumerate((1001, 3001, 5001))
         for offset in (0, 200)
     ]
+
+
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize(
+    ("name", "read_type", "preset"),
+    [("s.ccs.bam", "CCS", "map-hifi"), ("s.subreads.bam", "SUBREAD", "map-pb")],
+)
+def test_genome_workspace_of_pacbio_reads_aligns(
+    tmp_path, genome, name, read_type, preset
+):
+    """#460 review: 'align --genome DIR' picks a PacBio *.ccs.bam or
+    *.subreads.bam as --r1, but the platform resolved to illumina and align
+    refused the BAM, pointing to realign."""
+    seq, ref = genome
+    rg = f"@RG\tID:r\tPL:PACBIO\tDS:READTYPE={read_type}\tSM:s"
+    bam, reads = _hifi_bam(tmp_path, seq, name, rg)
+    library = tmp_path / "genomes"
+    (library / "sample").mkdir(parents=True)
+    shutil.copy(bam, library / "sample" / name)
+    settings["genome_library"] = str(library)
+    out = tmp_path / "out"
+
+    args, explicit = parse_args(*build_parser(), [
+        "--genome", "sample", "align", "--aligner", "minimap2", "--ref", str(ref),
+        "--outdir", str(out), "--threads", "1", "--memory", "256M",
+    ])  # fmt: skip
+    apply_genome_selection(args, explicit)
+    args.func(args)
+
+    (aligned,) = out.glob("*_aligned.bam")
+    primary = _view(aligned, "-F", "0x904")
+    assert sorted(r[0] for r in primary) == sorted(reads)
+    assert all("MM:Z:C+m,0,1;" in r[11:] for r in primary)
+    header = run_command(
+        ["samtools", "view", "-H", str(aligned)], capture_output=True
+    ).stdout
+    # contig: subreads (CLR) map with minimap2's map-pb, HiFi with map-hifi.
+    assert f"-ax {preset}" in header
+
+
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize("platform", ["hifi", "ont"])
+def test_long_reads_in_fasta_keep_their_missing_qualities(tmp_path, genome, platform):
+    """#460 review: FASTA long reads went through samtools import, which made
+    up a quality for every base; minimap2 reading the FASTA writes QUAL '*'."""
+    seq, ref = genome
+    fasta = tmp_path / "reads.fa"
+    fasta.write_text(f">r1\n{seq[500:2500]}\n>r2\n{_revcomp(seq[4000:6000])}\n")
+    out = tmp_path / "out"
+
+    run_wgsextract(
+        "align", "--r1", str(fasta), "--platform", platform,
+        "--aligner", "minimap2", "--ref", str(ref), "--outdir", str(out),
+        "--threads", "1", "--memory", "256M",
+    )  # fmt: skip
+
+    primary = _view(out / "reads_aligned.bam", "-F", "0x904")
+    assert sorted((r[0], r[3]) for r in primary) == [("r1", "501"), ("r2", "4001")]
+    assert {r[10] for r in primary} == {"*"}
+
+
+@needs_tools("samtools", "minimap2")
+def test_a_cram_of_long_reads_decodes_with_its_own_reference(
+    tmp_path, genome, monkeypatch
+):
+    """#460 review: samtools fastq got no reference for a CRAM --r1, so
+    decoding it fell back to the CRAM's UR path, then REF_PATH or the EBI
+    server. align decodes it with --input-ref, or --ref when that encoded it."""
+    seq, ref = genome
+    ref = str(ref)
+    encoding = str(write_fasta(tmp_path / "encoding.fa", {"chr1": seq}))
+    # The same genome under another contig name did not encode the CRAM.
+    other = str(write_fasta(tmp_path / "other.fa", {"chrA": seq}))
+    records = [
+        f"o1\t0\tchr1\t501\t60\t2000M\t*\t0\t0\t{seq[500:2500]}\t{'I' * 2000}{TAGS}",
+    ]
+    bam = sam_to_bam(["@HD\tVN:1.6\tSO:coordinate", f"@SQ\tSN:chr1\tLN:{len(seq)}",
+                      "@RG\tID:r\tPL:ONT\tSM:s", *records], tmp_path / "ont.bam")  # fmt: skip
+    cram = str(tmp_path / "ont.cram")
+    run_command(["samtools", "view", "-C", "-T", encoding, "-o", cram, bam])
+    for path in tmp_path.glob("encoding.fa*"):
+        path.unlink()
+    # No reference server or cache: only the FASTA align passes decodes it.
+    monkeypatch.setenv("REF_PATH", str(tmp_path / "no-ref-path"))
+    monkeypatch.setenv("REF_CACHE", str(tmp_path / "no-ref-cache"))
+    common = ["--platform", "ont", "--aligner", "minimap2", "--threads", "1",
+              "--memory", "256M"]  # fmt: skip
+
+    with pytest.raises(UsageError, match=r"--input-ref"):
+        run_wgsextract("align", "--r1", cram, "--ref", other, "--outdir",
+                       str(tmp_path / "refused"), *common)  # fmt: skip
+    assert not (tmp_path / "refused").exists()
+
+    for target, opts in (("chr1", ["--ref", ref]),
+                         ("chrA", ["--ref", other, "--input-ref", ref])):  # fmt: skip
+        out = tmp_path / target
+        run_wgsextract("align", "--r1", cram, *opts, "--outdir", str(out), *common)
+
+        primary = _view(out / "ont_aligned.bam", "-F", "0x904")
+        assert [(r[0], r[2], r[3]) for r in primary] == [("o1", target, "501")]
+        assert primary[0][9] == seq[500:2500]
+        assert "MM:Z:C+m,0,1;" in primary[0][11:]

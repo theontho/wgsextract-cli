@@ -7,6 +7,7 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput
 
 from .builds import build_from_chr1_length
+from .reference_assets import header_sequences, sequence_dictionary
 from .reference_models import sequence_lengths
 from .utils import run_command
 
@@ -111,3 +112,18 @@ def get_vcf_build(vcf_path: str) -> str | None:
     except (OSError, subprocess.SubprocessError, RuntimeError, ValueError, TypeError):
         logging.debug("Unable to infer VCF build from header.", exc_info=True)
     return None
+
+
+def cram_encoded_with(fasta: PathInput, cram: PathInput) -> bool:
+    """Whether a CRAM's @SQ names, lengths and (where recorded) M5 sequence
+    checksums all match a FASTA, so samtools can decode the CRAM with it."""
+    reads = header_sequences(get_bam_header(fspath(cram)))
+    ref = sequence_dictionary(fasta)
+    if not reads or not ref or len(reads) != len(ref):
+        return False
+    return all(
+        r.get("SN") == f.get("SN")
+        and r.get("LN") == f.get("LN")
+        and (not r.get("M5") or r["M5"].lower() == f.get("M5", "").lower())
+        for r, f in zip(reads, ref, strict=True)
+    )
