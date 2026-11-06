@@ -79,16 +79,6 @@ class Observation:
         )
 
 
-def position_file(data: Path, build: str, tree: str, ancient: bool = False) -> Path:
-    if tree == "yfull":
-        name = "new_positions_ancient.txt" if ancient else "new_positions.txt"
-    elif tree == "ftdna" and ancient:
-        name = f"ftdna_positions_ancient_{build}.txt"
-    else:
-        name = f"{tree}_positions_{build}.txt"
-    return data / build / name
-
-
 def read_markers(path: Path) -> list[Marker]:
     seen: set[tuple[str, int]] = set()
     markers = []

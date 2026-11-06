@@ -25,12 +25,16 @@ from wgsextract_cli.ydna.yleaf_native.markers import (
     write_marker_tables,
 )
 from wgsextract_cli.ydna.yleaf_native.predict import (
-    TREE_FILES,
     Predictor,
     link_markers,
     prediction_row,
     read_yleaf_out_file,
 )
+
+
+def _predictor(tree: str = "yfull") -> Predictor:
+    selected = trees.ensure_tree(tree, "hg38")
+    return Predictor(selected.tree_file, selected.qc)
 
 
 def test_vcf_calling_preserves_upstream_ad_denominator_and_gt_first_allele():
@@ -74,7 +78,7 @@ def test_matching_filters_sequentially_and_never_infers_failed_observed_sites():
 def test_scoring_excludes_recurrence_and_approximate_nodes_and_resets_cache(
     native_tables,
 ):
-    predictor = Predictor(native_tables / "hg_prediction_tables")
+    predictor = _predictor()
     markers = read_markers(native_tables / "hg38/new_positions.txt")
     assert len(markers) == 9
     calls = {
@@ -121,7 +125,7 @@ def test_scoring_excludes_recurrence_and_approximate_nodes_and_resets_cache(
 def test_missing_intermediate_ancestors_are_neutral_except_for_ftdna(
     native_tables, tree, expected
 ):
-    predictor = Predictor(native_tables / "hg_prediction_tables", tree)
+    predictor = _predictor(tree)
     assert (
         predictor.predict(link_markers([("1", "leaf", "R1b1", "D")])).haplogroup
         == expected
@@ -384,7 +388,7 @@ def test_upstream_v416_prediction_parity(native_tables, request, monkeypatch, tr
     monkeypatch.setattr(
         yleaf_constants, "HG_PREDICTION_FOLDER", native_tables / "hg_prediction_tables"
     )
-    tree_path = native_tables / "hg_prediction_tables" / TREE_FILES[tree]
+    tree_path = trees.ensure_tree(tree, "hg38").tree_file
     monkeypatch.setattr(upstream, "QC1_SCORE_CACHE", {})
     upstream.read_backbone_groups(tree_path)
     rows = [
@@ -403,13 +407,11 @@ def test_upstream_v416_prediction_parity(native_tables, request, monkeypatch, tr
         haplotypes,
         0.95,
     )
-    result = Predictor(native_tables / "hg_prediction_tables", tree).predict(
-        link_markers(rows)
-    )
+    result = _predictor(tree).predict(link_markers(rows))
     assert tuple(result) == expected
 
 
-def test_saved_marker_table_prediction_parity(request, tmp_path, monkeypatch):
+def test_saved_marker_table_prediction_parity(request, tmp_path):
     """Replay QC and optionally extraction against supplied upstream real output."""
     folder = request.config.getoption("--yleaf-parity-output")
     if not folder:
@@ -426,7 +428,10 @@ def test_saved_marker_table_prediction_parity(request, tmp_path, monkeypatch):
     for row in expected:
         sample = row["Sample_name"]
         linked = read_yleaf_out_file(Path(folder) / sample / f"{sample}.out")
-        predictor = Predictor(Path(library) / "hg_prediction_tables")
+        predictor = Predictor(
+            Path(library) / "hg_prediction_tables" / "tree.json",
+            trees.qc_rules("yfull", Path(library)),
+        )
         actual = dict(
             zip(
                 analysis.PREDICTION_HEADER,
@@ -445,27 +450,25 @@ def test_saved_marker_table_prediction_parity(request, tmp_path, monkeypatch):
     if not build:
         pytest.fail("--yleaf-parity-build is required with --yleaf-parity-input")
     reference = request.config.getoption("--yleaf-parity-ref")
-    tables = Path(library) / "hg_prediction_tables"
-    monkeypatch.setattr(
-        analysis,
-        "ensure_tree",
-        lambda tree, *a, **k: trees.YleafTree(
-            id=tree,
-            name="Yleaf v4.1.6",
-            version="v4.1.6",
-            date="",
-            license="",
-            source=library,
-            tree_file=tables / TREE_FILES[tree],
-            tables=tables,
-            positions_root=Path(library),
-            pack=False,
-        ),
+    root = Path(library)
+    upstream_tree = trees.YleafTree(
+        id="yfull",
+        name="Yleaf v4.1.6",
+        version="v4.1.6",
+        date="",
+        license="",
+        source=library,
+        tree_file=root / "hg_prediction_tables" / "tree.json",
+        positions_files={build: root / build / "new_positions.txt"},
+        qc=trees.qc_rules("yfull", root),
+        origin="yleaf-data",
+        root=root,
     )
     result = analysis.analyze(
         Path(input_path),
         tmp_path / "native",
         build=build,
+        tree=upstream_tree,
         reference=Path(reference) if reference else None,
         no_ref_inference=not reference,
     )

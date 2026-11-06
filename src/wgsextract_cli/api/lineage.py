@@ -24,7 +24,6 @@ from ._shared import (
 
 _REQUIRED = LOG_MESSAGES["input_required"]
 BUILDS = ("hg19", "hg38", "t2t")
-TREES = ("yfull", "yfull_v10", "ftdna", "isogg")
 
 
 def _build_param() -> Any:
@@ -93,11 +92,20 @@ class YHaplogroupParams(Params):
         None, help="Yleaf position file (optional)", path="file"
     )
     build: str | None = _build_param()
-    tree: str = param(
-        "yfull",
+    tree: str | None = param(
+        None,
         help="Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 "
-        "(YFull 10.01), ftdna or isogg (default: yfull).",
-        choices=TREES,
+        "(YFull 10.01), ftdna, isogg, or a config.toml [y_trees.<id>] tree "
+        "(default: config y_tree, else yfull).",
+        config_key="y_tree",
+        exclusive="tree",
+    )
+    tree_file: Path | None = param(
+        None,
+        help="A Yleaf-format tree JSON to use instead of --tree, with its "
+        "markers in --pos-file; QC1 backbone checks are skipped.",
+        path="file",
+        exclusive="tree",
     )
     min_reads: int = param(
         10, doc="Reads needed at a marker position for it to be used."

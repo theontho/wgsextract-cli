@@ -1271,7 +1271,8 @@ or single-sample VCF/BCF. Outputs go to `yleaf/` in the output folder.
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `pos_file` | `Path \| None` | `None` | `--pos-file` | Yleaf position file (optional) |
 | `build` | `str \| None` | `None` | `--build` | Override the detected reference build for this run. One of: `hg19`, `hg38`, `t2t` |
-| `tree` | `str` | `'yfull'` | `--tree` | Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull 10.01), ftdna or isogg (default: yfull). One of: `yfull`, `yfull_v10`, `ftdna`, `isogg` |
+| `tree` | `str \| None` | `None` (config `y_tree`) | `--tree` | Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull 10.01), ftdna, isogg, or a config.toml [y_trees.<id>] tree (default: config y_tree, else yfull). |
+| `tree_file` | `Path \| None` | `None` | `--tree-file` | A Yleaf-format tree JSON to use instead of --tree, with its markers in --pos-file; QC1 backbone checks are skipped. |
 | `min_reads` | `int` | `10` | `--min-reads` | Reads needed at a marker position for it to be used. |
 | `base_quality` | `int` | `20` | `--base-quality` | Minimum base quality of a read at a marker position. |
 | `base_majority` | `int` | `90` | `--base-majority` | Percentage of reads at a marker that must agree on the base. |

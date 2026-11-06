@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 import sys
 from pathlib import Path
@@ -110,6 +111,12 @@ def _yleaf_build(build: str | None) -> str:
 def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> None:
     """``lineage y-haplogroup``; ``tree_links`` prints tree links (CLI only)."""
     from wgsextract_cli.ydna.yleaf_native.analysis import CREDIT, analyze
+    from wgsextract_cli.ydna.yleaf_native.custom_trees import check_tree_id, file_tree
+    from wgsextract_cli.ydna.yleaf_native.trees import (
+        DEFAULT_TREE,
+        YleafTree,
+        tree_label,
+    )
 
     input_file = str(params.input)
     outdir_arg = str(params.outdir) if params.outdir else None
@@ -122,6 +129,22 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
             "Native Yleaf accepts BAM, CRAM or single-sample VCF/BCF. "
             "Align FASTQ with `wgsextract align` first."
         )
+    if params.tree_file and not params.pos_file:
+        raise WGSExtractError(
+            "--tree-file needs --pos-file, the marker table for that tree."
+        )
+    verify_paths_exist(
+        {
+            flag: path
+            for flag, path in (
+                ("--tree-file", params.tree_file),
+                ("--pos-file", params.pos_file),
+            )
+            if path
+        }
+    )
+    if not params.tree_file:
+        check_tree_id(params.tree or DEFAULT_TREE)
     tools = ["samtools", "bcftools"] if is_vcf else ["samtools"]
     verify_dependencies(tools)
     log_dependency_info(tools)
@@ -173,11 +196,15 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
                 "FASTA, or use --no-ref-inference for a targeted VCF panel."
             )
 
+    tree: str | YleafTree = params.tree or DEFAULT_TREE
+    if params.tree_file:
+        assert params.pos_file is not None
+        tree = file_tree(params.tree_file, params.pos_file, yleaf_build)
     prediction = analyze(
         Path(input_file),
         Path(yleaf_outdir),
         build=yleaf_build,
-        tree=params.tree,
+        tree=tree,
         reference=Path(lib.fasta) if lib.fasta else None,
         pos_file=params.pos_file,
         min_reads=params.min_reads,
@@ -204,10 +231,15 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
             f"build is correct; details are in {yleaf_outdir}."
         )
     from wgsextract_cli.ydna.yleaf_native.data import manifest
-    from wgsextract_cli.ydna.yleaf_native.trees import tree_label, tree_metadata
 
     version = manifest()["upstream"]["tag"]
-    tree = tree_metadata(params.tree)
+    run_record = Path(yleaf_outdir) / "run.json"
+    try:
+        provenance = json.loads(run_record.read_text(encoding="utf-8"))["tree"]
+    except (OSError, ValueError, KeyError) as e:
+        raise WGSExtractError(
+            f"Yleaf did not record its tree in {run_record}: {e}"
+        ) from e
     result = current_result()
     result.set_reference(lib.fasta, lib.build)
     result.add_output(prediction, "haplogroup_report")
@@ -215,8 +247,8 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
         {
             "build": yleaf_build,
             "tree": {
-                "id": params.tree,
-                **{key: tree[key] for key in ("name", "version", "date", "license")},
+                key: provenance[key]
+                for key in ("id", "name", "version", "date", "license")
             },
             "tables": version,
             "predictions": rows,
@@ -234,7 +266,7 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
         return
     print(
         f"\n🧬 {CREDIT}\nTables {version}; build {yleaf_build}; "
-        f"tree {tree_label(tree)}\n"
+        f"tree {tree_label(provenance)}\n"
         f"Lineage Result ({input_stem(input_file)}):"
     )
     print("-" * 30)

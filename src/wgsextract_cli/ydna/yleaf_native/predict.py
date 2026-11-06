@@ -5,10 +5,13 @@
 # Modified 2026-11-01 by WGS Extract contributors: typed API, per-call state
 # instead of process globals, deterministic marker presentation.
 # Modified 2026-11-05: the tree file can come from a versioned tree pack.
+# Modified 2026-11-06: per-tree QC rules come from the tree registry (QcRules)
+# instead of tree-name tables; QC1 can be disabled for custom trees.
 """Yleaf's deepest-passing-node prediction and QC1/QC2/QC3 scoring."""
 
 import csv
 from collections.abc import Iterable
+from dataclasses import dataclass
 from math import prod
 from pathlib import Path
 from typing import NamedTuple
@@ -16,18 +19,6 @@ from typing import NamedTuple
 from .tree import Node, Tree
 
 DEFAULT_MIN_SCORE = 0.95
-TREE_FILES = {
-    "yfull": "tree.json",
-    "yfull_v10": "yfull_v10_tree.json",
-    "ftdna": "ftdna_tree.json",
-    "isogg": "isogg_tree.json",
-}
-MAJOR_TABLES = {
-    "yfull": "major_tables",
-    "yfull_v10": "yfull_v10_major_tables",
-    "ftdna": "ftdna_major_tables",
-    "isogg": "isogg_major_tables",
-}
 MAJOR_TREE_LIST = (
     "A00 A00a A00b A00c A0-T A1 A1b A1b1 BT CT CF F F4 F2 F3 GHIJK G HIJK H "
     "IJK IJ I I2 I1 J J1 J2 K K2 K2d K2c K2b P R R2 R1 R1b R1a Q K2b1 S M "
@@ -120,21 +111,35 @@ class Scores(NamedTuple):
     depth: int | str
 
 
+@dataclass(frozen=True)
+class QcRules:
+    """A tree's QC1 backbone check, as Yleaf v4.1.6 applies it per tree.
+
+    ``backbone`` holds Intermediates.txt, the backbone groups; ``tables`` holds
+    each group's expected states (``<group>_int.txt``). Without them QC1 is
+    skipped (scored 1). ``major_tree_list`` adds Yleaf's YFull major groups;
+    ``ftdna_rules`` selects upstream's FTDNA QC1 counting and a zero QC3
+    without informative ancestors.
+    """
+
+    backbone: Path | None = None
+    tables: Path | None = None
+    major_tree_list: bool = False
+    ftdna_rules: bool = False
+
+
 class Predictor:
     """Isolate upstream globals/caches so samples and trees cannot leak state."""
 
-    def __init__(
-        self, folder: Path, active_tree: str = "yfull", tree_file: Path | None = None
-    ) -> None:
-        self.folder = folder
-        self.active_tree = active_tree
-        self.tree = Tree(tree_file or folder / TREE_FILES[active_tree])
+    def __init__(self, tree_file: Path, qc: QcRules | None = None) -> None:
+        self.qc = qc or QcRules()
+        self.tree = Tree(tree_file)
         self.backbone_groups: set[str] = set()
         self.main_haplo_groups: set[str] = set()
         self.qc1_score_cache: dict[str, float] = {}
-        with (folder / MAJOR_TABLES[active_tree] / "Intermediates.txt").open(
-            encoding="utf-8"
-        ) as stream:
+        if self.qc.backbone is None:
+            return
+        with (self.qc.backbone / "Intermediates.txt").open(encoding="utf-8") as stream:
             for line in stream:
                 if "~" in line:
                     continue
@@ -142,7 +147,7 @@ class Predictor:
                 if name:
                     self.backbone_groups.add(name)
                     self.main_haplo_groups.add(name)
-        if active_tree in ("yfull", "yfull_v10"):
+        if self.qc.major_tree_list:
             self.main_haplo_groups.update(MAJOR_TREE_LIST)
 
     def predict(
@@ -186,7 +191,7 @@ class Predictor:
             if qc1_score < threshold:
                 continue
             if qc3_total == 0:
-                qc3_score = 0 if self.active_tree == "ftdna" else 1.0
+                qc3_score = 0 if self.qc.ftdna_rules else 1.0
             else:
                 qc3_score = qc3_matching / qc3_total
                 if qc3_score < threshold:
@@ -212,6 +217,8 @@ class Predictor:
         return best_score
 
     def get_qc1_score(self, path: list[str], haplotype_dict: Haplotypes) -> float:
+        if self.qc.tables is None:
+            return 1.0
         most_specific_backbone = next(
             (value for value in path if value in self.main_haplo_groups), None
         )
@@ -219,12 +226,8 @@ class Predictor:
             return 0
         if most_specific_backbone in self.qc1_score_cache:
             return self.qc1_score_cache[most_specific_backbone]
-        # v4.1.6 intentionally uses v14 QC1 expectations even for yfull_v10.
-        tables = MAJOR_TABLES[self.active_tree]
-        if self.active_tree == "yfull_v10":
-            tables = "major_tables"
         expected_states: dict[str, set[str]] = {}
-        with (self.folder / tables / f"{most_specific_backbone}_int.txt").open(
+        with (self.qc.tables / f"{most_specific_backbone}_int.txt").open(
             encoding="utf-8"
         ) as stream:
             for line in stream:
@@ -238,7 +241,7 @@ class Predictor:
             if value in haplotype_dict
         }
         matching, total = 0, 0
-        if self.active_tree == "ftdna":
+        if self.qc.ftdna_rules:
             for name, expected in expected_states.items():
                 total += 1
                 if name not in intermediate_states:

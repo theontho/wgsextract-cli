@@ -180,7 +180,8 @@ def test_every_default_config_entry_is_a_setting_once_uncommented():
     examples = [
         line.lstrip("# ").split("#")[0]
         for line in parser.DEFAULT_CONFIG.splitlines()
-        if " = " in line
+        # Table headers too: [y_trees.<id>] examples come last, as they must.
+        if " = " in line or line.startswith("# [")
     ]
     uncommented = tomllib.loads("\n".join(examples))
     for key in uncommented:

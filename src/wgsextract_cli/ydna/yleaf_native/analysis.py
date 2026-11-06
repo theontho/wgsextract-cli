@@ -4,6 +4,7 @@
 # Modified 2026-11-01 by WGS Extract contributors: native API, argv subprocesses only
 # for existing HTS tools; versioned result provenance. See provenance.json.
 # Modified 2026-11-05: versioned trees (trees.py) and their provenance.
+# Modified 2026-11-06: trees come from the registry, including custom trees.
 """Run native Yleaf analysis on a single-sample VCF or indexed BAM/CRAM."""
 
 import csv
@@ -33,7 +34,7 @@ from .predict import (
     link_markers,
     prediction_row,
 )
-from .trees import TREE_IDS, ensure_tree
+from .trees import YleafTree, ensure_tree
 
 CREDIT = (
     "Native Yleaf (Erasmus MC; Ralf et al., Mol Biol Evol 2018, "
@@ -154,7 +155,7 @@ def analyze(
     output: Path,
     *,
     build: str,
-    tree: str = "yfull",
+    tree: str | YleafTree = "yfull",
     reference: Path | None = None,
     library: Path | None = None,
     pos_file: Path | None = None,
@@ -165,9 +166,11 @@ def analyze(
     ancient: bool = False,
     no_ref_inference: bool = False,
 ) -> Path:
-    """Write .out/.fmf/.info, hg_prediction.hg and run.json; never delete user data."""
-    if tree not in TREE_IDS:
-        raise WGSExtractError(f"Unknown Yleaf tree: {tree}")
+    """Write .out/.fmf/.info, hg_prediction.hg and run.json; never delete user data.
+
+    ``tree`` is a registry id (built-in or config.toml ``[y_trees]``) or an
+    already resolved tree, such as a ``--tree-file`` one.
+    """
     if (
         min_reads < 1
         or not 10 <= quality <= 40
@@ -194,16 +197,23 @@ def analyze(
     prediction.unlink(missing_ok=True)
     metadata = manifest()
     version = metadata["upstream"]["tag"]
-    selected = ensure_tree(tree, build, library)
+    selected = (
+        tree
+        if isinstance(tree, YleafTree)
+        else ensure_tree(
+            tree,
+            build,
+            library,
+            None if pos_file else ("ancient" if ancient else "regular"),
+        )
+    )
     logging.info(
         "%s; tables %s; build %s; tree %s", CREDIT, version, build, selected.label
     )
     marker_file = pos_file or selected.positions(build, ancient)
-    panel_source = (
-        "custom" if pos_file else "tree-pack" if selected.pack else "yleaf-data"
-    )
+    panel_source = "custom" if pos_file else selected.origin
     markers = read_markers(marker_file)
-    predictor = Predictor(selected.tables, tree, selected.tree_file)
+    predictor = Predictor(selected.tree_file, selected.qc)
     sample = input_path.name
     for suffix in (".vcf.gz", ".vcf", ".bcf", ".bam", ".cram"):
         if sample.lower().endswith(suffix):
@@ -266,9 +276,7 @@ def analyze(
                         "source": panel_source,
                         "identifier": marker_file.name
                         if pos_file
-                        else marker_file.relative_to(
-                            selected.positions_root
-                        ).as_posix(),
+                        else selected.identifier(marker_file),
                         "sha256": file_sha256(marker_file),
                     },
                     "citation": CREDIT,

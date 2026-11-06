@@ -41,6 +41,7 @@ ADVANCED_OPTIONS: dict[str, tuple[str, ...]] = {
     "align": _ALIGNERS,
     "lineage y-haplogroup": (
         "--pos-file",
+        "--tree-file",
         "--min-reads",
         "--base-quality",
         "--base-majority",
