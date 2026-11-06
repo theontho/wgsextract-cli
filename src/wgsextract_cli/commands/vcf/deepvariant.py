@@ -584,8 +584,9 @@ def _verify_ultima_gpu(params: VcfDeepvariantParams) -> None:
 
 
 def _check_gpu_free(check: bool) -> None:
-    """Refuse (unless not ``check``) when no GPU has the memory call_variants
-    needs; just before it runs, so plans and finished reruns don't need one."""
+    """Refuse (unless not ``check``) when a GPU lacks the memory call_variants
+    needs; just before it runs, so plans and finished reruns don't need one.
+    Every GPU is checked: the container gets them all."""
     from wgsextract_cli.core.parabricks import gpu_memory
 
     gpus = gpu_memory()
@@ -593,13 +594,13 @@ def _check_gpu_free(check: bool) -> None:
     if not free:
         logging.warning("GPU memory is unknown; running call_variants anyway.")
         return
-    best = max(free)
-    if best >= ULTIMA_GPU_MIN_FREE:
+    least = min(free)
+    if least >= ULTIMA_GPU_MIN_FREE:
         return
     message = (
         f"DeepVariant call_variants needs ~{ULTIMA_GPU_MIN_FREE / GIB:.0f} GiB of "
-        f"free GPU memory, but the GPU with the most has {best / GIB:.1f} GiB "
-        "free (other programs are using it)."
+        f"free memory on each GPU, but one has {least / GIB:.1f} GiB free "
+        "(other programs are using it)."
     )
     if check:
         raise WGSExtractError(
@@ -658,6 +659,15 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
     gpu = params.gpu
     if gpu:
         require_gpu_host()
+        if params.region and any(
+            len(item.split()) > 1 for item in region_items(params.region, commas=True)
+        ):
+            # A spaced item would be one path to serve's --allow check but
+            # several to the depth check and DeepVariant.
+            raise UsageError(
+                "--gpu regions are separated by commas, without spaces: "
+                f"{params.region!r}"
+            )
         model, caller = _gpu_model(params)
         if model != "ULTIMA":
             _deepvariant_parabricks(params, model, caller)

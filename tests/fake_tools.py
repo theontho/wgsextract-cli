@@ -967,11 +967,14 @@ import json, sys
 
 if any(a.startswith("--query-gpu=") for a in sys.argv):
     with open(GPUS) as source:
-        for i, g in enumerate(json.load(source)):
-            if g is None:
-                print(f"{i}, NVIDIA GB10, [N/A], [N/A]")
-            else:
-                print(f"{i}, NVIDIA GeForce RTX 3090, {g['total']}, {g['total'] - g['used']}")
+        gpus = json.load(source)
+    if isinstance(gpus, str):
+        sys.exit(gpus)
+    for i, g in enumerate(gpus):
+        if g is None:
+            print(f"{i}, NVIDIA GB10, [N/A], [N/A]")
+        else:
+            print(f"{i}, NVIDIA GeForce RTX 3090, {g['total']}, {g['total'] - g['used']}")
 else:
     print("NVIDIA-SMI (fake)")
 """
@@ -983,13 +986,13 @@ def fake_nvidia_smi(bindir: Path, gpus: Path) -> None:
     python_tool(bindir, "nvidia-smi", f"GPUS = {str(gpus)!r}\n" + _FAKE_NVIDIA_SMI)
 
 
-def set_gpus(path: Path, *gpus: tuple[int, int] | None) -> None:
+def set_gpus(path: Path, *gpus: tuple[int, int] | None, error: str = "") -> None:
     """GPUs as (total, used) MiB, or None for one that reports its memory
-    as [N/A]; an RTX 3090 with nothing else on it."""
+    as [N/A]; an RTX 3090 with nothing else on it. With ``error``,
+    nvidia-smi fails with that message, as with a broken driver."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps([None if g is None else {"total": g[0], "used": g[1]} for g in gpus])
-    )
+    gpu_list = [None if g is None else {"total": g[0], "used": g[1]} for g in gpus]
+    path.write_text(json.dumps(error or gpu_list))
 
 
 class FakeParabricks:

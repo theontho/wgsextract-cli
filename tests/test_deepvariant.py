@@ -971,6 +971,8 @@ def test_ultima_reads_call_on_the_gpu_in_googles_ultima_gpu_image(
     [
         ("no driver", "No NVIDIA GPU driver"),
         ("no nvidia runtime", "NVIDIA runtime"),
+        ("broken driver", "nvidia-smi failed.*couldn't communicate"),
+        ("no gpu", "lists no NVIDIA GPU"),
         ("no image", "docker pull google/deepvariant:gh1100-ultima-gpu@sha256:"),
     ],
 )
@@ -979,6 +981,12 @@ def test_ultima_gpu_setup_problems_are_named_before_any_work(
 ):
     if problem == "no driver":
         without_gpu_driver(ultima_gpu, monkeypatch)
+    elif problem == "broken driver":
+        set_gpus(
+            ultima_gpu.gpus, error="NVIDIA-SMI couldn't communicate with the driver"
+        )
+    elif problem == "no gpu":
+        set_gpus(ultima_gpu.gpus)
     elif problem == "no nvidia runtime":
         ultima_gpu.docker.set(runtimes='{"runc":{}}')
     else:
@@ -1002,7 +1010,7 @@ def test_ultima_gpu_needs_x86_64_linux(ultima_gpu, monkeypatch, system, machine)
 
 def test_a_busy_gpu_stops_before_call_variants_and_a_rerun_resumes(ultima_gpu):
     set_gpus(ultima_gpu.gpus, (24_576, 23_500))
-    with pytest.raises(WGSExtractError, match="free GPU memory"):
+    with pytest.raises(WGSExtractError, match="free memory on each GPU"):
         gpu_call(ultima_gpu)
     assert ultima_gpu.deepvariant.stages() == ["make_examples"]
 
@@ -1015,6 +1023,24 @@ def test_a_busy_gpu_stops_before_call_variants_and_a_rerun_resumes(ultima_gpu):
     rerun(ultima_gpu, "--gpu", reads=ultima_gpu.ultima.bam)
     rerun(ultima_gpu, "--gpu", "--dry-run", reads=ultima_gpu.ultima.bam)
     assert ultima_gpu.deepvariant.stages() == []
+
+
+def test_a_busy_gpu_beside_an_idle_one_is_refused(ultima_gpu):
+    # #488 review: call_variants' container gets every GPU, so the idle one
+    # doesn't make room on the busy one.
+    set_gpus(ultima_gpu.gpus, (24_576, 23_500), (24_576, 0))
+    with pytest.raises(WGSExtractError, match="free memory on each GPU"):
+        gpu_call(ultima_gpu)
+    assert ultima_gpu.deepvariant.stages() == ["make_examples"]
+
+
+def test_a_spaced_gpu_region_is_refused_before_reading_anything(ultima_gpu):
+    # #488 review: serve --allow checks "/a.bed /b.bed" as one comma item, which
+    # the depth check and DeepVariant would read as two files.
+    with pytest.raises(UsageError, match="separated by commas"):
+        gpu_call(ultima_gpu, "-r", "chr1:1-1500 chr1:1501-3000")
+    assert ultima_gpu.docker.runs() == []
+    assert not ultima_gpu.out.exists()
 
 
 def test_no_gpu_memory_check_runs_on_a_busy_gpu_with_a_warning(ultima_gpu):
