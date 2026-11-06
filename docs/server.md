@@ -49,10 +49,11 @@ you start yourself:
   are allowed; a missing `--allow` folder stops the server. Folders a
   command derives from a path are checked too: a `ref` FASTA in a
   `genomes` folder names the library above it, which must also be allowed.
-  A symlink inside an allowed folder that points outside it is refused. That
-  holds for the paths a request names; the files a command finds inside a
-  named folder (a reference library's genomes, a model folder's weights, a
-  checkpoint's files) aren't checked one by one.
+  A leading `~` in a path is expanded before it is checked. A symlink inside
+  an allowed folder that points outside it is refused. That holds for the
+  paths a request names; the files a command finds inside a named folder (a
+  reference library's genomes, a model folder's weights, a checkpoint's
+  files) aren't checked one by one.
   The guard limits what a client can name. It is not a sandbox against other
   programs running as you, which can change the allowed folders (for example
   retarget a symlink) whatever the server does.
@@ -128,7 +129,9 @@ only with `full=1`, to keep responses short.
   (setting `server_max_jobs`, default 1) of them run at a time. Jobs that save to
   the same folder run one after another, since commands use fixed file
   names there. `ref/index`, `ref/count-ns` and `ref/verify` save beside
-  their FASTA, so they need no `outdir`.
+  their FASTA, so they need no `outdir`; given a library folder, they also
+  hold its `genomes` folder. The library installers hold their library and
+  its `genomes` folder.
 - **Isolation.** Each job runs the API function in its own worker process.
   A crash or a cancel affects only that job. Its log, at the CLI's log level
   (`--debug` for more), is `<state>/server/jobs/<id>.log`.

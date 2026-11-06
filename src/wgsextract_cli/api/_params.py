@@ -215,6 +215,12 @@ class Params:
         as it checks the fields."""
         return iter(())
 
+    def write_folders(self) -> Iterator[Path]:
+        """Folders the operation saves files in besides its outdir (the
+        library an installer writes); the server doesn't run two jobs that
+        write the same folder at once."""
+        return iter(())
+
     def __post_init__(self) -> None:
         for item in param_fields(type(self)):
             value = getattr(self, item.name)

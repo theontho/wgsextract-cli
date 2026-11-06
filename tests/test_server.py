@@ -247,6 +247,32 @@ def test_a_ref_job_saving_beside_its_fasta_waits_for_that_folder(
         assert (first["status"], count["status"]) == ("running", "queued")
 
 
+@pytest.mark.parametrize(
+    ("op", "params"),
+    [
+        ("ref/gene-map", lambda library: {"ref": str(library), "delete": True}),
+        ("ref/verify", lambda library: {"ref": str(library)}),
+    ],
+    ids=["installer", "library-folder-fasta"],
+)
+def test_a_library_job_waits_for_a_job_writing_its_genomes(
+    tmp_path, work, fake_data, slow_coverage, op, params
+):
+    # PR #458 review: installers locked the default output folder, not their
+    # library, and `ref verify` of a library folder writes .fai/.gzi into its
+    # genomes/, so they ran alongside jobs writing those folders.
+    bam, ref = fake_data
+    library = work / "library"
+    (library / "genomes").mkdir(parents=True)
+    shutil.copy(ref, library / "genomes" / "ref.fa")
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(library / "genomes")}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request("POST", f"/ops/{op}", params(library))
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_operations_and_openapi_follow_the_typed_api(client):
     status, body = client.request("GET", "/ops")
     ops = {op["op"]: op["kind"] for op in body["ops"]}
@@ -577,6 +603,27 @@ def test_path_guard_checks_the_library_above_a_genomes_fasta(tmp_path, op):
         with pytest.raises(RequestError, match="outside the folders"):
             PathGuard([tmp_path / "library"]).check(params)
     PathGuard([tmp_path / "library", tmp_path / "genomes"]).check(params)
+
+
+@pytest.mark.parametrize("op", ["ref/clinvar", "ref/status"])
+def test_path_guard_checks_the_library_of_a_home_relative_fasta(
+    tmp_path, monkeypatch, op
+):
+    # PR #458 review: ~/lib/genomes/x.fa wasn't expanded before the library
+    # check, so a server allowing only ~/lib/genomes wrote into ~/lib.
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(tmp_path))
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    (genomes / "x.fa").write_text(">chr1\nA\n")
+    with _serve(tmp_path, [genomes]) as client:
+        status, body = client.request(
+            "POST", f"/ops/{op}", {"ref": "~/lib/genomes/x.fa"}
+        )
+    assert (status, body["error"]["code"]) == (403, "path_not_allowed")
+    # A Python caller's Params are checked the same way.
+    with pytest.raises(RequestError, match="outside the folders"):
+        PathGuard([genomes]).check(find(op).params(ref="~/lib/genomes/x.fa"))
 
 
 def test_ref_library_requests_must_name_a_genome():

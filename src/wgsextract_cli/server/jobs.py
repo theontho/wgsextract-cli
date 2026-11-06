@@ -28,7 +28,7 @@ from typing import Any, Literal
 from wgsextract_cli.core.file_lock import exclusive_lock
 from wgsextract_cli.core.utils import WGSExtractError
 
-from .operations import Operation, RequestError, is_network_path
+from .operations import Operation, RequestError, is_network_path, params_from_json
 
 Status = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
 FINISHED = frozenset({"succeeded", "failed", "cancelled", "interrupted"})
@@ -335,6 +335,17 @@ class JobManager:
         output files it names by path, and a folder given as its input (a
         report folder is written into, not beside)."""
         folders = {self._output_folder(op, job)}
+        try:
+            params = params_from_json(op, job.params)
+        except RequestError:
+            params = None
+        if params is not None:
+            folders.update(_folder_key(os.fspath(f)) for f in params.write_folders())
+        if op.params.WRITES_BESIDE and not job.params.get("outdir"):
+            # A library folder given as the FASTA: it resolves to one in genomes/.
+            beside = _beside_path(op, job.params)
+            if _is_local_folder(beside):
+                folders.add(_folder_key(os.path.join(beside, "genomes")))
         for item in op.fields():
             value = job.params.get(item.name)
             if not isinstance(value, str) or not value:
@@ -531,9 +542,15 @@ def _folder_key(folder: str) -> str:
 
 
 def _beside_folder(op: Operation, params: Mapping[str, Any]) -> str:
-    """The folder an operation writes in beside its ``WRITES_BESIDE`` path
-    (the request's, else the configured one): the path's own when it is a
-    folder."""
+    """The folder an operation writes in beside its ``WRITES_BESIDE`` path:
+    the path's own when it is a folder."""
+    value = _beside_path(op, params)
+    return value if _is_local_folder(value) else os.path.dirname(value)
+
+
+def _beside_path(op: Operation, params: Mapping[str, Any]) -> str:
+    """An operation's ``WRITES_BESIDE`` path: the request's, else the
+    configured one."""
     from wgsextract_cli.core.config import settings
 
     name = op.params.WRITES_BESIDE
@@ -542,11 +559,15 @@ def _beside_folder(op: Operation, params: Mapping[str, Any]) -> str:
         item = next((f for f in op.fields() if f.name == name), None)
         key = item.spec.config_key if item else None
         value = settings.get(key) if key else None
-    if not isinstance(value, str) or not value:
-        return ""
-    if not is_network_path(value) and os.path.isdir(os.path.expanduser(value)):
-        return value
-    return os.path.dirname(value)
+    return value if isinstance(value, str) else ""
+
+
+def _is_local_folder(value: str) -> bool:
+    return (
+        bool(value)
+        and not is_network_path(value)
+        and os.path.isdir(os.path.expanduser(value))
+    )
 
 
 def _first_input(params: Mapping[str, Any]) -> str:

@@ -44,17 +44,38 @@ def _build_param(help: str) -> Any:
     return param("hg38", help=help, choices=BUILDS)
 
 
+def _library_named(ref: Path) -> Path:
+    """The library ``ref`` names, ``~`` expanded: the one above a FASTA's
+    ``genomes`` folder, else ``ref`` itself."""
+    from wgsextract_cli.core.reference_assets import reference_library_of
+
+    ref = ref.expanduser()
+    return Path(reference_library_of(ref)) if ref.is_file() else ref
+
+
 class _InLibrary:
     """An operation on the library ``ref`` names, or the one above a FASTA's
     ``genomes`` folder."""
 
     ref: Path | None
 
-    def implied_paths(self) -> Iterator[tuple[str, Path]]:
-        from wgsextract_cli.core.reference_assets import reference_library_of
+    def library(self) -> Path:
+        """The library folder the operation installs into or reads."""
+        from wgsextract_cli.core.reference_assets import (
+            reference_library_of,
+            resolve_reference_library,
+        )
 
-        if self.ref is not None and Path(self.ref).is_file():
-            yield "ref", Path(reference_library_of(self.ref))
+        ref = reference_library_of(self.ref) if self.ref else None
+        return Path(resolve_reference_library(ref))
+
+    def implied_paths(self) -> Iterator[tuple[str, Path]]:
+        if self.ref is not None:
+            yield "ref", _library_named(self.ref)
+
+    def write_folders(self) -> Iterator[Path]:
+        library = self.library()
+        yield from (library, library / "genomes")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -211,14 +232,16 @@ class RefStatusParams(Params):
 
     def implied_paths(self) -> Iterator[tuple[str, Path]]:
         from wgsextract_cli.core.config import settings
-        from wgsextract_cli.core.reference_assets import reference_library_of
 
-        if self.ref is None or not Path(self.ref).exists():
+        if self.ref is None:
             return
-        library = Path(reference_library_of(self.ref))
-        if library != Path(self.ref):
-            yield "ref", library
-        if self.genome_library is None and not settings.get("genome_library"):
+        library = _library_named(self.ref)
+        yield "ref", library
+        if (
+            self.genome_library is None
+            and not settings.get("genome_library")
+            and library.is_absolute()  # a relative ref is refused as it is
+        ):
             yield "ref", library.parent / "genomes"
 
 

@@ -214,11 +214,11 @@ def _coerce(item: ParamField, value: object) -> object:
             return tuple(float(v) for v in value)
         if not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
             raise _type_error(item, "an array of strings")
-        return tuple(value)
+        return tuple(_expand(item, v) for v in value)
     if item.spec.path or base is Path or base is str:
         if not isinstance(value, str):
             raise _type_error(item, "a string")
-        return value
+        return _expand(item, value)
     if base is bool:
         if not isinstance(value, bool):
             raise _type_error(item, "true or false")
@@ -232,6 +232,12 @@ def _coerce(item: ParamField, value: object) -> object:
             raise _type_error(item, "a number")
         return float(value)
     return value
+
+
+def _expand(item: ParamField, value: str) -> str:
+    """A path field's ``~`` as the operation will read it, so the path checks
+    see the folder it names."""
+    return os.path.expanduser(value) if item.spec.path else value
 
 
 def _is_number(value: object) -> bool:
