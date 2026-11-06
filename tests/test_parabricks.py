@@ -361,6 +361,28 @@ def test_a_shared_gpu_aligns_in_low_memory_mode(tmp_path, gpu, genome):
 
 @posix_only
 @needs_tools("bwa", "samtools")
+def test_a_busy_gpu_beside_a_smaller_idle_one_still_uses_low_memory(
+    tmp_path, gpu, genome
+):
+    # #479 review: an idle 16 GiB GPU lowered the 24 GiB GPU's default need,
+    # so fq2bam ran in its default mode and the busy GPU ran out of memory.
+    gpu.set_gpus((24_576, 6_000), (16_384, 0))
+    result = _gpu_align(tmp_path, genome)
+    assert (tmp_path / "out" / "s_aligned.bam").is_file()
+    assert "parabricks_low_memory" in _codes(result)
+
+
+@posix_only
+def test_a_busy_gpu_is_refused_beside_one_reporting_no_memory(tmp_path, gpu, genome):
+    # #479 review: one [N/A] GPU hid the other GPU's shortage.
+    gpu.set_gpus((24_576, 14_000), None)
+    with pytest.raises(api.CommandFailed, match="free GPU memory"):
+        _gpu_align(tmp_path, genome)
+    assert gpu.runs() == []
+
+
+@posix_only
+@needs_tools("bwa", "samtools")
 def test_a_free_gpu_aligns_in_the_default_mode(tmp_path, gpu, genome):
     result = _gpu_align(tmp_path, genome)
     assert not {"parabricks_low_memory", "parabricks_memory"} & set(_codes(result))

@@ -851,18 +851,23 @@ with open(LOG, "a") as out:
 if not os.environ.get("FAKE_GPUS"):
     sys.exit("pbrun: no CUDA-capable device is detected")
 # GPU memory each mode allocates (MiB), as measured on an RTX 3090: fq2bam's
-# default streams fill most of the GPU's total memory, whatever is free.
+# default streams fill most of each GPU's total memory, whatever is free.
+# Unified-memory GPUs (None) don't run out.
 with open(GPUS) as source:
-    gpus = json.load(source)
+    gpus = [g for g in json.load(source) if g is not None]
 low = {"fq2bam": "--low-memory", "minimap2": "--low-memory",
        "haplotypecaller": "--htvc-low-memory"}.get(tool)
-if low in args:
-    need = {"haplotypecaller": 11_001}.get(tool, 13_865)
-elif tool == "fq2bam":
-    need = min(g["total"] for g in gpus) - 2_527
-else:
-    need = {"minimap2": 17_500, "haplotypecaller": 17_563}.get(tool, 13_211)
-if any(g["total"] - g["used"] < need for g in gpus):
+
+
+def need(gpu):
+    if low in args:
+        return {"haplotypecaller": 11_001}.get(tool, 13_865)
+    if tool == "fq2bam":
+        return gpu["total"] - 2_527
+    return {"minimap2": 17_500, "haplotypecaller": 17_563}.get(tool, 13_211)
+
+
+if any(g["total"] - g["used"] < need(g) for g in gpus):
     sys.exit(f"pbrun {tool}: cudaErrorMemoryAllocation: out of memory")
 
 
@@ -962,7 +967,10 @@ import json, sys
 if any(a.startswith("--query-gpu=") for a in sys.argv):
     with open(GPUS) as source:
         for i, g in enumerate(json.load(source)):
-            print(f"{i}, NVIDIA GeForce RTX 3090, {g['total']}, {g['total'] - g['used']}")
+            if g is None:
+                print(f"{i}, NVIDIA GB10, [N/A], [N/A]")
+            else:
+                print(f"{i}, NVIDIA GeForce RTX 3090, {g['total']}, {g['total'] - g['used']}")
 else:
     print("NVIDIA-SMI (fake)")
 """
@@ -998,11 +1006,14 @@ class FakeParabricks:
         self.docker.set(gpus=True, runtimes='{"nvidia":{},"runc":{}}')
         self.docker.add_image(image)
 
-    def set_gpus(self, *gpus: tuple[int, int]) -> None:
-        """GPUs as (total, used) MiB; an RTX 3090 with nothing else on it."""
+    def set_gpus(self, *gpus: tuple[int, int] | None) -> None:
+        """GPUs as (total, used) MiB, or None for one that reports its memory
+        as [N/A]; an RTX 3090 with nothing else on it."""
         self.gpus.parent.mkdir(parents=True, exist_ok=True)
         self.gpus.write_text(
-            json.dumps([{"total": total, "used": used} for total, used in gpus])
+            json.dumps(
+                [None if g is None else {"total": g[0], "used": g[1]} for g in gpus]
+            )
         )
 
     def runs(self) -> list[tuple[str, list[str]]]:

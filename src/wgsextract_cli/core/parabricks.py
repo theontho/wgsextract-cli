@@ -155,16 +155,17 @@ def plan_gpu_memory(
             needed_gib=round(plan.host_needed / GIB, 1),
             available_gib=round(plan.host_available / GIB, 1),
         )
-    if plan.low_memory:
+    if plan.low_memory and (busy := plan.busy_gpu) is not None:
+        free = busy.free_bytes or 0
         warn(
             "parabricks_low_memory",
-            f"Running Parabricks {tool} with {plan.need.option}: the GPU has "
-            f"{(plan.gpu_free or 0) / GIB:.1f} GiB free, less than the "
-            f"{plan.full_need / GIB:.0f} GiB its default mode needs. It may "
-            "run slower.",
+            f"Running Parabricks {tool} with {plan.need.option}: GPU "
+            f"{busy.index} has {free / GIB:.1f} GiB free, less than the "
+            f"{plan.default_need(busy) / GIB:.0f} GiB its default mode needs. It "
+            "may run slower.",
             tool=tool,
             option=plan.need.option,
-            gpu_free_gib=round((plan.gpu_free or 0) / GIB, 1),
+            gpu_free_gib=round(free / GIB, 1),
         )
     return plan.options
 

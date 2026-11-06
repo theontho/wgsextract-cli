@@ -616,34 +616,45 @@ class ParabricksPlan:
         free = [g.free_bytes for g in self.gpus if g.free_bytes is not None]
         return min(free) if free and len(free) == len(self.gpus) else None
 
-    @property
-    def gpu_total(self) -> int | None:
-        total = [g.total_bytes for g in self.gpus if g.total_bytes is not None]
-        return min(total) if total and len(total) == len(self.gpus) else None
+    def default_need(self, gpu: GpuMemory) -> int:
+        """What the tool needs of this GPU without its low-memory option."""
+        if self.need.headroom is None or gpu.total_bytes is None:
+            return self.need.full
+        return max(self.need.full, gpu.total_bytes - self.need.headroom)
 
     @property
-    def full_need(self) -> int:
-        """What the tool needs without its low-memory option."""
-        total = self.gpu_total
-        if self.need.headroom is None or total is None:
-            return self.need.full
-        return max(self.need.full, total - self.need.headroom)
+    def busy_gpu(self) -> GpuMemory | None:
+        """The GPU furthest below its default need, if any is; each GPU is
+        judged by its own reading, whatever the others report."""
+        short = [
+            g
+            for g in self.gpus
+            if g.free_bytes is not None and g.free_bytes < self.default_need(g)
+        ]
+        return min(
+            short,
+            key=lambda g: (g.free_bytes or 0) - self.default_need(g),
+            default=None,
+        )
 
     @property
     def low_memory(self) -> bool:
-        free = self.gpu_free
-        return (
-            self.need.option is not None and free is not None and free < self.full_need
-        )
+        return self.need.option is not None and self.busy_gpu is not None
 
     @property
     def options(self) -> list[str]:
         """The pbrun options this plan adds."""
         return [self.need.option] if self.low_memory and self.need.option else []
 
+    def gpu_need(self, gpu: GpuMemory) -> int:
+        return self.need.floor if self.low_memory else self.default_need(gpu)
+
     @property
     def gpu_needed(self) -> int:
-        return self.need.floor if self.low_memory else self.full_need
+        return max(
+            (self.gpu_need(g) for g in self.gpus),
+            default=self.need.floor if self.low_memory else self.need.full,
+        )
 
     @property
     def host_needed(self) -> int:
@@ -660,18 +671,29 @@ class ParabricksPlan:
     def shortfalls(self) -> list[str]:
         """Why the tool can't run here, if it can't."""
         problems = []
-        total, free = self.gpu_total, self.gpu_free
-        if total is not None and total < PB_MIN_GPU_TOTAL:
+        small = [
+            g
+            for g in self.gpus
+            if g.total_bytes is not None and g.total_bytes < PB_MIN_GPU_TOTAL
+        ]
+        short = [
+            g
+            for g in self.gpus
+            if g.free_bytes is not None and g.free_bytes < self.gpu_need(g)
+        ]
+        if small:
             problems.append(
-                f"Parabricks needs a GPU with 16 GB of memory; this one has "
-                f"{total / GIB:.1f} GiB, so align or call on the CPU instead."
+                f"Parabricks needs a GPU with 16 GB of memory; GPU "
+                f"{small[0].index} has {(small[0].total_bytes or 0) / GIB:.1f} "
+                "GiB, so align or call on the CPU instead."
             )
-        elif free is not None and free < self.gpu_needed:
+        elif short:
+            gpu = min(short, key=lambda g: (g.free_bytes or 0) - self.gpu_need(g))
             problems.append(
-                f"Parabricks {self.tool} needs {self.gpu_needed / GIB:.1f} GiB "
+                f"Parabricks {self.tool} needs {self.gpu_need(gpu) / GIB:.1f} GiB "
                 f"of free GPU memory{' even in low-memory mode' if self.low_memory else ''}"
-                f", but only {free / GIB:.1f} GiB is free: close the other "
-                "programs using the GPU (see nvidia-smi)."
+                f", but GPU {gpu.index} has only {(gpu.free_bytes or 0) / GIB:.1f} "
+                "GiB free: close the other programs using the GPU (see nvidia-smi)."
             )
         if self.host_total < self.host_minimum:
             problems.append(

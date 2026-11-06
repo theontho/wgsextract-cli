@@ -107,8 +107,10 @@ needs `--split-prefix` and a merge pass, and maps more slowly.
 
 With `--gpu`, `align`, `realign`, `vcf deepvariant` and `vcf gatk` read each
 GPU's total and free memory from `nvidia-smi` before starting Parabricks, and
-report a `gpu` row beside the host `memory` row. pbrun uses every GPU, so the
-least free memory of any GPU counts.
+report a `gpu` row beside the host `memory` row. pbrun uses every GPU, so each
+GPU is checked against its own memory: low-memory mode is chosen when any GPU
+is short of its default need, and a GPU that reports no memory doesn't hide
+another one's shortage.
 
 - A GPU with less than 16 GB (a T4 reports 15 GiB) is refused.
 - When less memory is free than a tool's default mode needs, the tool runs
