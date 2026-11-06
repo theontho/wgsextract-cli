@@ -9,6 +9,7 @@ folders mounted into it.
 import os
 import platform
 import random
+import shutil
 import sys
 
 import pytest
@@ -474,3 +475,45 @@ def test_realign_refuses_a_busy_gpu_before_extracting_reads(tmp_path, gpu):
             "--outdir", str(out),
         )  # fmt: skip
     assert not list(out.glob("*.fastq.gz")) and gpu.runs() == []
+
+
+@posix_only
+@needs_tools("samtools")
+@pytest.mark.parametrize("problem", ["busy", "no driver"])
+def test_realign_dry_run_needs_no_gpu(tmp_path, gpu, monkeypatch, problem):
+    # #479 review: a --dry-run plan was refused for a busy or absent GPU.
+    if problem == "busy":
+        gpu.set_gpus((24_576, 14_000))
+    else:
+        (gpu.bin / "nvidia-smi").unlink()
+        tools = os.path.dirname(shutil.which("samtools") or "")
+        monkeypatch.setenv("PATH", f"{gpu.bin}{os.pathsep}{tools}")
+    sample = snp_sample(tmp_path, read_group="@RG\tID:rg\tSM:S\tPL:ILLUMINA")
+    out = tmp_path / "out"
+    run_wgsextract(
+        "realign", "--gpu", "--dry-run", "--input", sample.bam,
+        "--ref", sample.ref, "--outdir", str(out),
+    )  # fmt: skip
+    assert gpu.runs() == [] and not list(out.glob("*.bam"))
+
+
+@posix_only
+@needs_tools("bwa", "samtools")
+def test_rerunning_a_finished_gpu_realign_needs_no_free_gpu(tmp_path, gpu, genome):
+    # #479 review: a finished realign was refused when the GPU became busy.
+    seq, ref = genome
+    r1, r2, ubam = (tmp_path / "reads" / n for n in ("R1.fq", "R2.fq", "s.bam"))
+    write_read_pairs(seq, r1, r2, range(0, 5_000, 50))
+    run_command(
+        ["samtools", "import", "-1", str(r1), "-2", str(r2), "-o", str(ubam),
+         "-r", "ID:rg", "-r", "SM:S", "-r", "PL:ILLUMINA"]
+    )  # fmt: skip
+    out = tmp_path / "out"
+    argv = ("realign", "--gpu", "--input", str(ubam), "--ref", str(ref),
+            "--outdir", str(out))  # fmt: skip
+    run_wgsextract(*argv)
+    (bam,) = out.glob("*_aligned.bam")
+    finished = bam.stat().st_mtime_ns
+    gpu.set_gpus((24_576, 14_000))
+    run_wgsextract(*argv)
+    assert len(gpu.runs()) == 1 and bam.stat().st_mtime_ns == finished

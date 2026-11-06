@@ -1,19 +1,22 @@
 import gzip
 import json
 import logging
+import os
 import platform
 import random
 import re
 import shutil
+import sys
 from argparse import Namespace
 from pathlib import Path
 from typing import NamedTuple
 
 import pytest
 
+from tests.fake_tools import FakeParabricks
 from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.commands import realign
-from wgsextract_cli.core import alignment_memory
+from wgsextract_cli.core import alignment_memory, parabricks
 from wgsextract_cli.core.alignment_memory import MappingMemory
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.read_counts import AlignmentSample, UnpairedSample
@@ -583,9 +586,17 @@ def test_native_stream_failure_removes_partial_output_and_collation(
     assert _visible(outdir) == []
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="the fake GPU host's tools are shell scripts"
+)
 def test_cleanup_problem_does_not_fail_a_finished_realign(
-    tmp_path, monkeypatch, source, caplog
+    tmp_path, monkeypatch, source, caplog, ram
 ):
+    # A GPU realign always goes through FASTQs; run it on a fake GPU host.
+    monkeypatch.setattr(sys, "platform", "linux")
+    ram(128 * 10**9)
+    host = FakeParabricks(tmp_path / "gpu", parabricks.DEFAULT_IMAGE)
+    monkeypatch.setenv("PATH", f"{host.bin}{os.pathsep}{os.environ['PATH']}")
     fakes = _Fakes(monkeypatch)
 
     def align(args):
