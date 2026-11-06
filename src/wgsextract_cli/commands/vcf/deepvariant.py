@@ -557,16 +557,25 @@ def _gpu_model(params: VcfDeepvariantParams) -> tuple[str, CallerSetup | None]:
     return _model_type(params, caller.ref, caller.platform), caller
 
 
+def require_gpu_host() -> None:
+    """Refuse --gpu where neither Parabricks nor Google's ULTIMA GPU image
+    runs: both are x86-64 Linux only."""
+    if not sys.platform.startswith("linux"):
+        raise UsageError(
+            "--gpu is not supported on this platform; use Linux with an NVIDIA GPU."
+        )
+    if platform.machine().lower() not in {"x86_64", "amd64"}:
+        raise UsageError(
+            "--gpu is not supported on Linux ARM64: Parabricks and Google's "
+            "ULTIMA GPU image are x86-64 only. Use the native CPU pipeline instead."
+        )
+
+
 def _verify_ultima_gpu(params: VcfDeepvariantParams) -> None:
     """Refuse an Ultima --gpu run this machine can't do, before any work."""
     from wgsextract_cli.core.parabricks import verify_gpu_docker
 
     setup = _ULTIMA_GPU_SETUP.format(image=deepvariant_image("ULTIMA", gpu=True))
-    if not sys.platform.startswith("linux") or platform.machine().lower() not in {
-        "x86_64",
-        "amd64",
-    }:
-        raise UsageError(f"--gpu for Ultima reads needs x86-64 Linux. {setup}")
     if not params.dry_run:
         # A dry run only plans, in the image, without the GPU.
         verify_gpu_docker(setup)
@@ -648,6 +657,7 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
     caller = None
     gpu = params.gpu
     if gpu:
+        require_gpu_host()
         model, caller = _gpu_model(params)
         if model != "ULTIMA":
             _deepvariant_parabricks(params, model, caller)

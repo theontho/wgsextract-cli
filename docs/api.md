@@ -692,7 +692,7 @@ workspace.
 | `platform` | `str \| None` | `None` | `--platform` | Sequencing platform; selects platform-specific alignment tooling (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
 | `aligner` | `str` | `'auto'` | `--aligner` | Aligner to use. Auto uses bwa-mem2 for short reads when the reference has its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio when installed, otherwise minimap2. One of: `auto`, `bwa`, `bwa-mem2`, `minimap2`, `pbmm2` |
 | `gpu` | `bool` | `False` | `--gpu` | Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags. |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `sample` | `str \| None` | `None` | `--sample` | Sample name for the read group (default: the reads' file name). |
 | `long_read` | `bool` | `False` | `--long-read` | Treat the reads as long reads (PacBio/ONT) and align them with pbmm2 or minimap2. |
 | `format` | `str` | `'BAM'` | `--format` | Output format: BAM or CRAM (written with the target reference). One of: `BAM`, `CRAM` |
@@ -727,7 +727,7 @@ settings and tools are unchanged.
 | `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, with r1. |
 | `aligner` | `str` | `'auto'` | `--aligner` | Aligner: auto, bwa, bwa-mem2, minimap2 or pbmm2, chosen as for align. One of: `auto`, `bwa`, `bwa-mem2`, `minimap2`, `pbmm2` |
 | `gpu` | `bool` | `False` | `--gpu` | Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags. |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `platform` | `str \| None` | `None` | `--platform` | Sequencing platform (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
 | `preset` | `str \| None` | `None` | `--preset` | minimap2/pbmm2 preset. One of: `sr`, `map-pb`, `map-hifi`, `map-ont`, `ccs`, `subread` |
 | `input_ref` | `Path \| None` | `None` | `--input-ref` | Reference FASTA the input CRAM was encoded with (default: --ref when its sequence names, lengths and MD5s match the CRAM, else the FASTA in the reference library whose sequence dictionary matches). --ref is the reference to realign to. |
@@ -1243,7 +1243,7 @@ Call with GATK; output role `variants`.
 | `region` | `str \| None` | `None` | `-r`, `--region` | Comma-separated region(s) to call (e.g. chrM); with gpu, an item may be a BED file of them. |
 | `scatter` | `bool` | `False` | `--scatter` | Opt-in Ultima flow-mode interval scattering, bounded by --threads and available RAM (6 GiB per worker, 4 GiB Java heap). Can change genotypes/annotations away from interval boundaries; default: one unscattered process. |
 | `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README). |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.vcf.deepvariant(VcfDeepvariantParams)`
@@ -1256,8 +1256,9 @@ Call with DeepVariant; output role `variants`.
 
 The model follows `ont`, `pacbio`, `model_type` and `wes`, else the
 reads (ONT_R104 for ONT, ULTIMA for flow-tagged Ultima reads, else WGS).
-The CPU version runs in stages that a rerun resumes; `gpu` runs
-Parabricks in one step.
+DeepVariant's own pipeline runs in stages that a rerun resumes. `gpu`
+runs Parabricks in one step, except for ULTIMA, which Parabricks lacks:
+Google's ULTIMA GPU image runs the stages with call_variants on the GPU.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
@@ -1271,9 +1272,9 @@ Parabricks in one step.
 | `ont` | `bool` | `False` | `--ont` | Alias for --model-type ONT_R104 (R10.4.1 only; x86-64). |
 | `pacbio` | `bool` | `False` | `--pacbio` | Alias for --model-type PACBIO. |
 | `checkpoint` | `Path \| None` | `None` | `--checkpoint` | A custom model: its directory, or a checkpoint prefix. |
-| `batch_size` | `int \| None` | `None` | `--batch-size` | CPU inference batch size (upstream default: 1024). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch. |
-| `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README). |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `batch_size` | `int \| None` | `None` | `--batch-size` | call_variants batch size (upstream default: 1024; not Parabricks). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch. |
+| `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU: Parabricks, or Google's ULTIMA GPU image for Ultima reads (x86-64 Linux, Docker; see README). |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 | `restart` | `bool` | `False` | `--force`, `--no-resume` | Rerun every step, ignoring the steps an earlier run completed. |
 | `force_steps` | `tuple[str, ...] \| None` | `None` | `--force-step` | Steps to rerun with the steps that use their outputs; None reruns none. Steps: stage_reads, make_examples, call_variants, postprocess_variants. One of: `stage_reads`, `make_examples`, `call_variants`, `postprocess_variants` |

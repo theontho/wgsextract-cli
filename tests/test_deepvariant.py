@@ -995,7 +995,7 @@ def test_ultima_gpu_setup_problems_are_named_before_any_work(
 def test_ultima_gpu_needs_x86_64_linux(ultima_gpu, monkeypatch, system, machine):
     monkeypatch.setattr(deepvariant.platform, "machine", lambda: machine)
     monkeypatch.setattr(sys, "platform", system)
-    with pytest.raises(UsageError, match="x86-64 Linux"):
+    with pytest.raises(UsageError, match="--gpu is not supported"):
         gpu_call(ultima_gpu, "--model-type", "ULTIMA")
     assert ultima_gpu.docker.runs() == []
 

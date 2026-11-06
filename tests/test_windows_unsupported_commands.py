@@ -99,7 +99,7 @@ def test_gpu_modes_fail_before_work_on_non_linux(
     with caplog.at_level(logging.ERROR):
         code = _dispatch([*command, "--genome", "joe"], platform, monkeypatch)
     assert code == 2
-    assert "Parabricks --gpu is not supported" in caplog.text
+    assert "--gpu is not supported on this platform" in caplog.text
     assert list(genome.iterdir()) == []
 
 

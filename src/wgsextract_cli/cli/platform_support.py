@@ -64,7 +64,11 @@ def verify_platform_support(args: argparse.Namespace) -> None:
         subcommand = getattr(args, "vcf_cmd", None)
         if subcommand in {"gatk", "deepvariant"}:
             require_native_tool("gatk" if subcommand == "gatk" else "run_deepvariant")
-            if getattr(args, "gpu", False):
+            if getattr(args, "gpu", False) and subcommand == "deepvariant":
+                from wgsextract_cli.commands.vcf.deepvariant import require_gpu_host
+
+                require_gpu_host()
+            elif getattr(args, "gpu", False):
                 _require_for_option("parabricks")
         elif subcommand == "clair3":
             from wgsextract_cli.commands.vcf.clair3 import require_supported_platform
