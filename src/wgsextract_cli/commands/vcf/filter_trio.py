@@ -120,7 +120,10 @@ def run_filter(params: VcfFilterParams) -> None:
     expr_args = ["-i", params.expr] if params.expr else []
 
     input_vcf = ensure_vcf_prepared(input_file)
-    if Path(out_vcf).resolve() in {Path(p).resolve() for p in (input_file, input_vcf)}:
+    if Path(out_vcf).exists() and any(
+        Path(p).exists() and os.path.samefile(out_vcf, p)
+        for p in (input_file, input_vcf)
+    ):
         raise UsageError(
             f"vcf filter would overwrite its input {input_file}; "
             "choose another --outdir."

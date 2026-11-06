@@ -4,6 +4,7 @@ import gzip
 import logging
 import struct
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,32 @@ def test_record_count_comes_from_the_index_or_the_records(tmp_path):
     assert output_checks.vcf_record_count(empty) == 0
     Path(empty).write_bytes(b"not a VCF")
     assert output_checks.vcf_record_count(empty) is None
+
+
+def test_a_zero_count_is_confirmed_from_the_first_record_alone(tmp_path):
+    """Confirming an htsjdk zero must not decode the whole VCF: this one holds
+    40 million records in a few MB (one BGZF block repeated)."""
+    vcf = Path(_htsjdk_index(_vcf(tmp_path / "big.vcf.gz", _records(1))))
+    block = tmp_path / "block.txt"
+    block.write_text("".join(_records(2000)))
+    run_command([get_tool_path("bgzip"), "-f", str(block)])
+    eof = bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000")
+    body = Path(f"{block}.gz").read_bytes().removesuffix(eof)
+    vcf.write_bytes(vcf.read_bytes().removesuffix(eof) + body * 20_000 + eof)
+
+    start = time.monotonic()
+    assert output_checks.vcf_record_count(vcf) is None
+    assert time.monotonic() - start < 10
+
+
+def test_a_counted_index_is_trusted_without_reading_records(tmp_path):
+    vcf = _vcf(tmp_path / "counted.vcf.gz", _records(3))
+    plain = tmp_path / "corrupt.vcf"
+    plain.write_text(
+        gzip.decompress(Path(vcf).read_bytes()).decode().replace("\t2\t", "\tx\t")
+    )
+    run_command([get_tool_path("bgzip"), "-f", "-o", vcf, str(plain)])
+    assert output_checks.vcf_record_count(vcf) == 3
 
 
 def test_unreadable_vcf_does_not_warn(tmp_path, caplog):

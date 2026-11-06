@@ -216,7 +216,7 @@ def _write_vcf_mode_kit(
             else stack.enter_context(_open_text(ref_vcf_tab))
         )
         ref_col_idx = -1
-        written = matched = assumed = 0
+        written = matched = 0
         for line in targets:
             if line.startswith("#"):
                 header = line.strip().split("\t")
@@ -252,7 +252,6 @@ def _write_vcf_mode_kit(
                     ref_base = "N"
                 genotype = ref_base * 2
                 reason = "assumed_hom_ref"
-                assumed += 1
 
             rejection = identity.rejection(rsid)
             if rejection:
@@ -267,17 +266,12 @@ def _write_vcf_mode_kit(
                 "Check the input build and selected marker/call policies."
             )
             return
-        # Targets filled as homozygous reference make a plausible-looking but
-        # meaningless kit; without calls on their contigs they are no-calls.
+        # Absent targets are filled as reference only on contigs with a call
+        # at a target, so with none matched every marker is a no-call.
         logging.warning(
             f"None of {out_vcf}'s variants are at the kit's {written:,} target "
-            "positions, so "
-            + (
-                "every genotype is written as the reference allele. Check "
-                if assumed
-                else "absent markers are written as no-calls. Check "
-            )
-            + f"that the VCF's genome build matches the targets ({ref_vcf_tab})."
+            "positions, so absent markers are written as no-calls. Check that "
+            f"the VCF's genome build matches the targets ({ref_vcf_tab})."
         )
 
 

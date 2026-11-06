@@ -398,11 +398,20 @@ def test_failed_atomic_filter_keeps_the_previous_result(tmp_path):
 
 
 @needs_bcftools
-def test_filter_refuses_to_overwrite_its_input(tmp_path):
-    vcf = _write_vcf(tmp_path / "filtered.vcf.gz", "chr1\t10\tc\tA\tG\t50\tPASS\t.\n")
+@pytest.mark.parametrize("alias", ["same", "hard link"])
+def test_filter_refuses_to_overwrite_its_input(tmp_path, alias):
+    vcf = _write_vcf(tmp_path / "in.vcf.gz", "chr1\t10\tc\tA\tG\t50\tPASS\t.\n")
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    if alias == "same":
+        vcf = str(Path(vcf).rename(outdir / "filtered.vcf.gz"))
+    else:
+        # PR #453 review: a hard link (or another case on case-insensitive
+        # APFS) names the input by a path that doesn't resolve to it.
+        os.link(vcf, outdir / "filtered.vcf.gz")
     with pytest.raises(UsageError, match="overwrite its input"):
         run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--expr", "NOPE>1",
-                       "--outdir", str(tmp_path))  # fmt: skip
+                       "--outdir", str(outdir))  # fmt: skip
     assert _query(vcf) == ["c"]
 
 

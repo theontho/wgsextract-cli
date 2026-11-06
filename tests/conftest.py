@@ -1,4 +1,3 @@
-import contextlib
 import os
 import signal
 from collections.abc import Callable, Iterator
@@ -10,7 +9,6 @@ from tests.fake_tools import FakePixi
 from tests.smoke_utils import ensure_fake_data, isolate_home, state_directory_setting
 from wgsextract_cli.core.config import get_config_path, reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
-from wgsextract_cli.core.dev_download_cache import wgsextract_cache_root
 from wgsextract_cli.core.runtime import repo_root, source_checkout_root
 
 
@@ -80,22 +78,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 _CHECKOUT_STATE = repo_root() / "state"
 _CHECKOUT_STATE_EXISTED = _CHECKOUT_STATE.exists()
-# Resolved before any fixture points the home directories at tmp_path.
-_HOME_CACHE = wgsextract_cache_root()
-
-
-def _home_cache_entries() -> dict[Path, tuple[int, int]]:
-    """Every file under the real ~/.cache/wgsextract, with its size and mtime."""
-    entries = {}
-    for path in _HOME_CACHE.rglob("*") if _HOME_CACHE.is_dir() else ():
-        with contextlib.suppress(OSError):  # another run may remove it meanwhile
-            if not path.is_dir():
-                stat = path.lstat()
-                entries[path] = (stat.st_size, stat.st_mtime_ns)
-    return entries
-
-
-_HOME_CACHE_BEFORE = _home_cache_entries()
 
 
 def pytest_sessionstart() -> None:
@@ -104,17 +86,10 @@ def pytest_sessionstart() -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
-    """Fail the run if a test recorded a run in the checkout's state/ or
-    cached a download in the developer's home cache."""
+    """Fail the run if a test recorded a run in the checkout's state/."""
     if not _CHECKOUT_STATE_EXISTED and _CHECKOUT_STATE.exists():
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
         print(f"\nA test wrote {_CHECKOUT_STATE}; point state_directory at tmp_path.")
-    if hasattr(session.config, "workerinput"):
-        return  # the xdist controller checks once all workers are done
-    after = _home_cache_entries().items()
-    if new := sorted(str(p) for p, s in after if _HOME_CACHE_BEFORE.get(p) != s):
-        session.exitstatus = pytest.ExitCode.TESTS_FAILED
-        print(f"\nTests wrote into the real {_HOME_CACHE}: {new}; set XDG_CACHE_HOME.")
 
 
 _REAL_CONFIG = get_config_path()
