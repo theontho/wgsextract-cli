@@ -228,3 +228,28 @@ def test_align_maps_a_pacbio_unaligned_bam_with_minimap2(tmp_path, genome_ref):
     ]
     assert sorted(r[0] for r in primary) == sorted(reads)
     assert all("ML:B:C,255,128" in r[11:] for r in primary)
+
+
+@needs_tools("samtools", "minimap2", "bgzip")
+@pytest.mark.parametrize("first", [[], ["--keep-fastq"]], ids=["streamed", "kept"])
+def test_finished_pacbio_realign_is_not_redone_by_a_keep_fastq_rerun(
+    tmp_path, genome_ref, first
+):
+    """PR #457 review: rerunning a finished long-read realign with --keep-fastq
+    extracted the reads again and realigned, replacing a valid BAM (hours on a
+    genome)."""
+    genome, ref = genome_ref
+    source, _ = _pacbio_bam(tmp_path, genome)
+    out = tmp_path / "out"
+    _realign(source, ref, out, *first)
+    aligned = out / "hifi_aligned.bam"
+    finished = {p.name: p.stat().st_mtime_ns for p in out.iterdir()}
+
+    _realign(source, ref, out, "--keep-fastq")
+    assert {p.name: p.stat().st_mtime_ns for p in out.iterdir()} == finished
+    assert aligned.stat().st_mtime_ns == finished[aligned.name]
+
+    # --force-extract asks for the FASTQ, and so a new alignment from it.
+    _realign(source, ref, out, "--keep-fastq", "--force-extract")
+    assert (out / "hifi.fastq.gz").is_file()
+    assert aligned.stat().st_mtime_ns != finished[aligned.name]

@@ -23,6 +23,7 @@ that finished, and redoes the one that didn't.
 import argparse
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
@@ -512,17 +513,28 @@ def _realign_long_reads(
     align_step = _align_step(
         args, selected_aligner, target, out_path, {"alignment": args.input}
     )
-    extract_decision = None
-    if args.keep_fastq:
-        extract_decision = journal.decide(extract_step)
+    if args.keep_fastq and args.force_extract:
+        journal.policy = replace(
+            journal.policy, force_steps=journal.policy.force_steps | {"extract"}
+        )
+    if not journal.policy.forced("extract") and not journal.check(align_step).run:
+        # An earlier run finished: nothing before the alignment is needed.
+        _resume_alignment(
+            journal, journal.decide(align_step), out_path, target, threads
+        )
+        if args.keep_fastq and not journal.dry_run:
+            if Path(fastq).is_file():
+                current_result().add_output(fastq, "fastq_r1")
+            else:
+                logging.info(
+                    "The alignment is complete, so no FASTQ was extracted; "
+                    "--force-extract writes one and realigns."
+                )
+        return
+    extract_decision = journal.decide(extract_step) if args.keep_fastq else None
     decision = journal.decide(
         align_step, after=[extract_decision] if extract_decision else []
     )
-    if not decision.run and not (extract_decision and extract_decision.run):
-        _resume_alignment(journal, decision, out_path, target, threads)
-        if args.keep_fastq and not journal.dry_run:
-            current_result().add_output(fastq, "fastq_r1")
-        return
     if journal.dry_run:
         journal.decide(_index_step(out_path))
         return
