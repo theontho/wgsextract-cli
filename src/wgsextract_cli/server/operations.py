@@ -234,6 +234,24 @@ def _coerce(item: ParamField, value: object) -> object:
     return value
 
 
+def expand_paths(op: Operation, data: Mapping[str, Any]) -> dict[str, Any]:
+    """A request with ``~`` expanded in its path fields, as the operation
+    will read them, for code that works on the request (job locks)."""
+    fields = {f.name: f for f in param_fields(op.params)}
+    expanded = dict(data)
+    for key, value in data.items():
+        item = fields.get(key)
+        if item is None:
+            continue
+        if isinstance(value, str):
+            expanded[key] = _expand(item, value)
+        elif isinstance(value, list):
+            expanded[key] = [
+                _expand(item, v) if isinstance(v, str) else v for v in value
+            ]
+    return expanded
+
+
 def _expand(item: ParamField, value: str) -> str:
     """A path field's ``~`` as the operation will read it, so the path checks
     see the folder it names."""
@@ -343,11 +361,16 @@ class PathGuard:
         On Windows an interval such as ``X:1-100`` counts as a bare name, so
         it is refused only when a file of that name exists."""
         pathmod = self.pathmod
+        if text.startswith("~"):
+            # The command would use it literally: a `~` folder here.
+            raise RequestError(
+                400, "usage", f"{name!r}: name a file by its absolute path, not ~."
+            )
         drive, rest = pathmod.splitdrive(text)
         if (
             "/" in text
             or "\\" in text
-            or pathmod.isabs(pathmod.expanduser(text))
+            or pathmod.isabs(text)
             # D:evil.bam is in D's working folder; X:1-100 is an interval.
             or (drive and not _INTERVAL_END.fullmatch(rest))
             or is_network_path(text)

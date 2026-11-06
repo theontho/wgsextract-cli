@@ -28,7 +28,13 @@ from typing import Any, Literal
 from wgsextract_cli.core.file_lock import exclusive_lock
 from wgsextract_cli.core.utils import WGSExtractError
 
-from .operations import Operation, RequestError, is_network_path, params_from_json
+from .operations import (
+    Operation,
+    RequestError,
+    expand_paths,
+    is_network_path,
+    params_from_json,
+)
 
 Status = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
 FINISHED = frozenset({"succeeded", "failed", "cancelled", "interrupted"})
@@ -222,7 +228,8 @@ class JobManager:
             id=time.strftime("%Y%m%d-%H%M%S-", time.gmtime()) + secrets.token_hex(3),
             op=op.name,
             kind=op.kind,
-            params=dict(params),
+            # Locks and workers see the folders the path checks approved.
+            params=expand_paths(op, params),
         )
         names = {f.name for f in op.fields()}
         # With no input to save beside, outputs would go to the working folder.

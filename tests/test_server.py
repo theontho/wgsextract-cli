@@ -216,6 +216,28 @@ def test_a_job_writing_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_home_relative_folder_input_locks_the_folder_it_names(
+    tmp_path, work, fake_data, slow_coverage, monkeypatch
+):
+    # PR #458 re-review: the lock read `~/reports` unexpanded, so it locked
+    # the folder above, not the reports folder the job writes into.
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(work.parent))
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/qc/multiqc",
+            {"input": f"~/{work.name}", "outdir": str(other)},
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_a_trio_saving_beside_its_proband_waits_for_that_folder(
     tmp_path, work, fake_data, slow_coverage
 ):
@@ -624,6 +646,33 @@ def test_path_guard_checks_the_library_of_a_home_relative_fasta(
     # A Python caller's Params are checked the same way.
     with pytest.raises(RequestError, match="outside the folders"):
         PathGuard([genomes]).check(find(op).params(ref="~/lib/genomes/x.fa"))
+
+
+@pytest.mark.parametrize(
+    ("op", "params"),
+    [
+        ("bam/merge", {"inputs": ["{home}/a.bam"] * 2, "output": "~/m.bam"}),
+        ("bam/unalign", {"input": "{home}/a.bam", "r1": "~/r1.fq", "r2": "r2.fq"}),
+        ("extract/custom", {"input": "{home}/a.bam", "region": "~/t.bed"}),
+        ("vcf/deepvariant", {"input": "{home}/a.bam", "region": "chr1 ~/t.bed"}),
+    ],
+)
+def test_path_guard_refuses_home_relative_file_names_in_text_fields(
+    tmp_path, monkeypatch, op, params
+):
+    # PR #458 re-review: the guard approved ~/m.bam as the home folder's, but
+    # the command used it literally: a `~` folder in the working folder.
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(tmp_path))
+    request = {
+        k: [v.format(home=tmp_path) for v in value]
+        if isinstance(value, list)
+        else value.format(home=tmp_path)
+        for k, value in params.items()
+    }
+    with pytest.raises(RequestError, match="not ~") as refused:
+        PathGuard([tmp_path]).check(params_from_json(find(op), request))
+    assert refused.value.code == "usage"
 
 
 def test_ref_library_requests_must_name_a_genome():

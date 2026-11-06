@@ -49,7 +49,9 @@ you start yourself:
   are allowed; a missing `--allow` folder stops the server. Folders a
   command derives from a path are checked too: a `ref` FASTA in a
   `genomes` folder names the library above it, which must also be allowed.
-  A leading `~` in a path is expanded before it is checked. A symlink inside
+  A leading `~` in a path is expanded before it is checked; a text value
+  that may name a file (a region, an output name) must give it as an
+  absolute path, without `~`. A symlink inside
   an allowed folder that points outside it is refused. That holds for the
   paths a request names; the files a command finds inside a named folder (a
   reference library's genomes, a model folder's weights, a checkpoint's
