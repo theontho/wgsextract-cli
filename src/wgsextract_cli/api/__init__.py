@@ -26,7 +26,7 @@ from its Params fields, so the API and ``--help`` cannot drift.
 
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
-``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``,
+``api.lineage``, ``api.methylation``, ``api.microarray``, ``api.panel``, ``api.ref``,
 ``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
@@ -54,6 +54,7 @@ from . import (
     extract,
     info,
     lineage,
+    methylation,
     microarray,
     panel,
     pet,
@@ -101,6 +102,7 @@ from .extract import (
 )
 from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, InfoParams
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
+from .methylation import MethylationPileupParams
 from .microarray import MicroarrayParams
 from .panel import PanelBedParams
 from .pet import PetAlignParams
@@ -194,6 +196,7 @@ __all__ = [
     "FileRecord",
     "InfoParams",
     "IssueReport",
+    "MethylationPileupParams",
     "MicroarrayParams",
     "MissingDependencyError",
     "MitoFastaParams",
@@ -277,6 +280,7 @@ __all__ = [
     "info",
     "json_schema",
     "lineage",
+    "methylation",
     "microarray",
     "panel",
     "pet",

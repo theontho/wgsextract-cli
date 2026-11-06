@@ -18,6 +18,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._runtime import checkpoint
+from wgsextract_cli.api.methylation import MethylationPileupParams
+from wgsextract_cli.commands._extract_helpers import cleanup_files
 from wgsextract_cli.commands.vcf.basic import plain_reference
 from wgsextract_cli.core.atomic_output import safe_output
 from wgsextract_cli.core.config import settings
@@ -26,7 +30,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP
-from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, warn
@@ -35,7 +39,6 @@ from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.table_writer import (
     Column,
     TableWriter,
-    add_format_argument,
     arrow_schema,
     check_format,
     provenance,
@@ -98,19 +101,15 @@ class PileupOptions:
         return ["5mC", "5hmC"] if self.hydroxymethyl else ["5mC"]
 
 
-def pileup_options(args: argparse.Namespace) -> PileupOptions:
+def pileup_options(params: MethylationPileupParams) -> PileupOptions:
     """--context/--5hmc/--combine-strands, then config.toml, then defaults."""
-    context = str(
-        _setting(getattr(args, "context", None), "methylation_context", "cpg")
-    )
+    context = str(_setting(params.context, "methylation_context", "cpg"))
     if context not in CONTEXTS:
         raise WGSExtractError(
             f"methylation_context must be one of {', '.join(CONTEXTS)}; got {context}."
         )
-    hydroxymethyl = _bool_setting(
-        getattr(args, "hydroxymethyl", None), "methylation_5hmc", False
-    )
-    explicit = getattr(args, "combine_strands", None)
+    hydroxymethyl = _bool_setting(params.hydroxymethyl, "methylation_5hmc", False)
+    explicit = params.combine_strands
     combine = _bool_setting(explicit, "methylation_combine_strands", True)
     if combine and context != "cpg":
         # modkit sums strands only at palindromic motifs such as CpG.
@@ -536,27 +535,32 @@ def index_fasta(fasta: str) -> None:
         ) from e
 
 
-def cmd_pileup(args: argparse.Namespace) -> None:
+def run_pileup(params: MethylationPileupParams) -> None:
     require_supported_platform()
-    options = pileup_options(args)
-    if not args.input:
-        raise UsageError("--input (a BAM or CRAM file) is required.")
-    if not args.input.lower().endswith((".bam", ".cram")):
+    options = pileup_options(params)
+    input_path = expand_path(params.input)
+    if not input_path.lower().endswith((".bam", ".cram")):
         raise WGSExtractError("--input must be a coordinate-sorted BAM or CRAM.")
-    verify_paths_exist({"--input": args.input})
+    verify_paths_exist({"--input": input_path})
     verify_dependencies([MODKIT, "samtools", "tabix"])
-    check_format(args.table_format)
+    check_format(params.table_format)
     log_dependency_info([MODKIT])
-    if not alignment_index(args.input):
+    if not alignment_index(input_path):
         raise WGSExtractError(
-            f"{args.input} needs an index (.bai/.crai): wgsextract bam index -i "
-            f"{args.input}"
+            f"{input_path} needs an index (.bai/.crai): wgsextract bam index -i "
+            f"{input_path}"
         )
-    threads, _memory = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or str(absolute_path(args.input).parent)
+    threads, _memory = get_resource_defaults(params.threads, None)
+    outdir = (
+        expand_path(params.outdir)
+        if params.outdir
+        else str(absolute_path(input_path).parent)
+    )
     Path(outdir).mkdir(parents=True, exist_ok=True)
     lib = ReferenceLibrary(
-        args.ref, calculate_bam_md5(args.input, None), input_path=args.input
+        expand_path(params.ref) if params.ref else None,
+        calculate_bam_md5(input_path, None),
+        input_path=input_path,
     )
     ref = lib.fasta
     if not ref or not Path(ref).is_file():
@@ -565,7 +569,7 @@ def cmd_pileup(args: argparse.Namespace) -> None:
             "(modkit reads CpG context from it)."
         )
 
-    platform = input_platform(args.input, ref)
+    platform = input_platform(input_path, ref)
     require_modification_platform(platform)
     if platform == "pacbio" and options.hydroxymethyl:
         warn(
@@ -574,10 +578,10 @@ def cmd_pileup(args: argparse.Namespace) -> None:
             "entries, which modkit cannot use; --5hmc reports only 5hmC on reads "
             "without them, if any.",
         )
-    region = getattr(args, "region", None)
+    region = params.region
     regions = [r.strip() for r in region.split(",") if r.strip()] if region else []
     check_modification_tags(
-        sample_modification_tags(args.input, ref, regions), platform
+        sample_modification_tags(input_path, ref, regions), platform
     )
     if platform is None:
         warn(
@@ -586,51 +590,56 @@ def cmd_pileup(args: argparse.Namespace) -> None:
             "they are. Only Nanopore and PacBio HiFi data are supported.",
         )
 
-    stem = input_stem(args.input)
+    stem = input_stem(input_path)
     out_bed = str(Path(outdir, f"{stem}.{options.context}.bedmethyl.gz"))
     out_summary = table_path(
-        Path(outdir, f"{stem}.{options.context}.methylation"), args.table_format
+        Path(outdir, f"{stem}.{options.context}.methylation"), params.table_format
     )
+    out_table = str(Path(outdir, f"{stem}.{options.context}.bedmethyl.parquet"))
+    parquet = params.table_format == "parquet"
+    partial = [out_bed, f"{out_bed}.tbi", out_summary, *([out_table] * parquet)]
     logging.info(f"Tabulating base modifications with modkit to {out_bed}")
-    with (
-        plain_reference(ref, outdir) as use_ref,
-        tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_modkit_") as work,
-    ):
-        index_fasta(use_ref)
-        intervals = bed = None
-        if region:
-            intervals = region_intervals(region, read_fai_lengths(use_ref))
-            bed = str(Path(work, "regions.bed"))
-            with open(bed, "w", newline="\n") as f:
-                f.writelines(f"{c}\t{s}\t{e}\n" for c, s, e in intervals)
-        with safe_output(out_bed) as staged:
-            command = modkit_command(
-                args.input, staged, use_ref, options, threads, intervals, bed
-            )
-            try:
-                run_command(command)
-            except (OSError, subprocess.SubprocessError) as e:
-                raise WGSExtractError(f"modkit pileup failed: {e}") from e
-    run_command(["tabix", "-f", "-p", "bed", out_bed])
-    result = current_result()
-    result.set_reference(ref, lib.build)
-    result.add_output(out_bed, "bedmethyl", kind="bed")
+    with cleanup_files(on_failure=partial):
+        with (
+            plain_reference(ref, outdir) as use_ref,
+            tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_modkit_") as work,
+        ):
+            index_fasta(use_ref)
+            intervals = bed = None
+            if region:
+                intervals = region_intervals(region, read_fai_lengths(use_ref))
+                bed = str(Path(work, "regions.bed"))
+                with open(bed, "w", newline="\n") as f:
+                    f.writelines(f"{c}\t{s}\t{e}\n" for c, s, e in intervals)
+            with safe_output(out_bed) as staged:
+                command = modkit_command(
+                    input_path, staged, use_ref, options, threads, intervals, bed
+                )
+                try:
+                    run_command(command)
+                except (OSError, subprocess.SubprocessError) as e:
+                    raise WGSExtractError(f"modkit pileup failed: {e}") from e
+        checkpoint()
+        run_command(["tabix", "-f", "-p", "bed", out_bed])
+        result = current_result()
+        result.set_reference(ref, lib.build)
+        result.add_output(out_bed, "bedmethyl", kind="bed")
 
-    metadata = provenance(
-        [args.input],
-        reference_build=lib.build,
-        sorted_by="modkit's output order (chrom, start)",
-        context=options.context,
-        region=region or "",
-    )
-    summaries = summarize_bedmethyl(out_bed)
-    write_summary(out_summary, summaries, args.table_format, metadata)
-    result.add_output(out_summary, "methylation_summary")
-    if args.table_format == "parquet":
-        out_table = str(Path(outdir, f"{stem}.{options.context}.bedmethyl.parquet"))
-        logging.info(f"Writing the sites as Parquet to {out_table}")
-        sites = bedmethyl_to_parquet(out_bed, out_table, metadata)
-        result.add_output(out_table, "bedmethyl_table", metrics={"rows": sites})
+        metadata = provenance(
+            [input_path],
+            reference_build=lib.build,
+            sorted_by="modkit's output order (chrom, start)",
+            context=options.context,
+            region=region or "",
+        )
+        summaries = summarize_bedmethyl(out_bed)
+        write_summary(out_summary, summaries, params.table_format, metadata)
+        result.add_output(out_summary, "methylation_summary")
+        if parquet:
+            checkpoint()
+            logging.info(f"Writing the sites as Parquet to {out_table}")
+            sites = bedmethyl_to_parquet(out_bed, out_table, metadata)
+            result.add_output(out_table, "bedmethyl_table", metrics={"rows": sites})
     result.add_metrics(
         platform=platform,
         context=options.context,
@@ -673,37 +682,5 @@ def register(
     pileup = subs.add_parser(
         "pileup", parents=[base_parser], help=CLI_HELP["cmd_methylation-pileup"]
     )
-    pileup.add_argument(
-        "-r",
-        "--region",
-        help="Region(s), 1-based and inclusive: chr20:10000000-11000000 or "
-        "chr1,chr2 (default: the whole genome)",
-    )
-    pileup.add_argument(
-        "--context",
-        choices=CONTEXTS,
-        default=None,
-        help="cpg: CpG sites only; all: every cytosine (CHG/CHH too). Overrides "
-        "methylation_context in config.toml (default: cpg).",
-    )
-    pileup.add_argument(
-        "--5hmc",
-        dest="hydroxymethyl",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Also report 5-hydroxymethylcytosine (Nanopore 5mCG_5hmCG models). "
-        "Overrides methylation_5hmc in config.toml (default: 5mC only).",
-    )
-    pileup.add_argument(
-        "--combine-strands",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Sum both strands of each CpG into one row on its C. Overrides "
-        "methylation_combine_strands in config.toml (default: on for CpG).",
-    )
-    add_format_argument(
-        pileup,
-        help="Summary table format: tsv, or parquet (needs pyarrow), which also "
-        "writes the sites as <stem>.<context>.bedmethyl.parquet",
-    )
-    pileup.set_defaults(func=cmd_pileup)
+    add_arguments(pileup, MethylationPileupParams)
+    pileup.set_defaults(func=cli_handler(MethylationPileupParams, run_pileup))

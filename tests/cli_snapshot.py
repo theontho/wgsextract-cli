@@ -117,6 +117,8 @@ MIGRATED = (
     ("repair",),
     ("repair", "ftdna-bam"),
     ("repair", "ftdna-vcf"),
+    ("methylation",),
+    ("methylation", "pileup"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -451,6 +453,12 @@ ARGVS = (
     ["repair", "ftdna-bam", "-i", "x.bam", "--output", "y.bam"],
     ["repair", "ftdna-bam", "--ref", "r.fa", "-o", "out"],
     ["repair", "ftdna-vcf", "-i", "x.vcf.gz", "--json"],
+    ["methylation", "pileup", "-i", "x.bam"],
+    ["methylation", "pileup", "-i", "x.cram", "--ref", "r.fa", "-r", "chr1,chr2:5-9"],
+    ["methylation", "pileup", "-i", "x.bam", "--5hmc", "--context", "all"],
+    ["methylation", "pileup", "-i", "x.bam", "--no-5hmc", "--no-combine-strands"],
+    ["methylation", "pileup", "--combine-strands", "--format", "parquet", "-o", "o"],
+    ["-t", "3", "methylation", "pileup", "--input", "x.bam", "--region", "chrM"],
 )
 
 

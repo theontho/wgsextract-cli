@@ -965,6 +965,33 @@ def test_caller_paths_cover_every_file():
     )
 
 
+_METHYLATION_PATHS = [
+    item
+    for item in find("methylation/pileup").fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize("field", [item.name for item in _METHYLATION_PATHS])
+@pytest.mark.parametrize(
+    "value", ["D:evil.bam", r"D:\evil.bam", r"\\host\share\evil.bam", r"sub\evil.bam"]
+)
+def test_path_guard_covers_every_methylation_path(field, value):
+    # #478: `methylation pileup` became a server operation; every file or
+    # folder it reads or writes must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    op = find("methylation/pileup")
+    guard.check(params_from_json(op, {**allowed, "region": "chr20:1-9,chr21"}))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(op, {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_methylation_paths_cover_every_file():
+    assert {item.name for item in _METHYLATION_PATHS} == {"input", "ref", "outdir"}
+
+
 # Each backend's region list: DeepVariant splits on whitespace, Parabricks
 # (deepvariant/gatk --gpu) and GATK on commas.
 _REGION_LISTS = [
