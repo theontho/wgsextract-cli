@@ -121,7 +121,7 @@ def _serve(
         tmp_path / "state" / "jobs",
         config_path=get_config_path(),
         max_jobs=max_jobs,
-        allowed=guard.roots,
+        allowed=roots,
     )
     server = Server(0, TOKEN, manager, guard)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1466,11 +1466,22 @@ def test_mcp_offers_deleting_tools_only_with_allow_destructive(work):
     assert allowed.close() == 0
 
 
-def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(tmp_path, work):
+@pytest.mark.parametrize("through_link", [False, True])
+def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
+    tmp_path, work, through_link
+):
     # #351 phase 2 security review: report reads the outputs earlier runs'
     # manifests list, wherever they are, so a manifest in an allowed folder
-    # could lead a server job to any file.
-    sample = work / "HG002"
+    # could lead a server job to any file. Review of #486: an allowed folder
+    # named through a symlink must still count as inside.
+    allowed = work
+    if through_link:
+        allowed = tmp_path / "link"
+        try:
+            allowed.symlink_to(work, target_is_directory=True)
+        except OSError:
+            pytest.skip("can't create symlinks here")
+    sample = allowed / "HG002"
     sample.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -1519,13 +1530,19 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(tmp_path,
         body = {"workspace": str(sample)}
         return genes(client.request("POST", "/ops/report?wait=120", body)[1])
 
-    with _serve(tmp_path, [work]) as client:
+    with _serve(tmp_path, [allowed]) as client:
         pharmcat_run(sample)
         assert over_http(client) == {"CYP2C19"}
         pharmcat_run(outside)
         assert over_http(client) == set()
-    mcp = Mcp("--allow", str(work), "--allow-jobs")
-    started = mcp.call("report", workspace=str(sample))["structuredContent"]
-    job = mcp.call("job_status", job_id=started["id"], wait_seconds=120)
-    assert genes(job["structuredContent"]) == set()
+    mcp = Mcp("--allow", str(allowed), "--allow-jobs")
+
+    def over_mcp() -> set[str]:
+        started = mcp.call("report", workspace=str(sample))["structuredContent"]
+        job = mcp.call("job_status", job_id=started["id"], wait_seconds=120)
+        return genes(job["structuredContent"])
+
+    assert over_mcp() == set()
+    pharmcat_run(sample)
+    assert over_mcp() == {"CYP2C19"}
     assert mcp.close() == 0

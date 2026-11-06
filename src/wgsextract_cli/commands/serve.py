@@ -135,9 +135,8 @@ def run(args: argparse.Namespace) -> None:
 
     from wgsextract_cli.server.operations import PathGuard
 
-    guard = PathGuard(
-        allowed_roots(args.allow), allow_destructive=args.allow_destructive
-    )
+    roots = allowed_roots(args.allow)
+    guard = PathGuard(roots, allow_destructive=args.allow_destructive)
     if not guard.roots:
         logging.warning(
             "No folders are allowed, so requests can't name any file. Pass "
@@ -158,7 +157,8 @@ def run(args: argparse.Namespace) -> None:
         max_jobs=max_jobs,
         debug=bool(getattr(args, "debug", False)),
         default_outdir=settings.get("output_directory"),
-        allowed=guard.roots,
+        # As given: a worker allows a symlinked root as written, as here.
+        allowed=roots,
     )
     try:
         if args.mcp:
