@@ -19,6 +19,7 @@ from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.steps import Step, StepJournal, resume_policy
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
+from wgsextract_cli.core.variant_confidence import thresholds_from
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
 from ._analyze_workflows import (
@@ -58,6 +59,7 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 
     verify_dependencies(["bcftools", "samtools", "tabix"])
     log_dependency_info(["bcftools", "samtools", "tabix"])
+    thresholds_from(args)  # reject crossed thresholds from config before any work
 
     # The configured batch file and VCFs are defaults for a run given no inputs;
     # never for a batch's own samples, or each would re-run the batch.

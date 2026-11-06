@@ -31,7 +31,7 @@ from wgsextract_cli.core.variant_files import (
 
 def _safe_console_text(value: object) -> str:
     text = str(value)
-    encoding = sys.stdout.encoding or "utf-8"
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"  # None: pythonw
     try:
         text.encode(encoding)
     except UnicodeEncodeError:

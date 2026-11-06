@@ -238,6 +238,8 @@ class Params:
                 raise UsageError(
                     item.spec.required_message or f"{item.flags[0]} required."
                 )
+            if value is None and type(None) not in typing.get_args(item.type):
+                raise UsageError(f"{item.flags[0]} can't be empty.")
             length = item.tuple_length
             if length is not None and value is not None:
                 if not isinstance(value, (tuple, list)) or len(value) != length:

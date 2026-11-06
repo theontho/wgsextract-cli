@@ -485,7 +485,7 @@ def test_align_then_realign_to_renamed_contigs(tmp_path):
 
 
 def test_analyze_batch_gen_then_a_quiet_dry_run_of_the_batch(
-    fake_data, tmp_path, capfd
+    fake_data, tmp_path, capfd, monkeypatch
 ):
     _bam, ref = fake_data
     scan = tmp_path / "scan"
@@ -507,8 +507,28 @@ def test_analyze_batch_gen_then_a_quiet_dry_run_of_the_batch(
     assert_valid(result)
     assert (result.metrics["samples"], result.metrics["failed_samples"]) == (1, 0)
     assert not list((tmp_path / "out" / "ann").iterdir())  # a dry run saves nothing
-    # The workflow's stage lines were printed on the API caller's stdout.
+    # The workflow's stage lines aren't printed on the API caller's stdout.
     assert capfd.readouterr().out == ""
+    # PR #463 review: with no stdout at all (pythonw) it failed on the first.
+    monkeypatch.setattr(sys, "stdout", None)
+    assert api.analyze.comprehensive(params).status == "ok"
+
+
+def test_analyze_rejects_crossed_config_thresholds_before_any_work(
+    fake_data, tmp_path, monkeypatch
+):
+    # PR #463 review: Params built before config.toml set crossed thresholds
+    # were caught only after the workflow's expensive steps.
+    _bam, ref = fake_data
+    params = api.AnalyzeComprehensiveParams(
+        vcf_inputs=(FAKE_DIR / "fake.vcf.gz",), ref=ref, outdir=tmp_path / "out"
+    )
+    monkeypatch.setitem(settings, "confidence_min_depth", 30)
+    monkeypatch.setitem(settings, "confidence_high_depth", 20)
+    with pytest.raises(api.CommandFailed, match="depth 30/20") as failed:
+        api.analyze.comprehensive(params)
+    assert failed.value.result.exit_code == 2  # a usage error
+    assert not (tmp_path / "out" / "analyze.steps.json").exists()  # no step ran
 
 
 def _output(result: api.Result, role: str) -> Path:

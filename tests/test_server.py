@@ -410,6 +410,8 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
             "usage",
         ),
         ("analyze/batch-gen", {"directory": "{work}"}, 400, "usage"),
+        # PR #463 review: "" became None, which the path guard skips.
+        ("analyze/batch-gen", {"directory": "{work}", "output": ""}, 400, "usage"),
         (
             "pet-align",
             {"r1": "{outside}/r1.fq", "species": "dog", "outdir": "{work}"},
