@@ -1,5 +1,7 @@
 #pragma once
 
+#include "extend_engine.h"
+#include "rescue_engine.h"
 #include "runtime.h"
 #include "seed_oracle.h"
 #include "seeding_source.h"
@@ -21,7 +23,7 @@ using Intervals = std::vector<bwtintv_t>;
 static_assert(sizeof(SeedInterval) == sizeof(bwtintv_t));
 static_assert(offsetof(SeedInterval, info) == offsetof(bwtintv_t, info));
 static_assert(sizeof(SeedParameters) == 80 && sizeof(SeedRead) == 8);
-static_assert(sizeof(LocateParameters) == 72);
+static_assert(sizeof(LocateParameters) == 88);
 
 inline double seconds(Clock::time_point start) {
     return std::chrono::duration<double>(Clock::now() - start).count();
@@ -66,20 +68,24 @@ struct SeedKernel {
     wgse::metal::Runtime runtime;
     // Seed extension overlaps seeding, so it has its own command queue.
     wgse::metal::Runtime extend_runtime;
-    id<MTLComputePipelineState> pipeline = nil, locate = nil, rescue = nil;
-    id<MTLComputePipelineState> extend_left = nil, extend_right = nil;
+    id<MTLComputePipelineState> pipeline = nil, locate = nil;
+    // Rescue pipelines are specialised per query length class as batches need
+    // them; the longest class is compiled up front to check the kernel builds.
+    id<MTLLibrary> rescue = nil;
+    id<MTLComputePipelineState> extend[2][wgse::extend::classes] = {};
+    bool extend_ready = false;
 
     SeedKernel() {
         if (runtime.device()) pipeline = runtime.compile(wgse_seeding_source, "collect_seeds");
         if (pipeline) locate = runtime.compile(wgse_seeding_source, "locate_rows");
-        if (locate) rescue = runtime.compile(wgse_rescue_source, "rescue_align");
+        if (locate) rescue = runtime.library(wgse_rescue_source);
+        if (rescue && !wgse::rescue::pipeline(runtime, rescue, rescue_max_segments)) rescue = nil;
         if (rescue && extend_runtime.device())
-            extend_left = extend_runtime.compile(wgse_extend_source, "extend_left");
-        if (extend_left) extend_right = extend_runtime.compile(wgse_extend_source, "extend_right");
+            extend_ready = wgse::extend::pipelines(extend_runtime, wgse_extend_source, extend);
     }
     bool hardware_supported() const { return runtime.device() != nil; }
     bool available(std::string &reason) const {
-        reason = extend_right ? ""
+        reason = extend_ready ? ""
             : !runtime.failure().empty() ? runtime.failure()
             : !extend_runtime.failure().empty() ? extend_runtime.failure()
             : "Metal kernels unavailable";
@@ -166,7 +172,8 @@ public:
                 double elapsed = 0;
                 if (!runtime.dispatch(pipeline,
                     {index, parameters, sequences, reads, scratch, output, results},
-                    count, group, elapsed)) throw std::runtime_error(runtime.failure());
+                    count, group, elapsed))
+                    throw std::runtime_error("GPU seeding: " + runtime.failure());
                 kernel_seconds += elapsed;
                 dispatch_seconds += seconds(phase);
                 phase = Clock::now();
@@ -243,6 +250,8 @@ public:
     wgse::metal::Runtime &runtime;
     id<MTLComputePipelineState> pipeline;
     id<MTLBuffer> parameters = nil, rows = nil, positions = nil, sa = nil;
+    // Denser suffix-array samples (densify); nil until built.
+    id<MTLBuffer> low = nil, high = nil;
     size_t capacity;
     double kernel_seconds = 0;
 
@@ -272,6 +281,46 @@ public:
         memcpy(parameters.contents, &p, sizeof(p));
     }
 
+    // Samples every (1 << shift)th row the index does not, so LF walks are
+    // shorter; positions are unchanged. Returns false (and keeps the index's
+    // sampling) if unsupported or out of memory; throws if the GPU fails.
+    bool densify(id<MTLBuffer> index, uint32_t shift, size_t group) {
+        auto &p = *static_cast<LocateParameters *>(parameters.contents);
+        if (shift == 0 || (uint64_t(1) << shift) >= p.sa_intv || p.seq_len >> 33) return false;
+        id<MTLComputePipelineState> build = runtime.compile(wgse_seeding_source,
+            "locate_dense_build");
+        id<MTLComputePipelineState> dense = runtime.compile(wgse_seeding_source,
+            "locate_rows_dense");
+        if (!build || !dense) return false;
+        const uint64_t entries = (p.seq_len / p.sa_intv + 1) * ((p.sa_intv >> shift) - 1);
+        const uint64_t words = (entries + 31) / 32;
+        if (entries > UINT32_MAX) return false;
+        id<MTLBuffer> lo = runtime.allocate_pages(entries * sizeof(uint32_t));
+        id<MTLBuffer> hi = runtime.allocate_pages(words * sizeof(uint32_t));
+        if (!lo || !hi) return false;
+        p.dense_shift = shift;
+        p.dense_entries = entries;
+        // Short dispatches keep each command buffer well inside the GPU watchdog.
+        constexpr uint64_t slice = uint64_t(1) << 21;
+        static_assert(slice % 32 == 0);
+        for (uint64_t first = 0; first < entries; first += slice) {
+            @autoreleasepool {
+                p.dense_offset = static_cast<uint32_t>(first);
+                // Whole SIMD groups, so each combines one word of high bits.
+                p.count = static_cast<uint32_t>(std::min(slice, entries - first));
+                double elapsed = 0;
+                if (!runtime.dispatch(build, {index, sa, parameters, lo, hi},
+                    (p.count + 31) / 32 * 32, group, elapsed))
+                    throw std::runtime_error("GPU locate: " + runtime.failure());
+                kernel_seconds += elapsed;
+            }
+        }
+        low = lo;
+        high = hi;
+        pipeline = dense;
+        return true;
+    }
+
     void run(id<MTLBuffer> index, const std::vector<uint64_t> &input,
         std::vector<uint64_t> &output, size_t group) {
         kernel_seconds = 0;
@@ -283,8 +332,10 @@ public:
                 static_cast<LocateParameters *>(parameters.contents)->count =
                     static_cast<uint32_t>(count);
                 double elapsed = 0;
-                if (!runtime.dispatch(pipeline, {index, sa, parameters, rows, positions},
-                    count, group, elapsed)) throw std::runtime_error(runtime.failure());
+                std::vector<id<MTLBuffer>> buffers{index, sa, parameters, rows, positions};
+                if (low) buffers.insert(buffers.end(), {low, high});
+                if (!runtime.dispatch(pipeline, buffers, count, group, elapsed))
+                    throw std::runtime_error("GPU locate: " + runtime.failure());
                 kernel_seconds += elapsed;
                 memcpy(output.data() + offset, positions.contents, count * sizeof(uint64_t));
             }

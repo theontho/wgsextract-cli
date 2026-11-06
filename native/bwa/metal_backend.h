@@ -18,6 +18,11 @@ int wgse_metal_map(const mem_opt_t *opt, const bwt_t *bwt, int n, bseq1_t *seqs,
 int wgse_metal_take(const uint8_t *seq, bwtintv_v *out);
 // bwt_sa() for mem_chain(): the GPU's position when it located this row.
 bwtint_t wgse_metal_sa(const bwt_t *bwt, bwtint_t k);
+// mem_process_seqs() in two halves (appended to the generated bwamem.c), which
+// the generated fastmap.c pipelines with Metal: map returns the state pair consumes.
+void *wgse_mem_map(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac,
+    int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0);
+void wgse_mem_pair(void *mapped);
 // Replaces worker2's kt_for for paired-end chunks: mate rescue on the GPU too.
 int wgse_metal_pair(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
     const mem_pestat_t pes[4], int n, bseq1_t *seqs, mem_alnreg_v *regs,
@@ -77,7 +82,12 @@ void wgse_set_gpu_policy(bool all);
 void wgse_set_gpu_batch(size_t reads);
 void wgse_inject_gpu_failure();
 void wgse_inject_locate_failure();
+// Reports the first commit of every nth piece of GPU work as interrupted by
+// macOS, so it is committed again.
+void wgse_inject_gpu_interruptions(size_t every);
 void wgse_set_gpu_locate(bool enable);
+void wgse_set_gpu_locate_dense(unsigned shift);
+void wgse_set_gpu_locate_dense_after(size_t reads);
 // Rows one GPU batch may locate; reads beyond it use upstream bwt_sa().
 void wgse_set_gpu_locate_rows(size_t rows);
 void wgse_set_gpu_rescue(bool enable);

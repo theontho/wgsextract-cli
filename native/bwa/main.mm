@@ -58,6 +58,16 @@ int run(int argc, char **argv) {
         } else if (strcmp(option, "--gpu-inject-locate-failure") == 0) {
             wgse_inject_locate_failure();
             ++command_index;
+        } else if (strcmp(option, "--gpu-inject-interruptions") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long long every = strtoll(value, &end, 10);
+            if (end == value || *end || every < 1) {
+                fprintf(stderr, "--gpu-inject-interruptions requires a positive count\n");
+                return 2;
+            }
+            wgse_inject_gpu_interruptions(static_cast<size_t>(every));
+            command_index += 2;
         } else if (strcmp(option, "--gpu-locate") == 0) {
             const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
             if (strcmp(value, "on") && strcmp(value, "off")) {
@@ -65,6 +75,26 @@ int run(int argc, char **argv) {
                 return 2;
             }
             wgse_set_gpu_locate(strcmp(value, "on") == 0);
+            command_index += 2;
+        } else if (strcmp(option, "--gpu-locate-dense") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long shift = strtol(value, &end, 10);
+            if (end == value || *end || shift < 0 || shift > 4) {
+                fprintf(stderr, "--gpu-locate-dense requires a sample shift of 0..4\n");
+                return 2;
+            }
+            wgse_set_gpu_locate_dense(static_cast<unsigned>(shift));
+            command_index += 2;
+        } else if (strcmp(option, "--gpu-locate-dense-after") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long long reads = strtoll(value, &end, 10);
+            if (end == value || *end || reads < 0) {
+                fprintf(stderr, "--gpu-locate-dense-after requires a read count\n");
+                return 2;
+            }
+            wgse_set_gpu_locate_dense_after(static_cast<size_t>(reads));
             command_index += 2;
         } else if (strcmp(option, "--gpu-policy") == 0) {
             const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";

@@ -10,8 +10,8 @@ using ExtendI32 = int;
 
 // Seed extension (ksw_extend2 as mem_chain2aln calls it) shared by host and kernel.
 enum : ExtendU32 {
-    // Each job uses 16 lanes of a SIMD-group, two query columns per lane, and
-    // keeps the query and one row of H and E in threadgroup memory.
+    // Each job uses 16 lanes of a SIMD-group and keeps the query and one row
+    // of H and E in registers.
     extend_lanes = 16,
     extend_max_query = 256,
     // ksw_extend2 retries with twice the band (MAX_BAND_TRY in bwamem.c).

@@ -15,6 +15,7 @@
 #include <mutex>
 #include <system_error>
 #include <thread>
+#include <sys/sysctl.h>
 #include <unistd.h>
 
 namespace {
@@ -41,6 +42,21 @@ size_t gpu_batch_reads = 16384;
 // Rows one batch may locate on the GPU (bounds its host buffers at large -c);
 // the remaining reads' rows use upstream bwt_sa().
 size_t locate_rows_per_batch = locate_rows_per_dispatch;
+// Derive suffix-array samples every 1 << shift rows (shift 4: about 0.8 GiB
+// for hs38) once a run has mapped enough reads to repay their fixed GPU build
+// (about 19 s, repaid after about 14M more reads); only on Macs with at least
+// 16 GiB unless a test option sets the shift.
+uint32_t locate_dense_shift = 4;
+size_t locate_dense_after = 20000000;
+bool locate_dense_forced = false;
+constexpr uint64_t locate_dense_min_memory = uint64_t(16) << 30;
+// Whether the build was attempted, and whether it succeeded.
+bool dense_tried = false, dense_built = false;
+double locate_dense_seconds = 0;
+// Reads mapped by earlier chunks (the map stage runs one chunk at a time).
+size_t mapped_reads = 0;
+// The built samples, also used by the CPU's bwt_sa (wgse_metal_sa).
+const uint32_t *dense_low = nullptr, *dense_high = nullptr;
 // Mate rescue (mem_matesw's ksw_align2) on the GPU too.
 bool rescue_enabled = true, inject_rescue_failure = false, verify_rescue = false;
 size_t rescue_batch_pairs = 4096;
@@ -110,6 +126,9 @@ size_t extend_batches = 0, extend_jobs = 0, extend_skipped = 0, extend_gpu_pairs
     extend_cpu_pairs = 0, extend_hits = 0, extend_retry_hits = 0, extend_misses = 0,
     extend_mismatches = 0;
 double extend_gpu_seconds = 0, extend_kernel_seconds = 0;
+// Chunks mapped while an earlier chunk was being paired (fastmap_stages.c.in).
+size_t overlapped_chunks = 0;
+std::atomic<size_t> pair_starts{0}, pairs_running{0};
 
 SeedKernel &kernel() {
     static SeedKernel value;
@@ -124,7 +143,8 @@ void record_failure(const std::string &reason) {
     fprintf(stderr, "[wgse-bwa] CPU fallback: %s\n", reason.c_str());
 }
 
-void attach(const bwt_t *bwt, const mem_opt_t *opt) {
+// reads_before: reads of the earlier chunks.
+void attach(const bwt_t *bwt, const mem_opt_t *opt, size_t reads_before) {
     if (!gpu) gpu = std::make_unique<GpuSeeds>(kernel(), gpu_batch_reads);
     if (shared_bwt != bwt->bwt) {
         const size_t page = static_cast<size_t>(getpagesize());
@@ -138,19 +158,39 @@ void attach(const bwt_t *bwt, const mem_opt_t *opt) {
         shared_bwt = bwt->bwt;
     }
     gpu->configure(*bwt, *opt, seed_scratch_capacity, seed_output_capacity);
-    if (!locate_enabled || shared_sa == bwt->sa) return;
-    const size_t page = static_cast<size_t>(getpagesize());
-    locator.reset();
-    shared_sa = bwt->sa;
-    // Without a shareable sampled suffix array only seeding uses the GPU.
-    if (!GpuLocate::supported(*bwt) || reinterpret_cast<uintptr_t>(bwt->sa) % page) return;
-    auto shared = std::make_unique<GpuLocate>(kernel(), locate_rows_per_dispatch);
-    size_t bytes = (bwt->n_sa * sizeof(uint64_t) + page - 1) / page * page;
-    shared->sa = [gpu->runtime.device() newBufferWithBytesNoCopy:bwt->sa length:bytes
-        options:MTLResourceStorageModeShared deallocator:nil];
-    if (!shared->sa) return;
-    shared->configure(*bwt);
-    locator = std::move(shared);
+    if (locate_enabled && shared_sa != bwt->sa) {
+        const size_t page = static_cast<size_t>(getpagesize());
+        locator.reset();
+        dense_low = dense_high = nullptr;
+        dense_tried = dense_built = false;
+        shared_sa = bwt->sa;
+        // Without a shareable sampled suffix array only seeding uses the GPU.
+        if (!GpuLocate::supported(*bwt) || reinterpret_cast<uintptr_t>(bwt->sa) % page) return;
+        auto shared = std::make_unique<GpuLocate>(kernel(), locate_rows_per_dispatch);
+        size_t bytes = (bwt->n_sa * sizeof(uint64_t) + page - 1) / page * page;
+        shared->sa = [gpu->runtime.device() newBufferWithBytesNoCopy:bwt->sa length:bytes
+            options:MTLResourceStorageModeShared deallocator:nil];
+        if (!shared->sa) return;
+        shared->configure(*bwt);
+        locator = std::move(shared);
+    }
+    // The denser samples cost a fixed build, repaid only by long runs.
+    if (!locator || dense_tried || !locate_dense_shift || reads_before < locate_dense_after)
+        return;
+    dense_tried = true;
+    if (!locate_dense_forced) {
+        uint64_t memory = 0;
+        size_t size = sizeof(memory);
+        if (sysctlbyname("hw.memsize", &memory, &size, nullptr, 0) != 0
+            || memory < locate_dense_min_memory) return;
+    }
+    auto start = Clock::now();
+    if (locator->densify(gpu->index, locate_dense_shift, threadgroup_size)) {
+        dense_low = static_cast<const uint32_t *>(locator->low.contents);
+        dense_high = static_cast<const uint32_t *>(locator->high.contents);
+        dense_built = true;
+        locate_dense_seconds = seconds(start);
+    }
 }
 
 // Appends the 2-bit encoding mem_align1_core would produce, or returns false
@@ -192,10 +232,13 @@ public:
     size_t prepared = 0, unprepared = 0, wasted = 0, batches = 0;
     double waited = 0, gpu_time = 0;
 
-    Splitter(int threads, long pairs, long pairs_per_batch, const char *injected,
+    // With overlap, the next batch is packed while the GPU runs the previous
+    // one; that pays only when packing is slow.
+    Splitter(int threads, long pairs, long pairs_per_batch, bool overlap, const char *injected,
         void (*worker)(void *, long, int), void *data)
         : worker_(worker), data_(data), threads_(threads),
-          per_batch_(std::max<long>(1, pairs_per_batch)), injected_(injected), back_(pairs),
+          per_batch_(std::max<long>(1, pairs_per_batch)), overlap_(overlap), injected_(injected),
+          back_(pairs),
           owner_(size_t(pairs)) {}
     virtual ~Splitter() = default;
 
@@ -259,13 +302,22 @@ protected:
 private:
     const int threads_;
     const long per_batch_;
+    const bool overlap_;
     const char *injected_;
     std::condition_variable drained_;
     // Pairs [0, front_) and [back_, n) are taken; [0, ready_) are prepared or
-    // were given up by the GPU; the GPU is packing [ready_, claimed_) if packing_.
-    long front_ = 0, back_, ready_ = 0, claimed_ = 0;
-    bool packing_ = false, gpu_stopped_ = false;
-    size_t outstanding_ = 0;
+    // were given up by the GPU; [ready_, next_) are packed or being prepared, and
+    // the GPU is packing [.., claimed_) if packing_.
+    long front_ = 0, back_, ready_ = 0, next_ = 0, claimed_ = 0;
+    bool packing_ = false, gpu_stopped_ = false, gpu_stopping_ = false, packed_all_ = false;
+    size_t outstanding_ = 0, unpublished_ = 0;
+    // Packed batches waiting for the GPU, in pair order.
+    struct Packed {
+        std::unique_ptr<BatchBase> batch;
+        long first, last;
+    };
+    std::deque<Packed> packed_;
+    std::condition_variable packed_changed_;
     // The batch of each pair in [0, ready_).
     std::vector<BatchBase *> owner_;
     std::vector<std::unique_ptr<BatchBase>> batches_;
@@ -331,55 +383,126 @@ private:
         changed_.notify_all();
     }
 
+    // With overlap_, packs the next batch on a thread of its own (if one
+    // starts) while the GPU runs the previous one; batches are published in pair
+    // order either way.
     void gpu_loop() {
         auto start = Clock::now();
         try {
             if (injected_) throw std::runtime_error(injected_);
-            for (;;) {
-                long first, last;
-                {
-                    std::unique_lock<std::mutex> lock(mutex_);
-                    // Pairs of outstanding batches are taken before any steal, so
-                    // their workers finish them and wake this loop.
-                    drained_.wait(lock, [this] {
-                        return ready_ >= back_ || outstanding_ < max_outstanding_batches;
-                    });
-                    if (ready_ >= back_) break;
-                    first = ready_;
-                    last = claimed_ = std::min(back_, first + per_batch_);
-                    packing_ = true;
+            std::thread packer;
+            if (overlap_) {
+                try {
+                    packer = std::thread(&Splitter::pack_loop, this);
+                } catch (const std::system_error &) {
                 }
-                std::unique_ptr<BatchBase> batch = pack(first, last);
+            }
+            if (packer.joinable()) {
+                prepare_loop();
                 {
-                    // CPU threads may now map this batch's pairs from the back.
                     std::lock_guard<std::mutex> lock(mutex_);
-                    packing_ = false;
-                    changed_.notify_all();
+                    gpu_stopping_ = true;
                 }
-                prepare(*batch, first);
-                std::lock_guard<std::mutex> lock(mutex_);
-                // Pairs stolen from the back are >= back_; after this no CPU
-                // thread steals below ready_, so the front maps the rest.
-                const long published = std::min(last, back_);
-                BatchBase *owner = batch.get();
-                // If this throws, ready_ is unchanged and the CPU maps the pairs.
-                batches_.push_back(std::move(batch));
-                if (published > first) {
-                    owner->pending.store(published - first, std::memory_order_relaxed);
-                    std::fill(owner_.begin() + first, owner_.begin() + published, owner);
-                    ++outstanding_;
-                } else {
-                    owner->release();
+                drained_.notify_all();
+                packer.join();
+            } else {
+                for (;;) {
+                    if (!pack_next()) break;
+                    if (!prepare_next()) break;
                 }
-                ready_ = last;
-                ++batches;
-                changed_.notify_all();
             }
         } catch (const std::exception &error) {
             record_failure(error.what());
         }
         stop_gpu();
         gpu_time += seconds(start);
+    }
+
+    void pack_loop() {
+        try {
+            while (pack_next()) {
+            }
+        } catch (const std::exception &error) {
+            record_failure(error.what());
+            std::lock_guard<std::mutex> lock(mutex_);
+            gpu_stopping_ = true;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        packing_ = false;
+        packed_all_ = true;
+        changed_.notify_all();
+        packed_changed_.notify_all();
+    }
+
+    void prepare_loop() {
+        try {
+            while (prepare_next()) {
+            }
+        } catch (const std::exception &error) {
+            record_failure(error.what());
+        }
+    }
+
+    // Claims and packs the next batch; false when there is none to pack.
+    bool pack_next() {
+        long first, last;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            // Pairs of outstanding batches are taken before any steal, so
+            // their workers finish them and wake this loop.
+            drained_.wait(lock, [this] {
+                return gpu_stopping_ || next_ >= back_
+                    || (outstanding_ < max_outstanding_batches && unpublished_ < (overlap_ ? 2 : 1));
+            });
+            if (gpu_stopping_ || next_ >= back_) return false;
+            first = next_;
+            last = next_ = claimed_ = std::min(back_, first + per_batch_);
+            packing_ = true;
+            ++unpublished_;
+        }
+        std::unique_ptr<BatchBase> batch = pack(first, last);
+        std::lock_guard<std::mutex> lock(mutex_);
+        // CPU threads may now map this batch's pairs from the back.
+        packing_ = false;
+        changed_.notify_all();
+        packed_.push_back({std::move(batch), first, last});
+        packed_changed_.notify_one();
+        return true;
+    }
+
+    // Prepares and publishes the next packed batch; false when there is none.
+    bool prepare_next() {
+        Packed next;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            packed_changed_.wait(lock, [this] {
+                return !packed_.empty() || packed_all_ || gpu_stopping_;
+            });
+            if (packed_.empty() || gpu_stopping_) return false;
+            next = std::move(packed_.front());
+            packed_.pop_front();
+        }
+        prepare(*next.batch, next.first);
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Pairs stolen from the back are >= back_; after this no CPU
+        // thread steals below ready_, so the front maps the rest.
+        const long published = std::min(next.last, back_);
+        BatchBase *owner = next.batch.get();
+        // If this throws, ready_ is unchanged and the CPU maps the pairs.
+        batches_.push_back(std::move(next.batch));
+        if (published > next.first) {
+            owner->pending.store(published - next.first, std::memory_order_relaxed);
+            std::fill(owner_.begin() + next.first, owner_.begin() + published, owner);
+            ++outstanding_;
+        } else {
+            owner->release();
+        }
+        ready_ = next.last;
+        --unpublished_;
+        ++batches;
+        changed_.notify_all();
+        drained_.notify_all();
+        return true;
     }
 };
 
@@ -419,9 +542,12 @@ struct ExtendBatch {
     size_t next = 0, unfinished = 0;
     // Whether the GPU ran the jobs; if not, the pairs are finished on the CPU.
     bool extended = false;
+    // Commits of the jobs (more than one after interruptions).
+    int attempts = 0;
 
     void reset() {
         base_count = job_count = writers = next = unfinished = 0;
+        attempts = 0;
         pairs.clear();
         sealed = extended = false;
     }
@@ -433,7 +559,7 @@ std::vector<std::unique_ptr<ExtendBatch>> extend_pool;
 struct ExtendStage {
     std::vector<uint8_t> bases;
     std::vector<ExtendJob> jobs;
-    int match = 0, max = 0;
+    int match = 0, max = 0, e_ins = 0;
     size_t skipped = 0;
     bool failed = false;
 };
@@ -449,11 +575,13 @@ void stage_extension(void *context, int, const uint8_t *query, int l_query, int 
     const int64_t h0 = int64_t(len) * stage.match;
     // An exact match of the whole read has nothing to extend.
     if (left_qlen == 0 && right_qlen == 0) return;
-    // The kernel's scores are 16-bit: no cell exceeds h0 plus max per query base.
+    // The kernel's arithmetic is 16-bit: no cell exceeds h0 plus max per query
+    // base, and the F scan adds up to qlen * e_ins to a cell.
     if (stage.failed || qbeg < 0 || len < 1 || left_qlen > int64_t(extend_max_query)
         || right_qlen < 0 || right_qlen > int64_t(extend_max_query) || left_tlen < 0
         || right_tlen < 0 || seed < 0 || h0 < 1
-        || h0 + (left_qlen + right_qlen) * stage.max > INT16_MAX
+        || h0 + (left_qlen + right_qlen) * stage.max
+                + std::max(left_qlen, right_qlen) * stage.e_ins > INT16_MAX
         || left_qlen + left_tlen + right_qlen + right_tlen > int64_t(extend_bases_per_pair)) {
         ++stage.skipped;
         return;
@@ -533,7 +661,7 @@ public:
 
     SeedScheduler(const mem_opt_t *opt, const bwt_t *bwt, int n, bseq1_t *seqs,
         void (*worker)(void *, long, int), void *data, const ExtendParameters *extension)
-        : Splitter(opt->n_threads, n / stride(opt), long(gpu->capacity) / stride(opt),
+        : Splitter(opt->n_threads, n / stride(opt), long(gpu->capacity) / stride(opt), false,
               inject_failure ? "injected GPU failure (test)" : nullptr, worker, data),
           opt_(opt), bwt_(bwt), seqs_(seqs), stride_(stride(opt)),
           prepared_(size_t(n / stride_) * stride_, nullptr), extend_(extension != nullptr) {
@@ -543,6 +671,7 @@ public:
         for (auto &stage : stages_) {
             stage.match = opt->a;
             stage.max = parameters_.max;
+            stage.e_ins = parameters_.e_ins;
         }
         for (auto &batch : extend_pool) free_.push_back(batch.get());
     }
@@ -701,6 +830,7 @@ private:
             const auto start = Clock::now();
             extender->submit(parameters_, batch->bases, batch->jobs, batch->results, batch->order,
                 batch->job_count, batch->job_capacity, ^(id<MTLCommandBuffer> command) {
+                    if (retry(batch, command)) return;
                     double kernel = 0;
                     bool extended = false;
                     try {
@@ -715,6 +845,19 @@ private:
             if (*error.what()) record_failure(error.what());
             complete(batch, false, 0, 0);
         }
+    }
+
+    // On the GPU's completion thread: queues an interrupted batch to be committed
+    // again first (the kernels rewrite the results from the unchanged jobs).
+    bool retry(ExtendBatch *batch, id<MTLCommandBuffer> command) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const int attempt = ++batch->attempts;
+        if (attempt == wgse::metal::Runtime::attempts
+            || !wgse::metal::Runtime::interrupted(command, attempt)) return false;
+        queued_.push_front(batch);
+        --in_flight_;
+        extend_changed_.notify_one();
+        return true;
     }
 
     // On the GPU's completion thread (or extend_loop's after a failure).
@@ -922,9 +1065,7 @@ public:
     RescueScheduler(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
         const mem_pestat_t *pes, int n, bseq1_t *seqs, mem_alnreg_v *regs,
         const RescueParameters &parameters, void (*worker)(void *, long, int), void *data)
-        : Splitter(opt->n_threads, n / 2, long(rescue_batch_pairs),
-              inject_rescue_failure ? "injected GPU rescue failure (test)" : nullptr, worker,
-              data),
+        : Splitter(opt->n_threads, n / 2, long(rescue_batch_pairs), true, nullptr, worker, data),
           opt_(opt), bns_(bns), pac_(pac), pes_(pes), seqs_(seqs), regs_(regs),
           parameters_(parameters) {}
 
@@ -996,6 +1137,9 @@ private:
 
     void prepare(BatchBase &base, long first) override {
         auto &batch = static_cast<RescueBatch &>(base);
+        // The test failure comes after a published batch, with the next one packed.
+        if (inject_rescue_failure && batches > 0)
+            throw std::runtime_error("injected GPU rescue failure (test)");
         if (!taken(first)) {
             rescuer->run(parameters_, batch.bases, batch.jobs, batch.row_bytes, batch.results,
                 threadgroup_size);
@@ -1033,8 +1177,7 @@ private:
 // The extension kernel and its batches for opt->n_threads CPU threads.
 void prepare_extension() {
     if (!extender)
-        extender = std::make_unique<GpuExtend>(kernel().extend_runtime, kernel().extend_left,
-            kernel().extend_right);
+        extender = std::make_unique<GpuExtend>(kernel().extend_runtime, kernel().extend);
     const size_t pairs = extend_batch_pairs;
     while (extend_pool.size() < extend_batch_count) {
         auto batch = std::make_unique<ExtendBatch>();
@@ -1073,9 +1216,12 @@ extern "C" int wgse_metal_map(const mem_opt_t *opt, const bwt_t *bwt, int n,
     double split = double(opt->min_seed_len) * opt->split_factor + .499;
     if (opt->max_mem_intv > INT_MAX || opt->min_seed_len <= 0 || opt->split_width < 0
         || !std::isfinite(split) || split < 0 || split > INT_MAX) return 0;
+    const size_t pairs_before = pair_starts.load();
+    const bool paired_at_start = pairs_running.load() != 0;
     @autoreleasepool {
         try {
-            attach(bwt, opt);
+            attach(bwt, opt, mapped_reads);
+            mapped_reads += size_t(n);
             auto start = Clock::now();
             // bwa_verbose >= 4 prints each extension as mem_chain2aln runs it.
             ExtendParameters extension;
@@ -1098,6 +1244,8 @@ extern "C" int wgse_metal_map(const mem_opt_t *opt, const bwt_t *bwt, int n,
             extend_jobs += scheduler.extended_jobs;
             extend_kernel_seconds += scheduler.extend_kernel_time;
             extend_gpu_seconds += scheduler.extend_time;
+            if (paired_at_start || pairs_running.load() || pair_starts.load() != pairs_before)
+                ++overlapped_chunks;
         } catch (const std::exception &error) {
             record_failure(error.what());
             return 0;
@@ -1110,6 +1258,7 @@ extern "C" int wgse_metal_pair(const mem_opt_t *opt, const bntseq_t *bns, const 
     const mem_pestat_t pes[4], int n, bseq1_t *seqs, mem_alnreg_v *regs,
     void (*worker)(void *, long, int), void *data) {
     RescueParameters parameters;
+    if (enabled) ++pair_starts;
     if (!enabled || !usable || !rescue_enabled || !(opt->flag & MEM_F_PE)
         || (opt->flag & MEM_F_NO_RESCUE) || !wgse::rescue::parameters(*opt, parameters))
         return 0;
@@ -1119,6 +1268,10 @@ extern "C" int wgse_metal_pair(const mem_opt_t *opt, const bntseq_t *bns, const 
             auto start = Clock::now();
             const double kernel_before = rescuer->kernel_seconds;
             RescueScheduler scheduler(opt, bns, pac, pes, n, seqs, regs, parameters, worker, data);
+            struct Running {
+                Running() { ++pairs_running; }
+                ~Running() { --pairs_running; }
+            } running;
             scheduler.run();
             std::lock_guard<std::mutex> lock(totals_mutex);
             rescue_batches += scheduler.batches;
@@ -1273,7 +1426,20 @@ extern "C" bwtint_t wgse_metal_sa(const bwt_t *bwt, bwtint_t k) {
         locate_misses.fetch_add(1, std::memory_order_relaxed);
         cursor = {};
     }
-    return bwt_sa(bwt, k);
+    if (!dense_low) return bwt_sa(bwt, k);
+    // bwt_sa(), stopping at the first dense sample (locate_rows_dense).
+    const bwtint_t base = bwtint_t(bwt->sa_intv) - 1, mask = (bwtint_t(1) << locate_dense_shift) - 1;
+    bwtint_t steps = 0;
+    while (k & mask) {
+        ++steps;
+        // bwt_invPsi(), which bwt.c keeps static.
+        const bwtint_t x = bwt_B0(bwt, k - (k > bwt->primary));
+        k = k == bwt->primary ? 0 : bwt->L2[x] + bwt_occ(bwt, k, ubyte_t(x));
+    }
+    if (!(k & base)) return steps + bwt->sa[k / bwtint_t(bwt->sa_intv)];
+    const bwtint_t per = (bwtint_t(bwt->sa_intv) >> locate_dense_shift) - 1;
+    const bwtint_t i = k / bwtint_t(bwt->sa_intv) * per + ((k & base) >> locate_dense_shift) - 1;
+    return steps + (dense_low[i] | (bwtint_t((dense_high[i >> 5] >> (i & 31)) & 1) << 32));
 }
 
 bool wgse_metal_available(std::string &reason) {
@@ -1298,11 +1464,15 @@ bool wgse_metal_execution_failed(std::string &reason) {
 
 void wgse_finish_backend() {
     fprintf(stderr, "[wgse-bwa] gpu_batches=%zu gpu_reads=%zu cpu_reads=%zu fallback_reads=%zu "
-        "wasted_reads=%zu unlocated_reads=%zu located_rows=%zu locate_misses=%zu\n", gpu_batches,
-        gpu_reads, cpu_reads, fallback_reads, wasted_reads, unlocated_reads, located_rows,
-        locate_misses.load());
+        "wasted_reads=%zu unlocated_reads=%zu located_rows=%zu locate_misses=%zu "
+        "overlapped_chunks=%zu interruptions=%zu\n", gpu_batches, gpu_reads, cpu_reads,
+        fallback_reads, wasted_reads, unlocated_reads, located_rows, locate_misses.load(),
+        overlapped_chunks, wgse::metal::Runtime::interruptions());
     fprintf(stderr, "[wgse-bwa] seconds gpu=%.3f locate=%.3f map=%.3f cpu_wait=%.3f\n",
         gpu_seconds, locate_seconds, map_seconds, cpu_wait_seconds);
+    if (dense_tried)
+        fprintf(stderr, "[wgse-bwa] locate_dense shift=%u built=%d build_seconds=%.3f\n",
+            locate_dense_shift, dense_built ? 1 : 0, locate_dense_seconds);
     fprintf(stderr, "[wgse-bwa] rescue_batches=%zu rescue_gpu_pairs=%zu rescue_cpu_pairs=%zu "
         "rescue_wasted_pairs=%zu rescue_jobs=%zu rescue_declined=%zu rescue_skipped=%zu "
         "rescue_hits=%zu rescue_misses=%zu rescue_mismatches=%zu\n", rescue_batches,
@@ -1340,8 +1510,21 @@ void wgse_inject_locate_failure() {
     inject_locate_failure = true;
 }
 
+void wgse_inject_gpu_interruptions(size_t every) {
+    wgse::metal::Runtime::inject_interruptions(every);
+}
+
 void wgse_set_gpu_locate_rows(size_t rows) {
     locate_rows_per_batch = rows;
+}
+
+void wgse_set_gpu_locate_dense(unsigned shift) {
+    locate_dense_shift = shift;
+    locate_dense_forced = true;
+}
+
+void wgse_set_gpu_locate_dense_after(size_t reads) {
+    locate_dense_after = reads;
 }
 
 void wgse_set_gpu_locate(bool enable) {

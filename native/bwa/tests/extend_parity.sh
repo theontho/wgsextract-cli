@@ -110,6 +110,10 @@ done
 run narrow -t 4 -w 8 -d 30
 test "$(metric metal-narrow.log extend_retry_hits)" -gt 0
 run scores -t 4 -A 2 -B 5 -O 7,9 -E 2,1 -L 3,8 -d 60
+# High scores and insertion extension: long sides would overflow the kernel's
+# 16-bit F scan, so they stay on upstream ksw_extend2.
+run wide -t 4 -A 100 -B 50 -E 50
+test "$(metric metal-wide.log extend_skipped)" -gt 100
 # Single-end reads.
 "$aligner" mem -t 4 reference.fa pairs-R1.fq > cpu-single.sam 2> cpu-single.log
 "$aligner" --gpu-extend-verify --metal mem -t 4 reference.fa pairs-R1.fq \
