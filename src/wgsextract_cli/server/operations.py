@@ -32,7 +32,9 @@ Kind = Literal["query", "job"]
 # Quick reads that describe a sample or the reference library; everything else
 # makes new files, takes longer or changes what is recorded about a sample, so
 # MCP offers it only with --allow-jobs.
-QUERIES = frozenset({"info", "info chip", "sample show", "ref status"})
+QUERIES = frozenset(
+    {"info", "info chip", "sample show", "ref status", "example-genome list"}
+)
 
 
 # What follows the contig of an interval (chr1:1-100, X:1,000-): a drive

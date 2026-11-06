@@ -307,6 +307,40 @@ def test_a_repair_writing_its_output_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_an_example_download_into_a_busy_library_waits(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: example-genome download writes into <target_root>/test-1000genomes,
+    # not an outdir, so that folder is locked.
+    bam, ref = fake_data
+    collection = work / "test-1000genomes"
+    collection.mkdir()
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(collection)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/example-genome/download",
+            {"target_root": str(work), "dry_run": True},
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_example_genome_list_answers_with_the_catalog(tmp_path, work):
+    with _serve(tmp_path, [work]) as client:
+        status, body = client.request(
+            "POST",
+            "/ops/example-genome/list?wait=60",
+            {"target_root": str(work), "tag": ["pacbio"]},
+        )
+    assert (status, body["status"]) == (200, "succeeded"), body
+    details = body["result"]["details"]
+    assert details["collection"] == str(work.resolve() / "test-1000genomes")
+    assert details["examples"]
+    assert all("pacbio" in example["tags"] for example in details["examples"])
+
+
 def test_home_relative_paths_reach_the_job_expanded(tmp_path, work, monkeypatch):
     # PR #463 review: the guard approved ~/x as the home folder's; the job
     # must write there too, not in a `~` folder in its working folder.
@@ -952,6 +986,43 @@ def test_repair_paths_cover_every_file():
         ("repair/ftdna-vcf", "input"), ("repair/ftdna-vcf", "output"),
         ("repair/ftdna-vcf", "outdir"),
     }  # fmt: skip
+
+
+_EXAMPLE_PATHS = [
+    (op, item)
+    for op in ("example-genome/list", "example-genome/download")
+    for item in find(op).fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _EXAMPLE_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _EXAMPLE_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil", r"D:\evil", r"\\host\share\evil", r"sub\evil", "~/evil"]
+)
+def test_path_guard_covers_every_example_genome_path(op, field, value):
+    # #478: example-genome became server operations; the library a download
+    # writes into and the Aspera key it reads must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"target_root": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_example_genome_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _EXAMPLE_PATHS} == {
+        ("example-genome/list", "target_root"),
+        ("example-genome/download", "target_root"),
+        ("example-genome/download", "aspera_key"),
+    }
+    assert find("example-genome/list").kind == "query"
+    assert find("example-genome/download").kind == "job"
 
 
 def test_caller_paths_cover_every_file():

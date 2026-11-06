@@ -117,6 +117,9 @@ MIGRATED = (
     ("repair",),
     ("repair", "ftdna-bam"),
     ("repair", "ftdna-vcf"),
+    ("example-genome",),
+    ("example-genome", "list"),
+    ("example-genome", "download"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -451,6 +454,10 @@ ARGVS = (
     ["repair", "ftdna-bam", "-i", "x.bam", "--output", "y.bam"],
     ["repair", "ftdna-bam", "--ref", "r.fa", "-o", "out"],
     ["repair", "ftdna-vcf", "-i", "x.vcf.gz", "--json"],
+    ["example-genome", "list", "--tag", "pacbio", "--tag", "hifi"],
+    ["example-genome", "download", "a", "b", "--method", "https", "--force"],
+    ["example-genome", "download", "--all", "--dry-run", "--target-root", "lib"],
+    ["example-genome", "download", "--aspera-key", "k", "--", "--debug"],
 )
 
 

@@ -1,18 +1,23 @@
 import argparse
 import logging
+import os
 import shutil
 import subprocess
-from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlparse
 
 import tomli_w
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.examples import (
+    ExampleGenomeDownloadParams,
+    ExampleGenomeListParams,
+)
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.download_progress import curl_progress_args, redact_urls
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
 from wgsextract_cli.core.ref_library.downloads import download_file
-from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.results import current_result, human_output
 from wgsextract_cli.core.utils import (
     MissingDependencyError,
     UsageError,
@@ -27,12 +32,13 @@ from ._examples_catalog import (
     ASPERA_ROOT,
     COLLECTION_DIR,
     CONFIG_ROLES,
+    EXAMPLES,
     HTTPS_ROOT,
     GenomeExample,
+    _filter_examples_by_tags,
     _resolve_aspera_key,
     _select_examples,
     _target_root,
-    cmd_list,
 )
 
 
@@ -180,32 +186,69 @@ def _write_genome_config(example: GenomeExample, example_dir: Path) -> None:
 
 def _print_plan(
     example: GenomeExample, planned: list[tuple[str, Path, str, str]]
-) -> None:
-    print(f"{example.example_id}: {example.label}")
+) -> dict[str, object]:
+    human_output(f"{example.example_id}: {example.label}")
+    files = []
     for source, destination, role, _transfer_method in planned:
-        print(f"  {role}: {redact_urls(source)}")
-        print(f"        -> {destination}")
+        human_output(f"  {role}: {redact_urls(source)}")
+        human_output(f"        -> {destination}")
+        files.append(
+            {"role": role, "source": redact_urls(source), "path": str(destination)}
+        )
+    return {"id": example.example_id, "label": example.label, "files": files}
 
 
-def cmd_download(args: Namespace) -> None:
+def run_list(params: ExampleGenomeListParams) -> None:
+    """List available example genomes with metadata and usage instructions."""
+    collection = _target_root(params.target_root) / COLLECTION_DIR
+    listed = []
+    human_output(f"Target collection: {collection}")
+    human_output()
+    for example in _filter_examples_by_tags(EXAMPLES, params.tag):
+        use = f"wgsextract --genome {COLLECTION_DIR}/{example.example_id} ..."
+        human_output(f"{example.example_id}")
+        human_output(f"  label: {example.label}")
+        human_output(f"  type:  {example.data_type}")
+        human_output(f"  size:  {example.size}")
+        if example.tags:
+            human_output(f"  tags:  {', '.join(example.tags)}")
+        human_output(f"  files: {len(example.files)}")
+        human_output(f"  use:   {use}")
+        human_output()
+        listed.append(
+            {
+                "id": example.example_id,
+                "label": example.label,
+                "type": example.data_type,
+                "size": example.size,
+                "tags": list(example.tags),
+                "files": len(example.files),
+                "use": use,
+            }
+        )
+    current_result().set_details({"collection": str(collection), "examples": listed})
+
+
+def run_download(params: ExampleGenomeDownloadParams) -> None:
     """Download selected example genomes and generate genome config files."""
-    selected = _select_examples(args.example_ids, args.all, getattr(args, "tag", None))
-    aspera_key = args.aspera_key
-    method = _resolve_method(args.method, aspera_key)
-    root = _target_root(args.target_root)
+    selected = _select_examples(params.example_ids, params.all, params.tag)
+    aspera_key = os.fspath(params.aspera_key) if params.aspera_key else None
+    method = _resolve_method(params.method, aspera_key)
+    root = _target_root(params.target_root)
     collection_dir = root / COLLECTION_DIR
 
     logging.info(f"Downloading examples into {collection_dir}")
+    plan = []
     for example in selected:
         example_dir = collection_dir / example.example_id
         planned = _planned_downloads(example, example_dir, method)
-        if args.dry_run:
-            _print_plan(example, planned)
+        if params.dry_run:
+            plan.append(_print_plan(example, planned))
             continue
 
         example_dir.mkdir(parents=True, exist_ok=True)
         for source, destination, role, transfer_method in planned:
-            if args.force:
+            if params.force:
                 destination.unlink(missing_ok=True)
                 _partial_path(destination).unlink(missing_ok=True)
                 Path(str(_partial_path(destination)) + ".segments").unlink(
@@ -219,7 +262,7 @@ def cmd_download(args: Namespace) -> None:
                 current_result().add_output(destination, role)
                 continue
             _download_file(
-                source, destination, transfer_method, aspera_key, force=args.force
+                source, destination, transfer_method, aspera_key, force=params.force
             )
             current_result().add_output(destination, role)
         _write_genome_config(example, example_dir)
@@ -236,6 +279,10 @@ def cmd_download(args: Namespace) -> None:
             f"Installed {example.label}. Use --genome "
             f"{COLLECTION_DIR}/{example.example_id}{hint}"
         )
+    if params.dry_run:
+        current_result().set_details(
+            {"collection": str(collection_dir), "examples": plan}
+        )
 
 
 def register(
@@ -248,76 +295,12 @@ def register(
         help="Download curated 1000 Genomes example datasets.",
     )
     examples_subs = parser.add_subparsers(dest="examples_cmd", required=True)
-
-    list_parser = examples_subs.add_parser(
-        "list",
-        parents=[base_parser],
-        help="List curated 1000 Genomes examples.",
-    )
-    list_parser.add_argument(
-        "--target-root",
-        help=(
-            "Genome library root. Defaults to config genome_library, or genomes/ "
-            "in the source checkout (or user data directory) when unset."
-        ),
-    )
-    list_parser.add_argument(
-        "--tag",
-        action="append",
-        help="Only list examples with this tag. May be repeated (e.g. --tag pacbio).",
-    )
-    list_parser.set_defaults(func=cmd_list)
-
-    download_parser = examples_subs.add_parser(
-        "download",
-        parents=[base_parser],
-        help="Download curated 1000 Genomes examples into the genome library.",
-    )
-    download_parser.add_argument(
-        "example_ids",
-        nargs="*",
-        metavar="EXAMPLE_ID",
-        help="Example IDs to download. Defaults to a small starter set.",
-    )
-    download_parser.add_argument(
-        "--tag",
-        action="append",
-        help="Download every example with this tag. May be repeated (e.g. --tag pacbio).",
-    )
-    download_parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Download every curated example, including large full-genome data.",
-    )
-    download_parser.add_argument(
-        "--method",
-        choices=("auto", "https", "aspera"),
-        default="auto",
-        help=(
-            "Transfer method. Auto is an alias for HTTPS and does not probe "
-            "Aspera; use --method aspera explicitly for Aspera."
-        ),
-    )
-    download_parser.add_argument(
-        "--aspera-key",
-        help="Private key for Aspera ascp downloads. Required with --method aspera.",
-    )
-    download_parser.add_argument(
-        "--target-root",
-        help=(
-            "Genome library root. Defaults to config genome_library, or genomes/ "
-            "in the source checkout (or user data directory) when unset."
-        ),
-    )
-    download_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Discard existing and partially downloaded files and download again. "
-        "Without it, completed files are kept and interrupted downloads resume.",
-    )
-    download_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print the planned downloads without creating files.",
-    )
-    download_parser.set_defaults(func=cmd_download)
+    for name, cls, impl, help_text in (
+        ("list", ExampleGenomeListParams, run_list,
+         "List curated 1000 Genomes examples."),
+        ("download", ExampleGenomeDownloadParams, run_download,
+         "Download curated 1000 Genomes examples into the genome library."),
+    ):  # fmt: skip
+        sub = examples_subs.add_parser(name, parents=[base_parser], help=help_text)
+        add_arguments(sub, cls)
+        sub.set_defaults(func=cli_handler(cls, impl))

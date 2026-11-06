@@ -27,7 +27,8 @@ from its Params fields, so the API and ``--help`` cannot drift.
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``,
-``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
+``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``,
+``api.examples``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -51,6 +52,7 @@ from . import (
     align,
     analyze,
     bam,
+    examples,
     extract,
     info,
     lineage,
@@ -88,6 +90,7 @@ from .bam import (
     BamUnindexParams,
     BamUnsortParams,
 )
+from .examples import ExampleGenomeDownloadParams, ExampleGenomeListParams
 from .extract import (
     BamSubsetParams,
     CustomParams,
@@ -188,6 +191,8 @@ __all__ = [
     "CommandFailed",
     "CoverageSampleParams",
     "CustomParams",
+    "ExampleGenomeDownloadParams",
+    "ExampleGenomeListParams",
     "FakeDataParams",
     "FastpParams",
     "FastqcParams",
@@ -273,6 +278,7 @@ __all__ = [
     "align",
     "analyze",
     "bam",
+    "examples",
     "extract",
     "info",
     "json_schema",

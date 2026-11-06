@@ -95,36 +95,34 @@ class TestExamplesDownload(unittest.TestCase):
                 settings["genome_library"] = old_value
 
     def test_dry_run_plans_downloads_without_creating_files(self):
+        from wgsextract_cli import api
         from wgsextract_cli.commands import examples
 
-        args = Namespace(
-            example_ids=["phase3-chrmt-vcf"],
-            all=False,
+        params = api.ExampleGenomeDownloadParams(
+            example_ids=("phase3-chrmt-vcf",),
             method="https",
             target_root=self.test_dir,
-            aspera_key=None,
-            force=False,
             dry_run=True,
         )
         with patch.object(examples, "run_command") as run_command:
-            examples.cmd_download(args)
+            result = api.examples.download(params)
 
         run_command.assert_not_called()
         self.assertFalse(
             os.path.exists(os.path.join(self.test_dir, examples.COLLECTION_DIR))
         )
+        [planned] = result.details["examples"]
+        self.assertEqual([f["role"] for f in planned["files"]], ["vcf", "vcf_index"])
+        self.assertIn("phase3-chrmt-vcf: Phase 3 chrMT VCF", result.text)
 
     def test_download_writes_genome_config_for_vcf(self):
+        from wgsextract_cli import api
         from wgsextract_cli.commands import examples
 
-        args = Namespace(
-            example_ids=["phase3-chrmt-vcf"],
-            all=False,
+        params = api.ExampleGenomeDownloadParams(
+            example_ids=("phase3-chrmt-vcf",),
             method="https",
             target_root=self.test_dir,
-            aspera_key=None,
-            force=False,
-            dry_run=False,
         )
 
         def fake_download(_source, destination, _method, _aspera_key, *, force=False):
@@ -132,7 +130,7 @@ class TestExamplesDownload(unittest.TestCase):
             destination.write_text("data")
 
         with patch.object(examples, "_download_file", side_effect=fake_download):
-            examples.cmd_download(args)
+            api.examples.download(params)
 
         config_path = os.path.join(
             self.test_dir,

@@ -33,7 +33,8 @@ from its Params fields, so the API and `--help` cannot drift.
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
 `api.lineage`, `api.microarray`, `api.panel`, `api.ref`,
-`api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`) follow
+`api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`,
+`api.examples`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -1998,3 +1999,53 @@ with `dataclasses.replace` and call `issue_url` for a new link.
 
 - `body`: The whole issue as Markdown, as saved in the diagnostics file.
 - `save`: Write `body` to `directory/file_name` (readable only by the user).
+
+## `api.examples`
+
+`example-genome`: the curated 1000 Genomes example datasets.
+
+`list_examples` describes the catalog; its result's `details` hold the
+collection folder and each example. `download` fetches the chosen examples
+into `<target_root>/test-1000genomes/<example id>` and writes each one's
+`genome-config.toml`, so `--genome test-1000genomes/<example id>` finds
+them. Completed files are kept and interrupted downloads resume unless
+`force` is set. A `dry_run` downloads nothing; its result's `details`
+hold the plan.
+
+### `api.examples.list_examples(ExampleGenomeListParams)`
+
+CLI: `wgsextract example-genome list`.
+
+Describe the example catalog; the description is the result's
+`details`.
+
+`ExampleGenomeListParams`: List the curated examples: each one's id, label, data type, size,
+tags and file count.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `target_root` | `Path \| None` | `None` | `--target-root` | Genome library folder holding the test-1000genomes collection (default: config genome_library, else the genomes folder of the checkout or user data folder). |
+| `tag` | `tuple[str, ...] \| None` | `None` | `--tag` | Only examples carrying every one of these tags. |
+
+### `api.examples.download(ExampleGenomeDownloadParams)`
+
+CLI: `wgsextract example-genome download`.
+
+Download example genomes (see `ExampleGenomeDownloadParams`); each file
+is an output with its catalog role (`bam`, `vcf`, `fastq_r1` ...),
+plus each example's `genome_config`.
+
+`ExampleGenomeDownloadParams`: Download curated examples into the genome library and write their
+genome configs. With no `example_ids`, `tag` or `all`, the small
+starter set (a chrMT VCF and a chr20 BAM) is downloaded.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `example_ids` | `tuple[str, ...]` | `[]` | `EXAMPLE_ID` | Example ids, as list_examples gives them; not with tag or all. |
+| `tag` | `tuple[str, ...] \| None` | `None` | `--tag` | Download every example carrying all of these tags. |
+| `all` | `bool` | `False` | `--all` | Download every curated example, including large full-genome data. |
+| `method` | `str` | `'auto'` | `--method` | Transfer method. Auto is an alias for HTTPS and does not probe Aspera; use --method aspera explicitly for Aspera. One of: `auto`, `https`, `aspera` |
+| `aspera_key` | `Path \| None` | `None` | `--aspera-key` | Private key for Aspera downloads (default: the Aspera Connect key, if installed). |
+| `target_root` | `Path \| None` | `None` | `--target-root` | Genome library folder holding the test-1000genomes collection (default: config genome_library, else the genomes folder of the checkout or user data folder). |
+| `force` | `bool` | `False` | `--force` | Discard existing and partially downloaded files and download again. Without it, completed files are kept and interrupted downloads resume. |
+| `dry_run` | `bool` | `False` | `--dry-run` | Plan the downloads (the result's details) without creating files. |
