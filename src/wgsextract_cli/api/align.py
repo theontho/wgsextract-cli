@@ -1,5 +1,6 @@
-"""``align`` and ``realign``: map reads to a reference as a sorted, indexed,
-duplicate-marked BAM or CRAM.
+"""``basecall``, ``align`` and ``realign``: turn Nanopore signal into reads,
+and map reads to a reference as a sorted, indexed, duplicate-marked BAM or
+CRAM.
 
 Short reads go through bwa-mem2 or bwa and samblaster, long reads through
 pbmm2 (PacBio) or minimap2, and Ultima reads through their own pipeline. The
@@ -9,6 +10,7 @@ output is named after the reads (``sample_R1.fastq.gz`` and
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -207,6 +209,113 @@ class RealignParams(Params):
     outdir: Path | None = outdir_param()
     threads: int | None = threads_param()
     memory: str | None = memory_param()
+
+
+DORADO_MODELS = ("fast", "hac", "sup")
+
+
+@dataclass(frozen=True, kw_only=True)
+class BasecallParams(Params):
+    """Basecall Nanopore POD5 signal with ONT's Dorado into an unaligned BAM,
+    ``<input stem>.<model>[.<modifications>].bam``, that keeps the MM/ML
+    base-modification tags and feeds ``align`` (``r1``) directly. Dorado is
+    an optional tool the user installs; models download into
+    ``models_dir``."""
+
+    COMMAND = "basecall"
+
+    input: Path = param(
+        doc="A POD5 file, or a folder searched (recursively) for them.",
+        flags=("--input", "-i"),
+        path="file_or_directory",
+        shared=True,
+        required_message="--input <POD5 file or folder> is required.",
+    )
+    model: str = param(
+        "hac",
+        help="Dorado model: fast, hac or sup (optionally pinned, e.g. "
+        "sup@v5.2.0; picked for the run's chemistry), or a model folder "
+        "(default: hac)",
+        metavar="MODEL",
+        may_name_file=True,
+    )
+    modified_bases: str | None = param(
+        None,
+        help="Also call base modifications, e.g. 5mCG_5hmCG (CpG methylation) "
+        "or 5mC_5hmC; comma-separated for several. Writes MM/ML tags.",
+        metavar="CODES",
+    )
+    device: str = param(
+        "auto",
+        help="auto (Apple silicon GPU, else an NVIDIA GPU nvidia-smi lists, "
+        "else CPU), cpu, metal, cuda:all or cuda:<id>[,<id>...] (default: auto)",
+        metavar="DEVICE",
+    )
+    read_ids: Path | None = param(
+        None,
+        help="Basecall only the reads named in this file (one read ID per line).",
+        path="file",
+        metavar="FILE",
+    )
+    regions_bed: Path | None = param(
+        None,
+        help="Re-basecall only the reads --alignment places in these regions "
+        "(a panel BED), e.g. with --model sup.",
+        path="file",
+        metavar="BED",
+    )
+    alignment: Path | None = param(
+        None,
+        help="Aligned BAM/CRAM of the same run whose reads in --regions-bed "
+        "are re-basecalled.",
+        path="file",
+        metavar="BAM",
+    )
+    models_dir: Path | None = param(
+        None,
+        help="Folder Dorado downloads models into and reuses them from "
+        "(default: config dorado_models_directory, else the wgsextract cache's "
+        "dorado-models)",
+        path="directory",
+        config_key="dorado_models_directory",
+        local_only=True,
+    )
+    dorado_path: str | None = param(
+        None,
+        help="Path to the dorado executable (optional if in PATH)",
+        config_key="dorado_executable",
+        local_only=True,
+    )
+    ref: Path | None = ref_param()
+    outdir: Path | None = outdir_param(
+        "the POD5 file's folder, or the POD5 folder's parent"
+    )
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.read_ids and (self.regions_bed or self.alignment):
+            raise UsageError("Give --read-ids or --regions-bed, not both.")
+        if bool(self.regions_bed) != bool(self.alignment):
+            raise UsageError("--regions-bed and --alignment go together.")
+
+    def write_folders(self) -> Iterator[Path]:
+        from wgsextract_cli.commands.basecall import models_directory
+
+        yield models_directory(self.models_dir)
+
+
+def basecall(
+    params: BasecallParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Basecall POD5 signal into an unaligned BAM (output role
+    ``unaligned_reads``); see ``BasecallParams``."""
+    from wgsextract_cli.commands.basecall import run_basecall
+
+    return execute(params, run_basecall, progress=progress, cancel=cancel, check=check)
 
 
 def align(

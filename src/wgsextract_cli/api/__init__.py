@@ -72,7 +72,7 @@ from ._runtime import (
     ProgressEvent,
     use_config,
 )
-from .align import AlignParams, RealignParams
+from .align import AlignParams, BasecallParams, RealignParams
 from .analyze import AnalyzeBatchGenParams, AnalyzeComprehensiveParams
 from .bam import (
     BamIdentifyParams,
@@ -166,6 +166,7 @@ __all__ = [
     "AlignParams",
     "AnalyzeBatchGenParams",
     "AnalyzeComprehensiveParams",
+    "BasecallParams",
     "BamIdentifyParams",
     "BamIndexParams",
     "BamMergeParams",

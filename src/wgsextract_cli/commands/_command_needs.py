@@ -113,6 +113,9 @@ COMMAND_NEEDS: dict[str, CommandNeeds] = {
             "bcftools bgzip bwa bwa-mem2 curl gatk minimap2 pbmm2 sambamba samblaster"
         ),
     ),
+    "basecall": _n(
+        HOURS, "dorado", "samtools", scale=" for a MinION flow cell on a GPU"
+    ),
     "align": _n(
         HOURS,
         *_SAM,

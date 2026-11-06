@@ -636,14 +636,42 @@ reference when there is one.
 
 ## `api.align`
 
-`align` and `realign`: map reads to a reference as a sorted, indexed,
-duplicate-marked BAM or CRAM.
+`basecall`, `align` and `realign`: turn Nanopore signal into reads,
+and map reads to a reference as a sorted, indexed, duplicate-marked BAM or
+CRAM.
 
 Short reads go through bwa-mem2 or bwa and samblaster, long reads through
 pbmm2 (PacBio) or minimap2, and Ultima reads through their own pipeline. The
 output is named after the reads (`sample_R1.fastq.gz` and
 `sample_R2.fastq.gz` give `sample_aligned.bam`) and written to
 `outdir`, else beside the reads.
+
+### `api.align.basecall(BasecallParams)`
+
+CLI: `wgsextract basecall`.
+
+Basecall POD5 signal into an unaligned BAM (output role
+`unaligned_reads`); see `BasecallParams`.
+
+`BasecallParams`: Basecall Nanopore POD5 signal with ONT's Dorado into an unaligned BAM,
+`<input stem>.<model>[.<modifications>].bam`, that keeps the MM/ML
+base-modification tags and feeds `align` (`r1`) directly. Dorado is
+an optional tool the user installs; models download into
+`models_dir`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | A POD5 file, or a folder searched (recursively) for them. |
+| `model` | `str` | `'hac'` | `--model` | Dorado model: fast, hac or sup (optionally pinned, e.g. sup@v5.2.0; picked for the run's chemistry), or a model folder (default: hac) |
+| `modified_bases` | `str \| None` | `None` | `--modified-bases` | Also call base modifications, e.g. 5mCG_5hmCG (CpG methylation) or 5mC_5hmC; comma-separated for several. Writes MM/ML tags. |
+| `device` | `str` | `'auto'` | `--device` | auto (Apple silicon GPU, else an NVIDIA GPU nvidia-smi lists, else CPU), cpu, metal, cuda:all or cuda:<id>[,<id>...] (default: auto) |
+| `read_ids` | `Path \| None` | `None` | `--read-ids` | Basecall only the reads named in this file (one read ID per line). |
+| `regions_bed` | `Path \| None` | `None` | `--regions-bed` | Re-basecall only the reads --alignment places in these regions (a panel BED), e.g. with --model sup. |
+| `alignment` | `Path \| None` | `None` | `--alignment` | Aligned BAM/CRAM of the same run whose reads in --regions-bed are re-basecalled. |
+| `models_dir` | `Path \| None` | `None` (config `dorado_models_directory`) | `--models-dir` | Folder Dorado downloads models into and reuses them from (default: config dorado_models_directory, else the wgsextract cache's dorado-models) |
+| `dorado_path` | `str \| None` | `None` (config `dorado_executable`) | `--dorado-path` | Path to the dorado executable (optional if in PATH) |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the POD5 file's folder, or the POD5 folder's parent). |
 
 ### `api.align.align(AlignParams)`
 

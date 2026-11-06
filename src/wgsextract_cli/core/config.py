@@ -74,6 +74,12 @@ KNOWN_SETTINGS = {
     ),
     "keep_awake": (False, "Best-effort sleep inhibition while commands run (opt-in)"),
     "haplogrep_executable": (None, "Path to the Haplogrep 3 executable or JAR"),
+    "dorado_executable": (None, "Path to ONT's dorado executable for `basecall`"),
+    "dorado_models_directory": (
+        None,
+        "Folder `basecall` downloads Dorado models into (default: the "
+        "wgsextract cache's dorado-models)",
+    ),
     "haplocheck_executable": (None, "Path to the haplocheck executable or JAR"),
     "haplogrep_tree": (
         None,
@@ -248,6 +254,8 @@ PATH_SETTINGS = {
     "genome_library",
     "haplogrep_executable",
     "haplocheck_executable",
+    "dorado_executable",
+    "dorado_models_directory",
     "jar_directory",
     "vep_cache_directory",
     "pharmcat_directory",

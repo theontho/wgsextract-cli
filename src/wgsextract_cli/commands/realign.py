@@ -566,6 +566,9 @@ def _realign_long_reads(
                     heartbeat=True,
                 )
         align_args.r1 = fastq
+        align_args._read_group_description = align_cmd.read_group_descriptions(
+            args.input, getattr(args, "input_ref", None)
+        )
     _align(journal, decision, align_args, lambda: align_cmd.run(align_args))
     if args.keep_fastq:
         current_result().add_output(fastq, "fastq_r1")

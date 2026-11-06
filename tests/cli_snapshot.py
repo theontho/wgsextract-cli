@@ -88,6 +88,7 @@ MIGRATED = (
     ("qc", "fake-data"),
     ("align",),
     ("realign",),
+    ("basecall",),
     ("ref",),
     ("ref", "aadr"),
     ("ref", "ybrowse"),

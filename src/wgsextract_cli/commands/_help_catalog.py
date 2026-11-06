@@ -164,6 +164,15 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract realign --input sample_hg19.bam --ref hs38.fa",
         "wgsextract realign --input sample_hg19.bam --ref hs38.fa --dry-run",
     ),
+    "basecall": _h(
+        "<POD5 file or folder stem>.<model>[.<modifications>][.subset].bam: "
+        "unaligned reads with Dorado's tags (MM/ML with --modified-bases), "
+        "beside the POD5 input or in --outdir.",
+        "wgsextract basecall --input pod5/ --modified-bases 5mCG_5hmCG",
+        "wgsextract basecall --input pod5/ --model sup --regions-bed panel.bed "
+        "--alignment sample_aligned.bam",
+        "wgsextract basecall --input reads.pod5 --device cpu --model fast",
+    ),
     "align": _h(
         "<reads stem>_aligned.bam or .cram (+ index).",
         "wgsextract align --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz --ref hs38.fa",
