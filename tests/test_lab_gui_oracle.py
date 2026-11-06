@@ -311,9 +311,9 @@ def test_the_harness_notes_a_crashed_apps_events_then_stops_what_it_left(oracle)
     app = root / "app" / "fake-app"
     app.write_text(
         f'sh "{root}/ws/install.sh" &\n'
-        f"echo '{json.dumps({'type': 'step-start'})}' >> \"{events}\"\n"
+        f"printf '%s\\n' '{json.dumps({'type': 'step-start'})}' >> \"{events}\"\n"
         "sleep 3\n"
-        f"echo '{json.dumps(done)}' >> \"{events}\"\n"
+        f"printf '%s\\n' '{json.dumps(done)}' >> \"{events}\"\n"
         "exit 3\n"
     )
     driver = root / "driver.sh"
