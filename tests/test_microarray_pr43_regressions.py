@@ -448,3 +448,27 @@ def test_unknown_microarray_formats_are_refused(tmp_path, formats):
     with pytest.raises(UsageError, match="Unknown microarray format"):
         MicroarrayParams(input=tmp_path / "a.bam", formats=formats)
     MicroarrayParams(input=tmp_path / "a.bam", formats="aadr_1240k+ho,23andMe_V35")
+
+
+def test_the_cli_refuses_an_unknown_format_before_touching_input_or_outdir(
+    tmp_path, capsys
+):
+    from wgsextract_cli.main import main
+
+    outdir = tmp_path / "out"
+    with pytest.raises(SystemExit) as exit_info:
+        main(
+            [
+                "microarray",
+                "--input",
+                str(tmp_path / "missing.cram"),
+                "--outdir",
+                str(outdir),
+                "--formats",
+                "23andme_v5,../../x",
+            ]
+        )
+
+    assert exit_info.value.code == 2
+    assert "Unknown microarray format '../../x'" in capsys.readouterr().err
+    assert not outdir.exists()
