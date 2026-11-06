@@ -27,7 +27,7 @@ from its Params fields, so the API and ``--help`` cannot drift.
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``,
-``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
+``api.repair``, ``api.genotyping``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -52,6 +52,7 @@ from . import (
     analyze,
     bam,
     extract,
+    genotyping,
     info,
     lineage,
     microarray,
@@ -99,6 +100,7 @@ from .extract import (
     YdnaVcfParams,
     YMtExtractParams,
 )
+from .genotyping import TypingCyp2d6Params, TypingHlaParams, TypingStrParams
 from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, InfoParams
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
 from .microarray import MicroarrayParams
@@ -238,6 +240,9 @@ __all__ = [
     "SampleShowParams",
     "SampleUnsetParams",
     "UnmappedParams",
+    "TypingCyp2d6Params",
+    "TypingHlaParams",
+    "TypingStrParams",
     "UsageError",
     "VcfAlphamissenseParams",
     "VcfAnnotateParams",
@@ -274,6 +279,7 @@ __all__ = [
     "analyze",
     "bam",
     "extract",
+    "genotyping",
     "info",
     "json_schema",
     "lineage",

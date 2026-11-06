@@ -307,6 +307,35 @@ def test_a_repair_writing_its_output_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_hla_typing_building_its_library_index_waits_for_a_busy_library(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: `typing hla` without --hla-index builds its T1K index in the
+    # reference library, outside its outdir, so that folder is locked too.
+    bam, ref = fake_data
+    library = work / "library"
+    index = library / "ref" / "t1k_hla"
+    index.mkdir(parents=True)
+    (library / "genomes").mkdir()
+    shutil.copy(ref, library / "genomes" / "ref.fa")
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(index)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/typing/hla",
+            {
+                "input": str(bam),
+                "ref": str(library / "genomes" / "ref.fa"),
+                "outdir": str(other),
+            },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_home_relative_paths_reach_the_job_expanded(tmp_path, work, monkeypatch):
     # PR #463 review: the guard approved ~/x as the home folder's; the job
     # must write there too, not in a `~` folder in its working folder.
@@ -952,6 +981,64 @@ def test_repair_paths_cover_every_file():
         ("repair/ftdna-vcf", "input"), ("repair/ftdna-vcf", "output"),
         ("repair/ftdna-vcf", "outdir"),
     }  # fmt: skip
+
+
+_TYPING_PATHS = [
+    (op, item)
+    for op in ("typing/cyp2d6", "typing/hla", "typing/str")
+    for item in find(op).fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _TYPING_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _TYPING_PATHS],
+)
+@pytest.mark.parametrize(
+    "value",
+    ["D:evil.fa", r"D:\evil.fa", r"\\host\share\evil.fa", r"sub\evil.fa", "~/evil.fa"],
+)
+def test_path_guard_covers_every_typing_path(op, field, value):
+    # #478: the typing commands became server operations; each file they read
+    # (an HLA index or STR catalog included) must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_typing_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _TYPING_PATHS} == {
+        *((f"typing/{name}", f) for name in ("cyp2d6", "hla", "str")
+          for f in ("input", "ref", "outdir")),
+        ("typing/hla", "hla_index"), ("typing/str", "catalog"),
+    }  # fmt: skip
+
+
+def test_path_guard_checks_the_library_hla_typing_builds_its_index_in(tmp_path):
+    # #478: without --hla-index, `typing hla` builds its T1K index in the
+    # reference library above a <library>/genomes FASTA, so that library must
+    # be allowed; an explicit index needs no library.
+    genomes = tmp_path / "library" / "genomes"
+    genomes.mkdir(parents=True)
+    fasta = genomes / "hg38.fa"
+    fasta.write_text(">chr1\nA\n")
+    request = {"input": str(genomes / "a.bam"), "ref": str(fasta)}
+    with pytest.raises(RequestError) as refused:
+        PathGuard([genomes]).check(params_from_json(find("typing/hla"), request))
+    assert refused.value.code == "path_not_allowed"
+    PathGuard([genomes]).check(
+        params_from_json(
+            find("typing/hla"), {**request, "hla_index": str(genomes / "i.fa")}
+        )
+    )
+    PathGuard([tmp_path / "library"]).check(
+        params_from_json(find("typing/hla"), request)
+    )
 
 
 def test_caller_paths_cover_every_file():

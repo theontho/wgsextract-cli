@@ -117,6 +117,10 @@ MIGRATED = (
     ("repair",),
     ("repair", "ftdna-bam"),
     ("repair", "ftdna-vcf"),
+    ("typing",),
+    ("typing", "cyp2d6"),
+    ("typing", "hla"),
+    ("typing", "str"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -451,6 +455,9 @@ ARGVS = (
     ["repair", "ftdna-bam", "-i", "x.bam", "--output", "y.bam"],
     ["repair", "ftdna-bam", "--ref", "r.fa", "-o", "out"],
     ["repair", "ftdna-vcf", "-i", "x.vcf.gz", "--json"],
+    ["typing", "cyp2d6", "-i", "x.bam", "--ref", "r.fa", "-t", "4"],
+    ["typing", "hla", "-i", "x.cram", "--hla-index", "h.fa", "-o", "out"],
+    ["typing", "str", "-i", "x.bam", "--catalog", "c.json", "--sex", "male"],
 )
 
 

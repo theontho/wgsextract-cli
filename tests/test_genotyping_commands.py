@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
+from wgsextract_cli import api
 from wgsextract_cli.commands.genotyping import common, hla, repeats
 from wgsextract_cli.commands.info.metrics import SEX_INFERENCE_VERSION
 from wgsextract_cli.core.config import settings
@@ -100,15 +101,14 @@ def outputs(directory: Path) -> set[str]:
 
 
 def _open(path, **overrides):
-    values = {"input": str(path), "ref": None, "outdir": None, "threads": "1"}
-    values.update(overrides)
-    return common.open_alignment(Namespace(**values))
+    values = {"input": path, "threads": 1, **overrides}
+    return common.open_alignment(api.TypingCyp2d6Params(**values))
 
 
 def test_open_alignment_reads_build_contigs_and_stem(tmp_path):
     contigs = {**HG38, "chr22_KI270879v1_alt": 304_135}
     path = bam(tmp_path / "in" / "Sample.bam", pair("p", "chr1", 1000), contigs)
-    aln = _open(path, threads="3")
+    aln = _open(path, threads=3)
     assert (aln.build, aln.chr_prefix, aln.stem, aln.threads) == (
         "hg38",
         True,
@@ -265,8 +265,11 @@ def test_hla_extracts_mhc_pairs_and_writes_pharmcat_calls(
 ):
     caplog.set_level(logging.INFO)
     out = tmp_path / "out"
-    run_wgsextract("typing", "hla", "-i", mhc_bam, "--hla-index",
-                   str(hla_setup.index), "-o", str(out), "-t", "2")  # fmt: skip
+    result = api.genotyping.hla(
+        api.TypingHlaParams(
+            input=Path(mhc_bam), hla_index=hla_setup.index, outdir=out, threads=2
+        )
+    )
 
     names, mates = json.loads(hla_setup.reads.read_text())
     # Mates outside the regions come along; secondary-only and outside reads don't.
@@ -283,6 +286,7 @@ def test_hla_extracts_mhc_pairs_and_writes_pharmcat_calls(
         "NA12878.t1k_allele.tsv",
         "NA12878.t1k_allele.vcf",
         "NA12878.hla.pharmcat.tsv",
+        "NA12878.t1k_genotype.tsv.manifest.json",
     }  # T1K's other files go with the work directory
     assert (out / "NA12878.t1k_genotype.tsv").read_text() == T1K_GENOTYPE
     assert (out / "NA12878.hla.pharmcat.tsv").read_text() == (
@@ -295,6 +299,12 @@ def test_hla_extracts_mhc_pairs_and_writes_pharmcat_calls(
     assert "HLA-DQB1  no confident call" in log
     assert "HLA-DPB1  no confident call" in log
     assert "HLA-DQA1  no confident call" in log  # not in the TSV at all
+    assert result.metrics["HLA-B"] == "*57:01/*08:01"
+    assert result.metrics["ipd_imgt_hla_release"] == "IPD-IMGT/HLA 3.56.0"
+    assert {o.role for o in result.outputs} >= {
+        "hla_genotypes",
+        "pharmcat_outside_call",
+    }
 
 
 def test_hla_log_agrees_with_the_pharmcat_call(tmp_path, mhc_bam, hla_setup, caplog):
@@ -421,7 +431,8 @@ def _index_args(tmp_path):
     library = tmp_path / "library"
     library.mkdir(exist_ok=True)
     settings["reference_library"] = str(library)
-    return Namespace(hla_index=None, ref=None), library / "ref" / "t1k_hla"
+    params = api.TypingHlaParams(input=tmp_path / "s.bam")
+    return params, library / "ref" / "t1k_hla"
 
 
 def test_hla_index_is_built_once_in_the_reference_library(tmp_path, monkeypatch):
@@ -462,7 +473,7 @@ def test_hla_index_rebuilds_over_an_incomplete_index(tmp_path, monkeypatch):
 def test_hla_index_needs_a_reference_library(monkeypatch):
     settings.pop("reference_library", None)
     with pytest.raises(WGSExtractError, match="pass --hla-index"):
-        hla.hla_index(Namespace(hla_index=None, ref=None))
+        hla.hla_index(api.TypingHlaParams(input=Path("s.bam")))
 
 
 # --- typing cyp2d6 ------------------------------------------------------------
@@ -540,7 +551,7 @@ def test_cyp2d6_runs_cyrius_on_the_input_and_writes_the_pharmcat_call(
     caplog.set_level(logging.INFO)
     path = bam(tmp_path / "in" / "NA12878.bam", pair("p", "chr22", 42_127_000))
     out = tmp_path / "out"
-    run_wgsextract("typing", "cyp2d6", "-i", path, "-o", str(out))
+    result = api.genotyping.cyp2d6(api.TypingCyp2d6Params(input=Path(path), outdir=out))
 
     assert cyrius.calls("cyrius_python")[0][-1] == "38"
     [command] = cyrius.calls("cyrius")
@@ -553,12 +564,15 @@ def test_cyp2d6_runs_cyrius_on_the_input_and_writes_the_pharmcat_call(
         "NA12878.cyrius.tsv",
         "NA12878.cyrius.json",
         "NA12878.cyp2d6.pharmcat.tsv",
+        "NA12878.cyrius.tsv.manifest.json",
     }
     assert (out / "NA12878.cyp2d6.pharmcat.tsv").read_text() == "CYP2D6\t*1/*2x2\n"
     assert (
         "CYP2D6: *1/*2x2 (filter PASS, 3 copies; raw 3.04; median depth 31.2x)"
         in caplog.text
     )
+    assert result.metrics["cyp2d6_genotype"] == "*1/*2x2"
+    assert result.metrics["cyp2d6_copy_number"] == 3
 
 
 @pytest.mark.parametrize(
@@ -803,8 +817,11 @@ def test_str_sizes_repeats_and_flags_those_outside_the_normal_range(
     caplog.set_level(logging.INFO)
     path = bam(tmp_path / "in" / "NA12878.bam", _sex_reads(10, 2))
     out = tmp_path / "out"
-    run_wgsextract("typing", "str", "-i", path, "--ref", str(eh.ref),
-                   "--catalog", str(eh.catalog), "-o", str(out), "-t", "2")  # fmt: skip
+    result = api.genotyping.repeats(
+        api.TypingStrParams(
+            input=Path(path), ref=eh.ref, catalog=eh.catalog, outdir=out, threads=2
+        )
+    )
 
     [command] = eh.calls("ExpansionHunter")
     options = dict(zip(command[::2], command[1::2], strict=True))
@@ -842,6 +859,8 @@ def test_str_sizes_repeats_and_flags_those_outside_the_normal_range(
     assert "C9ORF72 (FTD/ALS, AD): GGCCCC 2/8 [CI 2-2/8-35] normal (CI" in caplog.text
     assert "isn't a diagnosis" in caplog.text
     assert {"NA12878.str.json", "NA12878.str.vcf", "NA12878.str.tsv"} <= outputs(out)
+    assert (result.metrics["sex"], result.metrics["flagged_repeats"]) == ("male", 2)
+    assert {w.code for w in result.warnings} == {"repeat_outside_normal_range"}
 
 
 def test_str_all_normal_has_no_warnings(tmp_path, eh, caplog):
