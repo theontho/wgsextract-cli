@@ -1077,12 +1077,23 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
 
 # A recessive gene's P/LP calls: one copy affected, (maybe) both.
 GENE_STATUS = {
-    "biallelic": "a homozygous P/LP call: both copies affected",
+    "biallelic": "a homozygous P/LP call, or P/LP calls of two ALTs of one "
+    "multi-allelic call (such as 1/2): both copies affected",
     "possible_biallelic": "possibly both copies affected: two or more "
     "heterozygous P/LP calls whose phase is unknown (they may be on the same "
     "copy), or a call whose other allele was not called",
     "carrier": "one heterozygous P/LP call: one copy affected",
 }
+
+
+def _split_index(origin: Sequence[str]) -> bool:
+    """Whether ``origin`` (an ``--old-rec-tag`` split on ``|``) names one ALT
+    of its record by number."""
+    return (
+        len(origin) == 5
+        and origin[4].isdigit()
+        and 1 <= int(origin[4]) <= len(origin[3].split(","))
+    )
 
 
 def _gene_calls(
@@ -1092,8 +1103,10 @@ def _gene_calls(
     only when biallelic (AR) whether this sample is a carrier or (possibly)
     biallelic, with the weakest confidence of those calls. Phase is not
     known, and a haploid or partly called genotype (``1/.``) doesn't show the
-    other copy, so these make the gene only possibly biallelic."""
+    other copy, so these make the gene only possibly biallelic. Two ALTs split
+    from one diploid call (``1/2``) are on opposite copies: biallelic."""
     het = hom = hemi = partial = 0
+    split_alts: dict[str, set[str]] = {}
     for call in calls:
         zygosity = str(call.get("zygosity") or "")
         alleles = re.split(r"[/|]", str(call.get("genotype") or ""))
@@ -1101,13 +1114,18 @@ def _gene_calls(
             partial += 1
         elif zygosity == "het":
             het += 1
+            # CHR|POS|REF|ALTS|IDX of the record it was split from. Beside a
+            # reference copy (0/1/2) the two ALTs leave one copy unaffected.
+            origin = str(call.get(variant_confidence.SPLIT_TAG) or "").split("|")
+            if len(alleles) == 2 and _split_index(origin):
+                split_alts.setdefault("|".join(origin[:4]), set()).add(origin[4])
         elif zygosity == "hom":
             hom += 1
         elif zygosity == "haploid":
             hemi += 1
     status = None
     if gene.recessive:
-        if hom:
+        if hom or any(len(alts) > 1 for alts in split_alts.values()):
             status = "biallelic"
         elif hemi or partial or het >= 2:
             status = "possible_biallelic"

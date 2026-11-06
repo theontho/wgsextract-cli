@@ -28,6 +28,9 @@ CLINVAR_ANNOTATED = "clinvar_annotated.vcf.gz"
 CLINVAR_PATHOGENIC = "clinvar_pathogenic.vcf.gz"
 # GENEINFO (SYMBOL:GeneID|...) names the genes ClinVar placed the variant in.
 CLINVAR_COLUMNS = ("CLNSIG", "CLNDN", "GENEINFO")
+# The record each call was split from, so a report knows that two ALTs of one
+# 1/2 call are on opposite copies.
+CLINVAR_TABLE_COLUMNS = (*CLINVAR_COLUMNS, variant_confidence.SPLIT_TAG)
 REVEL_ANNOTATED = "revel_annotated.vcf.gz"
 
 
@@ -74,13 +77,16 @@ def run_clinvar(params: VcfClinvarParams) -> None:
             path_out,
             variant_confidence.thresholds_from(params),
             include='CLNSIG ~ "Pathogenic" || CLNSIG ~ "Likely_pathogenic"',
-            summary_columns=CLINVAR_COLUMNS,
+            summary_columns=CLINVAR_TABLE_COLUMNS,
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"ClinVar filtering failed: {e}") from e
     table = str(Path(outdir, "clinvar_pathogenic.confidence.tsv"))
     variant_confidence.write_table(
-        table, summary, CLINVAR_COLUMNS, "ClinVar pathogenic/likely pathogenic calls"
+        table,
+        summary,
+        CLINVAR_TABLE_COLUMNS,
+        "ClinVar pathogenic/likely pathogenic calls",
     )
     variant_confidence.record(
         summary,

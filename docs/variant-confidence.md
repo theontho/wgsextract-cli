@@ -31,7 +31,8 @@ first run through these commands is a technical check, not a clinical result.
   `gnomad_af_lt_<AF>.confidence.tsv`, `significant_<type>_<name>.confidence.tsv`,
   `<name>.confidence.tsv` for PharmCAT): one row per carried call with
   `confidence`, `reasons`, `depth`, `genotype_quality`, `alt_fraction`, the
-  zygosity and the relevant annotations (`CLNSIG`, `CLNDN`, `GENEINFO`, `GNOMAD_AF`, the
+  zygosity and the relevant annotations (`CLNSIG`, `CLNDN`, `GENEINFO` and the split record's
+  `OLD_MULTIALLELIC`, `GNOMAD_AF`, the
   PharmCAT `gene`, ...). Its `#` header lines state the thresholds and the
   disclaimer above.
 - **Result manifest** ([result-manifest.md](result-manifest.md)): metrics

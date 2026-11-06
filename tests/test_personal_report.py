@@ -24,12 +24,13 @@ import jsonschema
 import pytest
 from markdown_it import MarkdownIt
 
+from tests.htslib_helpers import needs_tools
 from wgsextract_cli import api
 from wgsextract_cli.core import gene_lists
 from wgsextract_cli.core import personal_report as pr
 from wgsextract_cli.core.config import get_config_path, reload_settings, settings
 from wgsextract_cli.core.sample_workspace import SampleWorkspace
-from wgsextract_cli.core.utils import UsageError
+from wgsextract_cli.core.utils import UsageError, run_command
 from wgsextract_cli.main import main
 
 TSV_HEADER = (
@@ -487,6 +488,79 @@ def test_recessive_genes_count_calls_by_zygosity_for_carrier_status(
     page = _Page()
     page.feed(pr.render_html(report))
     assert shown in page.text
+
+
+def _bgzipped_vcf(path: Path, info: str, rows: list[str]) -> str:
+    """A one-sample hg38 chr1 VCF; each row is space-separated from POS on."""
+    path.with_suffix("").write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=248956422>\n"
+        + info
+        + '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        + "".join("chr1\t" + "\t".join(r.split()) + "\n" for r in rows)
+    )
+    run_command(["bgzip", "-f", str(path.with_suffix(""))])
+    run_command(["tabix", "-f", "-p", "vcf", str(path)])
+    return str(path)
+
+
+@needs_tools("bcftools", "bgzip", "tabix")
+@pytest.mark.parametrize(
+    ("calls", "status"),
+    [
+        # Issue #483: annotation splits 1/2 into 1/0 and 0/1, but the two
+        # ALTs are still on opposite copies.
+        (["{pos} . A C,G 50 PASS . GT 1/2"], "biallelic"),
+        # Two separate het calls: phase unknown.
+        (["{pos} . A C 50 PASS . GT 0/1", "{next} . A G 50 PASS . GT 0/1"],
+         "possible_biallelic"),
+        # Review of #485: a triploid 0/1/2 keeps a reference copy.
+        (["{pos} . A C,G 50 PASS . GT 0/1/2"], "possible_biallelic"),
+    ],
+)  # fmt: skip
+def test_two_pathogenic_alts_of_one_call_are_biallelic(sample, calls, status):
+    chrom, pos = _mid("MUTYH")
+    fields = {"pos": pos, "next": pos + 5}
+    vcf = _bgzipped_vcf(
+        sample / "calls.vcf.gz", "", [c.format(**fields) for c in calls]
+    )
+    info = "".join(
+        f'##INFO=<ID={tag},Number=.,Type=String,Description="{tag}">\n'
+        for tag in ("CLNSIG", "CLNDN", "GENEINFO")
+    )
+    clinvar = _bgzipped_vcf(
+        sample / "clinvar.vcf.gz",
+        info,
+        [f"{p} {i} A {alt} . . CLNSIG=Pathogenic;CLNDN=MAP;GENEINFO=MUTYH:4595 GT 0/1"
+         for i, (p, alt) in enumerate([(pos, "C"), (pos, "G"), (pos + 5, "G")])],
+    )  # fmt: skip
+    code, _ = _cli("vcf", "clinvar", "--vcf-input", vcf, "--clinvar-file", clinvar,
+                   "--outdir", str(sample))  # fmt: skip
+    assert code == 0
+    clinvar_section = pr.build_report(sample)["sections"]["clinvar"]
+    (mutyh,) = clinvar_section["genes"]
+    assert (mutyh["gene"], mutyh["heterozygous"], mutyh["status"]) == (
+        "MUTYH",
+        2,
+        status,
+    )
+    assert f"MUTYH {status.replace('_', ' ')}" in clinvar_section["summary"]
+
+
+def test_a_split_tag_without_alt_numbers_proves_nothing(sample):
+    # Review of #485: an input normalized elsewhere may carry a four-field
+    # OLD_MULTIALLELIC (no ALT number); two het calls sharing its record part
+    # are still of unknown phase.
+    chrom, pos = _mid("MUTYH")
+    header = TSV_HEADER.replace("CLNDN\n", "CLNDN\tGENEINFO\tOLD_MULTIALLELIC\n")
+    rows = [
+        f"{chrom}\t{pos}\tA\t{alt}\t0/1\thet\thigh\t\t30\t99\t0.5\tPathogenic\t"
+        f"MAP\tMUTYH:4595\t{chrom}|{pos}|A|{alt}\n"
+        for alt in ("C", "G")
+    ]
+    (sample / "clinvar_pathogenic.confidence.tsv").write_text(header + "".join(rows))
+    (mutyh,) = pr.build_report(sample)["sections"]["clinvar"]["genes"]
+    assert (mutyh["heterozygous"], mutyh["status"]) == (2, "possible_biallelic")
 
 
 def test_a_status_from_weak_calls_says_so(sample):
