@@ -82,6 +82,9 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # confidence_min_gq = 20.0  # genotype quality below: low
 # confidence_high_gq = 30.0  # below: moderate
 
+# --- Personal report (docs/personal-report.md) ---
+# report_gene_list = "acmg-sf-3.3"  # or acmg-sf-3.2, or a TSV or BED file
+
 # --- Local Developer Test Data ---
 # Path to a local real genome dataset used by real smoke tests.
 # real_genome_test_path = "~/genomes/sample"

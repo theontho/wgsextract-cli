@@ -9,7 +9,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
 from .annotation_helpers import (
@@ -26,7 +26,8 @@ from .basic import vcf_input_handler
 
 CLINVAR_ANNOTATED = "clinvar_annotated.vcf.gz"
 CLINVAR_PATHOGENIC = "clinvar_pathogenic.vcf.gz"
-CLINVAR_COLUMNS = ("CLNSIG", "CLNDN")
+# GENEINFO (SYMBOL:GeneID|...) names the genes ClinVar placed the variant in.
+CLINVAR_COLUMNS = ("CLNSIG", "CLNDN", "GENEINFO")
 REVEL_ANNOTATED = "revel_annotated.vcf.gz"
 
 
@@ -41,16 +42,27 @@ def run_clinvar(params: VcfClinvarParams) -> None:
     )
     logging.info(LOG_MESSAGES["vcf_clinvar_resolve"].format(path=clinvar_vcf))
 
-    # Transfer CLNSIG (significance) and CLNDN (disease name).
+    # Transfer CLNSIG (significance), CLNDN (disease name) and, when the
+    # ClinVar file has it, GENEINFO. The input's own GENEINFO is dropped, so
+    # any left names ClinVar's genes.
+    clinvar_vcf = ensure_vcf_prepared(clinvar_vcf)
+    input_vcf = ensure_vcf_prepared(input_file)
+    geneinfo = "##INFO=<ID=GENEINFO,"
+    columns = [
+        c
+        for c in CLINVAR_COLUMNS
+        if c != "GENEINFO" or geneinfo in _vcf_header(clinvar_vcf)
+    ]
     ann_out = str(Path(outdir, CLINVAR_ANNOTATED))
     annotate_vcf(
-        ensure_vcf_prepared(input_file),
-        ensure_vcf_prepared(clinvar_vcf),
-        "CLNSIG,CLNDN",
+        input_vcf,
+        clinvar_vcf,
+        ",".join(columns),
         ann_out,
         outdir,
         "ClinVar",
         threads=params.threads,
+        remove=("INFO/GENEINFO",) if geneinfo in _vcf_header(input_vcf) else (),
     )
 
     path_out = str(Path(outdir, CLINVAR_PATHOGENIC))
@@ -80,6 +92,10 @@ def run_clinvar(params: VcfClinvarParams) -> None:
     )
     record_annotated(ann_out)
     logging.info(LOG_MESSAGES["vcf_clinvar_done"].format(output=path_out))
+
+
+def _vcf_header(vcf: str) -> str:
+    return run_command(["bcftools", "view", "-h", vcf], capture_output=True).stdout
 
 
 def run_revel(params: VcfRevelParams) -> None:

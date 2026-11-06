@@ -81,6 +81,11 @@ KNOWN_SETTINGS = {
         "wgsextract cache's dorado-models)",
     ),
     "haplocheck_executable": (None, "Path to the haplocheck executable or JAR"),
+    "report_gene_list": (
+        None,
+        "`report`: genes of the ClinVar section, a built-in list "
+        "(acmg-sf-3.3, the default, or acmg-sf-3.2) or a TSV or BED file",
+    ),
     "haplogrep_tree": (
         None,
         "Haplogrep 3 tree for mtDNA haplogroups: phylotree-fu-rcrs "

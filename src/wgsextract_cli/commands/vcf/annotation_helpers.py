@@ -208,8 +208,10 @@ def annotate_vcf(
     label: str,
     header_lines: Sequence[str] = (),
     threads: int | str | None = None,
+    remove: Sequence[str] = (),
 ) -> None:
-    """Run bcftools annotate after matching the input's contig naming to the resource."""
+    """Run bcftools annotate after matching the input's contig naming to the
+    resource, first removing the input's ``remove`` annotations."""
     if Path(ann_out).resolve() == Path(input_vcf).resolve():
         raise WGSExtractError(
             f"The {label} output {ann_out} would overwrite its input {input_vcf}; "
@@ -222,6 +224,8 @@ def annotate_vcf(
         # every resource line under their END spans makes whole genomes ~25x
         # slower; pass those records through untouched.
         cmd += ["-e", 'TYPE="ref"', "-k"]
+        if remove:
+            cmd += ["-x", ",".join(remove)]
         if header_lines:
             header_path = str(Path(work, "annotation.hdr"))
             with open(header_path, "w", newline="\n") as f:
