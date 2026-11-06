@@ -1,6 +1,7 @@
 """Opt-in, manifest-defined indel calling, isolated from the legacy SNP stream."""
 
-import argparse
+from __future__ import annotations
+
 import hashlib
 import json
 import re
@@ -9,6 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from wgsextract_cli.core.builds import canonical_build
 from wgsextract_cli.core.microarray_aadr import aadr_lifter
@@ -34,6 +36,9 @@ from wgsextract_cli.core.variant_files import (
     match_chromosome_name,
     vcf_index_chromosomes,
 )
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 IndelCalls = dict[str, dict[tuple[str, str, str], str]]
 
@@ -63,13 +68,13 @@ def prepare_indel_vcf(source: str, outdir: str) -> str:
 
 
 def indel_manifest_bindings(
-    args: argparse.Namespace, resolve_format: Callable[[str], str | None]
+    params: MicroarrayParams, resolve_format: Callable[[str], str | None]
 ) -> dict[str, str]:
     bindings = {}
-    selected = {resolve_format(value) for value in args.formats.split(",")}
-    for entry in getattr(args, "indel_manifest", []):
-        name, separator, path = entry.partition("=")
-        name = resolve_format(name)
+    selected = {resolve_format(value) for value in params.formats.split(",")}
+    for entry in params.indel_manifest:
+        label, separator, path = entry.partition("=")
+        name = resolve_format(label)
         if not separator or not name or not path:
             raise WGSExtractError("--indel-manifest requires FORMAT=PATH.")
         if name not in selected:
@@ -224,15 +229,15 @@ def _normalize_sites(
 def _calls_from_vcf(
     vcf: str,
     sites: dict[str, IndelSite],
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     workdir: str,
     marker_ids: dict[str, str] | None = None,
 ) -> dict[str, str]:
     samples = _query_lines(["bcftools", "query", "-l", vcf], workdir)
     if len(samples) != 1:
         raise WGSExtractError("Indel calling requires a single-sample VCF.")
-    policy = quality_policy(args)
-    identity = identity_policy(args)
+    policy = quality_policy(params)
+    identity = identity_policy(params)
     by_position: dict[tuple[str, int], list[str]] = defaultdict(list)
     for key, site in sites.items():
         by_position[site.chrom, site.position].append(key)
@@ -279,7 +284,7 @@ def call_manifest_indels(
     bindings: dict[str, str],
     template_roots: list[str],
     *,
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     lib: ReferenceLibrary,
     outdir: str,
     ploidy_args: list[str],
@@ -332,9 +337,9 @@ def call_manifest_indels(
         raise WGSExtractError(
             "No manifest probes match the selected reference unambiguously."
         )
-    if args.region:
+    if params.region:
         intervals = []
-        for region in args.region.split(","):
+        for region in params.region.split(","):
             match = re.fullmatch(r"([^:]+)(?::(\d+)(?:-(\d+))?)?", region)
             if not match:
                 raise WGSExtractError("Indel regions must be CHROM or CHROM:START-END.")
@@ -384,9 +389,9 @@ def call_manifest_indels(
     target_gz = str(targets) + ".gz"
     run_command(["tabix", "-s", "1", "-b", "2", "-e", "2", target_gz])
     vcf = str(Path(workdir, "indels.vcf.gz"))
-    is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
+    is_vcf = str(params.input).endswith((".vcf", ".vcf.gz", ".bcf"))
     if is_vcf:
-        source = prepare_indel_vcf(args.input, workdir)
+        source = prepare_indel_vcf(str(params.input), workdir)
         chroms = vcf_index_chromosomes(source)
         if not any(match_chromosome_name(s.chrom, set(chroms)) for s in sites.values()):
             Path(workdir, "indel-calls.tsv").write_text(
@@ -439,7 +444,7 @@ def call_manifest_indels(
                     "50",
                     "-q",
                     "10",
-                    *ultima.bcftools_options(args.input)[0],
+                    *ultima.bcftools_options(str(params.input))[0],
                     "-a",
                     "FORMAT/DP,FORMAT/AD",
                     "--threads",
@@ -450,7 +455,7 @@ def call_manifest_indels(
                     target_gz,
                     "-R",
                     str(calling_regions),
-                    args.input,
+                    str(params.input),
                 ],
                 [
                     "bcftools",
@@ -473,7 +478,7 @@ def call_manifest_indels(
             description="Call sequence-defined indel probes",
         )
     calls = _calls_from_vcf(
-        vcf, sites, args, workdir, {key: data[1] for key, data in metadata.items()}
+        vcf, sites, params, workdir, {key: data[1] for key, data in metadata.items()}
     )
     with open(Path(workdir, "indel-calls.tsv"), "w", newline="\n") as stream:
         stream.write("#FORMAT\tID\tCHROM\tPOS\tCALL\n")

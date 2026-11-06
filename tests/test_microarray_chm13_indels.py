@@ -1,4 +1,3 @@
-import argparse
 import hashlib
 import json
 import random
@@ -9,6 +8,7 @@ import pytest
 
 from scripts.build_microarray_chm13_map import write_site_map
 from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
 from wgsextract_cli.core.microarray_chm13_indels import (
     FlankedSite,
@@ -340,7 +340,7 @@ def test_real_alignment_native_mapping_normalization_and_vendor_only_overlay(
     result = call_chm13_indels(
         {"23andMe_V5_2025": str(manifest)},
         [str(root)],
-        args=argparse.Namespace(input=bam, **policy),
+        params=microarray_params(input=bam, **policy),
         catalogue=catalogue,
         names={chrom: chrom},
         fasta=str(fasta),

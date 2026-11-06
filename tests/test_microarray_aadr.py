@@ -10,6 +10,7 @@ from pyliftover import LiftOver
 
 from scripts.microarray_aadr_markers import build_markers
 from tests.htslib_helpers import needs_tools, run_wgsextract
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.commands import microarray
 from wgsextract_cli.core import aadr_resources
 from wgsextract_cli.core import microarray_aadr as aadr
@@ -447,7 +448,7 @@ def test_aadr_dispatch_uses_input_build_calls_without_reverse_chain(tmp_path, ma
         gzip.compress(b"chain 1000 chr1 1000 + 0 1000 chr1 1000 + 0 1000 1\n1000\n\n")
     )
     microarray._convert_microarray_outputs(
-        args=argparse.Namespace(formats="AADR-HO,aadr_ho"),
+        params=microarray_params(formats="AADR-HO,aadr_ho"),
         outdir=str(tmp_path),
         base_name="input",
         lib=SimpleNamespace(build="hg38", liftover_chain=None, root=str(library)),

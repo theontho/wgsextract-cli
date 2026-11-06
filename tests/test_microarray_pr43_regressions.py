@@ -17,6 +17,7 @@ from tests.htslib_helpers import (
     vcf_calls,
     write_fasta,
 )
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.commands import _microarray_combined, _microarray_vcf, microarray
 from wgsextract_cli.core import variant_files
 from wgsextract_cli.core.builds import ploidy_for_build
@@ -77,7 +78,7 @@ def test_convert_microarray_outputs_preserves_vendor_wgsextract_error(tmp_path):
     ref_fasta = tmp_path / "ref.fa"
     combined_kit.write_text("rs1\t1\t100\tAA\n")
     ref_fasta.touch()
-    args = SimpleNamespace(formats="23andme_v5")
+    args = microarray_params(formats="23andme_v5")
     lib = SimpleNamespace(root=str(tmp_path), build="GRCh37")
 
     with patch(
@@ -86,7 +87,7 @@ def test_convert_microarray_outputs_preserves_vendor_wgsextract_error(tmp_path):
     ):
         with pytest.raises(WGSExtractError, match="specific-template"):
             microarray._convert_microarray_outputs(
-                args=args,
+                params=args,
                 outdir=str(tmp_path),
                 base_name="sample",
                 lib=lib,
@@ -124,7 +125,7 @@ def _indexed_targets(path: Path, rows: list[str]) -> str:
 
 def _kit(tmp_path: Path, *, is_vcf: bool, out_vcf: str, fasta: str, targets: str):
     combined_kit = _microarray_combined._write_microarray_combined_kit(
-        args=SimpleNamespace(region=None),
+        params=microarray_params(region=None),
         outdir=str(tmp_path),
         base_name="sample",
         is_vcf=is_vcf,
@@ -363,7 +364,7 @@ def test_microarray_alignment_targets_normalize_to_input_chromosomes(tmp_path):
     )
 
     out_vcf, normalized = _microarray_vcf._prepare_microarray_vcf(
-        args=SimpleNamespace(input=bam, parallel=False, region=None),
+        params=microarray_params(input=bam, parallel=False, region=None),
         outdir=str(tmp_path),
         base_name="sample",
         is_vcf=False,
@@ -397,7 +398,7 @@ def test_microarray_vcf_returns_original_targets_for_reference_filling(tmp_path)
     )
 
     out_vcf, combined_targets = _microarray_vcf._prepare_microarray_vcf(
-        args=SimpleNamespace(input=vcf, parallel=False, region=None),
+        params=microarray_params(input=vcf, parallel=False, region=None),
         outdir=str(tmp_path),
         base_name="sample",
         is_vcf=True,

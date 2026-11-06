@@ -1,14 +1,15 @@
-import argparse
 import hashlib
 import json
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from scripts.build_microarray_chm13_map import write_site_map
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.commands import _microarray_chm13 as command
 from wgsextract_cli.core import library_cache
 from wgsextract_cli.core import microarray_aadr as aadr
@@ -104,7 +105,7 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         )
     )
     out = tmp_path / "outputs"
-    args = argparse.Namespace(
+    args = microarray_params(
         input=str(source),
         region=None,
         ref_vcf_tab=None,
@@ -160,7 +161,7 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         "rs10,[I/D],37,1,10,unverified context\n"
         "rs14,[D/I],37,1,invalid,unverified context\n"
     )
-    args.min_dp = 0
+    args = replace(args, min_dp=0)
     command.run_chm13(
         args,
         SimpleNamespace(root=str(tmp_path)),
@@ -173,7 +174,7 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
     masked_report = json.loads((out / "sample_CHM13_report.json").read_text())
     assert masked_report["asset_summary"]["manifest_indel_ids"] == 2
     assert masked_report["asset_summary"]["quarantined_asset_sites"] == 2
-    args.min_dp = 5
+    args = replace(args, min_dp=5)
     original = combined.read_bytes()
     records = source.read_text().splitlines(keepends=True)
     insertion = next(
@@ -223,7 +224,7 @@ def _run_gvcf(
         "chr1\t22\t.\tA\tG,<*>\t.\tPASS\t.\tGT\t0/1\n"
         "chr1\t23\t.\tA\t<*>\t.\t.\tEND=23\tGT\t./.\n"
     )
-    args = argparse.Namespace(
+    args = microarray_params(
         input=str(source),
         region=None,
         ref_vcf_tab=None,
@@ -339,8 +340,7 @@ def test_templates_must_cover_every_pinned_site(
     fasta = _native_library(tmp_path, monkeypatch)
     covered = list(aadr.aadr_markers("1240k"))[:-1]
     monkeypatch.setattr(command, "aadr_markers", lambda *_args: iter(covered))
-    args = argparse.Namespace(input=str(tmp_path / "s.vcf"), region=None)
-    args.ref_vcf_tab = args.ploidy_file = None
+    args = microarray_params(input=str(tmp_path / "s.vcf"), region=None)
     with pytest.raises(WGSExtractError, match="do not cover the pinned CHM13 map"):
         command.run_chm13(
             args, SimpleNamespace(root=str(tmp_path)), str(fasta), str(tmp_path), "1"

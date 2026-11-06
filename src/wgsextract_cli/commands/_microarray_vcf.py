@@ -1,4 +1,5 @@
-import argparse
+from __future__ import annotations
+
 import contextlib
 import gzip
 import logging
@@ -10,7 +11,7 @@ from bisect import bisect_left, bisect_right
 from concurrent.futures import Future
 from functools import partial
 from pathlib import Path
-from typing import Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
@@ -30,6 +31,9 @@ from wgsextract_cli.core.variant_files import (
 )
 
 from ._microarray_combined import _command_lines, _fasta_chromosomes, _open_text
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 # Reads with MAPQ under 10 could belong elsewhere in the genome. With them, a
 # marker where every read has MAPQ 0 (a duplicated region, or ALT-unaware
@@ -99,19 +103,19 @@ def _report_contig(progress: ContigProgress, chrom: str, future: Future[Any]) ->
 
 
 def _parallel_contigs(
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     threads: str,
     ref_vcf_tab: str,
     input_chroms: list[str] | None,
 ) -> list[str]:
     """Target contigs to call in separate workers, in alignment order, or none
     for one stream: parallel calling is the default with more than one thread."""
-    parallel = getattr(args, "parallel", None)
+    parallel = params.parallel
     if parallel is None:
         parallel = int(threads) > 1
-    if not parallel or args.region or not input_chroms:
+    if not parallel or params.region or not input_chroms:
         return []
-    if not alignment_index(args.input):
+    if not alignment_index(str(params.input)):
         logging.info("Calling serially: per-chromosome calling needs an index.")
         return []
     targets = set(_target_tab_chromosomes(ref_vcf_tab))
@@ -436,7 +440,7 @@ def _expand_gvcf_targets(
 
 def _prepare_microarray_vcf(
     *,
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     outdir: str,
     base_name: str,
     is_vcf: bool,
@@ -456,29 +460,33 @@ def _prepare_microarray_vcf(
     try:
         if input_chroms is None:
             if is_vcf:
-                ensure_vcf_indexed(args.input)
-                input_chroms = vcf_index_chromosomes(args.input)
+                ensure_vcf_indexed(str(params.input))
+                input_chroms = vcf_index_chromosomes(str(params.input))
             else:
-                input_chroms = _alignment_chromosomes(args.input, ref_fasta)
+                input_chroms = _alignment_chromosomes(str(params.input), ref_fasta)
 
         if input_chroms:
             ref_vcf_tab = _prepare_vcf_target_tab_for_input(
-                ref_vcf_tab, args.input, outdir, input_chroms
+                ref_vcf_tab, str(params.input), outdir, input_chroms
             )
             region_args = _normalize_region_args_for_input(region_args, input_chroms)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Microarray target normalization failed: {e}") from e
 
     mpileup_args = (
-        [] if is_vcf else [*ultima.bcftools_options(args.input)[0], *MPILEUP_ARGS]
+        []
+        if is_vcf
+        else [*ultima.bcftools_options(str(params.input))[0], *MPILEUP_ARGS]
     )
-    policy = quality_policy(args)
+    policy = quality_policy(params)
     call_format_args = []
     if not is_vcf and policy.needs_fields:
         mpileup_args += ["-a", "FORMAT/DP"]
         call_format_args = ["-f", "GQ"]
     if is_vcf:
-        logging.info(f"VCF input detected. Extracting target SNPs from {args.input}...")
+        logging.info(
+            f"VCF input detected. Extracting target SNPs from {str(params.input)}..."
+        )
         # For VCF input, we intersect our targets with the input VCF.
         # Any missing targets are assumed to be homozygous reference.
         try:
@@ -487,7 +495,7 @@ def _prepare_microarray_vcf(
             sample_args = ["--samples", sample, "--trim-alt-alleles"] if sample else []
             if gvcf:
                 _expand_gvcf_targets(
-                    args.input,
+                    str(params.input),
                     hit_vcf,
                     ref_vcf_tab=ref_vcf_tab,
                     ref_fasta=ref_fasta,
@@ -500,7 +508,7 @@ def _prepare_microarray_vcf(
                     ["bcftools", "view", "--targets-file", ref_vcf_tab]
                     + sample_args
                     + region_args
-                    + ["-Oz", "-o", hit_vcf, args.input]
+                    + ["-Oz", "-o", hit_vcf, str(params.input)]
                 )
             ensure_vcf_indexed(hit_vcf)
 
@@ -524,7 +532,7 @@ def _prepare_microarray_vcf(
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Microarray VCF extraction failed: {e}") from e
 
-    elif contigs := _parallel_contigs(args, threads, ref_vcf_tab, input_chroms):
+    elif contigs := _parallel_contigs(params, threads, ref_vcf_tab, input_chroms):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Event
 
@@ -551,7 +559,7 @@ def _prepare_microarray_vcf(
                         ref_fasta,
                         ref_vcf_tab,
                         ploidy_args,
-                        args.input,
+                        str(params.input),
                         mpileup_args,
                         call_format_args,
                         stop,
@@ -580,7 +588,7 @@ def _prepare_microarray_vcf(
                     ref_fasta=ref_fasta,
                     ref_vcf_tab=ref_vcf_tab,
                     ploidy_args=ploidy_args,
-                    input_path=args.input,
+                    input_path=str(params.input),
                     mpileup_args=mpileup_args,
                     call_format_args=call_format_args,
                 )
@@ -610,7 +618,7 @@ def _prepare_microarray_vcf(
                 [
                     ["bcftools", "mpileup", *region_args]
                     + [*mpileup_args, "-f", ref_fasta]
-                    + ["--targets-file", ref_vcf_tab, args.input],
+                    + ["--targets-file", ref_vcf_tab, str(params.input)],
                     ["bcftools", "call", *ploidy_args]
                     + ["-m", "-V", "indels", *call_format_args, "-Oz", "-o", out_vcf],
                 ],

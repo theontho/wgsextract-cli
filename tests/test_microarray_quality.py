@@ -1,7 +1,6 @@
-from types import SimpleNamespace
-
 import pytest
 
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.core import microarray_quality as quality
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -17,7 +16,7 @@ def test_config_policy_and_explicit_cli_overrides(monkeypatch):
             "microarray_call_reasons": True,
         },
     )
-    policy = quality.quality_policy(SimpleNamespace(min_gq=10, assume_hom_ref=True))
+    policy = quality.quality_policy(microarray_params(min_gq=10, assume_hom_ref=True))
     assert policy.min_gq == 10
     assert policy.min_dp == 5
     assert policy.assume_hom_ref is True
@@ -31,7 +30,7 @@ def test_config_policy_and_explicit_cli_overrides(monkeypatch):
 def test_invalid_quality_configuration_fails_cleanly(monkeypatch, value):
     monkeypatch.setattr(quality, "settings", {"microarray_min_dp": value})
     with pytest.raises(WGSExtractError, match="non-negative integer"):
-        quality.quality_policy(SimpleNamespace())
+        quality.quality_policy(microarray_params())
 
 
 def test_filtered_and_nonfinite_quality_are_explicit_no_calls():

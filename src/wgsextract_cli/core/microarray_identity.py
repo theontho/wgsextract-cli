@@ -1,15 +1,19 @@
 """Opt-in marker identity checks; probe-strand inference is deliberately excluded."""
 
-import argparse
+from __future__ import annotations
+
 import functools
 import gzip
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 _RSID_MAP = (
     Path(__file__).resolve().parents[1] / "assets/microarray/rsid/dbsnp157.tsv.gz"
@@ -96,11 +100,12 @@ class MicroarrayIdentity:
         return None
 
 
-def identity_policy(args: argparse.Namespace) -> MicroarrayIdentity:
-    strand = getattr(args, "strand_ambiguous", None)
+def identity_policy(params: MicroarrayParams | None = None) -> MicroarrayIdentity:
+    """The marker identity checks: ``params`` first, then config.toml."""
+    strand = params.strand_ambiguous if params else None
     if strand is None:
         strand = settings.get("microarray_strand_ambiguous", "keep")
-    resolve = getattr(args, "resolve_rsids", None)
+    resolve = params.resolve_rsids if params else None
     if resolve is None:
         resolve = settings.get("microarray_resolve_rsids", False)
     if not isinstance(strand, str) or strand not in {"keep", "no-call"}:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import logging
@@ -14,6 +13,7 @@ from collections import Counter
 from collections.abc import Iterator
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from wgsextract_cli.commands._microarray_combined import (
     _read_evidence,
@@ -67,6 +67,9 @@ from wgsextract_cli.core.variant_files import chromosome_aliases
 
 from ._microarray_combined import _command_lines, _reference_alleles
 from ._microarray_vcf import _expand_gvcf_targets, _prepare_microarray_vcf
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 
 def _regions(region: str | None) -> list[tuple[str, int, int]]:
@@ -238,7 +241,7 @@ def _extract_vcf(
 
 
 def run_chm13(
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     lib: ReferenceLibrary,
     ref_fasta: str,
     outdir: str,
@@ -253,7 +256,7 @@ def run_chm13(
     combined kit (GRCh37 coordinates)."""
     from .microarray import _resolve_microarray_format, _template_search_roots
 
-    if args.ref_vcf_tab or args.ploidy_file:
+    if params.ref_vcf_tab or params.ploidy_file:
         raise WGSExtractError(
             "CHM13 uses its pinned site map and validated PAR ploidy; "
             "--ref-vcf-tab and --ploidy-file overrides are not supported."
@@ -264,14 +267,14 @@ def run_chm13(
         cache_dir=cache_root / "chm13" if cache_root else None
     )
     names = validate_chm13_reference(Path(ref_fasta), catalogue)
-    regions = _regions(args.region)
+    regions = _regions(params.region)
     if any(chrom not in names for chrom, _start, _end in regions):
         raise WGSExtractError("CHM13 region names an unsupported chromosome.")
-    is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".vcf.bgz", ".bcf"))
+    is_vcf = str(params.input).endswith((".vcf", ".vcf.gz", ".vcf.bgz", ".bcf"))
     input_chroms = None
     if not is_vcf:
         input_chroms = validate_chm13_alignment_header(
-            get_bam_header(args.input, ref_fasta), catalogue, names
+            get_bam_header(str(params.input), ref_fasta), catalogue, names
         )
     roots = _template_search_roots(ref_fasta, lib)
     cache = microarray_chm13_cache.cache_directory(cache_root, catalogue, roots)
@@ -306,7 +309,7 @@ def run_chm13(
             for key in marker_rejections
         ),
     }
-    quality, identity = quality_policy(args), identity_policy(args)
+    quality, identity = quality_policy(params), identity_policy(params)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="CHM13_", dir=outdir))
     target = microarray_chm13_cache.target(
@@ -316,13 +319,15 @@ def run_chm13(
         partial(_target, catalogue, markers, names, regions),
         directory,
     )
-    base = base_name or input_stem(args.input)
+    base = base_name or input_stem(str(params.input))
     out_vcf = str(directory / f"{base}_native.vcf.gz")
     indel_calls = {}
     if is_vcf:
         if gvcf:
             extracted = str(directory / f"{base}_blocks.vcf.gz")
-            _extract_vcf(args.input, target, extracted, catalogue, names, directory)
+            _extract_vcf(
+                str(params.input), target, extracted, catalogue, names, directory
+            )
             _expand_gvcf_targets(
                 extracted,
                 out_vcf,
@@ -332,7 +337,9 @@ def run_chm13(
                 outdir=str(directory),
             )
         else:
-            _extract_vcf(args.input, target, out_vcf, catalogue, names, directory)
+            _extract_vcf(
+                str(params.input), target, out_vcf, catalogue, names, directory
+            )
     else:
         ploidy = write_chm13_ploidy(catalogue, names, directory)
         region_args = (
@@ -348,13 +355,13 @@ def run_chm13(
         )
         ploidy_args = ["--ploidy-file", str(ploidy)]
         with sex_samples_args(
-            args.input,
+            str(params.input),
             str(directory),
             ploidy_args,
             region=region_args[1] if region_args else None,
         ) as sex_args:
             out_vcf, target = _prepare_microarray_vcf(
-                args=args,
+                params=params,
                 outdir=str(directory),
                 base_name=base,
                 is_vcf=False,
@@ -375,7 +382,7 @@ def run_chm13(
                 indel_calls = call_chm13_indels(
                     indel_bindings,
                     roots,
-                    args=args,
+                    params=params,
                     catalogue=catalogue,
                     names=names,
                     fasta=ref_fasta,
@@ -415,7 +422,7 @@ def run_chm13(
         {
             (canonical_chromosome(chrom), int(position)): reason
             for (chrom, position), reason in _read_evidence(
-                args, target, str(directory), ref_fasta
+                params, target, str(directory), ref_fasta
             ).items()
         }
         if quality.call_reasons and not is_vcf
@@ -475,19 +482,19 @@ def run_chm13(
             ref_counts[call.site.ref_status] += 1
     del calls, markers, reference, evidence
     tallies: dict[str, GenotypeTally] = {}
-    for key in dict.fromkeys(args.formats.split(",")):
-        panel = aadr_panel(key)
+    for fmt_key in dict.fromkeys(params.formats.split(",")):
+        panel = aadr_panel(fmt_key)
         if panel:
             write_aadr_outputs(
                 panel,
                 str(combined),
                 str(Path(outdir, f"{base}_AADR_{panel}")),
-                sample_id=getattr(args, "aadr_sample_id", "sample"),
-                sex=getattr(args, "aadr_sex", "U"),
+                sample_id=params.aadr_sample_id,
+                sex=params.aadr_sex,
             )
             record_aadr(outdir, base, panel)
             continue
-        real_format = _resolve_microarray_format(key)
+        real_format = _resolve_microarray_format(fmt_key)
         if real_format is None:
             continue
         info = get_template_format(real_format)
@@ -508,7 +515,7 @@ def run_chm13(
             roots,
             chain36,
             identity=identity,
-            quirks=quirks_mode(args),
+            quirks=quirks_mode(params),
             indel_calls={
                 **vendor_no_calls(real_format, roots, rejected_ids),
                 **indel_calls.get(real_format, {}),

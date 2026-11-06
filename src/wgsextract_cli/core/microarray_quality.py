@@ -1,12 +1,16 @@
 """Opt-in microarray call policies; legacy defaults deliberately remain unchanged."""
 
-import argparse
+from __future__ import annotations
+
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 
 @dataclass(frozen=True)
@@ -43,7 +47,7 @@ class MicroarrayQuality:
         return None
 
 
-def quality_policy(args: argparse.Namespace) -> MicroarrayQuality:
+def quality_policy(params: MicroarrayParams) -> MicroarrayQuality:
     values: dict[str, Any] = {}
     for key, default in (
         ("min_gq", 0),
@@ -52,7 +56,7 @@ def quality_policy(args: argparse.Namespace) -> MicroarrayQuality:
         ("exclude_filtered", False),
         ("call_reasons", False),
     ):
-        value = getattr(args, key, None)
+        value = getattr(params, key, None)
         if value is None:
             value = settings.get(f"microarray_{key}", default)
         if key in {"min_gq", "min_dp"}:

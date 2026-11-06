@@ -1,4 +1,5 @@
-import argparse
+from __future__ import annotations
+
 import contextlib
 import glob
 import gzip
@@ -9,7 +10,7 @@ import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_quality import MicroarrayQuality, quality_policy
@@ -23,6 +24,9 @@ from wgsextract_cli.core.variant_files import (
     chromosome_aliases,
     match_chromosome_name,
 )
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 _BASES = {"A", "C", "G", "T", "N"}
 
@@ -130,7 +134,7 @@ def _validate_quality_sample(
 def _write_vcf_mode_kit(
     f_out: TextIO,
     *,
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     outdir: str,
     out_vcf: str,
     ref_fasta: str,
@@ -138,8 +142,8 @@ def _write_vcf_mode_kit(
     reasons: dict[tuple[str, str], str] | None = None,
     restrict_reference_fill: bool = False,
 ) -> None:
-    policy = quality_policy(args)
-    identity = identity_policy(args)
+    policy = quality_policy(params)
+    identity = identity_policy(params)
     fields = policy.needs_fields or identity.needs_alleles
     _validate_quality_sample(policy, out_vcf, outdir, identity_enabled=identity.enabled)
     variant_calls: dict[tuple[str, str], str] = {}
@@ -193,7 +197,7 @@ def _write_vcf_mode_kit(
     if restrict_reference_fill:
         # Extra panel hits must not make legacy-only targets appear covered.
         called_contigs = set()
-        for line in _target_lines(args, ref_vcf_tab, outdir):
+        for line in _target_lines(params, ref_vcf_tab, outdir):
             parts = line.rstrip("\n").split("\t")
             if len(parts) >= 2 and (parts[0], parts[1]) in variant_calls:
                 called_contigs.add(parts[0])
@@ -209,10 +213,10 @@ def _write_vcf_mode_kit(
     with contextlib.ExitStack() as stack:
         targets: Iterator[str] = (
             _command_lines(
-                ["tabix", ref_vcf_tab, *_in_targets_naming(args.region, ref_vcf_tab)],
+                ["tabix", ref_vcf_tab, *_in_targets_naming(params.region, ref_vcf_tab)],
                 outdir,
             )
-            if args.region
+            if params.region
             else stack.enter_context(_open_text(ref_vcf_tab))
         )
         ref_col_idx = -1
@@ -294,11 +298,11 @@ def _write_alignment_mode_kit(
     outdir: str,
     out_vcf: str,
     policy: MicroarrayQuality | None = None,
-    args: argparse.Namespace | None = None,
+    params: MicroarrayParams | None = None,
     reasons: dict[tuple[str, str], str] | None = None,
 ) -> None:
     policy = policy or MicroarrayQuality()
-    identity = identity_policy(args or argparse.Namespace())
+    identity = identity_policy(params)
     fields = policy.needs_fields or identity.needs_alleles
     _validate_quality_sample(policy, out_vcf, outdir, identity_enabled=identity.enabled)
     rows = called = 0
@@ -372,10 +376,10 @@ def _write_alignment_mode_kit(
             )
 
 
-def _target_lines(args: argparse.Namespace, targets: str, outdir: str) -> Iterator[str]:
-    if args.region:
+def _target_lines(params: MicroarrayParams, targets: str, outdir: str) -> Iterator[str]:
+    if params.region:
         yield from _command_lines(
-            ["tabix", targets, *_in_targets_naming(args.region, targets)], outdir
+            ["tabix", targets, *_in_targets_naming(params.region, targets)], outdir
         )
     else:
         with _open_text(targets) as source:
@@ -383,19 +387,21 @@ def _target_lines(args: argparse.Namespace, targets: str, outdir: str) -> Iterat
 
 
 def _read_evidence(
-    args: argparse.Namespace, targets: str, outdir: str, ref_fasta: str
+    params: MicroarrayParams, targets: str, outdir: str, ref_fasta: str
 ) -> dict[tuple[str, str], str]:
     fd, bed = tempfile.mkstemp(suffix=".call-reasons.bed", dir=outdir)
     evidence: dict[tuple[str, str], str] = {}
     try:
         with os.fdopen(fd, "w", newline="\n") as destination:
-            for line in _target_lines(args, targets, outdir):
+            for line in _target_lines(params, targets, outdir):
                 if line.startswith("#") or not line.strip():
                     continue
                 chrom, pos, *_ = line.rstrip("\n").split("\t")
                 if pos.isdigit() and int(pos) > 0:
                     destination.write(f"{chrom}\t{int(pos) - 1}\t{pos}\n")
-        regions = _in_targets_naming(args.region, targets) if args.region else [None]
+        regions = (
+            _in_targets_naming(params.region, targets) if params.region else [None]
+        )
         for mapq in (0, 10):
             for region in regions:
                 for line in _command_lines(
@@ -411,7 +417,7 @@ def _read_evidence(
                         "0",
                         "-Q",
                         str(mapq),
-                        args.input,
+                        str(params.input),
                     ],
                     outdir,
                 ):
@@ -427,7 +433,7 @@ def _read_evidence(
 
 def _write_reason_report(
     combined: str,
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     targets: str,
     outdir: str,
     is_vcf: bool,
@@ -441,13 +447,13 @@ def _write_reason_report(
                 fields = line.rstrip("\n").split("\t")
                 if len(fields) >= 4:
                     calls[(fields[1], fields[2])] = fields[3]
-    evidence = {} if is_vcf else _read_evidence(args, targets, outdir, ref_fasta)
+    evidence = {} if is_vcf else _read_evidence(params, targets, outdir, ref_fasta)
     report = str(Path(combined).with_name(Path(combined).stem + "_reasons.tsv"))
     staged = report + ".tmp"
     try:
         with open(staged, "w", newline="\n") as destination:
             destination.write("# RSID\tCHROM\tPOS\tRESULT\tCALL_REASON\n")
-            for line in _target_lines(args, targets, outdir):
+            for line in _target_lines(params, targets, outdir):
                 if line.startswith("#") or not line.strip():
                     continue
                 chrom, pos, rsid, *_ = line.rstrip("\n").split("\t")
@@ -466,7 +472,7 @@ def _write_reason_report(
 
 def _write_microarray_combined_kit(
     *,
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     outdir: str,
     base_name: str,
     is_vcf: bool,
@@ -478,7 +484,7 @@ def _write_microarray_combined_kit(
     combined_kit_txt = str(Path(outdir, f"{base_name}_CombinedKit.txt"))
     logging.info(f"Extracting genotypes to {combined_kit_txt}...")
     start_ext = time.time()
-    policy = quality_policy(args)
+    policy = quality_policy(params)
     reasons: dict[tuple[str, str], str] | None = {} if policy.call_reasons else None
 
     tmp_txt = combined_kit_txt + ".tmp"
@@ -488,7 +494,7 @@ def _write_microarray_combined_kit(
             if is_vcf:
                 _write_vcf_mode_kit(
                     f_out,
-                    args=args,
+                    params=params,
                     outdir=outdir,
                     out_vcf=out_vcf,
                     ref_fasta=ref_fasta,
@@ -502,13 +508,19 @@ def _write_microarray_combined_kit(
                     outdir=outdir,
                     out_vcf=out_vcf,
                     policy=policy,
-                    args=args,
+                    params=params,
                     reasons=reasons,
                 )
         Path(tmp_txt).replace(combined_kit_txt)
         if reasons is not None:
             _write_reason_report(
-                combined_kit_txt, args, ref_vcf_tab, outdir, is_vcf, reasons, ref_fasta
+                combined_kit_txt,
+                params,
+                ref_vcf_tab,
+                outdir,
+                is_vcf,
+                reasons,
+                ref_fasta,
             )
     except (OSError, gzip.BadGzipFile, subprocess.SubprocessError, ValueError) as e:
         raise WGSExtractError(f"Failed to generate CombinedKit.txt: {e}") from e
