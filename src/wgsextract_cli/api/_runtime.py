@@ -213,10 +213,11 @@ def execute(
 ) -> CommandResult:
     """Run one operation as a library call and return its result.
 
-    Human-readable text is not printed and external tools' stdout goes to
-    stderr; the process's stdout is not redirected, so the caller's own writes
-    (from a progress callback or other threads) still reach it. With ``check`` a failed or cancelled
-    operation raises ``CommandFailed`` carrying the result; without it the
+    The human-readable report is not printed but kept in ``Result.text``, and
+    external tools' stdout goes to stderr; the process's stdout is not
+    redirected, so the caller's own writes (from a progress callback or other
+    threads) still reach it. With ``check`` a failed or cancelled operation
+    raises ``CommandFailed`` carrying the result; without it the
     result is returned with ``status`` and ``error`` set. The manifest is
     written next to the outputs as the CLI does, unless ``write_manifest`` is
     false. ``KeyboardInterrupt`` propagates, after the operation's tools are

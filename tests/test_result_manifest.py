@@ -928,3 +928,24 @@ def test_analyze_steps_show_their_output_and_keep_their_results(tmp_path, capfd)
     roles = {o.role: o for o in result.outputs}
     assert roles["vcf_stats"].path == str(out / "fake.vcf.gz.vcfstats.txt")
     assert not [p for p in out.iterdir() if p.name.startswith(".wgse-step-")]
+
+
+def test_a_text_sink_can_read_the_report_and_detach_itself():
+    """#470 review: a sink that redraws the whole report or stops streaming
+    from inside its callback must not deadlock the command."""
+    result = results.CommandResult(command="test")
+    seen: list[str] = []
+
+    def sink(text: str) -> None:
+        seen.append(result.text)
+        result.stream_text(None)
+
+    result.stream_text(sink)
+    worker = threading.Thread(
+        target=lambda: [result.add_text("a\n"), result.add_text("b\n")],
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert seen == ["a\n"] and result.text == "a\nb\n"

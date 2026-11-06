@@ -18,8 +18,9 @@ res.outputs, res.metrics, res.warnings
 Operations raise `CommandFailed` (carrying the failed `Result`) unless
 called with `check=False`. They accept a `progress` callback and a
 `CancelToken`. Operations run one at a time per process. They write the same
-output files and manifests as the CLI but print nothing to stdout: their
-human-readable text is suppressed and external tools' stdout goes to stderr.
+output files and manifests as the CLI but print nothing to stdout: the
+human-readable report the CLI would print is in `Result.text` instead, and
+external tools' stdout goes to stderr.
 Stdout itself is left alone, so the caller's own writes (including from a
 progress callback or other threads) still reach it, e.g. a stdio JSON-RPC server.
 
@@ -40,7 +41,7 @@ See docs/api.md.
 
 ## Results, progress and cancellation
 
-`api.Result` is the `CommandResult` model of the [result manifest](result-manifest.md): `status`, `exit_code`, `error`, `inputs`, `outputs`, `metrics`, `warnings`, `details`, `manifest` and `provenance`; `to_dict()` and `to_json()` give the `wgsextract.result/1` document. `api.json_schema(cls)` gives a JSON Schema of a Params class; `wgsextract help --all --json` includes it as each typed command's `input_schema`, with each property's flag as `x-cli-flag` (a positional argument's metavar as `x-cli-positional`).
+`api.Result` is the `CommandResult` model of the [result manifest](result-manifest.md): `status`, `exit_code`, `error`, `inputs`, `outputs`, `metrics`, `warnings`, `details`, `manifest` and `provenance`; `to_dict()` and `to_json()` give the `wgsextract.result/1` document. `text` is the human-readable report the CLI prints (without `--json`); it is not in the manifest. `api.json_schema(cls)` gives a JSON Schema of a Params class; `wgsextract help --all --json` includes it as each typed command's `input_schema`, with each property's flag as `x-cli-flag` (a positional argument's metavar as `x-cli-positional`).
 
 ### `api.ProgressEvent`
 

@@ -69,6 +69,8 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     )
     result.provenance.argv = redact_argv(getattr(args, "_argv", None) or sys.argv[1:])
     result.provenance.params = params_from_args(args)
+    if not as_json:
+        result.stream_text(_to_stdout)
     reserved = stdout_reserved() if as_json else contextlib.nullcontext(sys.stdout)
     tail = LogTail()
     root = logging.getLogger()
@@ -103,6 +105,10 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     if result.exit_code:
         sys.exit(result.exit_code)
     print_next_steps(args, result)
+
+
+def _to_stdout(text: str) -> None:
+    print(text, end="")
 
 
 def _progress_line(

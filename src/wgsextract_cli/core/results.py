@@ -26,7 +26,7 @@ import stat
 import sys
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib import resources
@@ -395,6 +395,9 @@ class CommandResult:
         self._tool_versions: dict[str, str] = {}
         self._manifest_stem: Path | None = None
         self._clock = time.monotonic()
+        self._text_lock = threading.RLock()
+        self._text: list[str] = []
+        self._text_sink: Callable[[str], object] | None = None
 
     # --- recording -------------------------------------------------------
 
@@ -444,6 +447,25 @@ class CommandResult:
         warning = ResultWarning(code, _redact_strings(message), dict(details))
         with self._lock:
             self.warnings.append(warning)
+
+    @property
+    def text(self) -> str:
+        """The human-readable report: what the CLI prints on stdout without
+        --json, less external tools' own output. Not part of the manifest."""
+        with self._text_lock:
+            return "".join(self._text)
+
+    def add_text(self, text: str) -> None:
+        """Append to ``text``, passing it on to the sink set by ``stream_text``."""
+        with self._text_lock:
+            self._text.append(text)
+            if self._text_sink is not None:
+                self._text_sink(text)
+
+    def stream_text(self, sink: Callable[[str], object] | None) -> None:
+        """Pass ``text`` to ``sink`` as it is written (the CLI's stdout)."""
+        with self._text_lock:
+            self._text_sink = sink
 
     def set_details(self, details: Mapping[str, Any] | None) -> None:
         self.details = None if details is None else dict(details)
@@ -666,9 +688,14 @@ def warn(code: str, message: str, **details: Scalar) -> None:
 
 
 def human_output(*values: object, sep: str = " ", end: str = "\n") -> None:
-    """print() for human-readable results; silent under --json."""
-    if not _json_mode:
-        print(*values, sep=sep, end=end)
+    """print() for human-readable results: the text goes on the running
+    command's ``CommandResult.text``, which the CLI streams to stdout unless
+    --json is given. Outside a command it is printed."""
+    text = sep.join(map(str, values)) + end
+    if _active is not None:
+        _active.add_text(text)
+    elif not _json_mode:
+        print(text, end="")
 
 
 FileSnapshot = dict[str, tuple[int, int]]

@@ -11,7 +11,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.results import current_result, json_mode, warn
+from wgsextract_cli.core.results import current_result, human_output, warn
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import calculate_bam_md5, verify_paths_exist
 
@@ -121,21 +121,19 @@ def run_y_str(params: YStrParams) -> None:
             "FamilyTreeDNA's convention (see value_convention in the table).",
             markers=unverified,
         )
-    if json_mode():
-        return
-    print(
+    human_output(
         f"\n🧬 Y-STR {params.panel} (build {build}): {len(called)}/{len(calls)} called"
     )
-    print("-" * 52)
-    print(f"{'Marker':<13}{'Value':>8}  {'Reads':>5}  Note")
+    human_output("-" * 52)
+    human_output(f"{'Marker':<13}{'Value':>8}  {'Reads':>5}  Note")
     for c in calls:
         note = STATUS_TEXT[c.status]
         if c.status == "called" and not c.marker.value_verified:
             note = "unverified FTDNA convention"
         reads = f"{c.support}/{c.spanning}" if c.spanning else ""
-        print(f"{c.marker.name:<13}{c.value or '-':>8}  {reads:>5}  {note}")
-    print("-" * 52)
-    print(f"Results: {table}\nFTDNA-order CSV: {ftdna_csv}\n")
+        human_output(f"{c.marker.name:<13}{c.value or '-':>8}  {reads:>5}  {note}")
+    human_output("-" * 52)
+    human_output(f"Results: {table}\nFTDNA-order CSV: {ftdna_csv}\n")
 
 
 cmd_ystr = cli_handler(YStrParams, run_y_str)

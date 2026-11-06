@@ -182,6 +182,34 @@ def test_info_matches_the_cli(fake_data, tmp_path, capsys):
     assert [o["role"] for o in cli["outputs"]] == [o.role for o in result.outputs]
 
 
+@needs_tools("bcftools", "tabix")
+def test_the_human_report_is_on_the_result_as_the_cli_prints_it(
+    fake_data, tmp_path, capsys
+):
+    """#346: an API caller gets the text the CLI prints, both from
+    ``human_output`` (vcf table) and from a former print() renderer that
+    --json skipped (ref status); --json stdout is still only the manifest."""
+    vcf = FAKE_DIR / "fake.vcf.gz"
+    table = api.vcf.table(api.VcfTableParams(input=vcf, outdir=tmp_path))
+    status = api.ref.status(api.RefStatusParams(ref=FAKE_DIR))
+    assert capsys.readouterr().out == ""
+    assert "variant rows" in table.text
+    assert "Reference library:" in status.text
+
+    cli_runs = [
+        (["vcf", "table", "-i", str(vcf), "--outdir", str(tmp_path)], table),
+        (["ref", "status", "--ref", str(FAKE_DIR)], status),
+    ]
+    for argv, result in cli_runs:
+        rc, stdout, stderr = run_cli(argv)
+        assert rc == 0, stderr
+        assert stdout == result.text
+
+    rc, stdout, stderr = run_cli(["ref", "status", "--ref", str(FAKE_DIR), "--json"])
+    assert rc == 0, stderr
+    assert json.loads(stdout)["details"] == json.loads(json.dumps(status.details))
+
+
 def test_cancel_while_tools_run(fake_data, tmp_path):
     bam, ref = fake_data
     token = api.CancelToken()
