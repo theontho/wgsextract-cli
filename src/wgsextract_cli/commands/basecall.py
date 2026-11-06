@@ -18,7 +18,8 @@ from pathlib import Path
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
 from wgsextract_cli.api.align import DORADO_MODELS, BasecallParams
-from wgsextract_cli.core.atomic_output import safe_output
+from wgsextract_cli.commands._extract_helpers import cleanup_files
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled, safe_output
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.dev_download_cache import wgsextract_cache_root
@@ -118,16 +119,11 @@ def resolve_device(requested: str) -> str:
     return "cuda:all" if _nvidia_gpu() else "cpu"
 
 
-def check_model(model: str, modifications: list[str]) -> bool:
+def check_model(model: str) -> bool:
     """True when ``model`` is a model folder, False for a name Dorado resolves."""
     if _MODEL.fullmatch(model):
         return False
     if Path(model).expanduser().is_dir():
-        if modifications:
-            raise UsageError(
-                "--modified-bases needs a model name (fast, hac or sup): Dorado "
-                "only picks modification models for the models it names."
-            )
         return True
     raise UsageError(
         f"--model {model}: give fast, hac or sup (optionally @v<version>), or "
@@ -248,7 +244,7 @@ def _alignment_reference(params: BasecallParams, alignment: str) -> str | None:
 def run_basecall(params: BasecallParams) -> None:
     source = Path(params.input).expanduser().absolute()
     codes = modification_codes(params.modified_bases)
-    model_folder = check_model(params.model, codes)
+    model_folder = check_model(params.model)
     model = str(Path(params.model).expanduser()) if model_folder else params.model
     pod5_files(source)
     device = resolve_device(params.device)
@@ -295,7 +291,13 @@ def run_basecall(params: BasecallParams) -> None:
         command = dorado_command(
             dorado, model, source, device, models_dir, codes, read_ids
         )
-        with safe_output(out_bam) as staged, open(staged, "wb") as stream:
+        with (
+            cleanup_files(
+                on_failure=[out_bam], preserve_outputs=atomic_outputs_enabled()
+            ),
+            safe_output(out_bam) as staged,
+            open(staged, "wb") as stream,
+        ):
             try:
                 run_command(command, stdout=stream)
             except (OSError, subprocess.SubprocessError) as error:
@@ -334,7 +336,6 @@ def run_basecall(params: BasecallParams) -> None:
             modifications=",".join(codes),
         )
     human_output(f"Unaligned BAM: {out_bam} ({reads:,} reads)")
-    human_output(f"Next: wgsextract align --r1 {out_bam} --ref <reference>")
 
 
 def register(

@@ -237,6 +237,7 @@ class BasecallParams(Params):
         "sup@v5.2.0; picked for the run's chemistry), or a model folder "
         "(default: hac)",
         metavar="MODEL",
+        may_name_file=True,
     )
     modified_bases: str | None = param(
         None,

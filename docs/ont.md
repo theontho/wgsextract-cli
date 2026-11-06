@@ -13,13 +13,13 @@ BAM/CRAM `PL:ULTIMA` automatic path is unchanged. Other detected platforms
 may be reported, but reporting does not select their alignment workflows.
 
 CPU ONT alignment uses minimap2 `map-ont`, carries `MM`, `ML` and `MN` through
-`samtools fastq -T MM,ML,MN` and `minimap2 -y`, and soft-clips supplementary
+`samtools fastq -T MM,ML,MN,pi` and `minimap2 -y`, and soft-clips supplementary
 alignments (`-Y`) so the modification coordinates still describe the full read.
 Sorting retains these tags. Long reads from a BAM/CRAM keep its read groups'
 descriptions (`DS`, where Dorado names its `basecall_model` and
 `modbase_models`, and PacBio its `READTYPE`) in the new read group, so
 `vcf clair3` can still choose its model from them.
-FASTQ input first passes through `samtools import -T MM,ML,MN`, so ordinary
+FASTQ input first passes through `samtools import -T MM,ML,MN,pi`, so ordinary
 ONT `runid`/channel comments do not become invalid SAM fields with `-y`.
 Realignment streams single-end tagged FASTQ instead
 of reusing potentially untagged paired FASTQs. With `--keep-fastq` it first

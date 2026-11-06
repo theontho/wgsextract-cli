@@ -25,7 +25,8 @@ APPLE_SILICON = sys.platform == "darwin" and platform.machine() == "arm64"
 
 # Like Dorado: models named for the run's chemistry are fetched into
 # --models-directory; reads go to stdout as BAM, with the models in @RG DS and
-# MM/ML for --modified-bases. A "POD5" here is lines of "<read id>\t<bases>".
+# MM/ML for --modified-bases. A "POD5" here is lines of "<read id>\t<bases>";
+# a read named split* is split in two, each half naming it in a pi tag.
 _FAKE_DORADO = r"""
 import json, os, subprocess, sys
 
@@ -67,17 +68,29 @@ for path in files:
         tags = "\tRG:Z:run1_" + model
         if mods and {modified}:
             tags += "\tMM:Z:C+m?,0;\tML:B:C,230"
-        sam.append(f"{{name}}\t4\t*\t0\t0\t*\t*\t0\t0\t{{seq}}\t{{'5' * len(seq)}}{{tags}}")
+        parts = [(name, seq, "")]
+        if name.startswith("split"):
+            half = len(seq) // 2
+            parts = [(name + "-a", seq[:half], "\tpi:Z:" + name),
+                     (name + "-b", seq[half:], "\tpi:Z:" + name)]
+        for read, bases, pi in parts:
+            sam.append(f"{{read}}\t4\t*\t0\t0\t*\t*\t0\t0\t{{bases}}\t"
+                       f"{{'5' * len(bases)}}{{tags}}{{pi}}")
+if {fail}:
+    sys.stdout.buffer.write(b"partial")
+    sys.exit("dorado: out of memory")
 subprocess.run([{samtools!r}, "view", "-b", "-"], input="\n".join(sam) + "\n",
                text=True, check=True)
 """
 
 
 class FakeDorado:
-    def __init__(self, bindir: Path, version: str = "2.1.2+8b8fc5d", modified=True):
+    def __init__(
+        self, bindir: Path, version="2.1.2+8b8fc5d", modified=True, fail=False
+    ):
         self.log = bindir / "dorado-runs.jsonl"
         self.path = python_tool(bindir, "dorado", _FAKE_DORADO.format(
-            version=version, log=str(self.log), modified=modified,
+            version=version, log=str(self.log), modified=modified, fail=fail,
             samtools=shutil.which("samtools"),
         ))  # fmt: skip
 
@@ -123,9 +136,8 @@ def _view(path, *opts):
 def _basecall(tmp_path, source, **params):
     params.setdefault("models_dir", tmp_path / "models")
     params.setdefault("device", "cpu")
-    return api.align.basecall(
-        api.BasecallParams(input=source, outdir=tmp_path / "out", **params)
-    )
+    params.setdefault("outdir", tmp_path / "out")
+    return api.align.basecall(api.BasecallParams(input=source, **params))
 
 
 def _codes(result):
@@ -177,6 +189,91 @@ def test_modified_bases_survive_into_the_aligned_bam(tmp_path, genome, dorado):
     [read_group] = [line for line in header.splitlines() if line.startswith("@RG")]
     assert "PL:ONT" in read_group
     assert "basecall_model=dna_r10.4.1_e8.2_400bps_hac@v5.0.0" in read_group
+
+
+def _align(bam, ref, outdir):
+    run_wgsextract(
+        "align", "--r1", str(bam), "--ref", str(ref), "--outdir", str(outdir),
+        "--threads", "1", "--memory", "256M",
+    )  # fmt: skip
+    [aligned] = Path(outdir).glob("*.bam")
+    return aligned
+
+
+def _read_group(bam):
+    header = run_command(["samtools", "view", "-H", str(bam)], capture_output=True)
+    [line] = [x for x in header.stdout.splitlines() if x.startswith("@RG")]
+    return line
+
+
+@needs_tools("minimap2")
+def test_a_split_read_is_re_basecalled_after_alignment(tmp_path, genome, dorado):
+    """#469 review: Dorado's split reads keep their parent (pi) through
+    `align`, so a panel re-basecall of the aligned BAM asks Dorado for the
+    POD5 read rather than the halves' names, which the POD5 does not have."""
+    seq, ref = genome
+    pod5 = _pod5(tmp_path / "run.pod5", {"split0": seq[1_000:7_000]})
+    _basecall(tmp_path, pod5)
+    aligned = _align(tmp_path / "out" / "run.hac.bam", ref, tmp_path / "aligned")
+    assert {r[0] for r in _view(aligned)} == {"split0-a", "split0-b"}
+    panel = tmp_path / "panel.bed"
+    panel.write_text("chr1\t5000\t6000\n")
+
+    result = _basecall(
+        tmp_path, pod5, regions_bed=panel, alignment=aligned, ref=ref,
+        outdir=tmp_path / "panel",
+    )  # fmt: skip
+
+    assert "no_reads" not in _codes(result)
+    assert {r[0] for r in _view(tmp_path / "panel" / "run.hac.subset.bam")} == {
+        "split0-a",
+        "split0-b",
+    }
+
+
+@needs_tools("minimap2", "bgzip")
+def test_realign_keep_fastq_keeps_the_basecaller_models(tmp_path, genome, dorado):
+    """#469 review: realigning through a kept FASTQ still names the Dorado
+    models in the new read group, so Clair3 can choose its model."""
+    seq, ref = genome
+    pod5 = _pod5(tmp_path / "run.pod5", _reads(seq))
+    _basecall(tmp_path, pod5)
+    aligned = _align(tmp_path / "out" / "run.hac.bam", ref, tmp_path / "aligned")
+
+    run_wgsextract(
+        "realign", "--input", str(aligned), "--ref", str(ref), "--keep-fastq",
+        "--outdir", str(tmp_path / "re"), "--threads", "1", "--memory", "256M",
+    )  # fmt: skip
+
+    [realigned] = (tmp_path / "re").glob("*_aligned.bam")
+    assert list((tmp_path / "re").glob("*.fastq.gz"))
+    assert "basecall_model=dna_r10.4.1_e8.2_400bps_hac@v5.0.0" in _read_group(realigned)
+
+
+def test_a_model_folder_takes_modified_bases(tmp_path, genome, dorado):
+    """#469 review: a downloaded simplex model folder works with
+    --modified-bases; Dorado finds the matching modification model."""
+    model = tmp_path / "dna_r10.4.1_e8.2_400bps_hac@v5.0.0"
+    model.mkdir()
+    pod5 = _pod5(tmp_path / "run.pod5", _reads(genome[0]))
+
+    result = _basecall(tmp_path, pod5, model=str(model), modified_bases="5mCG")
+
+    assert result.metrics["reads_with_modifications"] == 4
+    [argv] = dorado.runs()
+    assert argv[1] == str(model)
+
+
+def test_a_failed_dorado_leaves_no_bam(tmp_path, genome):
+    """#469 review: a Dorado crash part-way leaves no truncated BAM behind
+    for align to pick up."""
+    fake = FakeDorado(tmp_path / "bin", fail=True)
+    pod5 = _pod5(tmp_path / "run.pod5", _reads(genome[0]))
+
+    with pytest.raises(api.CommandFailed, match="Dorado failed"):
+        _basecall(tmp_path, pod5, dorado_path=str(fake.path))
+
+    assert not list((tmp_path / "out").glob("*.bam*"))
 
 
 def test_a_folder_is_basecalled_recursively(tmp_path, genome, dorado):

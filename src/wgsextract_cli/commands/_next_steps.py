@@ -28,6 +28,7 @@ NEXT_STEPS: dict[str, tuple[str, ...]] = {
     "microarray": (_MT,),
     "lineage y-haplogroup": (_MT,),
     "lineage mt-haplogroup": (_TO_CHIP, _REPORT),
+    "basecall": ("wgsextract align --r1 {bam}",),
     "align": (_CHECK_BAM,),
     "realign": (_CHECK_BAM,),
     "vcf snp": _ANNOTATE,

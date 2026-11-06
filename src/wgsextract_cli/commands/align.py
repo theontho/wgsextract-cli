@@ -65,8 +65,9 @@ from ._extract_helpers import cleanup_files
 
 PACBIO_PLATFORMS = {"pacbio", "hifi", "clr"}
 _LONG_READ_PLATFORMS = PACBIO_PLATFORMS | {"ont", "nanopore"}
-# Base-modification tags (and ONT's MN) that long reads keep through alignment.
-LONG_READ_TAGS = "MM,ML,MN"
+# Base-modification tags (and ONT's MN), and the parent read ID (pi) of a read
+# Dorado split, that long reads keep through alignment.
+LONG_READ_TAGS = "MM,ML,MN,pi"
 # pbmm2-style preset names accepted by minimap2 under their minimap2 names.
 _MINIMAP2_PRESET_ALIASES = {"ccs": "map-hifi", "subread": "map-pb"}
 _PBMM2_PRESETS = {
@@ -680,7 +681,7 @@ def read_group(args: argparse.Namespace, stem: str, description: str = "") -> st
     return line + (f"\\tDS:{description}" if description else "")
 
 
-def _read_group_descriptions(reads: str, input_ref: str | None) -> str:
+def read_group_descriptions(reads: str, input_ref: str | None) -> str:
     """The DS of a BAM/CRAM's read groups, which name the basecaller models
     (Dorado's basecall_model=..., that Clair3's model choice reads) or PacBio's
     READTYPE; several distinct ones are all kept."""
@@ -1262,7 +1263,8 @@ def align_minimap2(args: argparse.Namespace) -> None:
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
     upstream: list[Sequence[object]] = []
     reads = args.r1
-    description = ""
+    # realign --keep-fastq aligns a FASTQ, so it passes its BAM/CRAM's.
+    description: str = getattr(args, "_read_group_description", "")
     if is_long_read(args):
         if args.r2:
             raise UsageError("Long reads are single-end: drop --r2.")
@@ -1272,7 +1274,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
             upstream = [
                 long_read_fastq_command(reads, getattr(args, "_input_cram_opt", []))
             ]
-            description = _read_group_descriptions(
+            description = read_group_descriptions(
                 reads, getattr(args, "input_ref", None)
             )
         elif not is_fasta_path(reads):
