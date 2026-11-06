@@ -346,6 +346,7 @@ def test_hla_extraction_uses_hg19_mhc_and_numeric_names(tmp_path, hla_setup):
     assert (tmp_path / "s.hla.pharmcat.tsv").exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="T1K is not supported on Windows")
 def test_report_shows_the_hla_calls_with_t1k_quality(tmp_path, mhc_bam, hla_setup):
     # Issue #398: `report` shows `typing hla` like the CYP2D6 call.
     hla_setup.genotype.write_text(
