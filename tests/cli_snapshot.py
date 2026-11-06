@@ -114,6 +114,9 @@ MIGRATED = (
     ("analyze",),
     ("analyze", "comprehensive"),
     ("analyze", "batch-gen"),
+    ("repair",),
+    ("repair", "ftdna-bam"),
+    ("repair", "ftdna-vcf"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -445,6 +448,9 @@ ARGVS = (
     ],
     ["analyze", "batch-gen", "--directory", "d"],
     ["analyze", "batch-gen", "--directory", "d", "--output", "b.tsv"],
+    ["repair", "ftdna-bam", "-i", "x.bam", "--output", "y.bam"],
+    ["repair", "ftdna-bam", "--ref", "r.fa", "-o", "out"],
+    ["repair", "ftdna-vcf", "-i", "x.vcf.gz", "--json"],
 )
 
 

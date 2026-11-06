@@ -274,6 +274,29 @@ def test_an_analyze_job_writing_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_repair_writing_its_output_into_a_busy_folder_waits(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: a repair's --output may name a file outside its outdir.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/repair/ftdna-vcf",
+            {
+                "input": str(FAKE_DIR / "fake.vcf.gz"),
+                "output": str(work / "r.vcf"),
+                "outdir": str(other),
+            },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_home_relative_paths_reach_the_job_expanded(tmp_path, work, monkeypatch):
     # PR #463 review: the guard approved ~/x as the home folder's; the job
     # must write there too, not in a `~` folder in its working folder.
@@ -872,6 +895,42 @@ def test_path_guard_covers_every_caller_path(op, field, value):
     with pytest.raises(RequestError) as refused:
         guard.check(params_from_json(find(op), {**allowed, field: value}))
     assert refused.value.code in ("usage", "path_not_allowed")
+
+
+_REPAIR_PATHS = [
+    (op, item)
+    for op in ("repair/ftdna-bam", "repair/ftdna-vcf")
+    for item in find(op).fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _REPAIR_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _REPAIR_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.bam", r"D:\evil.bam", r"\\host\share\evil.bam", r"sub\evil.bam"]
+)
+def test_path_guard_covers_every_repair_path(op, field, value):
+    # #478: the FTDNA repairs became server operations; the file each reads
+    # or writes (an --output path included) must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_repair_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _REPAIR_PATHS} == {
+        ("repair/ftdna-bam", "input"), ("repair/ftdna-bam", "output"),
+        ("repair/ftdna-bam", "ref"), ("repair/ftdna-bam", "outdir"),
+        ("repair/ftdna-vcf", "input"), ("repair/ftdna-vcf", "output"),
+        ("repair/ftdna-vcf", "outdir"),
+    }  # fmt: skip
 
 
 def test_caller_paths_cover_every_file():

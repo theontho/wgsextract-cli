@@ -26,8 +26,8 @@ from its Params fields, so the API and ``--help`` cannot drift.
 
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
-``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``, ``api.report``,
-``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
+``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``,
+``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -59,6 +59,7 @@ from . import (
     pet,
     qc,
     ref,
+    repair,
     report,
     sample,
     support,
@@ -132,6 +133,7 @@ from .ref import (
     RefVerifyParams,
     RefYbrowseParams,
 )
+from .repair import RepairFtdnaBamParams, RepairFtdnaVcfParams
 from .report import ReportParams
 from .sample import SampleSetParams, SampleShowParams, SampleUnsetParams
 from .support import IssueReport, ReportIssueParams
@@ -226,6 +228,8 @@ __all__ = [
     "RefStatusParams",
     "RefVerifyParams",
     "RefYbrowseParams",
+    "RepairFtdnaBamParams",
+    "RepairFtdnaVcfParams",
     "ReportIssueParams",
     "ReportParams",
     "Result",
@@ -278,6 +282,7 @@ __all__ = [
     "pet",
     "qc",
     "ref",
+    "repair",
     "report",
     "sample",
     "support",
