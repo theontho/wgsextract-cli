@@ -77,10 +77,17 @@ def test_every_runnable_command_meets_the_help_contract(entries):
 
 def test_every_group_and_command_renders_its_help(root):
     """#468: 'wgsextract panel --help' crashed on a bare % in a subcommand's
-    summary, which argparse %-formats in its parent's help."""
-    for entry in cli_help.walk_commands(root):
-        text = entry.parser.format_help()
-        assert "%%" not in text, entry.path
+    summary, which argparse %-formats in its parent's help. --help-all also
+    renders the advanced options' help."""
+    parsers = [root] + [entry.parser for entry in cli_help.walk_commands(root)]
+    for command in parsers:
+        for show_advanced in (False, True):
+            command.show_advanced = show_advanced
+            try:
+                text = command.format_help()
+            finally:
+                command.show_advanced = False
+            assert "%%" not in text, command.prog
 
 
 def test_every_example_parses_to_its_own_command(entries):
