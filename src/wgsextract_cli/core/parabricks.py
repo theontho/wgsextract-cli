@@ -89,6 +89,7 @@ def gpu_memory() -> tuple[GpuMemory, ...]:
             [smi or "nvidia-smi", query, "--format=csv,noheader,nounits"],
             capture_output=True,
             text=True,
+            errors="replace",
             check=True,
             timeout=60,
         ).stdout

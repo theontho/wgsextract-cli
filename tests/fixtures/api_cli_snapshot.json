@@ -408,7 +408,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks even when the GPU or host memory is below what it needs (it may fail partway).",
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -15701,7 +15701,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks even when the GPU or host memory is below what it needs (it may fail partway).",
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -26602,7 +26602,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks even when the GPU or host memory is below what it needs (it may fail partway).",
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -27778,7 +27778,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks even when the GPU or host memory is below what it needs (it may fail partway).",
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [

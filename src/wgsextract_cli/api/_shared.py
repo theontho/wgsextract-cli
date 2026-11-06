@@ -178,8 +178,7 @@ def check_confidence(params: Any) -> None:
 def no_gpu_memory_check_param() -> Any:
     return param(
         False,
-        help="With --gpu, run Parabricks even when the GPU or host memory is "
-        "below what it needs (it may fail partway).",
+        help="With --gpu, run Parabricks despite too little GPU or host memory.",
         doc="Run Parabricks despite too little GPU or host memory; the "
         "low-memory options are still chosen to fit.",
         action="store_true",

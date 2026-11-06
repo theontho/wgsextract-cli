@@ -594,6 +594,7 @@ def test_cleanup_problem_does_not_fail_a_finished_realign(
 ):
     # A GPU realign always goes through FASTQs; run it on a fake GPU host.
     monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     ram(128 * 10**9)
     host = FakeParabricks(tmp_path / "gpu", parabricks.DEFAULT_IMAGE)
     monkeypatch.setenv("PATH", f"{host.bin}{os.pathsep}{os.environ['PATH']}")
