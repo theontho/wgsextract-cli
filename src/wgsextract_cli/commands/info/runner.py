@@ -656,6 +656,26 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         current_result().add_output(bins_tsv, "coverage_bins")
         return
 
+    if isinstance(params, CalculateCoverageParams) and params.by is not None:
+        from .targets import run_target_coverage
+
+        if input_file.lower().endswith(".cram") and (
+            not resolved_ref or not Path(resolved_ref).is_file()
+        ):
+            raise UsageError("--ref required for --by with CRAM.")
+        verify_paths_exist({"--by": str(params.by)})
+        run_target_coverage(
+            input_file,
+            resolved_ref,
+            sequence_lengths(header),
+            Path(params.by),
+            outdir_arg or str(absolute_path(input_file).parent),
+            params.min_depth,
+            table_format or "tsv",
+            metadata,
+        )
+        return
+
     if detailed and input_file.lower().endswith(".cram") and not resolved_ref:
         raise UsageError("--ref required for detailed mode with CRAM.")
 

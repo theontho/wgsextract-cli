@@ -231,6 +231,56 @@ Platform detection, tagged CPU alignment/realignment, x86-64 DeepVariant
 ONT_R104 calling, optional Linux x86-64 Clair3 calling, Sniffles SV calling,
 and optional modkit CpG methylation are supported.
 
+## Adaptive sampling targets
+
+`panel bed` turns gene names and curated presets into a BED for MinKNOW's
+adaptive sampling (or any targeted analysis), and `info calculate-coverage --by`
+reports how well a run covered it.
+
+```bash
+wgsextract panel bed --list-presets
+wgsextract panel bed --preset pharmacogenes --preset hla --ref hg38.fa
+wgsextract panel bed --genes BRCA1,BRCA2 --gene-file my_genes.txt --pad-kb 50
+wgsextract info calculate-coverage --input run.bam --by panel_hla_pharmacogenes_hg38_pad100kb.bed
+```
+
+- **Genes.** Names are matched without regard to case against the bundled
+  NCBI RefSeq annotations (public domain) for hg38 (GRCh38.p14, release
+  RS_2025_08), T2T (CHM13v2.0, RS_2025_08) and hg19 (GRCh37.p13, RS_2024_09).
+  A name that is a unique alias of one gene resolves to it with a warning.
+  Every unknown or ambiguous name is reported at once, with suggestions, and
+  nothing is written.
+- **Presets.** `pharmacogenes` (PharmCAT's genes), `hla` (the classical MHC,
+  GABBR1 to KIFC1), `autoimmune` (Cotsapas 2011's shared autoimmune loci plus the
+  MHC), `acmg-sf` (ACMG SF v3.2's 81 genes) and `cardiac` (its cardiovascular
+  genes). `--list-presets` prints each source and gene list.
+- **Regions.** Each gene's span is padded by `--pad-kb` (default 100 kb each
+  side: adaptive sampling decides on a read's first few hundred bases, so
+  reads that start in the flank reach the gene), clipped to the contig, and
+  overlapping or touching regions are merged. The BED has four columns:
+  contig, start, end and the genes in the region. No strand is given, so both
+  strands are targeted.
+- **Build and names.** `--ref` (or the configured reference) sets the build
+  and the contig names, so `chr1`/`1` and `chrM`/`MT` match the FASTA MinKNOW
+  aligns to. A reference of another build than `--build`, or with other contig
+  lengths, is refused. A chrM that isn't rCRS (UCSC hg19's 16,571 bp) is
+  targeted whole, with a warning. Without a reference the BED uses `chr` names
+  of `--build` (default hg38).
+- **Size.** ONT recommends targets of no more than 5% of the genome, best
+  around 1%, for the best enrichment. Each run reports the fraction and warns
+  above 5%. At 100 kb padding on hg38, `pharmacogenes` is 0.21%, `hla` 0.13%,
+  `autoimmune` 0.43%, `acmg-sf` 0.73% and `cardiac` 0.39%.
+
+`--by BED` replaces the per-chromosome report with one row per target: mean
+and median depth, the fraction of bases at 10x, 20x, 30x and `--min-depth`
+(default 30), and whether the mean is below `--min-depth`. A summary gives the
+on-target and off-target mean depth and their ratio, the enrichment. Overlapping
+targets are each measured in full, but counted once on target; the mitochondrial
+contig counts as neither on nor off target unless the BED names it. Depth
+follows `samtools depth`'s defaults, like `--bins`: deletions and duplicates
+don't count, overlapping mates do. BED contig names may use `chr1` or `1`
+style either way.
+
 ## Validation on GIAB HG002
 
 ONT's public HG002 R10.4.1 run (`PAO83395`, giab_2023.05, sup v4.0.0 with

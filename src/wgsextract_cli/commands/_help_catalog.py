@@ -55,9 +55,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     "info calculate-coverage": _h(
         "<input file name>_coverage.tsv, or with --bins <input file name>"
         "_coverage_bins.tsv (depth bands, or .parquet with --format parquet) "
-        "instead.",
+        "instead. With --by, <input>_<bed>_target_coverage.tsv (depth per "
+        "target) and <input>_<bed>_target_summary.txt (on- and off-target "
+        "depth, enrichment and targets below --min-depth).",
         "wgsextract info calculate-coverage --input sample.cram",
         "wgsextract info calculate-coverage --input sample.cram --bins --format parquet",
+        "wgsextract info calculate-coverage --input sample.bam --by panel.bed --min-depth 20",
     ),
     "info coverage-sample": _h(
         "<input file name>_samplecvg.json; a whole-file run also updates the "
@@ -375,6 +378,15 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "Prints each tool's status; writes no files.",
         "wgsextract deps check",
         "wgsextract deps check --tool samtools",
+    ),
+    "panel bed": _h(
+        "panel_<presets>[_genes]_<build>_pad<N>kb.bed (BED4: contig, start, "
+        "end, genes; contig names from --ref when given).",
+        "wgsextract panel bed --preset pharmacogenes",
+        "wgsextract panel bed --genes CYP2D6,HLA-A,HLA-B --pad-kb 50 --ref hg38.fa",
+        "wgsextract panel bed --preset hla --preset cardiac --build t2t",
+        "wgsextract panel bed --gene-file my_genes.txt -o panels",
+        "wgsextract panel bed --list-presets",
     ),
     "report": _h(
         "<sample>_personal_report.html, .md and .json and <sample>_personal_report_findings.tsv "

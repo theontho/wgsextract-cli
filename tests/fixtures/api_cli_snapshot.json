@@ -7961,7 +7961,7 @@
    }
   },
   "info calculate-coverage": {
-   "help": "usage: wgsextract info calculate-coverage [-h] [-r REGION] [--bins] [--format {tsv,parquet}]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --bins                Report exact per-contig depth 0, 1-3, 4-7 and 8+ breadth in one streaming\n                        pass.\n  --format {tsv,parquet}\n                        Also save the per-chromosome table and the QC stats as <input>_chromosomes\n                        and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed. With\n                        --bins, the depth-band table's format instead\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract info calculate-coverage --input sample.cram\n  wgsextract info calculate-coverage --input sample.cram --bins --format parquet\n\noutputs (in the output directory unless noted):\n  <input file name>_coverage.tsv, or with --bins <input file\n  name>_coverage_bins.tsv (depth bands, or .parquet with --format parquet)\n  instead.\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools; minutes on a 30x\n  genome.\n",
+   "help": "usage: wgsextract info calculate-coverage [-h] [-r REGION] [--bins] [--by BED] [--min-depth N]\n                                          [--format {tsv,parquet}]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --bins                Report exact per-contig depth 0, 1-3, 4-7 and 8+ breadth in one streaming\n                        pass.\n  --by BED              Report depth per target of this BED (e.g. from 'panel bed'): mean, median\n                        and the fraction at >=10x, 20x, 30x and --min-depth, plus the on- versus\n                        off-target enrichment\n  --min-depth N         With --by, list targets whose mean depth is below this (default: 30)\n  --format {tsv,parquet}\n                        Also save the per-chromosome table and the QC stats as <input>_chromosomes\n                        and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed. With\n                        --bins or --by, that table's format instead\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract info calculate-coverage --input sample.cram\n  wgsextract info calculate-coverage --input sample.cram --bins --format parquet\n  wgsextract info calculate-coverage --input sample.bam --by panel.bed --min-depth 20\n\noutputs (in the output directory unless noted):\n  <input file name>_coverage.tsv, or with --bins <input file\n  name>_coverage_bins.tsv (depth bands, or .parquet with --format parquet)\n  instead. With --by, <input>_<bed>_target_coverage.tsv (depth per target) and\n  <input>_<bed>_target_summary.txt (on- and off-target depth, enrichment and\n  targets below --min-depth).\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools; minutes on a 30x\n  genome.\n",
    "parser": {
     "actions": [
      {
@@ -8277,6 +8277,38 @@
       "type": null
      },
      {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "by",
+      "exclusive_group": null,
+      "help": "Report depth per target of this BED (e.g. from 'panel bed'): mean, median and the fraction at >=10x, 20x, 30x and --min-depth, plus the on- versus off-target enrichment",
+      "metavar": "BED",
+      "nargs": null,
+      "option_strings": [
+       "--by"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": 30,
+      "dest": "min_depth",
+      "exclusive_group": null,
+      "help": "With --by, list targets whose mean depth is below this (default: 30)",
+      "metavar": "N",
+      "nargs": null,
+      "option_strings": [
+       "--min-depth"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
       "choices": [
        "tsv",
        "parquet"
@@ -8286,7 +8318,7 @@
       "default": "==SUPPRESS==",
       "dest": "table_format",
       "exclusive_group": null,
-      "help": "Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed. With --bins, the depth-band table's format instead",
+      "help": "Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed. With --bins or --by, that table's format instead",
       "metavar": null,
       "nargs": null,
       "option_strings": [
@@ -16501,7 +16533,7 @@
     ],
     "defaults": {
      "_command": "vcf clair3",
-     "func": "cmd_clair3"
+     "func": "cli_VcfClair3Params"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -17255,7 +17287,7 @@
     ],
     "defaults": {
      "_command": "vcf cnv",
-     "func": "cmd_cnv"
+     "func": "cli_VcfCnvParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -17770,7 +17802,7 @@
     ],
     "defaults": {
      "_command": "vcf deepvariant",
-     "func": "cmd_deepvariant"
+     "func": "cli_VcfDeepvariantParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -18502,7 +18534,7 @@
     ],
     "defaults": {
      "_command": "vcf freebayes",
-     "func": "cmd_freebayes"
+     "func": "cli_VcfFreebayesParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -18876,7 +18908,7 @@
     ],
     "defaults": {
      "_command": "vcf gatk",
-     "func": "cmd_gatk"
+     "func": "cli_VcfGatkParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -22657,7 +22689,7 @@
     ],
     "defaults": {
      "_command": "vcf sv",
-     "func": "cmd_sv"
+     "func": "cli_VcfSvParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -24884,6 +24916,7 @@
    ],
    "atomic_output": false,
    "bins": true,
+   "by": null,
    "cache": true,
    "command": "info",
    "csv": false,
@@ -24899,6 +24932,7 @@
    "log_dir": null,
    "log_file": null,
    "memory": null,
+   "min_depth": 30,
    "outdir": null,
    "parent_pid": null,
    "quiet": false,
@@ -26067,7 +26101,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_clair3",
+   "func": "cli_VcfClair3Params",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -26192,7 +26226,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_cnv",
+   "func": "cli_VcfCnvParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -26224,7 +26258,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_cnv",
+   "func": "cli_VcfCnvParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -26263,7 +26297,7 @@
     "call_variants"
    ],
    "full_help": false,
-   "func": "cmd_deepvariant",
+   "func": "cli_VcfDeepvariantParams",
    "genome": null,
    "gpu": false,
    "input": "x.bam",
@@ -26304,7 +26338,7 @@
    "dry_run": false,
    "force_steps": null,
    "full_help": false,
-   "func": "cmd_deepvariant",
+   "func": "cli_VcfDeepvariantParams",
    "genome": null,
    "gpu": true,
    "input": "x.bam",
@@ -26343,7 +26377,7 @@
    "dry_run": false,
    "force_steps": null,
    "full_help": false,
-   "func": "cmd_deepvariant",
+   "func": "cli_VcfDeepvariantParams",
    "genome": null,
    "gpu": false,
    "input": "x.bam",
@@ -26442,7 +26476,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_freebayes",
+   "func": "cli_VcfFreebayesParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -26471,7 +26505,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_gatk",
+   "func": "cli_VcfGatkParams",
    "genome": null,
    "gpu": true,
    "input": "x.bam",
@@ -26502,7 +26536,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_gatk",
+   "func": "cli_VcfGatkParams",
    "genome": null,
    "gpu": false,
    "input": "x.cram",
@@ -26917,7 +26951,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_sv",
+   "func": "cli_VcfSvParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -26953,7 +26987,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_sv",
+   "func": "cli_VcfSvParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
