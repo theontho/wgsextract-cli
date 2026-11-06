@@ -214,7 +214,7 @@ def test_a_setup_step_terminated_by_a_step_run_beside_it_names_that_step(oracle)
         in checks["app.setup"]
     )
     assert checks["app.setup_alone"] == (
-        "FAIL: the app was never seen to exit; steps started while the app ran "
+        "FAIL: the app was never seen to close; steps started while the app ran "
         "setup: optional_tools, actions, uninstall"
     )
 
@@ -229,6 +229,7 @@ def test_a_setup_step_terminated_when_the_harness_closed_the_app_blames_it(oracl
             "9000\tharness-closes-app setup did not finish within 3 hours",
             "9500\tsetup-events 4",
             "9600\tapp-exited 0",
+            "9650\tapp-closed",
             "9700\tstep-end setup 1",
             "9800\tstep-start optional_tools",
         ],
@@ -259,7 +260,7 @@ def test_the_step_beside_setup_mutation_fails_a_clean_timeline(oracle):
     _linux_run(
         oracle.results,
         # setup's own start in the same millisecond as the launch is not beside it
-        ["1000\tstep-start setup", "1000\tapp-launched 42", "9000\tapp-exited 0"],
+        ["1000\tstep-start setup", "1000\tapp-launched 42", "9000\tapp-closed"],
         "",
     )
     assert _linux_checks(oracle.results)["app.setup_alone"].startswith("ok")

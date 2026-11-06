@@ -55,8 +55,10 @@ snapshot() {
     sh "$HERE/inventory.sh" "$R/inventory-$1.txt" "$R"
 }
 
+# The app and everything it started: its backend, and setup's scripts and
+# downloads, which run from the workspace.
 app_pids() {
-    pgrep -u "$(id -u)" -f "$APP_DIR/|$APP_BIN" || true
+    pgrep -u "$(id -u)" -f "$APP_DIR/|$APP_BIN|$WORKSPACE/" || true
 }
 
 download_installer() {
@@ -69,31 +71,56 @@ install_app() {
         test -f /usr/share/applications/WGSExtract.desktop
 }
 
-# The app this scenario started, by its process ID. Matching command lines
-# (app_pids) misses it until the background shell has exec'd it (#448).
+# The app this scenario started (its xvfb-run), by process ID. Matching
+# command lines misses it until the background shell has exec'd it (#448).
 app_alive() {
     kill -0 "$app_pid" 2>/dev/null &&
         ! grep -q '^State:[[:space:]]*Z' "/proc/$app_pid/status" 2>/dev/null
 }
 
-# Closing the window: the app ends its backend and everything it started.
-# Every way out of setup closes the app, so no later step runs beside its
-# setup; the app's Uninstall stops whatever runs from the runtime (#448).
-close_app() {
-    mark "harness-closes-app $1"
-    pkill -TERM -u "$(id -u)" -f "^$APP_BIN" || true
-    for _ in $(seq 60); do
+# Notes when the setup event log grows, so the oracle can tell what came
+# before each event.
+note_events() {
+    lines=0
+    [ -f "$events" ] && lines=$(wc -l < "$events")
+    [ "$lines" = "$seen" ] || { seen=$lines; mark "setup-events $lines"; }
+}
+
+# Waits up to $1 seconds for the app and everything it started to be gone.
+app_gone() {
+    for _ in $(seq "$1"); do
         if ! app_alive && [ -z "$(app_pids)" ]; then
-            wait "$app_pid"
-            mark "app-exited $?"
+            if [ -z "${app_rc:-}" ]; then
+                wait "$app_pid"
+                app_rc=$?
+                mark "app-exited $app_rc"
+            fi
+            note_events
+            mark "app-closed"
             return 0
         fi
         sleep 1
     done
-    echo "still running after the window closed: $(app_pids)"
-    pkill -KILL -u "$(id -u)" -f "$APP_DIR/|$APP_BIN" || true
-    mark "harness-kills-app still running after the window closed"
     return 1
+}
+
+# Closing the window: the app ends its backend and everything it started.
+# Every way out of setup closes the app, so no later step runs beside its
+# setup; the app's Uninstall stops whatever runs from the runtime (#448).
+# What won't stop ends the scenario: its missing evidence fails the verdict.
+close_app() {
+    mark "harness-closes-app $1"
+    pkill -TERM -u "$(id -u)" -f "^$APP_BIN" || true
+    # Without the app, nothing else stops what it started.
+    app_alive || pkill -TERM -u "$(id -u)" -f "$APP_DIR/|$WORKSPACE/" || true
+    app_gone 60 && return 0
+    echo "still running 60 s after the window closed: $(app_pids)"
+    mark "harness-kills-app still running 60 s after the window closed"
+    pkill -KILL -u "$(id -u)" -f "$APP_DIR/|$APP_BIN|$WORKSPACE/" || true
+    app_gone 10 && return 1
+    echo "could not stop: $(app_pids)"
+    mark "harness-aborts could not stop the app"
+    exit 1
 }
 
 app_setup() {
@@ -107,15 +134,15 @@ app_setup() {
     started=$(date +%s)
     seen=0
     while :; do
-        lines=0
-        [ -f "$events" ] && lines=$(wc -l < "$events")
-        [ "$lines" = "$seen" ] || { seen=$lines; mark "setup-events $lines"; }
-        grep -q '"type":"complete"' "$events" 2>/dev/null && break
+        note_events
+        grep -q '"type":"complete"' "$events" 2>/dev/null && { note_events; break; }
         if ! app_alive; then
             wait "$app_pid"
-            rc=$?
-            mark "app-exited $rc"
-            echo "the app exited during setup (exit status $rc)"
+            app_rc=$?
+            mark "app-exited $app_rc"
+            echo "the app exited during setup (exit status $app_rc)"
+            # What it started may outlive it.
+            close_app "the app exited during setup"
             return 1
         fi
         if [ ! -s "$events" ] && [ $(( $(date +%s) - started )) -gt 1200 ]; then

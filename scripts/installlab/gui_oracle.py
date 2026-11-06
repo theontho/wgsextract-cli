@@ -337,25 +337,21 @@ class GuiOracle(Oracle):
         if launched is None:
             self.record("app.setup_alone", False, "the timeline has no app launch")
             return
-        exited = next(
-            (
-                i
-                for i, e in enumerate(events)
-                if i > launched and e.startswith("app-exited ")
-            ),
+        closed = next(
+            (i for i, e in enumerate(events) if i > launched and e == "app-closed"),
             None,
         )
         beside = [
             e.split()[1]
-            for e in events[launched + 1 : exited]
+            for e in events[launched + 1 : closed]
             if e.startswith("step-start ")
         ]
-        problems = (["the app was never seen to exit"] if exited is None else []) + (
+        problems = (["the app was never seen to close"] if closed is None else []) + (
             [f"steps started while the app ran setup: {', '.join(beside)}"]
             if beside
             else []
         )
-        took = timeline[exited][0] - timeline[launched][0] if exited else 0
+        took = timeline[closed][0] - timeline[launched][0] if closed else 0
         self.record(
             "app.setup_alone",
             not problems,
