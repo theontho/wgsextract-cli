@@ -121,6 +121,21 @@ def app_platform(meta: dict[str, Any]) -> AppPlatform:
     return MACOS_TAURI if meta.get("macos_runtime") == "tauri" else MACOS
 
 
+def describe(event: str) -> str:
+    """Who acted, for a timeline event that can stop a setup step."""
+    kind, _, rest = event.partition(" ")
+    if kind == "step-start":
+        note = (
+            ", whose app Uninstall stops every process under the runtime folder"
+            if rest == "uninstall"
+            else ""
+        )
+        return f"scenario step {rest!r}, started while setup was running{note}"
+    if kind == "app-exited":
+        return f"the app, which exited (status {rest}) and stopped what it ran"
+    return f"the lab harness ({kind}: {rest})"
+
+
 class GuiOracle(Oracle):
     def __init__(
         self, results: Path, nonce: str, tools: dict[str, str], signed: bool
@@ -270,52 +285,42 @@ class GuiOracle(Oracle):
         timeline = self.read_timeline()
         if timeline is None:
             return "an unknown process (no timeline.tsv)"
+        events = [e for _, e in timeline]
         launched = next(
-            (ms for ms, e in timeline if e.startswith("app-launched ")), None
+            (i for i, e in enumerate(events) if e.startswith("app-launched ")), None
         )
         if launched is None:
             return "an unknown process (the timeline has no app launch)"
         # The setup loop notes the event count every 2 s: the event was written
-        # by the first note that counts it.
+        # before the first note that counts it.
         seen = next(
             (
-                ms
-                for ms, e in timeline
+                i
+                for i, e in enumerate(events)
                 if e.startswith("setup-events ")
                 and e.split()[1].isdigit()
                 and int(e.split()[1]) >= line_number
             ),
             None,
         )
-        actors = [
-            (ms, e)
-            for ms, e in timeline
-            if ms >= launched
-            and (
-                (e.startswith("step-start ") and e.split()[1] != "setup")
-                or e.startswith(("harness-", "app-exited "))
-            )
+        before = [
+            e
+            for e in events[launched + 1 : seen]
+            if (e.startswith("step-start ") and e.split()[1] != "setup")
+            or e.startswith(("harness-", "app-exited "))
         ]
-        before = [a for a in actors if seen is None or a[0] <= seen]
         if not before:
             return (
                 "the app's own setup runner or something outside the scenario: "
                 "no other scenario step, harness action or app exit came first"
             )
-        # Without a note that counts the event, the setup loop had already
-        # stopped: the first thing after launch is the likeliest.
-        event = (before[-1] if seen is not None else before[0])[1]
-        kind, _, rest = event.partition(" ")
-        if kind == "step-start":
-            note = (
-                ", whose app Uninstall stops every process under the runtime folder"
-                if rest == "uninstall"
-                else ""
+        if seen is None:
+            # The scenario stopped watching setup before this event was
+            # written: it came after any of these.
+            return "one of what ran while setup was unwatched: " + ", ".join(
+                map(describe, before)
             )
-            return f"scenario step {rest!r}, started while setup was running{note}"
-        if kind == "app-exited":
-            return f"the app, which exited (status {rest}) and stopped what it ran"
-        return f"the lab harness ({kind}: {rest})"
+        return describe(before[-1])
 
     def check_setup_alone(self) -> None:
         """No other scenario step ran while the app that runs setup was open (#448)."""
@@ -323,37 +328,38 @@ class GuiOracle(Oracle):
         if timeline is None:
             self.record("app.setup_alone", False, "no timeline.tsv")
             return
+        # Positions, not times: events in the same millisecond keep the order
+        # the scenario wrote them in.
+        events = [e for _, e in timeline]
         launched = next(
-            (ms for ms, e in timeline if e.startswith("app-launched ")), None
+            (i for i, e in enumerate(events) if e.startswith("app-launched ")), None
         )
         if launched is None:
             self.record("app.setup_alone", False, "the timeline has no app launch")
             return
         exited = next(
             (
-                ms
-                for ms, e in timeline
-                if e.startswith("app-exited ") and ms >= launched
+                i
+                for i, e in enumerate(events)
+                if i > launched and e.startswith("app-exited ")
             ),
             None,
         )
         beside = [
             e.split()[1]
-            for ms, e in timeline
+            for e in events[launched + 1 : exited]
             if e.startswith("step-start ")
-            and ms >= launched
-            and (exited is None or ms <= exited)
         ]
         problems = (["the app was never seen to exit"] if exited is None else []) + (
             [f"steps started while the app ran setup: {', '.join(beside)}"]
             if beside
             else []
         )
+        took = timeline[exited][0] - timeline[launched][0] if exited else 0
         self.record(
             "app.setup_alone",
             not problems,
-            "; ".join(problems)
-            or f"the app ran setup alone for {(exited or launched) - launched} ms",
+            "; ".join(problems) or f"the app ran setup alone for {took} ms",
         )
 
     def excuse_leftovers(self, added: list[str]) -> tuple[list[str], list[str]]:

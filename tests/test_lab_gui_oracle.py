@@ -199,7 +199,6 @@ RACED = [
     "1070\tstep-start actions",
     "3000\tstep-end actions 1",
     "3010\tstep-start uninstall",
-    "3900\tsetup-events 3",
 ]
 
 
@@ -208,7 +207,12 @@ def test_a_setup_step_terminated_by_a_step_run_beside_it_names_that_step(oracle)
     checks = _linux_checks(oracle.results)
     assert checks["app.setup"].startswith("FAIL")
     assert "install-wgsextract got SIGTERM" in checks["app.setup"]
-    assert "scenario step 'uninstall'" in checks["app.setup"]
+    # The scenario had stopped watching setup, so every step since is a suspect.
+    assert "ran while setup was unwatched" in checks["app.setup"]
+    assert (
+        "scenario step 'uninstall', started while setup was running, whose app Uninstall stops"
+        in checks["app.setup"]
+    )
     assert checks["app.setup_alone"] == (
         "FAIL: the app was never seen to exit; steps started while the app ran "
         "setup: optional_tools, actions, uninstall"
@@ -254,7 +258,8 @@ def test_the_step_beside_setup_mutation_fails_a_clean_timeline(oracle):
 
     _linux_run(
         oracle.results,
-        ["1000\tstep-start setup", "1010\tapp-launched 42", "9000\tapp-exited 0"],
+        # setup's own start in the same millisecond as the launch is not beside it
+        ["1000\tstep-start setup", "1000\tapp-launched 42", "9000\tapp-exited 0"],
         "",
     )
     assert _linux_checks(oracle.results)["app.setup_alone"].startswith("ok")
