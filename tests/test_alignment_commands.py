@@ -20,7 +20,8 @@ from tests.htslib_helpers import (
     write_fasta,
     write_read_pairs,
 )
-from wgsextract_cli.commands import align, repair
+from wgsextract_cli import api
+from wgsextract_cli.commands import align
 from wgsextract_cli.commands._extract_helpers import alignments_to_fastq
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
@@ -460,11 +461,7 @@ def test_repair_bam_streams_through_real_samtools(tmp_path):
         check=True,
     )
 
-    repair.repair_bam(
-        Namespace(
-            input=str(source), outdir=None, output=None, _explicit_dests={"input"}
-        )
-    )
+    api.repair.ftdna_bam(api.RepairFtdnaBamParams(input=source))
 
     output = tmp_path / "ftdna_repaired.bam"
     view = subprocess.run(
@@ -481,12 +478,8 @@ def test_repair_bam_reports_unreadable_input(tmp_path):
         pytest.skip("samtools missing")
     source = tmp_path / "broken.bam"
     source.write_bytes(b"not a bam")
-    with pytest.raises(WGSExtractError, match="repair failed"):
-        repair.repair_bam(
-            Namespace(
-                input=str(source), outdir=None, output=None, _explicit_dests={"input"}
-            )
-        )
+    with pytest.raises(api.CommandFailed, match="broken.bam"):
+        api.repair.ftdna_bam(api.RepairFtdnaBamParams(input=source))
     assert not os.path.exists(tmp_path / "broken_repaired.bam")
 
 

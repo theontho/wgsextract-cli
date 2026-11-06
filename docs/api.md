@@ -32,8 +32,8 @@ from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
-`api.lineage`, `api.microarray`, `api.panel`, `api.ref`, `api.report`,
-`api.sample`, `api.support`, `api.pet`, `api.analyze`) follow
+`api.lineage`, `api.microarray`, `api.panel`, `api.ref`,
+`api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -1778,6 +1778,52 @@ other support files). Saves the library's path as config.toml's
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+## `api.repair`
+
+`repair`: fix the formatting errors in Family Tree DNA (FTDNA) files that
+make standard tools reject them.
+
+`ftdna_bam` replaces the spaces in read names with `:`; `ftdna_vcf`
+drops the characters VCF forbids from the FILTER column. Each writes
+`<input stem>_repaired.bam` (or `.vcf`) in `outdir`, else beside the
+input, or the `output` path. The result's metrics count the records read
+(`records`) and changed (`repaired_records`). The CLI also repairs a
+stream from stdin to stdout when `--input` is not given; the API reads and
+writes files only.
+
+### `api.repair.ftdna_bam(RepairFtdnaBamParams)`
+
+CLI: `wgsextract repair ftdna-bam`.
+
+Repair an FTDNA BAM or CRAM's read names (see `RepairFtdnaBamParams`).
+
+`RepairFtdnaBamParams`: Copy an FTDNA BAM or CRAM to a BAM whose read names have no spaces
+(`FTDNA read 7` becomes `FTDNA:read:7`), so GATK and other tools
+accept it. A CRAM is decoded with `ref`, else the reference it names.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | The FTDNA BAM or CRAM to repair. |
+| `output` | `Path \| None` | `None` | `--output` | Repaired BAM to write (default: <outdir>/<input stem>_repaired.bam); not the input itself. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+
+### `api.repair.ftdna_vcf(RepairFtdnaVcfParams)`
+
+CLI: `wgsextract repair ftdna-vcf`.
+
+Repair an FTDNA VCF's FILTER column (see `RepairFtdnaVcfParams`).
+
+`RepairFtdnaVcfParams`: Copy an FTDNA VCF (plain, gzipped or BCF) to a plain VCF whose FILTER
+values hold only the characters VCF allows (`Low Qual;q<10` becomes
+`LowQual;q10`), so bcftools and VEP accept it.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | The FTDNA VCF, .vcf.gz or BCF to repair. |
+| `output` | `Path \| None` | `None` | `--output` | Repaired VCF to write (default: <outdir>/<input stem>_repaired.vcf); not the input itself. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 
 ## `api.report`
 
