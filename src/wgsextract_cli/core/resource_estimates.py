@@ -259,15 +259,14 @@ def long_read_disk(
     """Scale by the input's size, not by short-read per-read sizes: one long
     read takes tens of kilobytes. ``sort_buffer_bytes`` is -m times threads."""
     name = input_path.lower()
-    kind = (
-        "cram"
-        if name.endswith(".cram")
-        else "bam"
-        if name.endswith(".bam")
-        else "gz"
-        if name.endswith((".gz", ".bgz"))
-        else "plain"
-    )
+    kind = "cram" if name.endswith(".cram") else "bam" if name.endswith(".bam") else ""
+    if not kind:
+        # Read files are gzip/BGZF compressed whatever their names.
+        try:
+            with open(input_path, "rb") as handle:
+                kind = "gz" if handle.read(2) == b"\x1f\x8b" else "plain"
+        except OSError:
+            kind = "gz" if name.endswith((".gz", ".bgz", ".bgzf")) else "plain"
     cram = max(0, input_bytes) / _LONG_READ_BYTES_PER_CRAM_BYTE.get(kind, 1)
     spill = cram * LONG_READ_SPILL_PER_CRAM_BYTE
     merging = _SORT_CONSOLIDATED_FILES * sort_buffer_bytes * _SORT_SPILL_PER_BUFFER_BYTE
@@ -437,7 +436,11 @@ def estimate_resources(
                 (
                     fastq_dir or output_dir,
                     "extracted_fastqs",
-                    None if disk_reads is None else disk_reads * FASTQ_BYTES_PER_READ,
+                    long_read.fastq
+                    if long_read is not None
+                    else None
+                    if disk_reads is None
+                    else disk_reads * FASTQ_BYTES_PER_READ,
                 )
             )
         if reference and aligner in {"bwa", "bwa-mem2"}:

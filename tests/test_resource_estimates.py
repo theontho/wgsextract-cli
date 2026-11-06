@@ -1,7 +1,9 @@
 import argparse
+import gzip
 import json
 import logging
 import platform as host_platform
+import random
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -593,3 +595,34 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
                 "1",
                 "--no-preflight",
             )
+
+
+def test_long_read_disk_reads_compression_from_the_file_and_counts_fastqs(tmp_path):
+    """#484 review: a gzipped FASTQ named reads.fq was sized as plain text, and
+    a long-read realign's extracted FASTQs made the disk estimate unknown."""
+    rng = random.Random(484)
+    fastq = "".join(
+        f"@r{i}\n{''.join(rng.choices('ACGT', k=5000))}\n+\n{'5' * 5000}\n"
+        for i in range(50)
+    )
+    disks = []
+    for name in ("reads.fq.gz", "reads.fq"):
+        path = tmp_path / name
+        path.write_bytes(gzip.compress(fastq.encode()))
+        estimate = resources.estimate_resources(
+            "align", input_paths=[str(path)], output_dir=str(tmp_path),
+            aligner="minimap2", preset="map-ont", output_format="CRAM",
+        )  # fmt: skip
+        [disk] = [disk for disk in estimate.resources[1:] if disk.paths]
+        disks.append(disk.estimated_bytes)
+    assert disks[0] is not None and disks[0] == disks[1]
+
+    cram = tmp_path / "ont.cram"
+    cram.write_bytes(b"\0" * 10**6)
+    estimate = resources.estimate_resources(
+        "realign", input_paths=[str(cram)], output_dir=str(tmp_path),
+        aligner="minimap2", preset="map-ont", extract_fastq=True,
+    )  # fmt: skip
+    [disk] = [disk for disk in estimate.resources[1:] if disk.paths]
+    assert disk.estimated_bytes is not None
+    assert 10**6 < disk.components["extracted_fastqs"] < 3 * 10**6

@@ -56,6 +56,17 @@ def test_alignment_sample_reports_the_largest_bam_record_of_any_kind(tmp_path):
     assert sample.max_record_bytes == 4 + 4 + 15 + 504 + 7 + 20
 
 
+def test_fasta_read_length_samples_wrapped_and_gzipped_reads(tmp_path):
+    """#484 review: long-read FASTA inputs fell back to a 20 kb mean."""
+    reads = "".join(
+        f">r{i}\n" + "\n".join(["A" * 60] * (n // 60)) + "\n"
+        for i, n in enumerate((60_000, 120_000))
+    )
+    path = tmp_path / "reads.fa.gz"
+    path.write_bytes(gzip.compress(reads.encode()))
+    assert read_counts.fasta_read_length(path) == 90_000
+
+
 @needs_tools("samtools")
 def test_single_end_sample_averages_long_reads_but_not_their_supplementaries(
     tmp_path,

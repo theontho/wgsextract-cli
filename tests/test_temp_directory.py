@@ -203,18 +203,8 @@ def test_realign_budgets_output_and_staging_volumes_separately(
     assert list(scratch.iterdir()) == []
 
 
-@needs_tools("samtools", "minimap2")
-@pytest.mark.parametrize("short", [None, "scratch", "output"])
-def test_long_read_cram_realign_budgets_its_spills_and_cram_output(
-    capsys, monkeypatch, tmp_path, volumes, folders, short
-):
-    """#474: a 100 GB ONT CRAM -> CRAM realign with --tmp-dir was refused for
-    ~363 GB of scratch. Its reads stream into minimap2 -Y and the sorter: the
-    spills come to ~3x the input CRAM and the CRAM output to ~1.7x."""
-    real_memory = psutil.virtual_memory
-    monkeypatch.setattr(
-        psutil, "virtual_memory", lambda: real_memory()._replace(available=64 * GIB)
-    )
+def _ont_cram(tmp_path: Path) -> tuple[str, Path]:
+    """A reference and an unaligned ONT CRAM of ten 3 kb reads from it."""
     genome = "".join(random.Random(474).choices("ACGT", k=20_000))
     ref = write_fasta(tmp_path / "ref.fa", {"chr1": genome})
     reads = [genome[i : i + 3_000] for i in range(0, 15_000, 1_500)]
@@ -229,6 +219,50 @@ def test_long_read_cram_realign_budgets_its_spills_and_cram_output(
     )
     cram = tmp_path / "ont.cram"
     run_command(["samtools", "view", "-C", "-T", ref, "-o", cram, bam])
+    return str(ref), cram
+
+
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize("reads", ["cram", "r1"])
+def test_small_long_read_realign_fits_under_a_gib_of_free_space(
+    capsys, monkeypatch, tmp_path, volumes, folders, reads
+):
+    """#484 review: the long-read guard rounded every run up to 1 GB per
+    volume, and with --r1 sized the short-read guard from the 100 GB CRAM."""
+    real_memory = psutil.virtual_memory
+    monkeypatch.setattr(
+        psutil, "virtual_memory", lambda: real_memory()._replace(available=64 * GIB)
+    )
+    ref, cram = _ont_cram(tmp_path)
+    fastq = tmp_path / "ont.fastq"
+    run_command(["samtools", "fastq", "--reference", ref, "-0", fastq, cram])
+    output, scratch = folders
+    volumes.free[output] = volumes.free[scratch] = 0.5
+    r1 = []
+    if reads == "r1":
+        volumes.sizes[cram] = 100 * 10**9
+        r1 = ["--r1", str(fastq), "--platform", "ont"]
+    result = _wgsextract(
+        capsys, "realign", "--input", str(cram), "--ref", ref, *r1,
+        "--outdir", str(output), "--format", "CRAM", "--tmp-dir", str(scratch),
+        "--threads", "1", "--memory", "256M",
+    )  # fmt: skip
+    assert result["status"] == "ok", result["error"]
+
+
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize("short", [None, "scratch", "output"])
+def test_long_read_cram_realign_budgets_its_spills_and_cram_output(
+    capsys, monkeypatch, tmp_path, volumes, folders, short
+):
+    """#474: a 100 GB ONT CRAM -> CRAM realign with --tmp-dir was refused for
+    ~363 GB of scratch. Its reads stream into minimap2 -Y and the sorter: the
+    spills come to ~3x the input CRAM and the CRAM output to ~1.7x."""
+    real_memory = psutil.virtual_memory
+    monkeypatch.setattr(
+        psutil, "virtual_memory", lambda: real_memory()._replace(available=64 * GIB)
+    )
+    ref, cram = _ont_cram(tmp_path)
     output, scratch = folders
     volumes.sizes[cram] = 100 * 10**9
     # (output GB, --tmp-dir GB): 1.7e11 B of CRAM; 3e11 B of spills plus the
@@ -237,7 +271,7 @@ def test_long_read_cram_realign_budgets_its_spills_and_cram_output(
     volumes.free[output] = budgets[0] - (short == "output")
     volumes.free[scratch] = budgets[1] - (short == "scratch")
     result = _wgsextract(
-        capsys, "realign", "--input", str(cram), "--ref", str(ref),
+        capsys, "realign", "--input", str(cram), "--ref", ref,
         "--outdir", str(output), "--format", "CRAM", "--tmp-dir", str(scratch),
         "--threads", "1", "--memory", "256M",
     )  # fmt: skip

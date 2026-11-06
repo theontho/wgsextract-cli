@@ -237,7 +237,7 @@ def _preflight_long_read_disk_space(
             gigabytes,
             directory,
         )
-        if not check_free_space(directory, gigabytes):
+        if not check_free_space(directory, needed / GIB):
             raise WGSExtractError(
                 f"Insufficient free disk space at {directory} for realign "
                 f"(needs ~{gigabytes} GB). Free up space or rerun with "
@@ -886,7 +886,16 @@ def _run_steps(
         )
 
     # 2. Disk-space pre-flight.
-    if not args.no_preflight:
+    if not args.no_preflight and align_cmd.is_long_read(args) and args.r1:
+        _preflight_long_read_disk_space(
+            args.r1,
+            outdir,
+            output_format=getattr(args, "format", "BAM"),
+            extract=False,
+            threads=threads,
+            memory=memory,
+        )
+    elif not args.no_preflight:
         try:
             _preflight_disk_space(
                 args.input,

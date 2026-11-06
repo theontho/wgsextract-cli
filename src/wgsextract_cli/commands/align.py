@@ -32,6 +32,7 @@ from wgsextract_cli.core.output_checks import record_alignment_output
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import (
     alignment_sample,
+    fasta_read_length,
     fastq_input_statistics,
     fastq_statistics,
 )
@@ -1216,7 +1217,7 @@ def _long_read_length(reads: str, cram_opt: Sequence[str]) -> float | None:
         sample = alignment_sample(reads, cram_opt=list(cram_opt), single_end=True)
         mean = sample.read_length
     elif is_fasta_path(reads):
-        return None
+        mean = fasta_read_length(reads)
     else:
         statistics = fastq_statistics(reads)
         mean = statistics.read_length if statistics is not None else None

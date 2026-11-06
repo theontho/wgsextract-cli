@@ -167,53 +167,76 @@ def alignment_read_length(
     return alignment_sample(path, cram_opt=cram_opt).read_length
 
 
+def _decoded_prefix(path: PathInput) -> tuple[bytes, int, bool, int]:
+    """(decoded prefix, bytes it consumed, whether it is the whole file, file
+    size) of a plain, gzip or concatenated gzip/BGZF file. Measure bytes
+    actually consumed by the inflater, not its read-ahead, which otherwise
+    biases highly compressed inputs."""
+    info = Path(path).stat()
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError("not a regular file")
+    size = info.st_size
+    with open(path, "rb") as source:
+        compressed = source.read(2) == b"\x1f\x8b"
+        source.seek(0)
+        if not compressed:
+            data = source.read(_DECODED_SAMPLE_BYTES)
+            consumed = len(data)
+            exact = consumed == size
+        else:
+            decoded = bytearray()
+            inflater = zlib.decompressobj(31)
+            pending = b""
+            consumed = 0
+            exact = False
+            while len(decoded) < _DECODED_SAMPLE_BYTES:
+                if not pending:
+                    remaining = _COMPRESSED_SAMPLE_BYTES - source.tell()
+                    if remaining <= 0:
+                        break
+                    pending = source.read(min(_CHUNK_BYTES, remaining))
+                    if not pending:
+                        raise EOFError("incomplete gzip member")
+                decoded.extend(
+                    inflater.decompress(pending, _DECODED_SAMPLE_BYTES - len(decoded))
+                )
+                tail = inflater.unused_data or inflater.unconsumed_tail
+                consumed += len(pending) - len(tail)
+                pending = tail
+                if inflater.eof:
+                    if not pending and source.tell() == size:
+                        exact = True
+                        break
+                    inflater = zlib.decompressobj(31)
+            data = bytes(decoded)
+    return data, consumed, exact, size
+
+
+def fasta_read_length(path: PathInput) -> float | None:
+    """Mean sequence length of a bounded prefix of a plain or gzipped FASTA of
+    reads; a first record longer than the prefix gives its partial length."""
+    try:
+        data, _consumed, exact, _size = _decoded_prefix(path)
+    except (OSError, EOFError, ValueError, zlib.error) as error:
+        logging.warning("Could not sample read lengths from %s: %s", path, error)
+        return None
+    records = data.split(b">")[1:]
+    lengths = [
+        sum(len(line.strip()) for line in record.splitlines()[1:]) for record in records
+    ]
+    if len(lengths) > 1 and not exact:
+        lengths.pop()  # The prefix may end inside the last record.
+    return sum(lengths) / len(lengths) if lengths and sum(lengths) else None
+
+
 def fastq_statistics(path: PathInput) -> FastqStatistics | None:
     """Estimate individual reads from file size and a bounded prefix sample.
 
     Plain FASTQ, gzip and concatenated gzip/BGZF members are supported. Small
-    files are counted exactly. Measure bytes actually consumed by the inflater,
-    not its read-ahead, which otherwise biases highly compressed inputs.
+    files are counted exactly.
     """
     try:
-        info = Path(path).stat()
-        if not stat.S_ISREG(info.st_mode):
-            raise ValueError("not a regular FASTQ file")
-        size = info.st_size
-        with open(path, "rb") as source:
-            compressed = source.read(2) == b"\x1f\x8b"
-            source.seek(0)
-            if not compressed:
-                data = source.read(_DECODED_SAMPLE_BYTES)
-                consumed = len(data)
-                exact = consumed == size
-            else:
-                decoded = bytearray()
-                inflater = zlib.decompressobj(31)
-                pending = b""
-                consumed = 0
-                exact = False
-                while len(decoded) < _DECODED_SAMPLE_BYTES:
-                    if not pending:
-                        remaining = _COMPRESSED_SAMPLE_BYTES - source.tell()
-                        if remaining <= 0:
-                            break
-                        pending = source.read(min(_CHUNK_BYTES, remaining))
-                        if not pending:
-                            raise EOFError("incomplete gzip member")
-                    decoded.extend(
-                        inflater.decompress(
-                            pending, _DECODED_SAMPLE_BYTES - len(decoded)
-                        )
-                    )
-                    tail = inflater.unused_data or inflater.unconsumed_tail
-                    consumed += len(pending) - len(tail)
-                    pending = tail
-                    if inflater.eof:
-                        if not pending and source.tell() == size:
-                            exact = True
-                            break
-                        inflater = zlib.decompressobj(31)
-                data = bytes(decoded)
+        data, consumed, exact, size = _decoded_prefix(path)
         lines = data.splitlines()
         if not exact and not data.endswith(b"\n"):
             lines = lines[:-1]
