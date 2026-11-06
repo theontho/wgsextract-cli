@@ -1,6 +1,4 @@
-from argparse import Namespace
-
-from wgsextract_cli.commands import ref as ref_command
+from wgsextract_cli import api
 from wgsextract_cli.core import config, reference_processing
 
 
@@ -14,7 +12,7 @@ def test_bootstrap_saves_reference_library_when_unconfigured(tmp_path, monkeypat
         "wgsextract_cli.core.reference_processing.download_bootstrap", lambda path: True
     )
 
-    ref_command.cmd_bootstrap(Namespace(ref=str(reflib)))
+    api.ref.bootstrap(api.RefBootstrapParams(ref=reflib))
 
     config.reload_settings()
     assert config.settings["reference_library"] == str(reflib)
@@ -32,7 +30,7 @@ def test_bootstrap_keeps_existing_reference_library(tmp_path, monkeypatch):
         "wgsextract_cli.core.reference_processing.download_bootstrap", lambda path: True
     )
 
-    ref_command.cmd_bootstrap(Namespace(ref=str(requested_reflib)))
+    api.ref.bootstrap(api.RefBootstrapParams(ref=requested_reflib))
 
     config.reload_settings()
     assert config.settings["reference_library"] == str(existing_reflib)

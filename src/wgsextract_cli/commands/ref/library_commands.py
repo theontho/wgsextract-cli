@@ -3,6 +3,24 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.ref import (
+    RefAadrParams,
+    RefAlphamissenseParams,
+    RefBootstrapParams,
+    RefCaddParams,
+    RefClinvarParams,
+    RefGeneMapParams,
+    RefGerpParams,
+    RefGnomadParams,
+    RefLibraryParams,
+    RefPharmgkbParams,
+    RefPhylopParams,
+    RefRevelParams,
+    RefSpliceaiParams,
+    RefYbrowseParams,
+    _Resource,
+)
 from wgsextract_cli.core.aadr_resources import install_aadr_2m
 from wgsextract_cli.core.annotation_resources import (
     build_gnomad_af,
@@ -29,7 +47,10 @@ from wgsextract_cli.core.ref_library.catalog import (
     get_available_genomes,
     get_genome_status,
 )
-from wgsextract_cli.core.reference_assets import resolve_reference_library
+from wgsextract_cli.core.reference_assets import (
+    reference_library_of,
+    resolve_reference_library,
+)
 from wgsextract_cli.core.reference_processing import (
     delete_genome,
     download_and_process_genome,
@@ -39,10 +60,11 @@ from wgsextract_cli.core.results import (
     MANIFEST_SUFFIX,
     current_result,
     file_snapshot,
+    human_output,
     manifest_path_for,
     record_changed_files,
 )
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 from .core_commands import (
     cmd_library_list,
@@ -62,18 +84,22 @@ _MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
 }
 
 
-def cmd_aadr(args: argparse.Namespace) -> None:
-    installed = install_aadr_2m(resolve_reference_library(args.ref))
+def _library(ref: Path | None) -> str:
+    return resolve_reference_library(reference_library_of(ref) if ref else None)
+
+
+def run_aadr(params: RefAadrParams) -> None:
+    installed = install_aadr_2m(_library(params.ref))
     current_result().add_output(installed, "reference_resource")
     logging.info("Installed CC0 AADR v66.p1 2M SNP metadata: %s", installed)
 
 
-def cmd_ybrowse(args: argparse.Namespace) -> None:
+def run_ybrowse(params: RefYbrowseParams) -> None:
     from wgsextract_cli.core.ybrowse import install_snapshot
 
     verify_dependencies(["bgzip", "tabix"])
-    library = Path(resolve_reference_library(args.ref))
-    installed = install_snapshot(library, args.snapshot)
+    library = Path(_library(params.ref))
+    installed = install_snapshot(library, params.snapshot)
     _record_installed(installed)
     logging.info("Installed sites-only GRCh38 yBrowse resource: %s", installed)
 
@@ -98,29 +124,38 @@ def _record_genome(final_path: str, before: dict[str, tuple[int, int]]) -> None:
     )
 
 
+_LIBRARY_DEPS = ["curl", "samtools", "bcftools", "tabix", "bgzip", "htsfile"]
+
+
+def run_library(params: RefLibraryParams) -> None:
+    """Install ``params.install`` from the first of its mirrors that works."""
+    verify_dependencies(_LIBRARY_DEPS)
+    log_dependency_info(_LIBRARY_DEPS)
+    if not params.install:
+        raise UsageError("--install is required.")
+    genomes = get_available_genomes()
+    reflib_dir = _library(params.ref)
+    choice = params.install.upper()
+    # A code names the genome on every mirror that hosts it, in catalog order.
+    targets = [g for g in genomes if g["code"].upper() == choice]
+    if not targets and choice.isdigit() and 0 < int(choice) <= len(genomes):
+        targets = [genomes[int(choice) - 1]]
+    if not targets:
+        raise WGSExtractError(f"Genome '{params.install}' not found in library.")
+    _install_from_mirrors(targets, reflib_dir)
+
+
 def cmd_library(args: argparse.Namespace) -> None:
     """Interactive or non-interactive library manager."""
     if args.list:
         return cmd_library_list(args)
-
-    deps = ["curl", "samtools", "bcftools", "tabix", "bgzip", "htsfile"]
-    verify_dependencies(deps)
-    log_dependency_info(deps)
-
-    genomes = get_available_genomes()
-    reflib_dir = resolve_reference_library(args.ref)
-
-    # Non-interactive install
     if args.install:
-        choice = args.install.upper()
-        # A code names the genome on every mirror that hosts it, in catalog order.
-        targets = [g for g in genomes if g["code"].upper() == choice]
-        if not targets and choice.isdigit() and 0 < int(choice) <= len(genomes):
-            targets = [genomes[int(choice) - 1]]
-        if not targets:
-            raise WGSExtractError(f"Genome '{args.install}' not found in library.")
-        _install_from_mirrors(targets, reflib_dir)
-        return
+        return _cli_library(args)
+
+    verify_dependencies(_LIBRARY_DEPS)
+    log_dependency_info(_LIBRARY_DEPS)
+    genomes = get_available_genomes()
+    reflib_dir = _library(args.ref)
 
     # Interactive menu
     print("\n" + "=" * 80)
@@ -214,9 +249,9 @@ def _install_genome(
     _record_genome(str(Path(reflib_dir, "genomes", genome["final"])), before)
 
 
-def cmd_gene_map(args: argparse.Namespace) -> None:
-    reflib = resolve_reference_library(args.ref)
-    if getattr(args, "delete", False):
+def run_gene_map(params: RefGeneMapParams) -> None:
+    reflib = _library(params.ref)
+    if params.delete:
         _delete_gene_maps(reflib)
     else:
         _download_gene_maps(reflib)
@@ -227,13 +262,13 @@ def _download_gene_maps(reflib: str) -> None:
     if not download_gene_maps(reflib):
         raise WGSExtractError(LOG_MESSAGES["dl_genemap_failed"])
     record_changed_files(reflib, before, "reference_resource")
-    print(LOG_MESSAGES["dl_genemap_success"])
+    human_output(LOG_MESSAGES["dl_genemap_success"])
 
 
 def _delete_gene_maps(reflib: str) -> None:
     if not delete_gene_maps(reflib):
         raise WGSExtractError(LOG_MESSAGES["del_genemap_failed"])
-    print(LOG_MESSAGES["del_genemap_success"])
+    human_output(LOG_MESSAGES["del_genemap_success"])
 
 
 def _run_downloader(
@@ -252,83 +287,73 @@ def _run_downloader(
     logging.info("%s setup complete.", resource_name)
 
 
-def _run_ref_download(
-    args: argparse.Namespace,
-    resource_name: str,
-    downloader: Callable[[str], bool],
-    action: str = "download and indexing",
-) -> None:
+def run_clinvar(params: RefClinvarParams) -> None:
+    _run_downloader(_library(params.ref), "ClinVar", download_clinvar)
+
+
+def run_revel(params: RefRevelParams) -> None:
+    _run_downloader(_library(params.ref), "REVEL", download_revel)
+
+
+def run_phylop(params: RefPhylopParams) -> None:
+    build = params.build
     _run_downloader(
-        resolve_reference_library(args.ref), resource_name, downloader, action
-    )
-
-
-def cmd_clinvar_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(args, "ClinVar", download_clinvar)
-
-
-def cmd_revel_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(args, "REVEL", download_revel)
-
-
-def cmd_phylop_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(
-        args,
-        f"PhyloP {args.build}",
-        lambda lib: download_phylop(lib, args.build),
+        _library(params.ref),
+        f"PhyloP {build}",
+        lambda lib: download_phylop(lib, build),
         "download",
     )
 
 
-def cmd_gnomad_dl(args: argparse.Namespace) -> None:
-    if getattr(args, "release", "2.1.1") == "4.1":
-        workers = int(args.threads) if getattr(args, "threads", None) else 6
-        _run_ref_download(
-            args,
-            "gnomAD v4.1",
-            lambda lib: build_gnomad_af(lib, workers),
-            "build",
+def run_gnomad(params: RefGnomadParams) -> None:
+    reflib = _library(params.ref)
+    if params.release == "4.1":
+        workers = int(params.threads) if params.threads else 6
+        _run_downloader(
+            reflib, "gnomAD v4.1", lambda lib: build_gnomad_af(lib, workers), "build"
         )
-        return
-    _run_ref_download(args, "gnomAD", download_gnomad)
+    else:
+        _run_downloader(reflib, "gnomAD", download_gnomad)
 
 
-def cmd_spliceai_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(args, "SpliceAI", download_spliceai)
+def run_spliceai(params: RefSpliceaiParams) -> None:
+    _run_downloader(_library(params.ref), "SpliceAI", download_spliceai)
 
 
-def cmd_alphamissense_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(args, "AlphaMissense", download_alphamissense)
+def run_alphamissense(params: RefAlphamissenseParams) -> None:
+    _run_downloader(_library(params.ref), "AlphaMissense", download_alphamissense)
 
 
-def cmd_pharmgkb_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(args, "PharmGKB", download_pharmgkb, "download")
+def run_pharmgkb(params: RefPharmgkbParams) -> None:
+    _run_downloader(_library(params.ref), "PharmGKB", download_pharmgkb, "download")
 
 
-def cmd_cadd_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(
-        args,
-        f"CADD {args.build}",
-        lambda lib: download_cadd(lib, args.build),
+def run_cadd(params: RefCaddParams) -> None:
+    build = params.build
+    _run_downloader(
+        _library(params.ref),
+        f"CADD {build}",
+        lambda lib: download_cadd(lib, build),
         "download",
     )
 
 
-def cmd_gerp_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(
-        args,
-        f"GERP {args.build}",
-        lambda lib: download_gerp(lib, args.build),
+def run_gerp(params: RefGerpParams) -> None:
+    build = params.build
+    _run_downloader(
+        _library(params.ref),
+        f"GERP {build}",
+        lambda lib: download_gerp(lib, build),
         "download",
     )
 
 
-def cmd_bootstrap(args: argparse.Namespace) -> None:
+def run_bootstrap(params: RefBootstrapParams) -> None:
     from wgsextract_cli.core.config import save_config, settings
     from wgsextract_cli.core.reference_processing import download_bootstrap
 
     should_save_reflib = not settings.get("reference_library")
-    reflib = resolve_reference_library(args.ref)
+    reflib = _library(params.ref)
 
     logging.info("Starting reference library bootstrap...")
     before = file_snapshot(reflib)
@@ -342,3 +367,21 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     logging.info(
         "Bootstrap complete. You can now install genomes via 'wgsextract ref library'."
     )
+
+
+cmd_aadr = cli_handler(RefAadrParams, run_aadr)
+cmd_ybrowse = cli_handler(RefYbrowseParams, run_ybrowse)
+_cli_library = cli_handler(RefLibraryParams, run_library)
+cmd_gene_map = cli_handler(RefGeneMapParams, run_gene_map)
+cmd_bootstrap = cli_handler(RefBootstrapParams, run_bootstrap)
+RESOURCE_COMMANDS: tuple[tuple[type[_Resource], Callable[..., None]], ...] = (
+    (RefClinvarParams, run_clinvar),
+    (RefRevelParams, run_revel),
+    (RefPhylopParams, run_phylop),
+    (RefGnomadParams, run_gnomad),
+    (RefSpliceaiParams, run_spliceai),
+    (RefAlphamissenseParams, run_alphamissense),
+    (RefPharmgkbParams, run_pharmgkb),
+    (RefCaddParams, run_cadd),
+    (RefGerpParams, run_gerp),
+)

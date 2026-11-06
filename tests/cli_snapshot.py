@@ -17,7 +17,7 @@ import io
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 GOLDEN = Path(__file__).parent / "fixtures" / "api_cli_snapshot.json"
@@ -87,6 +87,27 @@ MIGRATED = (
     ("qc", "fake-data"),
     ("align",),
     ("realign",),
+    ("ref",),
+    ("ref", "aadr"),
+    ("ref", "ybrowse"),
+    ("ref", "download"),
+    ("ref", "index"),
+    ("ref", "count-ns"),
+    ("ref", "verify"),
+    ("ref", "library"),
+    ("ref", "library-list"),
+    ("ref", "status"),
+    ("ref", "gene-map"),
+    ("ref", "clinvar"),
+    ("ref", "revel"),
+    ("ref", "phylop"),
+    ("ref", "gnomad"),
+    ("ref", "spliceai"),
+    ("ref", "alphamissense"),
+    ("ref", "pharmgkb"),
+    ("ref", "cadd"),
+    ("ref", "gerp"),
+    ("ref", "bootstrap"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -340,6 +361,28 @@ ARGVS = (
         "--qc-min-depth",
         "0",
     ],
+    ["ref", "aadr", "--install", "--ref", "lib"],
+    ["ref", "ybrowse", "--install", "--snapshot", "y.vcf.gz"],
+    ["ref", "download", "--url", "https://x/r.fa.gz", "--out", "r.fa.gz"],
+    ["ref", "index", "--ref", "r.fa", "--aligner", "bwa-mem2"],
+    ["ref", "count-ns", "--ref", "r.fa", "-o", "out"],
+    ["ref", "verify", "--ref", "r.fa.gz"],
+    ["ref", "library", "--install", "hs38", "--ref", "lib"],
+    ["ref", "library", "--list"],
+    ["ref", "library-list", "--ref", "lib"],
+    ["ref", "status", "--genome-library", "g", "--annotation-vcf", "a.vcf.gz"],
+    ["ref", "status", "-i", "x.bam", "--values"],
+    ["ref", "gene-map", "--delete"],
+    ["ref", "clinvar", "--ref", "lib"],
+    ["ref", "revel"],
+    ["ref", "phylop", "--build", "hg19"],
+    ["ref", "gnomad", "--release", "4.1", "-t", "3"],
+    ["ref", "spliceai"],
+    ["ref", "alphamissense"],
+    ["ref", "pharmgkb"],
+    ["ref", "cadd", "--build", "hg19"],
+    ["ref", "gerp"],
+    ["ref", "bootstrap", "--ref", "lib"],
 )
 
 
@@ -354,6 +397,8 @@ def _plain(value: Any) -> Any:
         return sorted(_plain(v) for v in value)
     if isinstance(value, type):
         return value.__name__
+    if isinstance(value, PurePath):  # the same on every system
+        return f"Path({value.as_posix()!r})"
     if callable(value):
         return getattr(value, "__qualname__", repr(value))
     return repr(value)

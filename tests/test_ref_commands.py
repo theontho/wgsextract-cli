@@ -9,11 +9,20 @@ import sys
 import zipfile
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_tools, vcf_calls, write_fasta
 from tests.http_server import serving
+from wgsextract_cli import api
+from wgsextract_cli.api import (
+    RefCountNsParams,
+    RefGeneMapParams,
+    RefIndexParams,
+    RefLibraryParams,
+    RefVerifyParams,
+)
 from wgsextract_cli.commands.ref import core_commands, library_commands
 from wgsextract_cli.core import (
     annotation_resources,
@@ -38,7 +47,8 @@ from wgsextract_cli.core.reference_assets import (
     reference_dict_path,
     sequence_signature,
 )
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.main import main
 
 
 def _bgzipped_fasta(tmp_path: Path, seqs: dict[str, str], name="ref.fa") -> Path:
@@ -66,9 +76,11 @@ def _random_seqs() -> dict[str, str]:
 def test_index_builds_fai_dict_and_bwa_index(tmp_path):
     ref = _bgzipped_fasta(tmp_path, _random_seqs())
 
-    core_commands.cmd_index(Namespace(ref=str(ref), aligner="bwa"))
+    result = api.ref.index(RefIndexParams(ref=ref, aligner="bwa"))
 
     assert read_fai_lengths(ref) == {"chr1": 3000, "chr2": 1200}
+    indexes = {Path(o.path).name for o in result.outputs if o.role == "reference_index"}
+    assert {"ref.dict", "ref.fa.gz.fai", "ref.fa.gz.bwt"} <= indexes
     assert (tmp_path / "ref.fa.gz.gzi").is_file()
     sq = [
         line.split("\t")[1:3]
@@ -86,7 +98,7 @@ def test_index_with_bwa_mem2_builds_its_index_not_bwas(tmp_path, monkeypatch):
     ref = _bgzipped_fasta(tmp_path, _random_seqs())
     monkeypatch.setattr(bwa_mem2, "download_file", pytest.fail)
 
-    core_commands.cmd_index(Namespace(ref=str(ref), aligner="bwa-mem2"))
+    api.ref.index(RefIndexParams(ref=ref, aligner="bwa-mem2"))
 
     assert (tmp_path / "ref.dict").is_file()
     assert bwa_mem2.has_index(str(ref))
@@ -100,8 +112,8 @@ def test_index_bwa_mem2_without_memory_fails_after_the_fai_and_dict(
     ref = _bgzipped_fasta(tmp_path, _random_seqs())
     monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 0)
 
-    with pytest.raises(WGSExtractError, match="Indexing failed: .*--aligner bwa"):
-        core_commands.cmd_index(Namespace(ref=str(ref), aligner="bwa-mem2"))
+    with pytest.raises(api.CommandFailed, match="Indexing failed: .*--aligner bwa"):
+        api.ref.index(RefIndexParams(ref=ref, aligner="bwa-mem2"))
 
     assert (tmp_path / "ref.fa.gz.fai").is_file()
     assert (tmp_path / "ref.dict").is_file()
@@ -114,8 +126,8 @@ def test_index_of_plain_gzip_fasta_reports_the_samtools_failure(tmp_path):
     with gzip.open(ref, "wt") as f:  # gzip, not bgzip: samtools can't index it
         f.write(">chr1\nACGTACGT\n")
 
-    with pytest.raises(WGSExtractError, match="Indexing failed"):
-        core_commands.cmd_index(Namespace(ref=str(ref), aligner="bwa"))
+    with pytest.raises(api.CommandFailed, match="Indexing failed"):
+        api.ref.index(RefIndexParams(ref=ref, aligner="bwa"))
     assert not (tmp_path / "ref.fa.gz.bwt").exists()
 
 
@@ -124,9 +136,9 @@ def test_index_of_plain_gzip_fasta_reports_the_samtools_failure(tmp_path):
     ("ref", "message"), [(None, "--ref is required"), ("nope.fa", "file not found")]
 )
 def test_index_needs_an_existing_ref(tmp_path, ref, message):
-    ref = ref and str(tmp_path / ref)
-    with pytest.raises(WGSExtractError, match=message):
-        core_commands.cmd_index(Namespace(ref=ref, aligner=None))
+    ref = ref and tmp_path / ref
+    with pytest.raises(api.CommandFailed, match=message):
+        api.ref.index(RefIndexParams(ref=ref))
 
 
 # --- ref count-ns ------------------------------------------------------------
@@ -157,8 +169,8 @@ def test_count_ns_counts_known_runs_beside_the_fasta(tmp_path, caplog):
 def test_count_ns_on_a_corrupt_fasta_suggests_outdir(tmp_path):
     ref = tmp_path / "ref.fa.gz"
     ref.write_bytes(b"not gzip at all")
-    with pytest.raises(WGSExtractError, match="N-counting failed: .*Pass --outdir"):
-        core_commands.cmd_count_ns(Namespace(ref=str(ref), outdir=None))
+    with pytest.raises(api.CommandFailed, match="N-counting failed: .*Pass --outdir"):
+        api.ref.count_ns(RefCountNsParams(ref=ref))
 
 
 # --- ref verify --------------------------------------------------------------
@@ -172,7 +184,7 @@ def test_verify_passes_an_indexed_bgzipped_fasta(tmp_path, caplog):
     run_command(["samtools", "dict", str(ref), "-o", str(tmp_path / "ref.dict")])
 
     with caplog.at_level(logging.INFO):
-        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+        api.ref.verify(RefVerifyParams(ref=ref))
 
     signature = sequence_signature({n: len(s) for n, s in seqs.items()})
     assert f"Sequence dictionary signature: {signature}" in caplog.text
@@ -185,8 +197,8 @@ def test_verify_fails_a_truncated_gzip(tmp_path):
     ref = _bgzipped_fasta(tmp_path, _random_seqs())
     data = ref.read_bytes()
     ref.write_bytes(data[: len(data) // 2])
-    with pytest.raises(WGSExtractError, match="Gzip integrity check failed"):
-        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+    with pytest.raises(api.CommandFailed, match="Gzip integrity check failed"):
+        api.ref.verify(RefVerifyParams(ref=ref))
 
 
 @needs_tools("samtools")
@@ -195,7 +207,7 @@ def test_verify_indexes_a_plain_fasta_and_warns_without_a_dict(tmp_path, caplog)
     ref.write_text(">chrM\nACGTNNACGT\n")
 
     with caplog.at_level(logging.INFO):
-        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+        api.ref.verify(RefVerifyParams(ref=ref))
 
     assert read_fai_lengths(ref) == {"chrM": 10}
     assert "Gzip" not in caplog.text
@@ -213,8 +225,8 @@ def test_verify_indexes_a_plain_fasta_and_warns_without_a_dict(tmp_path, caplog)
 def test_verify_fails_a_stale_fai(tmp_path, fai):
     ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 10})
     Path(f"{ref}.fai").write_text(fai)
-    with pytest.raises(WGSExtractError, match="ref.fa.fai doesn't match ref.fa"):
-        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+    with pytest.raises(api.CommandFailed, match="ref.fa.fai doesn't match ref.fa"):
+        api.ref.verify(RefVerifyParams(ref=ref))
     assert Path(f"{ref}.fai").read_text() == fai  # left for the user to remove
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
 
@@ -226,8 +238,8 @@ def test_verify_fails_a_gzi_from_another_file(tmp_path):
     run_command(["samtools", "faidx", str(ref)])
     run_command(["samtools", "faidx", str(other)])
     Path(f"{other}.gzi").replace(f"{ref}.gzi")
-    with pytest.raises(WGSExtractError, match="ref.fa.gz.gzi doesn't match"):
-        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+    with pytest.raises(api.CommandFailed, match="ref.fa.gz.gzi doesn't match"):
+        api.ref.verify(RefVerifyParams(ref=ref))
 
 
 @needs_tools("samtools", "bgzip")
@@ -236,8 +248,8 @@ def test_verify_writes_a_missing_index_and_fails_a_stale_dict(tmp_path):
     (tmp_path / "ref.dict").write_text(
         "@HD\tVN:1.0\n@SQ\tSN:chr1\tLN:3000\n@SQ\tSN:chr2\tLN:999\n"
     )
-    with pytest.raises(WGSExtractError, match="ref.dict doesn't match"):
-        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+    with pytest.raises(api.CommandFailed, match="ref.dict doesn't match"):
+        api.ref.verify(RefVerifyParams(ref=ref))
     assert read_fai_lengths(ref) == {"chr1": 3000, "chr2": 1200}
     assert Path(f"{ref}.gzi").is_file()
 
@@ -257,7 +269,7 @@ def test_verify_resolves_a_library_dir_and_matches_the_catalog(
     )
 
     with caplog.at_level(logging.INFO):
-        core_commands.cmd_ref_verify(Namespace(ref=str(tmp_path)))
+        api.ref.verify(RefVerifyParams(ref=tmp_path))
 
     assert f"Verifying integrity of {ref}..." in caplog.text
     assert "Sequence dictionary signature: OK" in caplog.text
@@ -265,10 +277,10 @@ def test_verify_resolves_a_library_dir_and_matches_the_catalog(
 
 @needs_tools("samtools")
 def test_verify_needs_an_existing_reference(tmp_path):
-    with pytest.raises(WGSExtractError, match="--ref is required"):
-        core_commands.cmd_ref_verify(Namespace(ref=None))
-    with pytest.raises(WGSExtractError, match="Reference file not found"):
-        core_commands.cmd_ref_verify(Namespace(ref=str(tmp_path / "missing.fa.gz")))
+    with pytest.raises(api.CommandFailed, match="--ref is required"):
+        api.ref.verify(RefVerifyParams(ref=None))
+    with pytest.raises(api.CommandFailed, match="Reference file not found"):
+        api.ref.verify(RefVerifyParams(ref=tmp_path / "missing.fa.gz"))
 
 
 # --- ref library --list --------------------------------------------------------
@@ -386,7 +398,7 @@ def _genome(server, code, path=None, data=TINY_FA_GZ, final=None):
 
 
 def _install(lib, choice):
-    library_commands.cmd_library(Namespace(ref=str(lib), list=False, install=choice))
+    api.ref.library(RefLibraryParams(ref=lib, install=choice))
 
 
 def _assert_installed(lib, final):
@@ -421,7 +433,7 @@ def test_library_install_by_code_or_number(tmp_path, server, catalog, choice, ca
 @pytest.mark.parametrize("choice", ["nope", "0", "3"])
 def test_library_install_rejects_unknown_genomes(tmp_path, server, catalog, choice):
     catalog += [_genome(server, "tiny"), _genome(server, "other")]
-    with pytest.raises(WGSExtractError, match=f"Genome '{choice}' not found"):
+    with pytest.raises(api.CommandFailed, match=f"Genome '{choice}' not found"):
         _install(tmp_path, choice)
     assert server.requests == []
     assert not (tmp_path / "genomes").exists()
@@ -434,7 +446,7 @@ def test_a_genome_unlike_its_catalog_entry_is_not_left_installed(
     """A mirror serving another build or patch level fails its signature check."""
     catalog.append(_genome(server, "tiny") | {"md5": "0" * 32})
 
-    with pytest.raises(WGSExtractError, match="Failed to install genome tiny.fa.gz"):
+    with pytest.raises(api.CommandFailed, match="Failed to install genome tiny.fa.gz"):
         _install(tmp_path, "tiny")
 
     assert _files(tmp_path / "genomes") == {}
@@ -459,7 +471,7 @@ def test_library_install_falls_back_to_the_next_mirror(
 
     for entry in catalog:
         server.files.pop(entry["description"], None)
-    with pytest.raises(WGSExtractError, match="hs38.fa.gz from any of its 4 mirrors"):
+    with pytest.raises(api.CommandFailed, match="hs38.fa.gz from any of its 4 mirrors"):
         _install(tmp_path / "empty", "hs38")
 
 
@@ -595,27 +607,45 @@ def _gene_maps(lib: Path) -> list[str]:
 
 
 def test_gene_map_command_installs_and_deletes_both_builds(tmp_path, ucsc, capsys):
-    library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=False))
-    assert "Successfully downloaded Gene Maps." in capsys.readouterr().out
+    # PR #458 review: the success message went to stdout through the API too.
+    api.ref.gene_map(RefGeneMapParams(ref=tmp_path, delete=False))
+    assert capsys.readouterr().out == ""
     assert _gene_maps(tmp_path) == ["genes_hg19.tsv", "genes_hg38.tsv"]
     assert (
         "BRCA1\tchr17\t43044295\t43125364"
         in (tmp_path / "ref" / "genes_hg38.tsv").read_text()
     )
 
-    library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=True))
+    with patch.object(
+        sys,
+        "argv",
+        ["wgsextract", "ref", "gene-map", "--ref", str(tmp_path), "--delete"],
+    ):
+        main()
     assert "Successfully deleted Gene Maps." in capsys.readouterr().out
     assert _gene_maps(tmp_path) == []
 
 
+def test_a_fasta_ref_names_the_library_above_its_genomes_folder(tmp_path, ucsc):
+    # PR #458 review: `--ref <library>/genomes/hg38.fa` (the configured
+    # reference) treated the FASTA itself as the library folder.
+    fasta = tmp_path / "genomes" / "hg38.fa"
+    fasta.parent.mkdir()
+    fasta.write_text(">chr1\nA\n")
+    api.ref.gene_map(RefGeneMapParams(ref=fasta, delete=False))
+    assert _gene_maps(tmp_path) == ["genes_hg19.tsv", "genes_hg38.tsv"]
+
+
 def test_gene_map_command_reports_failures(tmp_path, ucsc):
     del ucsc.files["hg19/refGene.txt.gz"]
-    with pytest.raises(WGSExtractError, match="Gene Map download cancelled or failed"):
-        library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=False))
+    with pytest.raises(
+        api.CommandFailed, match="Gene Map download cancelled or failed"
+    ):
+        api.ref.gene_map(RefGeneMapParams(ref=tmp_path, delete=False))
 
     (tmp_path / "ref" / "genes_hg19.tsv").mkdir()  # can't be unlinked
-    with pytest.raises(WGSExtractError, match="Failed to delete Gene Maps"):
-        library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=True))
+    with pytest.raises(api.CommandFailed, match="Failed to delete Gene Maps"):
+        api.ref.gene_map(RefGeneMapParams(ref=tmp_path, delete=True))
 
 
 @needs_library_tools
@@ -632,7 +662,7 @@ def test_library_menu_gene_maps(
     tmp_path, monkeypatch, catalog, ucsc, installed, answers, expected
 ):
     if installed:
-        library_commands.cmd_gene_map(Namespace(ref=str(tmp_path), delete=False))
+        api.ref.gene_map(RefGeneMapParams(ref=tmp_path, delete=False))
     ucsc.requests.clear()
     _menu(monkeypatch, tmp_path, answers)
     assert _gene_maps(tmp_path) == expected
@@ -663,22 +693,27 @@ def _bgzf(tmp_path: Path, text: str, index: bool) -> dict[str, bytes]:
     return files
 
 
+def _resource(name: str, **fields):
+    params = getattr(api, f"Ref{name.capitalize()}Params")
+    return getattr(api.ref, name)(params(**fields))
+
+
 @needs_tools("bgzip", "tabix", "bcftools")
 @pytest.mark.parametrize(
     ("command", "extra", "urls", "dest", "payload"),
     [
-        ("cmd_clinvar_dl", {}, CLINVAR_URLS, "clinvar_{}.vcf.gz", "vcf-gzip"),
-        ("cmd_revel_dl", {}, REVEL_URLS, "revel_{}.tsv.gz", REVEL_TSV),
+        ("clinvar", {}, CLINVAR_URLS, "clinvar_{}.vcf.gz", "vcf-gzip"),
+        ("revel", {}, REVEL_URLS, "revel_{}.tsv.gz", REVEL_TSV),
         (
-            "cmd_alphamissense_dl",
+            "alphamissense",
             {},
             ALPHAMISSENSE_URLS,
             "alphamissense_{}.tsv.gz",
             ALPHAMISSENSE_TSV,
         ),
-        ("cmd_spliceai_dl", {}, SPLICEAI_URLS, "spliceai_{}.vcf.gz", "vcf-indexed"),
+        ("spliceai", {}, SPLICEAI_URLS, "spliceai_{}.vcf.gz", "vcf-indexed"),
         (
-            "cmd_gnomad_dl",
+            "gnomad",
             {"release": "2.1.1"},
             GNOMAD_URLS,
             "gnomad_{}.vcf.bgz",
@@ -709,7 +744,7 @@ def test_resource_commands_install_indexed_files(
         monkeypatch.setitem(urls, build, server.url_for(f"{build}/source"))
     lib = tmp_path / "library"
 
-    getattr(library_commands, command)(Namespace(ref=str(lib), **extra))
+    _resource(command, ref=lib, **extra)
 
     tabix = get_tool_path("tabix")
     for build in builds:
@@ -755,7 +790,7 @@ def test_pharmgkb_command_builds_its_table(tmp_path, monkeypatch, server):
     monkeypatch.setattr(pharmgkb, "CLINICAL_URL", server.url_for("clinical.zip"))
     monkeypatch.setattr(pharmgkb, "VARIANTS_URL", server.url_for("variants.zip"))
 
-    library_commands.cmd_pharmgkb_dl(Namespace(ref=str(tmp_path)))
+    api.ref.pharmgkb(api.RefPharmgkbParams(ref=tmp_path))
 
     with gzip.open(tmp_path / "ref" / "pharmgkb_hg38.tsv.gz", "rt") as f:
         assert "chr16\t31096368\tC\tT\trs200|VKORC1|1A|Dosage|warfarin" in f.read()
@@ -765,8 +800,8 @@ def test_pharmgkb_command_builds_its_table(tmp_path, monkeypatch, server):
 def test_resource_download_failure_names_the_resource(tmp_path, monkeypatch, server):
     for build in CLINVAR_URLS:
         monkeypatch.setitem(CLINVAR_URLS, build, server.url_for(build))
-    with pytest.raises(WGSExtractError, match="ClinVar setup failed"):
-        library_commands.cmd_clinvar_dl(Namespace(ref=str(tmp_path)))
+    with pytest.raises(api.CommandFailed, match="ClinVar setup failed"):
+        api.ref.clinvar(api.RefClinvarParams(ref=tmp_path))
 
 
 def _cadd_hg19() -> list[str]:
@@ -780,11 +815,11 @@ def _cadd_hg19() -> list[str]:
 @pytest.mark.parametrize(
     ("command", "extra", "installed"),
     [
-        ("cmd_phylop_dl", {"build": "hg19"}, ["phylop_hg19.bw"]),
-        ("cmd_gerp_dl", {"build": "hg19"}, ["gerp_hg19.bw"]),
-        ("cmd_cadd_dl", {"build": "hg19"}, _cadd_hg19()),
+        ("phylop", {"build": "hg19"}, ["phylop_hg19.bw"]),
+        ("gerp", {"build": "hg19"}, ["gerp_hg19.bw"]),
+        ("cadd", {"build": "hg19"}, _cadd_hg19()),
         (
-            "cmd_gnomad_dl",
+            "gnomad",
             {"release": "4.1"},
             ["gnomad_hg38.tsv.gz", "gnomad_hg38.tsv.gz.tbi"],
         ),
@@ -805,7 +840,7 @@ def test_installed_resources_are_found_for_the_requested_build_or_release(
     for file in installed:
         (tmp_path / "ref" / file).write_bytes(b"installed")
 
-    getattr(library_commands, command)(Namespace(ref=str(tmp_path), **extra))
+    _resource(command, ref=tmp_path, **extra)
 
     assert server.requests == []
 
@@ -814,8 +849,8 @@ def test_failed_bootstrap_does_not_save_the_library(tmp_path, monkeypatch, serve
     monkeypatch.setattr(constants, "BOOTSTRAP_URL", server.url_for("bootstrap.tar.gz"))
     reflib = tmp_path / "library"
 
-    with pytest.raises(WGSExtractError, match="bootstrap failed"):
-        library_commands.cmd_bootstrap(Namespace(ref=str(reflib)))
+    with pytest.raises(api.CommandFailed, match="bootstrap failed"):
+        api.ref.bootstrap(api.RefBootstrapParams(ref=reflib))
 
     assert len(server.gets()) == 3  # retried
     config.reload_settings()

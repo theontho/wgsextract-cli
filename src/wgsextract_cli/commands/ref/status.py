@@ -3,10 +3,13 @@ import contextlib
 import json
 import os
 import re
+from os import fspath
 from pathlib import Path
 from typing import Any
 
-from wgsextract_cli.core import bwa_mem2
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.ref import RefStatusParams
+from wgsextract_cli.core import bwa_mem2, sample_workspace
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.gene_map import are_gene_maps_installed
 from wgsextract_cli.core.paths import absolute_path
@@ -18,6 +21,7 @@ from wgsextract_cli.core.reference_assets import (
     find_annotation_vcf,
     first_existing_file,
     is_fasta_path,
+    reference_library_of,
 )
 from wgsextract_cli.core.reference_processing import bootstrap_has_support_assets
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -39,22 +43,35 @@ ANNOTATION_DATA = [
 ]
 
 
-def cmd_ref_status(args: argparse.Namespace) -> None:
-    status = build_ref_status(args)
+def run_status(params: RefStatusParams, values: bool = False) -> None:
+    """``values``: print the CLI's compact JSON for GUI data sources."""
+    status = build_ref_status(params)
     current_result().set_details(status)
     if json_mode():
         return
-    if getattr(args, "values", False):
+    if values:
         print(json.dumps({"values": ref_status_values(status)}, sort_keys=True))
         return
     print_ref_status(status)
 
 
-def build_ref_status(args: argparse.Namespace) -> dict[str, Any]:
-    reflib = _resolve_reference_library(args)
-    genome_library = _resolve_genome_library(args, reflib)
-    input_path = getattr(args, "input", None)
-    annotation_vcf = getattr(args, "annotation_vcf", None) or ""
+def cmd_ref_status(args: argparse.Namespace) -> None:
+    # Only an explicit --ref outranks config reference_library.
+    if "ref" not in getattr(args, "_explicit_dests", set()):
+        args.ref = None
+    _cli_status(args)
+
+
+def build_ref_status(params: RefStatusParams) -> dict[str, Any]:
+    with sample_workspace.recording_paused():
+        return _build_ref_status(params)
+
+
+def _build_ref_status(params: RefStatusParams) -> dict[str, Any]:
+    reflib = _resolve_reference_library(params.ref)
+    genome_library = _resolve_genome_library(params.genome_library, reflib)
+    input_path = fspath(params.input) if params.input else None
+    annotation_vcf = fspath(params.annotation_vcf) if params.annotation_vcf else ""
     lib = ReferenceLibrary(reflib, input_path=input_path)
     build = build_hint(lib.build, input_path, reflib)
     annotation_file = lib.ref_vcf_tab or find_annotation_vcf(reflib, build)
@@ -269,39 +286,31 @@ def _genome_status(reflib: str) -> list[dict[str, Any]]:
     return genomes
 
 
-def _resolve_reference_library(args: argparse.Namespace) -> str:
+def _resolve_reference_library(ref: Path | None) -> str:
+    """``ref``, else config reference_library, else reference_fasta's library,
+    else the default library."""
     configured_reflib = settings.get("reference_library")
-    ref = getattr(args, "ref", None)
-    explicit_dests = getattr(args, "_explicit_dests", None)
-    ref_is_explicit = explicit_dests is None or "ref" in explicit_dests
-    if ref and ref_is_explicit:
-        ref_path = str(absolute_path(str(ref)))
-        if Path(ref_path).is_dir():
-            return ref_path
-        if Path(ref_path).is_file():
-            return _reference_library_from_fasta(ref_path)
+    if ref and (library := _library_of(ref)):
+        return library
     if configured_reflib:
         return str(absolute_path(str(configured_reflib)))
-    if ref:
-        ref_path = str(absolute_path(str(ref)))
-        if Path(ref_path).is_dir():
-            return ref_path
-        if Path(ref_path).is_file():
-            return _reference_library_from_fasta(ref_path)
+    fallback = ref or settings.get("reference_fasta")
+    if fallback and (library := _library_of(fallback)):
+        return library
     return default_reference_library()
 
 
-def _reference_library_from_fasta(ref_path: str) -> str:
-    ref_dir = str(Path(ref_path).parent)
-    if Path(ref_dir).name.lower() == "genomes":
-        return str(Path(ref_dir).parent)
-    return ref_dir
+def _library_of(ref: str | os.PathLike[str]) -> str | None:
+    ref_path = str(absolute_path(fspath(ref)))
+    if Path(ref_path).is_dir():
+        return ref_path
+    if Path(ref_path).is_file():
+        return reference_library_of(ref_path)
+    return None
 
 
-def _resolve_genome_library(args: argparse.Namespace, reflib: str) -> str:
-    genome_library = getattr(args, "genome_library", None) or settings.get(
-        "genome_library"
-    )
+def _resolve_genome_library(genome_library: Path | None, reflib: str) -> str:
+    genome_library = genome_library or settings.get("genome_library")
     if genome_library:
         return str(absolute_path(str(genome_library)))
     return str(Path(reflib).parent / "genomes")
@@ -374,3 +383,6 @@ def _status_label(installed: bool) -> str:
 
 def _json_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+_cli_status = cli_handler(RefStatusParams, run_status, values="values")

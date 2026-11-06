@@ -37,6 +37,7 @@ GROUPS = (
     api.vcf,
     api.lineage,
     api.microarray,
+    api.ref,
     api.report,
     api.sample,
     api.support,

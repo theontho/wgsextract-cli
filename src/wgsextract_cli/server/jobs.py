@@ -28,7 +28,13 @@ from typing import Any, Literal
 from wgsextract_cli.core.file_lock import exclusive_lock
 from wgsextract_cli.core.utils import WGSExtractError
 
-from .operations import Operation, RequestError, is_network_path
+from .operations import (
+    Operation,
+    RequestError,
+    expand_paths,
+    is_network_path,
+    params_from_json,
+)
 
 Status = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
 FINISHED = frozenset({"succeeded", "failed", "cancelled", "interrupted"})
@@ -222,7 +228,8 @@ class JobManager:
             id=time.strftime("%Y%m%d-%H%M%S-", time.gmtime()) + secrets.token_hex(3),
             op=op.name,
             kind=op.kind,
-            params=dict(params),
+            # Locks and workers see the folders the path checks approved.
+            params=expand_paths(op, params),
         )
         names = {f.name for f in op.fields()}
         # With no input to save beside, outputs would go to the working folder.
@@ -230,7 +237,8 @@ class JobManager:
             op.kind != "query"
             and "outdir" in names
             and not names & set(_INPUT_NAMES)
-            and not self._output_folder(job)
+            and not op.params.WRITES_BESIDE
+            and not self._output_folder(op, job)
         ):
             raise RequestError(
                 400,
@@ -318,19 +326,33 @@ class JobManager:
                 active.append(job)
                 busy |= folders
 
-    def _output_folder(self, job: Job) -> str:
+    def _output_folder(self, op: Operation, job: Job) -> str:
         """Where a job saves its files: its outdir, else the configured output
-        folder, else its first input's folder."""
-        folder = job.params.get("outdir") or self.default_outdir
-        if not folder:
-            folder = os.path.dirname(_first_input(job.params))
+        folder, else its first input's folder; for an operation that writes
+        beside a path, its outdir, else that path's folder."""
+        folder = job.params.get("outdir")
+        if not folder and op.params.WRITES_BESIDE:
+            folder = _beside_folder(op, job.params)
+        elif not folder:
+            folder = self.default_outdir or os.path.dirname(_first_input(job.params))
         return _folder_key(folder) if folder else ""
 
     def _write_folders(self, op: Operation, job: Job) -> frozenset[str]:
         """Every folder a job may write in: its output folder, the folders of
         output files it names by path, and a folder given as its input (a
         report folder is written into, not beside)."""
-        folders = {self._output_folder(job)}
+        folders = {self._output_folder(op, job)}
+        try:
+            params = params_from_json(op, job.params)
+        except RequestError:
+            params = None
+        if params is not None:
+            folders.update(_folder_key(os.fspath(f)) for f in params.write_folders())
+        if op.params.WRITES_BESIDE and not job.params.get("outdir"):
+            # A library folder given as the FASTA: it resolves to one in genomes/.
+            beside = _beside_path(op, job.params)
+            if _is_local_folder(beside):
+                folders.add(_folder_key(os.path.join(beside, "genomes")))
         for item in op.fields():
             value = job.params.get(item.name)
             if not isinstance(value, str) or not value:
@@ -524,6 +546,35 @@ def _folder_key(folder: str) -> str:
     if not is_network_path(folder):
         folder = os.path.realpath(folder)
     return os.path.normcase(folder)
+
+
+def _beside_folder(op: Operation, params: Mapping[str, Any]) -> str:
+    """The folder an operation writes in beside its ``WRITES_BESIDE`` path:
+    the path's own when it is a folder."""
+    value = _beside_path(op, params)
+    return value if _is_local_folder(value) else os.path.dirname(value)
+
+
+def _beside_path(op: Operation, params: Mapping[str, Any]) -> str:
+    """An operation's ``WRITES_BESIDE`` path: the request's, else the
+    configured one."""
+    from wgsextract_cli.core.config import settings
+
+    name = op.params.WRITES_BESIDE
+    value = params.get(name)
+    if not value:
+        item = next((f for f in op.fields() if f.name == name), None)
+        key = item.spec.config_key if item else None
+        value = settings.get(key) if key else None
+    return value if isinstance(value, str) else ""
+
+
+def _is_local_folder(value: str) -> bool:
+    return (
+        bool(value)
+        and not is_network_path(value)
+        and os.path.isdir(os.path.expanduser(value))
+    )
 
 
 def _first_input(params: Mapping[str, Any]) -> str:

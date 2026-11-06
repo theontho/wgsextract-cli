@@ -6,8 +6,16 @@ import subprocess
 import tempfile
 import zipfile
 import zlib
+from os import fspath
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.ref import (
+    RefCountNsParams,
+    RefDownloadParams,
+    RefIndexParams,
+    RefVerifyParams,
+)
 from wgsextract_cli.core import bwa_mem2
 from wgsextract_cli.core.annotation_resources import get_genome_size
 from wgsextract_cli.core.bgzf import open_decompressed
@@ -31,6 +39,7 @@ from wgsextract_cli.core.reference_assets import (
     n_count_paths,
     read_fai_lengths,
     reference_dict_path,
+    reference_library_of,
     resolve_reference_library,
     sequence_signature,
     verify_sequence_signature,
@@ -54,46 +63,48 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
-def cmd_download(args: argparse.Namespace) -> None:
-    if Path(args.out).is_dir():
-        raise WGSExtractError(f"Output path is a directory: {args.out}")
+def run_download(params: RefDownloadParams) -> None:
+    out = fspath(params.out)
+    if Path(out).is_dir():
+        raise WGSExtractError(f"Output path is a directory: {out}")
 
-    url = redact_urls(args.url)
-    logging.info(LOG_MESSAGES["ref_downloading"].format(url=url, path=args.out))
-    if not download_file(args.url, args.out):
-        raise WGSExtractError(f"Download failed: {url} -> {args.out}")
-    current_result().add_output(args.out, "download")
+    url = redact_urls(params.url)
+    logging.info(LOG_MESSAGES["ref_downloading"].format(url=url, path=out))
+    if not download_file(params.url, out):
+        raise WGSExtractError(f"Download failed: {url} -> {out}")
+    current_result().add_output(out, "download")
 
 
-def cmd_index(args: argparse.Namespace) -> None:
-    aligner = getattr(args, "aligner", None) or "bwa"
+def run_index(params: RefIndexParams) -> None:
+    aligner = params.aligner or "bwa"
     verify_dependencies(["samtools", aligner])
     log_dependency_info(["samtools", aligner])
-    if not args.ref:
+    if not params.ref:
         raise UsageError("--ref is required.")
+    ref = fspath(params.ref)
 
-    verify_paths_exist({"--ref": args.ref})
+    verify_paths_exist({"--ref": ref})
 
-    logging.debug(f"Resolved reference: {str(absolute_path(args.ref))}")
-    logging.info(LOG_MESSAGES["ref_indexing"].format(path=args.ref))
+    logging.debug(f"Resolved reference: {str(absolute_path(ref))}")
+    logging.info(LOG_MESSAGES["ref_indexing"].format(path=ref))
     # Only this FASTA's sidecars: its directory may hold other genomes.
-    ref_dir, prefix = Path(args.ref).parent, Path(fasta_prefix(args.ref)).name
+    ref_dir, prefix = Path(ref).parent, Path(fasta_prefix(ref)).name
     before = file_snapshot(ref_dir, prefix=prefix, recursive=False)
     try:
         logging.info("Indexing FASTA with samtools faidx...")
-        run_command(["samtools", "faidx", args.ref])
+        run_command(["samtools", "faidx", ref])
 
-        out_dict = reference_dict_path(args.ref)
+        out_dict = reference_dict_path(ref)
         logging.info(LOG_MESSAGES["ref_creating_dict"].format(path=out_dict))
-        run_command(["samtools", "dict", args.ref, "-o", out_dict])
+        run_command(["samtools", "dict", ref, "-o", out_dict])
 
         if aligner == "bwa-mem2":
-            bwa_mem2.ensure_index(args.ref, download=True)
+            bwa_mem2.ensure_index(ref, download=True)
         else:
             logging.info("Indexing FASTA with bwa index (required for alignment)...")
             from wgsextract_cli.core.bwa_index import ensure_index
 
-            ensure_index(args.ref, runner=run_command)
+            ensure_index(ref, runner=run_command)
 
         logging.info("Indexing complete.")
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
@@ -101,27 +112,25 @@ def cmd_index(args: argparse.Namespace) -> None:
     record_changed_files(
         ref_dir, before, "reference_index", prefix=prefix, recursive=False
     )
-    current_result().set_reference(args.ref)
+    current_result().set_reference(ref)
 
 
-def cmd_count_ns(args: argparse.Namespace) -> None:
+def run_count_ns(params: RefCountNsParams) -> None:
     """Write <ref>_ncnt.csv / <ref>_nbin.csv next to the FASTA, or into --outdir."""
-    if not args.ref:
+    if not params.ref:
         raise UsageError("--ref is required.")
+    ref = fspath(params.ref)
 
-    verify_paths_exist({"--ref": args.ref})
+    verify_paths_exist({"--ref": ref})
 
-    explicit_dests = getattr(args, "_explicit_dests", None)
-    outdir = getattr(args, "outdir", None)
-    if explicit_dests is not None and "outdir" not in explicit_dests:
-        outdir = None  # configured output_directory must not relocate sidecars
+    outdir = fspath(params.outdir) if params.outdir else None
     if outdir:
         Path(outdir).mkdir(parents=True, exist_ok=True)
-    ncnt_path, nbin_path = n_count_paths(args.ref, outdir)
+    ncnt_path, nbin_path = n_count_paths(ref, outdir)
 
-    logging.info(LOG_MESSAGES["analyzing_ns"].format(path=args.ref))
+    logging.info(LOG_MESSAGES["analyzing_ns"].format(path=ref))
     try:
-        totals = write_n_count_files(args.ref, ncnt_path, nbin_path)
+        totals = write_n_count_files(ref, ncnt_path, nbin_path)
     except (OSError, EOFError, ValueError) as e:
         hint = "" if outdir else " Pass --outdir to write the N-count files elsewhere."
         raise WGSExtractError(f"N-counting failed: {e}.{hint}") from e
@@ -137,7 +146,7 @@ def cmd_count_ns(args: argparse.Namespace) -> None:
     result = current_result()
     result.add_output(ncnt_path, "n_counts")
     result.add_output(nbin_path, "n_bins")
-    result.set_reference(args.ref)
+    result.set_reference(ref)
     result.add_metrics(
         sequences=totals.sequences,
         length=totals.length,
@@ -198,17 +207,24 @@ def _check_dict_matches(ref: str, lengths: dict[str, int]) -> None:
         )
 
 
-def cmd_ref_verify(args: argparse.Namespace) -> None:
+def cmd_count_ns(args: argparse.Namespace) -> None:
+    if "outdir" not in getattr(args, "_explicit_dests", set()):
+        args.outdir = None  # configured output_directory must not relocate sidecars
+    _cli_count_ns(args)
+
+
+def run_verify(params: RefVerifyParams) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    if not args.ref:
+    if not params.ref:
         raise UsageError("--ref is required.")
+    ref = fspath(params.ref)
 
     # Auto-resolve ref if a directory was provided
-    resolved_ref = resolve_reference(args.ref, "")
+    resolved_ref = resolve_reference(ref, "")
     logging.debug(f"Resolved reference: {resolved_ref}")
     if resolved_ref is None or not Path(resolved_ref).is_file():
-        raise WGSExtractError(f"Reference file not found: {resolved_ref or args.ref}")
+        raise WGSExtractError(f"Reference file not found: {resolved_ref or ref}")
 
     logging.info(LOG_MESSAGES["ref_verifying"].format(path=resolved_ref))
 
@@ -264,8 +280,10 @@ def _catalog_build(genome: dict[str, str]) -> str | None:
 
 
 def cmd_library_list(args: argparse.Namespace) -> None:
-    """Non-interactive library status list."""
-    reflib_dir = resolve_reference_library(args.ref)
+    """Non-interactive library status list (CLI only)."""
+    reflib_dir = resolve_reference_library(
+        reference_library_of(args.ref) if args.ref else None
+    )
     genomes = get_available_genomes()
 
     print(f"\nREFERENCE LIBRARY: {reflib_dir}")
@@ -354,3 +372,9 @@ def cmd_library_list(args: argparse.Namespace) -> None:
         print(f"{f'gnomAD ({build})':<40} {gn}")
 
     print("-" * 80)
+
+
+cmd_download = cli_handler(RefDownloadParams, run_download)
+cmd_index = cli_handler(RefIndexParams, run_index)
+_cli_count_ns = cli_handler(RefCountNsParams, run_count_ns)
+cmd_ref_verify = cli_handler(RefVerifyParams, run_verify)

@@ -9,7 +9,7 @@ import logging
 import os
 import types
 import typing
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import MISSING, dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypeVar
@@ -199,10 +199,27 @@ class Params:
     Subclasses are frozen, keyword-only dataclasses. ``COMMAND`` names the CLI
     command ("vcf snp") and becomes the result's ``command``. Path fields accept
     ``str`` or ``os.PathLike`` and are stored as ``Path`` (an empty string is
-    ``None``); ``choices`` are checked on construction.
+    ``None``); ``choices`` are checked on construction. A ``LOCAL_ONLY``
+    operation is not offered by the server: it fetches any URL or changes
+    config.toml. ``WRITES_BESIDE`` names the path field an operation writes
+    beside when it has no ``outdir`` (config output_directory doesn't apply).
     """
 
     COMMAND: ClassVar[str] = ""
+    LOCAL_ONLY: ClassVar[bool] = False
+    WRITES_BESIDE: ClassVar[str] = ""
+
+    def implied_paths(self) -> Iterator[tuple[str, Path]]:
+        """(field, path) for each path the operation derives from its fields,
+        such as the library a FASTA's folder implies; the server checks them
+        as it checks the fields."""
+        return iter(())
+
+    def write_folders(self) -> Iterator[Path]:
+        """Folders the operation saves files in besides its outdir (the
+        library an installer writes); the server doesn't run two jobs that
+        write the same folder at once."""
+        return iter(())
 
     def __post_init__(self) -> None:
         for item in param_fields(type(self)):

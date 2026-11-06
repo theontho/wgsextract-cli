@@ -46,7 +46,12 @@ you start yourself:
   allowed folders are those given with `--allow`, the `server_allowed_paths`
   setting, and the `genome_library`, `reference_library` and
   `output_directory` settings. Of the settings, only the folders that exist
-  are allowed; a missing `--allow` folder stops the server. A symlink inside
+  are allowed; a missing `--allow` folder stops the server. Folders a
+  command derives from a path are checked too: a `ref` FASTA in a
+  `genomes` folder names the library above it, which must also be allowed.
+  A leading `~` in a path is expanded before it is checked; a text value
+  that may name a file (a region, an output name) must give it as an
+  absolute path, without `~`. A symlink inside
   an allowed folder that points outside it is refused. That holds for the
   paths a request names; the files a command finds inside a named folder (a
   reference library's genomes, a model folder's weights, a checkpoint's
@@ -57,6 +62,8 @@ you start yourself:
 - Parameters that name programs to run, such as `haplogrep_path`, or that
   hide paths inside other text, such as `indel_manifest`, can't be set by a
   request. They come from config.toml as usual.
+- `ref download`, which fetches any URL, and `ref bootstrap`, which saves
+  config.toml, aren't offered.
 - Request bodies are limited to 1 MB and must be `application/json`. Unknown
   parameters are rejected rather than ignored.
 - Over MCP, only read-only queries are offered unless you pass
@@ -119,11 +126,14 @@ only with `full=1`, to keep responses short.
 
 ### Jobs
 
-- **Queries and jobs.** Quick queries (`info`, `info/chip`, `sample/show`)
-  start at once. Other operations queue: `--max-jobs` (setting
-  `server_max_jobs`, default 1) of them run at a time. Jobs that save to
+- **Queries and jobs.** Quick queries (`info`, `info/chip`, `sample/show`,
+  `ref/status`) start at once. Other operations queue: `--max-jobs`
+  (setting `server_max_jobs`, default 1) of them run at a time. Jobs that save to
   the same folder run one after another, since commands use fixed file
-  names there.
+  names there. `ref/index`, `ref/count-ns` and `ref/verify` save beside
+  their FASTA, so they need no `outdir`; given a library folder, they also
+  hold its `genomes` folder. The library installers hold their library and
+  its `genomes` folder.
 - **Isolation.** Each job runs the API function in its own worker process.
   A crash or a cancel affects only that job. Its log, at the CLI's log level
   (`--debug` for more), is `<state>/server/jobs/<id>.log`.

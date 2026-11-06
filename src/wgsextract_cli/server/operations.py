@@ -29,10 +29,10 @@ from wgsextract_cli.core.utils import UsageError
 
 Kind = Literal["query", "job"]
 
-# Quick reads that describe a sample; everything else makes new files, takes
-# longer or changes what is recorded about a sample, so MCP offers it only
-# with --allow-jobs.
-QUERIES = frozenset({"info", "info chip", "sample show"})
+# Quick reads that describe a sample or the reference library; everything else
+# makes new files, takes longer or changes what is recorded about a sample, so
+# MCP offers it only with --allow-jobs.
+QUERIES = frozenset({"info", "info chip", "sample show", "ref status"})
 
 
 # What follows the contig of an interval (chr1:1-100, X:1,000-): a drive
@@ -134,6 +134,7 @@ def operations() -> dict[str, Operation]:
                 isinstance(cls, type)
                 and issubclass(cls, Params)
                 and hints.get("return") is CommandResult
+                and not cls.LOCAL_ONLY
             ):
                 continue
             op_name = cls.COMMAND.replace(" ", "/")
@@ -213,11 +214,11 @@ def _coerce(item: ParamField, value: object) -> object:
             return tuple(float(v) for v in value)
         if not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
             raise _type_error(item, "an array of strings")
-        return tuple(value)
+        return tuple(_expand(item, v) for v in value)
     if item.spec.path or base is Path or base is str:
         if not isinstance(value, str):
             raise _type_error(item, "a string")
-        return value
+        return _expand(item, value)
     if base is bool:
         if not isinstance(value, bool):
             raise _type_error(item, "true or false")
@@ -231,6 +232,30 @@ def _coerce(item: ParamField, value: object) -> object:
             raise _type_error(item, "a number")
         return float(value)
     return value
+
+
+def expand_paths(op: Operation, data: Mapping[str, Any]) -> dict[str, Any]:
+    """A request with ``~`` expanded in its path fields, as the operation
+    will read them, for code that works on the request (job locks)."""
+    fields = {f.name: f for f in param_fields(op.params)}
+    expanded = dict(data)
+    for key, value in data.items():
+        item = fields.get(key)
+        if item is None:
+            continue
+        if isinstance(value, str):
+            expanded[key] = _expand(item, value)
+        elif isinstance(value, list):
+            expanded[key] = [
+                _expand(item, v) if isinstance(v, str) else v for v in value
+            ]
+    return expanded
+
+
+def _expand(item: ParamField, value: str) -> str:
+    """A path field's ``~`` as the operation will read it, so the path checks
+    see the folder it names."""
+    return os.path.expanduser(value) if item.spec.path else value
 
 
 def _is_number(value: object) -> bool:
@@ -326,6 +351,8 @@ class PathGuard:
                         f"{item.name!r}: a server request can't read a file "
                         "with an @FILE operand.",
                     )
+        for name, path in params.implied_paths():
+            self.check_path(name, path)
 
     def _check_text(self, name: str, text: str) -> None:
         """A text value that names a file when one exists there (a BED file
@@ -334,11 +361,16 @@ class PathGuard:
         On Windows an interval such as ``X:1-100`` counts as a bare name, so
         it is refused only when a file of that name exists."""
         pathmod = self.pathmod
+        if text.startswith("~"):
+            # The command would use it literally: a `~` folder here.
+            raise RequestError(
+                400, "usage", f"{name!r}: name a file by its absolute path, not ~."
+            )
         drive, rest = pathmod.splitdrive(text)
         if (
             "/" in text
             or "\\" in text
-            or pathmod.isabs(pathmod.expanduser(text))
+            or pathmod.isabs(text)
             # D:evil.bam is in D's working folder; X:1-100 is an interval.
             or (drive and not _INTERVAL_END.fullmatch(rest))
             or is_network_path(text)

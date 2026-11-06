@@ -2,13 +2,13 @@ import gzip
 import hashlib
 import io
 import tarfile
-from argparse import Namespace
 from email.message import Message
 from pathlib import Path
 from urllib.error import HTTPError
 
 import pytest
 
+from wgsextract_cli import api
 from wgsextract_cli.commands.ref import core_commands
 from wgsextract_cli.core import genome_library, reference_ncount, reference_resolver
 from wgsextract_cli.core.gene_map import (
@@ -489,18 +489,19 @@ def test_count_ns_writes_sidecars_into_explicit_outdir(tmp_path):
     fasta.write_text(">chr1\nNNNNACGT\n")
     outdir = tmp_path / "out"
 
-    core_commands.cmd_count_ns(
-        Namespace(ref=str(fasta), outdir=str(outdir), _explicit_dests={"outdir"})
-    )
+    result = api.ref.count_ns(api.RefCountNsParams(ref=fasta, outdir=outdir))
 
+    assert {o.role: Path(o.path) for o in result.outputs} == {
+        "n_counts": outdir / "ref_ncnt.csv",
+        "n_bins": outdir / "ref_nbin.csv",
+    }
     assert (outdir / "ref_ncnt.csv").is_file()
-    assert (outdir / "ref_nbin.csv").is_file()
     assert not (tmp_path / "ref_ncnt.csv").exists()
 
 
 def test_count_ns_requires_ref():
-    with pytest.raises(WGSExtractError, match="--ref is required"):
-        core_commands.cmd_count_ns(Namespace(ref=None, outdir=None))
+    with pytest.raises(api.CommandFailed, match="--ref is required"):
+        api.ref.count_ns(api.RefCountNsParams())
 
 
 def test_ref_verify_raises_on_signature_mismatch(tmp_path, monkeypatch):
@@ -521,8 +522,8 @@ def test_ref_verify_raises_on_signature_mismatch(tmp_path, monkeypatch):
 
     monkeypatch.setattr(core_commands, "run_command", fake_run)
 
-    with pytest.raises(WGSExtractError, match="does not match the catalog"):
-        core_commands.cmd_ref_verify(Namespace(ref=str(fasta)))
+    with pytest.raises(api.CommandFailed, match="does not match the catalog"):
+        api.ref.verify(api.RefVerifyParams(ref=fasta))
     # The existing index is compared with a fresh one, never rewritten.
     assert "--fai-idx" in commands[-1] and commands[-1][-1] == str(fasta)
     assert fai.read_text() == original

@@ -95,6 +95,16 @@ def default_reference_library() -> str:
     return str(repo_root() / "reference")
 
 
+def reference_library_of(path: PathInput) -> str:
+    """The library a ``--ref`` names: a FASTA's folder (the folder above a
+    ``genomes`` one), else ``path`` itself."""
+    absolute = absolute_path(expand_path(fspath(path)))
+    if not absolute.is_file():
+        return str(absolute)
+    folder = absolute.parent
+    return str(folder.parent if folder.name.lower() == "genomes" else folder)
+
+
 def resolve_reference_library(explicit: PathInput | None = None) -> str:
     """Explicit path, else configured reference_library, else <repo>/reference."""
     from wgsextract_cli.core.config import settings
