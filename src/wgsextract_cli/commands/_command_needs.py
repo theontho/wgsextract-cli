@@ -109,7 +109,9 @@ COMMAND_NEEDS: dict[str, CommandNeeds] = {
     "realign": _n(
         HOURS,
         *_SAM,
-        optional="bcftools bwa bwa-mem2 curl gatk minimap2 pbmm2 sambamba samblaster",
+        optional=(
+            "bcftools bgzip bwa bwa-mem2 curl gatk minimap2 pbmm2 sambamba samblaster"
+        ),
     ),
     "align": _n(
         HOURS,
