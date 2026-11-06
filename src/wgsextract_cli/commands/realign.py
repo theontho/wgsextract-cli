@@ -252,14 +252,9 @@ def _single_end_pacbio(args: argparse.Namespace, cram_opt: list[str]) -> str | N
     sample = unpaired_sample(args.input, cram_opt=cram_opt)
     if not sample.records or sample.unpaired != sample.records:
         return None
-    header = get_bam_header(args.input, cram_opt[1] if cram_opt else None)
-    types = {
-        field.split("=", 1)[1].upper()
-        for group in ultima.read_groups(header)
-        for field in group.get("DS", "").split(";")
-        if field.upper().startswith("READTYPE=")
-    }
-    platform = "clr" if types == {"SUBREAD"} else "pacbio"
+    platform = align_cmd.pacbio_platform(
+        get_bam_header(args.input, cram_opt[1] if cram_opt else None)
+    )
     logging.info(
         "Detected single-end PacBio reads: realigning them as long reads "
         "(--platform %s).",
