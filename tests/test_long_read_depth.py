@@ -178,3 +178,38 @@ def test_low_coverage_check_catches_shallow_long_read_chrY(
     assert depths[AUTOSOMES] == pytest.approx(20, rel=0.05)
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert [r.getMessage().split(" depth")[0].split()[-1] for r in warnings] == [CHR_Y]
+
+
+@needs_htslib
+def test_multi_reference_cram_samples_only_the_contigs_its_index_lists(tmp_path):
+    # #339: a merged ONT chr20 CRAM, written in multi-reference containers,
+    # was sampled across every autosome, leaving chr20 about 20 of the 1,000
+    # windows; its combined depth came out 45x where its two runs summed 51x.
+    # Here chr2's reads cover the middle half of every 20 kb, so its few
+    # windows on a mostly unread genome land where coverage is twice the mean.
+    rng = random.Random(339)
+    lengths = {"chr1": 20_000_000, "chr2": LENGTH}
+    seqs = {c: "".join(rng.choices("ACGT", k=n)) for c, n in lengths.items()}
+    ref = str(write_fasta(tmp_path / "ref.fa", seqs))
+    starts = [
+        block + offset
+        for block in range(0, LENGTH, 20_000)
+        for offset in range(5_000, 13_001, 50)
+    ]
+    records = [
+        f"a{i}\t0\tchr2\t{pos + 1}\t60\t{READ}M\t*\t0\t0\t"
+        f"{seqs['chr2'][pos : pos + READ]}\t{'5' * READ}"
+        for i, pos in enumerate(starts)
+    ]
+    header = ["@HD\tVN:1.6\tSO:coordinate"]
+    header += [f"@SQ\tSN:{c}\tLN:{n}" for c, n in lengths.items()]
+    bam = sam_to_bam(header + records, tmp_path / "chr2.bam")
+    cram = str(tmp_path / "chr2.cram")
+    run_command(
+        ["samtools", "view", "-C", "-T", ref, "-o", cram,
+         "--output-fmt-option", "multi_seq_per_slice=1", bam]
+    )  # fmt: skip
+    run_command(["samtools", "index", cram])
+    depths = warn_low_depth(cram, {AUTOSOMES}, outdir=str(tmp_path), ref=ref)
+    assert depths is not None
+    assert depths[AUTOSOMES] == pytest.approx(len(starts) * READ / LENGTH, rel=0.05)

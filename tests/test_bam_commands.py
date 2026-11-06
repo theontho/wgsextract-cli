@@ -710,7 +710,8 @@ def test_merge_output_name_gets_the_extension(genome, tmp_path):
 
 def test_merge_keeps_conflicting_read_groups_apart(genome, tmp_path, caplog):
     a, b = _split(genome, tmp_path)
-    _reheader(b, lambda h: [x.replace("SM:S1", "SM:S2") for x in h])
+    # Another flow cell of the same sample whose read group reuses the ID.
+    _reheader(b, lambda h: [x + "\tPU:FC2" if x.startswith("@RG") else x for x in h])
     with caplog.at_level(logging.WARNING):
         _bam("merge", a, b, "--outdir", str(tmp_path / "o"))
     assert "defined differently" in caplog.text
@@ -724,7 +725,8 @@ def test_merge_failure_leaves_no_partial_output(genome, tmp_path, large_header):
     if large_header:
         _reheader(b, lambda lines: [*lines, "@CO\t" + "x" * 70_000])
     _truncate_alignment_block(Path(b))
-    with pytest.raises(WGSExtractError, match="Merging failed"):
+    # The pre-merge read check may find the damage before samtools merge does.
+    with pytest.raises(WGSExtractError, match="Merging failed|alignments of .*b.bam"):
         _bam("merge", a, b, "--outdir", str(tmp_path / "o"))
     assert list((tmp_path / "o").iterdir()) == []
 

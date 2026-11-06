@@ -146,6 +146,19 @@ def derive_output_path(input_path: PathInput, outdir: PathInput, suffix: str) ->
     return str(out_path)
 
 
+def named_output_path(path: str, outdir: str) -> str:
+    """A bare file name goes in --outdir; a path with a directory is used as given."""
+    named = Path(path)
+    if named.name == path:
+        return str(Path(outdir, path))
+    if named.drive and not named.root:
+        # Windows D:name is relative to drive D's working folder, not outdir.
+        raise UsageError(
+            f"{path}: name the file alone (it goes in --outdir) or by its full path."
+        )
+    return path
+
+
 @contextlib.contextmanager
 def cleanup_files(
     temp: Sequence[PathInput] = (),

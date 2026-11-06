@@ -158,6 +158,8 @@ def _counted_depths(
     from wgsextract_cli.core.reference_models import sequence_lengths
 
     unknown: set[str] = set()
+    # Contigs that multi-reference containers are known to hold reads on.
+    shared_contigs: set[str] = set()
     if alignment.lower().endswith(".cram"):
         offsets: set[int] = set()
         totals = cram_container_totals(alignment, offsets)
@@ -187,14 +189,11 @@ def _counted_depths(
                 if index and index.endswith(".crai")
                 else None
             )
+            shared_contigs = {names[i] for i in shared or () if i < len(names)}
             unknown = (
                 set(TARGETS)
                 if shared is None
-                else {
-                    t
-                    for i in shared
-                    if i < len(names) and (t := contig_target(names[i]))
-                }
+                else {t for name in shared_contigs if (t := contig_target(name))}
             )
     elif alignment.lower().endswith(".bam") and alignment_index(alignment):
         stats, *_ = parse_idxstats(alignment)
@@ -208,15 +207,20 @@ def _counted_depths(
     measured = None
     if read_len > LONG_READ_MIN_LEN:
         # Records x read length overstates long reads' depth (#427), so it is
-        # sampled instead: on the targets' contigs with reads, and on all of a
-        # target's contigs when multi-reference containers hide which hold them.
+        # sampled instead: on the targets' contigs with reads, those the index
+        # places in multi-reference containers, and all of a target's contigs
+        # when there is no index to say which hold reads.
         stats = [
             IdxStat(
                 **{
                     **s,
                     "mapped": int(
                         (target := contig_target(s["name"])) is not None
-                        and (s["mapped"] > 0 or target in unknown)
+                        and (
+                            s["mapped"] > 0
+                            or s["name"] in shared_contigs
+                            or (target in unknown and not shared_contigs)
+                        )
                     ),
                 }
             )

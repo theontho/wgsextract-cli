@@ -43,7 +43,9 @@ supplementary record carries the whole read, so record counts times the read
 length overstated HG002 ONT chrY 185x for 24x
 ([#427](https://github.com/WGSExtract/wgsextract-cli/issues/427)). The depth
 is then `samtools depth` over about 1,000 evenly spaced 1 kb windows of an
-indexed BAM or CRAM, a few seconds. Sampled windows show typical depth: they
+indexed BAM or CRAM, a few seconds, spread over the contigs with reads (for
+a CRAM's multi-reference containers, those its `.crai` index lists). Sampled
+windows show typical depth: they
 mostly miss short collapsed-repeat pileups, such as HG002's 1 Mb of chrY
 satellite at up to 8,000x, which holds half of chrY's aligned bases.
 

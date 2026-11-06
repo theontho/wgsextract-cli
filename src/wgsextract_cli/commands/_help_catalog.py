@@ -463,8 +463,10 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "--r2 sample_R2.fastq.gz",
     ),
     "bam merge": _h(
-        "merged.bam or merged.cram (+ index), or the --output path.",
+        "merged.bam or merged.cram (+ index), or the --output path; each run "
+        "keeps its own read group under one sample name (SM).",
         "wgsextract bam merge lane1.bam lane2.bam --output sample.bam",
+        "wgsextract bam merge run1.bam run2.bam --sample HG002 --output HG002.bam",
     ),
     "bam to-ubam": _h(
         "<input stem>_unaligned.bam: queryname-sorted unaligned reads.",
