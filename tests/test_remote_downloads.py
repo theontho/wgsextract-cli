@@ -94,3 +94,14 @@ def test_built_in_gene_list_downloads_and_matches_its_pins(
     loaded = gene_lists.load(list_id, tmp_path)
     assert {g.symbol: g.category for g in loaded.genes} == pinned["genes"]
     assert all(set(g.spans) == set(gene_lists.BUILDS) for g in loaded.genes)
+    # Review of #477: v1's merged hg38 transcripts ran MSH2 into KCNK12 and
+    # BRCA1 into NBR2, so calls there without GENEINFO were placed in them.
+    neighbours = {
+        "hg38": {("chr2", 47_540_000): "KCNK12", ("chr17", 43_135_000): "NBR2"},
+        "hg19": {("chr2", 47_767_000): "KCNK12", ("chr17", 41_287_000): "NBR2"},
+    }
+    for build, sites in neighbours.items():
+        for (chrom, pos), neighbour in sites.items():
+            placed = [g.symbol for g in loaded.genes_at(build, chrom, pos)]
+            assert placed == [], f"{build} {neighbour} call placed in {placed}"
+    assert [g.symbol for g in loaded.genes_at("hg38", "chr2", 47_450_000)] == ["MSH2"]

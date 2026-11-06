@@ -94,9 +94,9 @@
         "WT1": "cancer"
       },
       "spans": "NCBI RefSeq annotation release 105.20220307 (GRCh37.p13); NCBI RefSeq annotation release GCF_000001405.40-RS_2025_08 (GRCh38.p14)",
-      "download": "https://github.com/WGSExtract/wgsextract-cli/releases/download/report-gene-lists-v1/acmg_sf_v3.3.tsv",
-      "sha256": "cc3a1dff7678c316ecdf6496becef87177db1fb3097e22bf9edc60a797b28c59",
-      "size": 7621
+      "download": "https://github.com/WGSExtract/wgsextract-cli/releases/download/report-gene-lists-v2/acmg_sf_v3.3.tsv",
+      "sha256": "d57f5366114382fa37ddd7c7fab632ae630f6aecae7ee1e45f7aafb1629ec99b",
+      "size": 7647
     },
     "acmg-sf-3.2": {
       "name": "ACMG SF v3.2",
@@ -187,9 +187,9 @@
         "WT1": "cancer"
       },
       "spans": "NCBI RefSeq annotation release 105.20220307 (GRCh37.p13); NCBI RefSeq annotation release GCF_000001405.40-RS_2025_08 (GRCh38.p14)",
-      "download": "https://github.com/WGSExtract/wgsextract-cli/releases/download/report-gene-lists-v1/acmg_sf_v3.2.tsv",
-      "sha256": "176ad7a15e2c45052187514372d92f3c13169b96fcba690272b680e2b1a5d85d",
-      "size": 7334
+      "download": "https://github.com/WGSExtract/wgsextract-cli/releases/download/report-gene-lists-v2/acmg_sf_v3.2.tsv",
+      "sha256": "cd181d3d26ef39a46f95fe0e10c259979e2f2183370fb2880eb3cad8bbeb75dd",
+      "size": 7360
     }
   }
 }

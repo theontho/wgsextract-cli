@@ -69,7 +69,7 @@ ABCD1, CYP27A1 and PLN to v3.2 and moves HFE to inborn errors of metabolism.
 Pick another list with `--gene-list` or `report_gene_list` in config.toml:
 
 - **A built-in list**: `acmg-sf-3.3` (the default) or `acmg-sf-3.2`. Built-in
-  lists are assets of the GitHub release `report-gene-lists-v1`, pinned by
+  lists are assets of the GitHub release `report-gene-lists-v2`, pinned by
   SHA-256 in `src/wgsextract_cli/assets/report/gene_lists.json`. The report
   downloads one the first time it has ClinVar calls to place, into
   `report/gene_lists/` of the reference library, and checks it against the
@@ -81,7 +81,7 @@ Pick another list with `--gene-list` or `report_gene_list` in config.toml:
   `hg38_` columns, or `chrom`, `start` and `end` in the VCF's build. Lines
   starting with `#` are comments. The built-in lists use this format.
 - **A BED file** (`.bed` or `.bed.gz`) with the gene symbol in column 4, in
-  the VCF's build. A gene's intervals are merged into one span.
+  the VCF's build. A gene keeps every interval, on any chromosome.
 
 A call is placed in a gene by ClinVar's own gene symbols (`GENEINFO`, which
 `vcf clinvar` carries over when the ClinVar file has it). For calls annotated
@@ -95,10 +95,14 @@ calls outside the list and links the full table of every carried call
 (`clinvar_pathogenic.confidence.tsv`). A user's file has no version, citation
 or URL; those fields are empty strings in the JSON.
 
-The built-in spans span each gene's curated RefSeq transcripts (NM_, NR_) in
-NCBI's annotation releases GCF_000001405.40-RS_2025_08 (GRCh38.p14) and
-105.20220307 (GRCh37.p13). `scripts/build_report_gene_lists.py` builds the
-lists and records where they differ from UCSC refGene.
+The built-in spans are each gene's MANE Select transcript in NCBI's annotation
+release GCF_000001405.40-RS_2025_08 (GRCh38.p14) and its RefSeq Select
+transcript in release 105.20220307 (GRCh37.p13); APC's also covers promoter 1B
+(NM_001127511). One transcript keeps readthrough and alternative models from
+reaching neighbouring genes (MSH2 into KCNK12, BRCA1 into NBR2).
+`scripts/build_report_gene_lists.py` builds the lists, records where they
+differ from UCSC refGene, and stops on a difference over 25 kb unless the
+gene is a reviewed exception (recorded in the release's `build_info.json`).
 
 ACMG reports some genes only in particular cases. For MUTYH, CASQ2, TRDN, BTD,
 GAA, ATP7B, RPE65 and CYP27A1 only two P/LP variants (biallelic) count, for

@@ -35,6 +35,9 @@ BUILDS = ("hg19", "hg38")
 ANY_BUILD = "any"
 
 
+Span = tuple[str, int, int]
+
+
 class GeneListUnavailable(WGSExtractError):
     """A built-in list is neither in the reference library nor downloadable."""
 
@@ -44,7 +47,8 @@ class Gene:
     symbol: str
     category: str
     note: str
-    spans: Mapping[str, tuple[str, int, int]]
+    # Per build (or ANY_BUILD), every interval of the gene.
+    spans: Mapping[str, tuple[Span, ...]]
 
 
 @dataclass(frozen=True)
@@ -78,14 +82,17 @@ class GeneList:
         )
 
     def genes_at(self, build: str | None, chrom: str, pos: int) -> list[Gene]:
-        """Genes whose ``build`` span (or build-free span) holds the position."""
+        """Genes with a ``build`` (or build-free) interval holding the position."""
         contig = chrom_key(chrom)
         return [
             gene
             for gene in self.genes
-            if (span := gene.spans.get(build or "") or gene.spans.get(ANY_BUILD))
-            and span[0] == contig
-            and span[1] <= pos <= span[2]
+            if any(
+                c == contig and start <= pos <= end
+                for c, start, end in (
+                    gene.spans.get(build or "") or gene.spans.get(ANY_BUILD) or ()
+                )
+            )
         ]
 
     def named(self, symbols: Iterable[str]) -> list[Gene]:
@@ -223,11 +230,11 @@ def _read_tsv(text: str, path: Path) -> tuple[Gene, ...]:
     )
     if "gene" not in (rows.fieldnames or ()):
         raise UsageError(f"Gene list {path} has no 'gene' column.")
-    genes = []
+    genes: list[Gene] = []
     for number, row in enumerate(rows, start=2):
         try:
             spans = {
-                build: _span(row, prefix)
+                build: (_span(row, prefix),)
                 for build, prefix in (*((b, f"{b}_") for b in BUILDS), (ANY_BUILD, ""))
                 if row.get(f"{prefix}chrom")
             }
@@ -240,10 +247,26 @@ def _read_tsv(text: str, path: Path) -> tuple[Gene, ...]:
             genes.append(
                 Gene(symbol, row.get("category") or "", row.get("note") or "", spans)
             )
-    return tuple(genes)
+    return _merged(genes)
 
 
-def _span(row: dict[str, str], prefix: str) -> tuple[str, int, int]:
+def _merged(genes: list[Gene]) -> tuple[Gene, ...]:
+    """One gene per symbol, with the intervals of all its rows (the first
+    row's category and note)."""
+    by_symbol: dict[str, Gene] = {}
+    for gene in genes:
+        old = by_symbol.get(gene.symbol)
+        if old is None:
+            by_symbol[gene.symbol] = gene
+            continue
+        spans = {b: tuple(old.spans.get(b, ())) for b in (*old.spans, *gene.spans)}
+        for build, intervals in gene.spans.items():
+            spans[build] += tuple(intervals)
+        by_symbol[gene.symbol] = Gene(old.symbol, old.category, old.note, spans)
+    return tuple(by_symbol.values())
+
+
+def _span(row: dict[str, str], prefix: str) -> Span:
     """A row's 1-based, inclusive ``<prefix>chrom/start/end`` span."""
     start, end = int(row[f"{prefix}start"]), int(row[f"{prefix}end"])
     if not 1 <= start <= end:
@@ -253,8 +276,9 @@ def _span(row: dict[str, str], prefix: str) -> tuple[str, int, int]:
 
 def _read_bed(text: str, path: Path) -> tuple[Gene, ...]:
     """BED intervals (0-based starts) named by gene symbol in column 4; a
-    gene's intervals merge into one span. BED names no build."""
-    spans: dict[str, tuple[str, int, int]] = {}
+    gene keeps every interval, on any chromosome (PAR genes, repeated
+    symbols). BED names no build."""
+    genes = []
     for number, line in enumerate(text.splitlines(), start=1):
         if not line.strip() or line.startswith(("#", "track", "browser")):
             continue
@@ -272,15 +296,5 @@ def _read_bed(text: str, path: Path) -> tuple[Gene, ...]:
             raise UsageError(
                 f"Gene list {path}, line {number}: bad interval ({error})."
             ) from error
-        symbol = cols[3].strip()
-        old = spans.get(symbol)
-        if old and old[0] != chrom:
-            raise UsageError(
-                f"Gene list {path}: {symbol} is on two chromosomes ({old[0]}, {chrom})."
-            )
-        spans[symbol] = (
-            (chrom, min(old[1], start), max(old[2], end))
-            if old
-            else (chrom, start, end)
-        )
-    return tuple(Gene(s, "", "", {ANY_BUILD: span}) for s, span in spans.items())
+        genes.append(Gene(cols[3].strip(), "", "", {ANY_BUILD: ((chrom, start, end),)}))
+    return _merged(genes)

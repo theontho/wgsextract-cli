@@ -9,12 +9,14 @@ Usage (from the repository root):
 
 The curated lists are ``scripts/report_gene_lists/<id>.tsv`` (gene,
 category, note: facts from the cited paper's table, notes paraphrased). Spans
-(1-based, inclusive) merge each gene's curated RefSeq (NM_/NR_)
-transcripts on the primary chromosomes of the pinned annotation releases below, verified against NCBI's
-md5checksums.txt. Each span is cross-checked against UCSC refGene (all RefSeq
-transcripts of the symbol merged, as ``wgsextract ref gene-map`` reads them);
-build_info.json records every difference. A gene missing from either release,
-or found on two chromosomes, stops the build.
+(1-based, inclusive) are each gene's MANE Select (GRCh38) or RefSeq Select
+(GRCh37) transcript on the primary chromosomes of the pinned annotation
+releases below, verified against NCBI's md5checksums.txt. Each span is
+cross-checked against UCSC refGene (all RefSeq transcripts of the symbol
+merged, as ``wgsextract ref gene-map`` reads them); build_info.json records
+every difference. A gene missing from either release, found on two
+chromosomes, or more than MAX_REFGENE_DIFFERENCE from refGene at either end
+stops the build.
 
 NCBI RefSeq annotation and UCSC refGene are public data without use
 restrictions. The outputs, build_info.json and SHA256SUMS are the assets of the
@@ -125,10 +127,37 @@ def _chromosome(accession: str) -> str | None:
     return {23: "chrX", 24: "chrY"}.get(number, f"chr{number}")
 
 
+# One representative transcript per gene, the first tag a gene has: GRCh38
+# releases tag MANE Select, older GRCh37 ones RefSeq Select. Merging every
+# transcript instead lets readthrough models swallow neighbours (MSH2 into
+# KCNK12, BRCA1 into NBR2).
+SELECT_TAGS = ("MANE Select", "RefSeq Select")
+# The most a span may differ from UCSC refGene (all transcripts merged) at
+# either end before the build stops for review.
+MAX_REFGENE_DIFFERENCE = 25_000
+# Transcripts a gene's span also covers. APC promoter 1B (NM_001127511, ~30 kb
+# upstream of the MANE start) carries the pathogenic GAPPS variants.
+EXTRA_TRANSCRIPTS = {"APC": ("NM_001127511",)}
+# Genes whose select span may differ from refGene by more than the limit,
+# because refGene merges alternative transcripts beyond it (checked by hand
+# against refGene's transcripts in both builds).
+REFGENE_EXCEPTIONS = {
+    "ACTA2": "refGene's NM_001141945 and NM_001320855 add an alternative first "
+    "exon 38.6 kb upstream, inside FAS",
+    "BTD": "refGene's NM_001370752 and NM_001370753 add 3' exons up to 68.8 kb "
+    "downstream, inside ANKRD28",
+    "LMNA": "refGene's NM_001282625 adds an alternative first exon 32 kb "
+    "upstream of the MANE start",
+    "MAX": "refGene's NM_001271069 and NM_197957 add 3' exons up to 69 kb "
+    "downstream, inside FNTB",
+}
+
+
 def ncbi_spans(gff: Path, symbols: set[str]) -> dict[str, list[Span]]:
-    """Each symbol's curated RefSeq (NM_/NR_) transcript features, the models
-    UCSC refGene carries; the gene features also span predicted XM_ models."""
-    spans: dict[str, list[Span]] = {}
+    """Each symbol's select transcript(s) on the primary chromosomes (see
+    SELECT_TAGS), and its EXTRA_TRANSCRIPTS; a symbol with no select
+    transcript is left out."""
+    tagged: dict[str, dict[str, list[Span]]] = {}
     with gzip.open(gff, "rt") as stream:
         for line in stream:
             if line.startswith("#"):
@@ -138,15 +167,37 @@ def ncbi_spans(gff: Path, symbols: set[str]) -> dict[str, list[Span]]:
                 continue
             chrom = _chromosome(cols[0])
             gene = re.search(r"(?:^|;)gene=([^;]+)", cols[8])
+            tag = re.search(r"(?:^|;)tag=([^;]+)", cols[8])
+            transcript = re.search(r"(?:^|;)transcript_id=([^.;]+)", cols[8])
+            tags = tag.group(1).split(",") if tag else []
             if (
-                chrom
+                transcript
                 and gene
-                and gene.group(1) in symbols
-                and re.search(r"(?:^|;)transcript_id=N[MR]_", cols[8])
+                and transcript.group(1) in EXTRA_TRANSCRIPTS.get(gene.group(1), ())
             ):
+                tags.append("extra")
+            if chrom and gene and tags and gene.group(1) in symbols:
                 span = (chrom, int(cols[3]), int(cols[4]))
-                spans.setdefault(gene.group(1), []).append(span)
-    return spans
+                for name in tags:
+                    tagged.setdefault(gene.group(1), {}).setdefault(name, []).append(
+                        span
+                    )
+    return {
+        symbol: next(by_tag[t] for t in SELECT_TAGS if t in by_tag)
+        + by_tag.get("extra", [])
+        for symbol, by_tag in tagged.items()
+        if any(t in by_tag for t in SELECT_TAGS)
+    }
+
+
+def _too_far(ours: Span | None, theirs: Span | None) -> bool:
+    return (
+        ours is None
+        or theirs is None
+        or ours[0] != theirs[0]
+        or abs(ours[1] - theirs[1]) > MAX_REFGENE_DIFFERENCE
+        or abs(ours[2] - theirs[2]) > MAX_REFGENE_DIFFERENCE
+    )
 
 
 def ucsc_spans(build: str, cache: Path, symbols: set[str]) -> dict[str, Span]:
@@ -197,7 +248,7 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path, help="downloads (default: OUTPUT/cache)")
-    parser.add_argument("--release", default="report-gene-lists-v1")
+    parser.add_argument("--release", default="report-gene-lists-v2")
     parser.add_argument("--write-manifest", action="store_true")
     args = parser.parse_args()
     cache = args.cache or args.output / "cache"
@@ -227,11 +278,34 @@ def main() -> None:
             if ucsc.get(s) != spans[build][s]
         }
         print(f"{build}: {len(differences[build])} spans differ from UCSC refGene")
+        too_far = [
+            s
+            for s, d in differences[build].items()
+            if s not in REFGENE_EXCEPTIONS and _too_far(d["ncbi"], d["ucsc_refgene"])
+        ]
+        if too_far:
+            raise SystemExit(
+                f"{build}: spans more than {MAX_REFGENE_DIFFERENCE} bp from UCSC "
+                f"refGene (or missing there): {too_far}"
+            )
+
+    # A gene's span lengths agree across builds unless an annotation changed.
+    uneven = [
+        s
+        for s in sorted(symbols)
+        if abs(
+            (spans["hg38"][s][2] - spans["hg38"][s][1])
+            - (spans["hg19"][s][2] - spans["hg19"][s][1])
+        )
+        > MAX_REFGENE_DIFFERENCE
+    ]
+    if uneven:
+        raise SystemExit(f"hg19 and hg38 span lengths differ too much: {uneven}")
 
     args.output.mkdir(parents=True, exist_ok=True)
     sources = [
-        f"# Gene spans (1-based, inclusive): curated RefSeq (NM_/NR_) transcripts "
-        f"merged, from "
+        "# Gene spans (1-based, inclusive): each gene's MANE Select (GRCh38) or "
+        "RefSeq Select (GRCh37) transcript, from "
         f"{RELEASES['hg19'][0]}",
         f"# and {RELEASES['hg38'][0]}.",
         "# `wgsextract report` lists ClinVar pathogenic/likely-pathogenic calls in "
@@ -250,6 +324,9 @@ def main() -> None:
         },
         "cross_check": {
             "against": "UCSC refGene (hg19, hg38), RefSeq transcripts merged",
+            "max_difference_bp": MAX_REFGENE_DIFFERENCE,
+            "exceptions": REFGENE_EXCEPTIONS,
+            "extra_transcripts": EXTRA_TRANSCRIPTS,
             "differences": differences,
         },
         "lists": {

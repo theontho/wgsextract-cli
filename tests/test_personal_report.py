@@ -482,6 +482,34 @@ def test_gene_list_from_the_flag_or_config_is_a_tsv_or_bed(
     assert served_lists.downloads == []
 
 
+def test_a_bed_gene_keeps_every_interval(sample, tmp_path):
+    # Review of #477: a PAR gene (on chrX and chrY) stopped the report, and a
+    # symbol repeated far apart merged into one span over the genes between.
+    bed = tmp_path / "genome_wide.bed"
+    bed.write_text(
+        "chrX\t600000\t650000\tSHOX\n"
+        "chrY\t600000\t650000\tSHOX\n"
+        "chr1\t1000\t2000\tSNORD3\n"
+        "chr1\t9000000\t9001000\tSNORD3\n"
+    )
+    _clinvar_table(
+        sample,
+        ("chrY", 620000, "Pathogenic", "."),
+        ("chr1", 9000500, "Pathogenic", "."),
+        ("chr1", 5000000, "Pathogenic", "."),  # between SNORD3's copies
+        ("chr2", 620000, "Pathogenic", "."),  # SHOX's position, other contig
+    )
+    clinvar = pr.build_report(sample, gene_list=str(bed))["sections"]["clinvar"]
+    assert sorted(
+        (f["gene"], f["evidence"]["region"]) for f in clinvar["findings"]
+    ) == [
+        ("SHOX", "chrY:620000"),
+        ("SNORD3", "chr1:9000500"),
+    ]
+    assert clinvar["counts"]["outside_gene_list"] == 2
+    assert clinvar["gene_list"]["genes"] == 2
+
+
 def test_an_unknown_gene_list_is_a_usage_error(sample):
     code, _ = _cli("report", "--workspace", str(sample), "--gene-list", "acmg-sf-9")
     assert code == 2
