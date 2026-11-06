@@ -9,3 +9,8 @@ static constexpr const char *wgse_rescue_source = R"WGSE_METAL(
 @rescue_types@
 @rescue_source@
 )WGSE_METAL";
+
+static constexpr const char *wgse_extend_source = R"WGSE_METAL(
+@extend_types@
+@extend_source@
+)WGSE_METAL";

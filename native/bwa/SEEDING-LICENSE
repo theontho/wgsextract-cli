@@ -1,5 +1,5 @@
-The Metal seeding traversal, suffix-array locate and mate-rescue alignment are adapted from
-BWA's bwt.c, bwamem.c, bwamem_pair.c and ksw.c. These upstream portions are provided under the
+The Metal seeding traversal, suffix-array locate, mate-rescue alignment and seed extension are
+adapted from BWA's bwt.c, bwamem.c, bwamem_pair.c and ksw.c. These upstream portions are provided under the
 following licence:
 
 The MIT License

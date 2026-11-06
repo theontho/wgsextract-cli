@@ -95,6 +95,11 @@ else
                 grep -q 'rescue_misses=0 ' metal.log
                 [ "$mode" != force-gpu ] || grep -Eq 'rescue_gpu_pairs=[1-9]' metal.log
             fi
+            # ...and extends seeds on the GPU; its results must equal upstream's.
+            if grep -q 'extend_hits=' metal.log; then
+                grep 'extend_batches=' metal.log
+                [ "$mode" != force-gpu ] || grep -Eq 'extend_hits=[1-9]' metal.log
+            fi
             echo "Metal alignments match CPU"
         fi
     elif grep -q '"metal_hardware_supported":true' capabilities.json; then

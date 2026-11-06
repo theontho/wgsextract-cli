@@ -14,6 +14,8 @@ class Runtime {
 public:
     Runtime();
     id<MTLDevice> device() const { return device_; }
+    // For callers that encode their own command buffers.
+    id<MTLCommandQueue> queue() const { return queue_; }
     const std::string &failure() const { return failure_; }
     id<MTLComputePipelineState> compile(const char *source, const char *entry);
     id<MTLBuffer> allocate(size_t bytes);
