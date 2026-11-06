@@ -10,18 +10,29 @@ function(seam_replace variable before after)
 endfunction()
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/seed_oracle.c.in")
+    "${CMAKE_CURRENT_SOURCE_DIR}/seed_oracle.c.in" "${CMAKE_CURRENT_SOURCE_DIR}/rescue_oracle.c.in")
 file(READ "${bwa_SOURCE_DIR}/bwamem.c" mem_source)
 seam_replace(mem_source "mem_collect_intv(opt, bwt, len, seq, aux);"
     "if (!wgse_metal_take(seq, &aux->mem)) mem_collect_intv(opt, bwt, len, seq, aux);")
 seam_replace(mem_source
     "kt_for(opt->n_threads, worker1, &w, (opt->flag&MEM_F_PE)? n>>1 : n);"
     "if (!wgse_metal_map(opt, bwt, n, seqs, worker1, &w))\n\t\tkt_for(opt->n_threads, worker1, &w, (opt->flag&MEM_F_PE)? n>>1 : n);")
+seam_replace(mem_source
+    "kt_for(opt->n_threads, worker2, &w, (opt->flag&MEM_F_PE)? n>>1 : n);"
+    "if (!wgse_metal_pair(opt, bns, pac, pes, n, seqs, w.regs, worker2, &w))\n\t\tkt_for(opt->n_threads, worker2, &w, (opt->flag&MEM_F_PE)? n>>1 : n);")
 seam_replace(mem_source "s.rbeg = tmp.pos = bwt_sa(bwt, p->x[0] + k);"
     "s.rbeg = tmp.pos = wgse_metal_sa(bwt, p->x[0] + k);")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/seed_oracle.c.in" oracle_source)
 file(WRITE "${generated}/bwamem.c"
     "#include \"metal_backend.h\"\n${mem_source}\n${oracle_source}")
+
+file(READ "${bwa_SOURCE_DIR}/bwamem_pair.c" pair_source)
+set(rescue_call "aln = ksw_align2(l_ms, seq, re - rb, ref, 5, opt->mat, opt->o_del, opt->e_del, opt->o_ins, opt->e_ins, xtra, 0);")
+seam_replace(pair_source "${rescue_call}"
+    "if (!wgse_metal_matesw(opt, ms, seq, l_ms, ref, is_rev, rb, re, xtra, &aln))\n\t\t\t\t${rescue_call}")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/rescue_oracle.c.in" rescue_source)
+file(WRITE "${generated}/bwamem_pair.c"
+    "#include \"metal_backend.h\"\n${pair_source}\n${rescue_source}")
 
 # Metal shares the BWT and the restored (not the index-time) suffix array in
 # place, which needs page-aligned storage.
@@ -39,4 +50,4 @@ seam_replace(main_source "int main(int argc, char *argv[])"
 # Keep upstream's "[main] Version/CMD/Real time" stderr lines.
 seam_replace(main_source "__func__" "\"main\"")
 file(WRITE "${generated}/main.c" "${main_source}")
-set(patched_sources bwamem bwt main)
+set(patched_sources bwamem bwamem_pair bwt main)

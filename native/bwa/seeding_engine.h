@@ -64,16 +64,17 @@ struct CpuJob {
 // makes Metal unavailable; only a missing unified-memory device is unsupported.
 struct SeedKernel {
     wgse::metal::Runtime runtime;
-    id<MTLComputePipelineState> pipeline = nil, locate = nil;
+    id<MTLComputePipelineState> pipeline = nil, locate = nil, rescue = nil;
 
     SeedKernel() {
         if (runtime.device()) pipeline = runtime.compile(wgse_seeding_source, "collect_seeds");
         if (pipeline) locate = runtime.compile(wgse_seeding_source, "locate_rows");
+        if (locate) rescue = runtime.compile(wgse_rescue_source, "rescue_align");
     }
     bool hardware_supported() const { return runtime.device() != nil; }
     bool available(std::string &reason) const {
-        reason = pipeline && locate ? "" : runtime.failure().empty() ? "seeding kernel unavailable"
-            : runtime.failure();
+        reason = pipeline && locate && rescue ? ""
+            : runtime.failure().empty() ? "Metal kernels unavailable" : runtime.failure();
         return reason.empty();
     }
 };

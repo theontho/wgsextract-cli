@@ -4,3 +4,8 @@ static constexpr const char *wgse_seeding_source = R"WGSE_METAL(
 @seeding_types@
 @seeding_source@
 )WGSE_METAL";
+
+static constexpr const char *wgse_rescue_source = R"WGSE_METAL(
+@rescue_types@
+@rescue_source@
+)WGSE_METAL";
