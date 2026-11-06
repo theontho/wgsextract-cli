@@ -646,7 +646,8 @@ def _reheader(path: str, edit) -> None:
 
 
 def _split(genome, tmp_path: Path, rg: bool = True) -> tuple[str, str]:
-    """The fixture's chr1 reads in a.bam and its other reads in b.bam."""
+    """The fixture's chr1 reads in a.bam and its other reads in b.bam: one run
+    split by region, so its read group names the run (PU)."""
     paths = []
     for name, region in (("a", ["chr1"]), ("b", ["chr2", "*"])):
         out = str(tmp_path / f"{name}.bam")
@@ -654,7 +655,12 @@ def _split(genome, tmp_path: Path, rg: bool = True) -> tuple[str, str]:
         run_command(
             ["samtools", "view", "-b", *strip, "-o", out, genome["bam"], *region]
         )
-        if not rg:
+        if rg:
+            _reheader(
+                out,
+                lambda h: [x + "\tPU:F1.1" if x.startswith("@RG") else x for x in h],
+            )
+        else:
             _reheader(out, lambda h: [x for x in h if not x.startswith("@RG")])
         paths.append(out)
     return paths[0], paths[1]

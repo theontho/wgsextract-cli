@@ -46,7 +46,11 @@ wgsextract bam merge run1.bam run2.bam --sample HG002 --output HG002.bam
   runs apart. If an input has no `@RG` lines or reads without an `RG` tag,
   or with `--attach-rg`, each input's read group is named after its file
   (`run1`, `run2`); each input must then hold at most one. Otherwise the inputs' read groups are kept, and
-  IDs that clash get a suffix (warning `read_group_conflict`).
+  IDs that clash get a suffix (warning `read_group_conflict`). Identical
+  `@RG` lines in several inputs (`minimap2 -R '@RG\tID:HG002'` for every
+  flow cell) are one read group only if they name the run (`PU`, or an ONT
+  `DS` `runid=`) or templates span the files (one run split by region);
+  otherwise each run keeps its own, suffixed ID (warning `read_group_renamed`).
 - **Sample.** Every read group gets the same `SM`: `--sample`, else the
   inputs' own. Inputs naming different samples are refused unless `--sample`
   is given; inputs naming none take the output's name (`sample_name_assumed`).

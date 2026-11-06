@@ -148,6 +148,48 @@ def test_clashing_read_group_ids_stay_apart_with_the_sample_set(tmp_path):
 
 
 @needs_samtools
+def test_runs_with_identical_read_group_lines_stay_apart(tmp_path):
+    # Review of #465: minimap2 -R '@RG\tID:x\tPL:ONT' for each flow cell
+    # gave one read group for both runs, with no warning.
+    a = _run(tmp_path / "a.bam", 1, rg="@RG\tID:x\tPL:ONT")
+    b = _run(tmp_path / "b.bam", 2, rg="@RG\tID:x\tPL:ONT")
+    result = _merge(tmp_path, [a, b], sample="S")
+    assert [w.code for w in result.warnings] == ["read_group_renamed"]
+    assert result.metrics["read_groups"] == 2
+    merged = _reads(_merged(result))
+    ids = [
+        {next(t for t in merged[name] if t.startswith("RG:Z:")) for name in _reads(r)}
+        for r in (a, b)
+    ]
+    assert all(len(found) == 1 for found in ids) and ids[0] != ids[1]
+    # The seeded suffix names the same read groups on every run.
+    again = _merge(tmp_path, [a, b], sample="S", output="again.bam")
+    assert _groups(_merged(again)) == _groups(_merged(result))
+
+
+@needs_samtools
+def test_one_run_split_across_files_keeps_one_read_group(tmp_path):
+    rg = "@RG\tID:x\tPL:ONT\tPU:FAA1"
+    a = _run(tmp_path / "a.bam", 1, rg=rg)
+    b = _run(tmp_path / "b.bam", 2, rg=rg)
+    result = _merge(tmp_path, [a, b], sample="S")
+    assert not result.warnings
+    assert list(_groups(_merged(result))) == ["x"]
+
+
+@needs_samtools
+def test_templates_spanning_files_keep_one_read_group(tmp_path):
+    # One paired run split by region: mates share names across the files.
+    names = [f"read{i}" for i in range(40)]
+    rg = "@RG\tID:x\tSM:S\tPL:ILLUMINA"
+    a = _run(tmp_path / "a.bam", 1, names=names, rg=rg)
+    b = _run(tmp_path / "b.bam", 2, names=names, rg=rg)
+    result = _merge(tmp_path, [a, b])
+    assert "read_group_renamed" not in [w.code for w in result.warnings]
+    assert list(_groups(_merged(result))) == ["x"]
+
+
+@needs_samtools
 def test_a_run_included_twice_is_refused(tmp_path):
     run1 = _run(tmp_path / "run1.bam", 1)
     again = tmp_path / "run1_copy.bam"

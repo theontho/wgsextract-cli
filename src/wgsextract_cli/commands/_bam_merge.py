@@ -191,7 +191,7 @@ def _check_shared_reads(inputs: Sequence[_Input]) -> None:
         for b in inputs[i + 1 :]:
             shared = a.probe.reads.keys() & b.probe.reads.keys()
             same = sum(a.probe.reads[k] == b.probe.reads[k] for k in shared)
-            names = {n for n, _ in a.probe.reads} & {n for n, _ in b.probe.reads}
+            names = _shared_names(a, b)
             if same:
                 raise WGSExtractError(
                     f"{b.name} repeats {same} of the first {len(a.probe.reads)} "
@@ -213,6 +213,10 @@ def _check_shared_reads(inputs: Sequence[_Input]) -> None:
                     inputs=f"{a.name}, {b.name}",
                     reads=len(names),
                 )
+
+
+def _shared_names(a: _Input, b: _Input) -> set[str]:
+    return {n for n, _ in a.probe.reads} & {n for n, _ in b.probe.reads}
 
 
 def _check_modifications(inputs: Sequence[_Input]) -> None:
@@ -279,6 +283,15 @@ def _platform(inputs: Sequence[_Input]) -> str | None:
         logging.info("The inputs' sequencing platform is unknown; PL is left unset.")
     platform = known.pop() if known else None
     return platform if platform in PLATFORM_TAGS else None
+
+
+def _names_run(rg_line: str) -> bool:
+    """Whether an @RG line identifies its sequencing run: a platform unit, or
+    the run ID ONT's basecallers write into DS."""
+    fields = rg_line.split("\t")[1:]
+    return any(f.startswith("PU:") and len(f) > 3 for f in fields) or any(
+        f.startswith("DS:") and "runid=" in f for f in fields
+    )
 
 
 def _samtools_stem(path: str) -> str:
@@ -500,11 +513,30 @@ def run_merge(params: BamMergeParams) -> None:
         # samtools names the read groups after the text after the last "/".
         paths = [Path(p).as_posix() for p in paths]
     lines: dict[str, set[str]] = {}
+    holders: dict[str, list[_Input]] = {}
     for x in inputs:
         for line in x.header.splitlines():
             if line.startswith("@RG\t") and (m := re.search(r"\tID:([^\t]*)", line)):
                 lines.setdefault(m.group(1), set()).add(line)
+                if x not in holders.setdefault(m.group(1), []):
+                    holders[m.group(1)].append(x)
     conflicting = sorted(i for i, found in lines.items() if len(found) > 1)
+
+    def one_run(i: str) -> bool:
+        """Identical @RG lines are one read group split across files if they
+        name its run, or if templates span the files (a run split by region);
+        otherwise (minimap2 -R '@RG\tID:HG002\tSM:HG002' for every flow
+        cell) they are different runs that must stay apart."""
+        held = holders[i]
+        return _names_run(next(iter(lines[i]))) or any(
+            _shared_names(a, b) for j, a in enumerate(held) for b in held[j + 1 :]
+        )
+
+    unnamed = sorted(
+        i
+        for i, found in lines.items()
+        if len(found) == 1 and len(holders[i]) > 1 and not one_run(i)
+    )
     if conflicting and not by_file:
         warn(
             "read_group_conflict",
@@ -512,8 +544,16 @@ def run_merge(params: BamMergeParams) -> None:
             "different inputs; samtools will give them distinct IDs.",
             read_groups=", ".join(conflicting),
         )
-    elif not by_file:
-        # Identical @RG lines are the same read group split across files.
+    if unnamed and not by_file:
+        warn(
+            "read_group_renamed",
+            f"Read group ID(s) {', '.join(unnamed)} appear in several inputs "
+            "without naming a run (PU or ONT runid) or sharing reads' templates; "
+            "each input keeps its own read group, "
+            "with a suffixed ID.",
+            read_groups=", ".join(unnamed),
+        )
+    if not (by_file or conflicting or unnamed):
         flags.append("-c")
 
     # Name the index explicitly: samtools would otherwise write .csi for BAM,

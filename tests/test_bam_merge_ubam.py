@@ -144,8 +144,11 @@ def _merge_args(tmp_path: Path, inputs: list[str], **kw) -> argparse.Namespace:
 
 @needs_samtools
 def test_merge_combines_identical_read_groups(tmp_path):
-    a = _bam(tmp_path / "a.bam", _pair("r1", "chr1", 100) + _pair("r3", "chr2", 5))
-    b = _bam(tmp_path / "b.bam", _pair("r2", "chr1", 120))
+    rg = "@RG\tID:L1\tSM:S\tPL:ILLUMINA\tPU:HABCDEFXX.2\n"  # one lane, two files
+    a = _bam(
+        tmp_path / "a.bam", _pair("r1", "chr1", 100) + _pair("r3", "chr2", 5), rg=rg
+    )
+    b = _bam(tmp_path / "b.bam", _pair("r2", "chr1", 120), rg=rg)
     cmd_merge(_merge_args(tmp_path, [a, b]))
     cmd_merge(_merge_args(tmp_path, [a, b]))  # a rerun replaces the result
 
