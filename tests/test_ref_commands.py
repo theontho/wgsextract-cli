@@ -9,6 +9,7 @@ import sys
 import zipfile
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -47,6 +48,7 @@ from wgsextract_cli.core.reference_assets import (
     sequence_signature,
 )
 from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.main import main
 
 
 def _bgzipped_fasta(tmp_path: Path, seqs: dict[str, str], name="ref.fa") -> Path:
@@ -605,17 +607,33 @@ def _gene_maps(lib: Path) -> list[str]:
 
 
 def test_gene_map_command_installs_and_deletes_both_builds(tmp_path, ucsc, capsys):
+    # PR #458 review: the success message went to stdout through the API too.
     api.ref.gene_map(RefGeneMapParams(ref=tmp_path, delete=False))
-    assert "Successfully downloaded Gene Maps." in capsys.readouterr().out
+    assert capsys.readouterr().out == ""
     assert _gene_maps(tmp_path) == ["genes_hg19.tsv", "genes_hg38.tsv"]
     assert (
         "BRCA1\tchr17\t43044295\t43125364"
         in (tmp_path / "ref" / "genes_hg38.tsv").read_text()
     )
 
-    api.ref.gene_map(RefGeneMapParams(ref=tmp_path, delete=True))
+    with patch.object(
+        sys,
+        "argv",
+        ["wgsextract", "ref", "gene-map", "--ref", str(tmp_path), "--delete"],
+    ):
+        main()
     assert "Successfully deleted Gene Maps." in capsys.readouterr().out
     assert _gene_maps(tmp_path) == []
+
+
+def test_a_fasta_ref_names_the_library_above_its_genomes_folder(tmp_path, ucsc):
+    # PR #458 review: `--ref <library>/genomes/hg38.fa` (the configured
+    # reference) treated the FASTA itself as the library folder.
+    fasta = tmp_path / "genomes" / "hg38.fa"
+    fasta.parent.mkdir()
+    fasta.write_text(">chr1\nA\n")
+    api.ref.gene_map(RefGeneMapParams(ref=fasta, delete=False))
+    assert _gene_maps(tmp_path) == ["genes_hg19.tsv", "genes_hg38.tsv"]
 
 
 def test_gene_map_command_reports_failures(tmp_path, ucsc):

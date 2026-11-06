@@ -39,6 +39,7 @@ from wgsextract_cli.core.reference_assets import (
     n_count_paths,
     read_fai_lengths,
     reference_dict_path,
+    reference_library_of,
     resolve_reference_library,
     sequence_signature,
     verify_sequence_signature,
@@ -280,7 +281,9 @@ def _catalog_build(genome: dict[str, str]) -> str | None:
 
 def cmd_library_list(args: argparse.Namespace) -> None:
     """Non-interactive library status list (CLI only)."""
-    reflib_dir = resolve_reference_library(args.ref)
+    reflib_dir = resolve_reference_library(
+        reference_library_of(args.ref) if args.ref else None
+    )
     genomes = get_available_genomes()
 
     print(f"\nREFERENCE LIBRARY: {reflib_dir}")

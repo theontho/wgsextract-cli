@@ -12,6 +12,7 @@ into the library and record what they wrote as the result's outputs::
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -43,8 +44,21 @@ def _build_param(help: str) -> Any:
     return param("hg38", help=help, choices=BUILDS)
 
 
+class _InLibrary:
+    """An operation on the library ``ref`` names, or the one above a FASTA's
+    ``genomes`` folder."""
+
+    ref: Path | None
+
+    def implied_paths(self) -> Iterator[tuple[str, Path]]:
+        from wgsextract_cli.core.reference_assets import reference_library_of
+
+        if self.ref is not None and Path(self.ref).is_file():
+            yield "ref", Path(reference_library_of(self.ref))
+
+
 @dataclass(frozen=True, kw_only=True)
-class RefAadrParams(Params):
+class RefAadrParams(_InLibrary, Params):
     """Install the hash-pinned CC0 AADR v66.p1 2M SNP panel into the library."""
 
     COMMAND = "ref aadr"
@@ -53,7 +67,7 @@ class RefAadrParams(Params):
 
 
 @dataclass(frozen=True, kw_only=True)
-class RefYbrowseParams(Params):
+class RefYbrowseParams(_InLibrary, Params):
     """Install a hash-pinned, sites-only GRCh38 yBrowse snapshot into the
     library."""
 
@@ -87,6 +101,7 @@ class RefIndexParams(Params):
     dictionary and the aligner's index, written beside it."""
 
     COMMAND = "ref index"
+    WRITES_BESIDE = "ref"
 
     ref: Path | None = _fasta_param()
     aligner: str = param(
@@ -104,6 +119,7 @@ class RefCountNsParams(Params):
     sequence, length and N totals are metrics."""
 
     COMMAND = "ref count-ns"
+    WRITES_BESIDE = "ref"
 
     ref: Path | None = _fasta_param()
     outdir: Path | None = param(
@@ -123,6 +139,7 @@ class RefVerifyParams(Params):
     a missing ``.fai``/``.gzi``; ``contigs`` and ``signature`` are metrics."""
 
     COMMAND = "ref verify"
+    WRITES_BESIDE = "ref"
 
     ref: Path | None = param(
         None,
@@ -136,7 +153,7 @@ class RefVerifyParams(Params):
 
 
 @dataclass(frozen=True, kw_only=True)
-class RefLibraryParams(Params):
+class RefLibraryParams(_InLibrary, Params):
     """Install a catalog genome into the library's ``genomes`` folder, trying
     each mirror that hosts it."""
 
@@ -149,6 +166,14 @@ class RefLibraryParams(Params):
         doc="The genome's catalog code (e.g. hs38) or 1-based index (required).",
     )
     ref: Path | None = ref_param()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not self.install:
+            raise UsageError(
+                "Set install to a genome's code or index; `wgsextract ref "
+                "library --list` lists them."
+            )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -184,9 +209,21 @@ class RefStatusParams(Params):
         path="file",
     )
 
+    def implied_paths(self) -> Iterator[tuple[str, Path]]:
+        from wgsextract_cli.core.config import settings
+        from wgsextract_cli.core.reference_assets import reference_library_of
+
+        if self.ref is None or not Path(self.ref).exists():
+            return
+        library = Path(reference_library_of(self.ref))
+        if library != Path(self.ref):
+            yield "ref", library
+        if self.genome_library is None and not settings.get("genome_library"):
+            yield "ref", library.parent / "genomes"
+
 
 @dataclass(frozen=True, kw_only=True)
-class RefGeneMapParams(Params):
+class RefGeneMapParams(_InLibrary, Params):
     """Download the hg19 and hg38 gene maps into the library, or delete them."""
 
     COMMAND = "ref gene-map"
@@ -200,7 +237,7 @@ class RefGeneMapParams(Params):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _Resource(Params):
+class _Resource(_InLibrary, Params):
     """Annotation data downloaded into the library's ``ref`` folder."""
 
     ref: Path | None = ref_param()
@@ -291,7 +328,7 @@ class RefGerpParams(_Resource):
 
 
 @dataclass(frozen=True, kw_only=True)
-class RefBootstrapParams(Params):
+class RefBootstrapParams(_InLibrary, Params):
     """Download the reference library bootstrap (VCFs, chains, N counts and
     other support files). Saves the library's path as config.toml's
     ``reference_library`` when that is unset."""
@@ -393,10 +430,6 @@ def library(
     ``status`` for what is installed."""
     from wgsextract_cli.commands.ref.library_commands import run_library
 
-    if params.install is None:
-        raise UsageError(
-            "Set install to a genome's code or index; ref status lists them."
-        )
     return execute(params, run_library, progress=progress, cancel=cancel, check=check)
 
 

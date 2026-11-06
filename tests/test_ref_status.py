@@ -1,3 +1,4 @@
+from tests.htslib_helpers import needs_htslib, sam_to_bam
 from wgsextract_cli import api
 from wgsextract_cli.api import RefStatusParams
 from wgsextract_cli.commands.ref.status import print_ref_status, ref_status_values
@@ -147,3 +148,22 @@ def test_ref_status_reports_every_annotation_vep_cache_and_genome(tmp_path, caps
     assert "REVEL         missing       not indexed" in printed
     assert "VEP cache: 116_GRCh38" in printed
     assert "aligner index (bwa, bwa-mem2)" in printed
+
+
+@needs_htslib
+def test_ref_status_is_a_query_that_writes_nothing_beside_its_input(tmp_path):
+    # PR #458 review: status recorded the input's build in the genome folder's
+    # wgsextract.sample.toml, and the API refused an input that isn't a valid
+    # alignment, which the CLI only reads for a build hint.
+    genome = tmp_path / "genome"
+    genome.mkdir()
+    (genome / "genome-config.toml").write_text("")
+    bam = genome / "s.bam"
+    sam_to_bam(["@SQ\tSN:chr1\tLN:248956422", "@SQ\tSN:chrM\tLN:16569"], bam)
+    before = sorted(p.name for p in genome.iterdir())
+
+    assert _status(input=bam, ref=tmp_path / "reference")["build"]
+    assert sorted(p.name for p in genome.iterdir()) == before
+
+    (genome / "broken.bam").write_text("not an alignment")
+    assert _status(input=genome / "broken.bam", ref=tmp_path / "reference")

@@ -770,6 +770,20 @@ def known(name: str, file: PathInput | None) -> Fact | None:
     return fact
 
 
+_recording = True
+
+
+@contextlib.contextmanager
+def recording_paused() -> Iterator[None]:
+    """Detect facts without recording them, for a report that changes nothing."""
+    global _recording
+    previous, _recording = _recording, False
+    try:
+        yield
+    finally:
+        _recording = previous
+
+
 def record(
     name: str,
     file: PathInput | None,
@@ -781,7 +795,7 @@ def record(
     """Record a detected fact in ``file``'s workspace, if it has one, and warn
     if it contradicts the user's override."""
     workspace = workspace_for(file)
-    if workspace is None or file is None:
+    if workspace is None or file is None or not _recording:
         return False
     recorded = workspace.record(name, file, value, method=method, confidence=confidence)
     check_override(name, file, value, method)

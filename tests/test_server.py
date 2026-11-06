@@ -231,6 +231,22 @@ def test_a_trio_saving_beside_its_proband_waits_for_that_folder(
         assert (first["status"], trio["status"]) == ("running", "queued")
 
 
+def test_a_ref_job_saving_beside_its_fasta_waits_for_that_folder(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #458 review: ref count-ns saves beside its FASTA, yet the server
+    # wanted an outdir and didn't serialise the FASTA's folder.
+    bam, ref = fake_data
+    fasta = work / "ref.fa"
+    shutil.copy(ref, fasta)
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, count = client.request("POST", "/ops/ref/count-ns", {"ref": str(fasta)})
+        assert status == 202, count
+        assert (first["status"], count["status"]) == ("running", "queued")
+
+
 def test_operations_and_openapi_follow_the_typed_api(client):
     status, body = client.request("GET", "/ops")
     ops = {op["op"]: op["kind"] for op in body["ops"]}
@@ -536,10 +552,38 @@ def test_path_guard_covers_every_ref_path(op, field, value):
     guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
     paths = [item.name for name, item in _REF_PATHS if name == op]
     allowed = {name: rf"C:\data\{name}" for name in paths}
+    if op == "ref/library":
+        allowed["install"] = "hg38"
     guard.check(params_from_json(find(op), allowed))
     with pytest.raises(RequestError) as refused:
         guard.check(params_from_json(find(op), {**allowed, field: value}))
     assert refused.value.code in ("usage", "path_not_allowed")
+
+
+@pytest.mark.parametrize("op", ["ref/gene-map", "ref/clinvar", "ref/status"])
+def test_path_guard_checks_the_library_above_a_genomes_fasta(tmp_path, op):
+    # PR #458 review: a FASTA in <library>/genomes names that library, which
+    # these commands write into or read, so the library must be allowed too.
+    genomes = tmp_path / "library" / "genomes"
+    genomes.mkdir(parents=True)
+    fasta = genomes / "hg38.fa"
+    fasta.write_text(">chr1\nA\n")
+    params = params_from_json(find(op), {"ref": str(fasta)})
+    with pytest.raises(RequestError) as refused:
+        PathGuard([genomes]).check(params)
+    assert refused.value.code == "path_not_allowed"
+    # status also reads the genome library beside it.
+    if op == "ref/status":
+        with pytest.raises(RequestError, match="outside the folders"):
+            PathGuard([tmp_path / "library"]).check(params)
+    PathGuard([tmp_path / "library", tmp_path / "genomes"]).check(params)
+
+
+def test_ref_library_requests_must_name_a_genome():
+    # PR #458 review: a request without `install` was accepted as a job.
+    with pytest.raises(RequestError, match="ref library --list") as refused:
+        params_from_json(find("ref/library"), {})
+    assert refused.value.code == "usage"
 
 
 def test_vcf_paths_cover_every_resource():

@@ -284,9 +284,10 @@ def _prepare(params: Params, result: CommandResult) -> None:
     if isinstance(input_path, Path):
         if input_path.expanduser().exists():
             result.add_input(input_path, "input")
-        # sample and report only read the workspace and results beside the file
-        if input_path.suffix.lower() in {".bam", ".cram"} and not (
-            params.COMMAND.startswith("sample ") or params.COMMAND == "report"
+        from wgsextract_cli.cli.dispatch import checks_alignment_input
+
+        if input_path.suffix.lower() in {".bam", ".cram"} and checks_alignment_input(
+            params.COMMAND
         ):
             from wgsextract_cli.core.alignment_input import validate_alignment_input
 

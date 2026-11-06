@@ -327,6 +327,8 @@ class PathGuard:
                         f"{item.name!r}: a server request can't read a file "
                         "with an @FILE operand.",
                     )
+        for name, path in params.implied_paths():
+            self.check_path(name, path)
 
     def _check_text(self, name: str, text: str) -> None:
         """A text value that names a file when one exists there (a BED file

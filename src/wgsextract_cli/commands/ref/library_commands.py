@@ -1,7 +1,6 @@
 import argparse
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from os import fspath
 from pathlib import Path
 
 from wgsextract_cli.api._cli import cli_handler
@@ -48,7 +47,10 @@ from wgsextract_cli.core.ref_library.catalog import (
     get_available_genomes,
     get_genome_status,
 )
-from wgsextract_cli.core.reference_assets import resolve_reference_library
+from wgsextract_cli.core.reference_assets import (
+    reference_library_of,
+    resolve_reference_library,
+)
 from wgsextract_cli.core.reference_processing import (
     delete_genome,
     download_and_process_genome,
@@ -58,6 +60,7 @@ from wgsextract_cli.core.results import (
     MANIFEST_SUFFIX,
     current_result,
     file_snapshot,
+    human_output,
     manifest_path_for,
     record_changed_files,
 )
@@ -82,7 +85,7 @@ _MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
 
 
 def _library(ref: Path | None) -> str:
-    return resolve_reference_library(fspath(ref) if ref else None)
+    return resolve_reference_library(reference_library_of(ref) if ref else None)
 
 
 def run_aadr(params: RefAadrParams) -> None:
@@ -152,7 +155,7 @@ def cmd_library(args: argparse.Namespace) -> None:
     verify_dependencies(_LIBRARY_DEPS)
     log_dependency_info(_LIBRARY_DEPS)
     genomes = get_available_genomes()
-    reflib_dir = resolve_reference_library(args.ref)
+    reflib_dir = _library(args.ref)
 
     # Interactive menu
     print("\n" + "=" * 80)
@@ -259,13 +262,13 @@ def _download_gene_maps(reflib: str) -> None:
     if not download_gene_maps(reflib):
         raise WGSExtractError(LOG_MESSAGES["dl_genemap_failed"])
     record_changed_files(reflib, before, "reference_resource")
-    print(LOG_MESSAGES["dl_genemap_success"])
+    human_output(LOG_MESSAGES["dl_genemap_success"])
 
 
 def _delete_gene_maps(reflib: str) -> None:
     if not delete_gene_maps(reflib):
         raise WGSExtractError(LOG_MESSAGES["del_genemap_failed"])
-    print(LOG_MESSAGES["del_genemap_success"])
+    human_output(LOG_MESSAGES["del_genemap_success"])
 
 
 def _run_downloader(
