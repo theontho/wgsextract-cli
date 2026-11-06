@@ -30,7 +30,6 @@ from wgsextract_cli.core.results import (
     Scalar,
     current_result,
     human_output,
-    json_mode,
     warn,
 )
 from wgsextract_cli.core.tool_catalog import JAVA_JAR
@@ -469,7 +468,7 @@ def _print_haplogrep_result(
         human_output(f"{'Tree':<15} : {tree['name']} ({tree['id']}@{tree['version']})")
     if contamination:
         _report_contamination(contamination)
-    if tree_links and not json_mode():
+    if tree_links:
         from ._lineage_links import print_tree_links
 
         print_tree_links(row["Haplogroup"], mitochondrial=True)

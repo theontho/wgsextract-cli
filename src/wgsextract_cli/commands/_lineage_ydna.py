@@ -25,7 +25,7 @@ from wgsextract_cli.core.genotype_qc import CHR_Y, warn_low_depth
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.results import current_result, json_mode, warn
+from wgsextract_cli.core.results import current_result, human_output, warn
 from wgsextract_cli.core.utils import (
     MissingDependencyError,
     WGSExtractError,
@@ -262,15 +262,13 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
         haplogroup_marker=called.get("Hg_marker"),
         qc_score=_number(called.get("QC-score")),
     )
-    if json_mode():
-        return
-    print(
+    human_output(
         f"\n🧬 {CREDIT}\nTables {version}; build {yleaf_build}; "
         f"tree {tree_label(provenance)}\n"
         f"Lineage Result ({input_stem(input_file)}):"
     )
-    print("-" * 30)
-    print(content)
+    human_output("-" * 30)
+    human_output(content)
     if tree_links:
         from ._lineage_links import print_tree_links
 
@@ -278,7 +276,7 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
             # The terminal SNP, rather than the long-form lineage, identifies
             # branches in the public trees.
             print_tree_links(row.get("Hg_marker") or row.get("Hg") or "")
-    print("-" * 30 + "\n")
+    human_output("-" * 30 + "\n")
 
 
 cmd_ydna = cli_handler(YHaplogroupParams, run_y_haplogroup, tree_links="tree_links")

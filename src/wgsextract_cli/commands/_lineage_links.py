@@ -1,5 +1,7 @@
 from urllib.parse import quote
 
+from wgsextract_cli.core.results import human_output
+
 
 def tree_links(
     haplogroup: str, *, mitochondrial: bool = False
@@ -23,4 +25,4 @@ def tree_links(
 
 def print_tree_links(haplogroup: str, *, mitochondrial: bool = False) -> None:
     for label, url in tree_links(haplogroup, mitochondrial=mitochondrial):
-        print(f"{label}: {url}")
+        human_output(f"{label}: {url}")

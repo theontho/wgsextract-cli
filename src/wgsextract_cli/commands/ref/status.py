@@ -25,7 +25,7 @@ from wgsextract_cli.core.reference_assets import (
 )
 from wgsextract_cli.core.reference_processing import bootstrap_has_support_assets
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.results import current_result, json_mode
+from wgsextract_cli.core.results import current_result, human_output
 
 # Annotation data the ref commands download into <library>/ref, as
 # (key, label, file extensions, builds): <key>_<build><ext>, tabix-indexed
@@ -47,10 +47,8 @@ def run_status(params: RefStatusParams, values: bool = False) -> None:
     """``values``: print the CLI's compact JSON for GUI data sources."""
     status = build_ref_status(params)
     current_result().set_details(status)
-    if json_mode():
-        return
     if values:
-        print(json.dumps({"values": ref_status_values(status)}, sort_keys=True))
+        human_output(json.dumps({"values": ref_status_values(status)}, sort_keys=True))
         return
     print_ref_status(status)
 
@@ -166,32 +164,36 @@ def ref_status_values(status: dict[str, Any]) -> dict[str, str]:
 
 def print_ref_status(status: dict[str, Any]) -> None:
     library = status["referenceLibrary"]
-    print(f"Reference library: {library['path']}")
+    human_output(f"Reference library: {library['path']}")
     if not library["exists"]:
-        print("  (this folder does not exist; set reference_library or pass --ref)")
-    print(f"Bootstrap assets: {_status_label(status['bootstrap']['installed'])}")
-    print(f"Gene maps: {_status_label(status['geneMap']['installed'])}")
-    print(f"Microarray targets: {_path_status(status['annotationVcf'])}")
-    print(f"Test genome: {status['testGenome']['status']}")
-    print()
-    print(f"{'Annotation data':<16}{'hg19':<14}hg38")
+        human_output(
+            "  (this folder does not exist; set reference_library or pass --ref)"
+        )
+    human_output(f"Bootstrap assets: {_status_label(status['bootstrap']['installed'])}")
+    human_output(f"Gene maps: {_status_label(status['geneMap']['installed'])}")
+    human_output(f"Microarray targets: {_path_status(status['annotationVcf'])}")
+    human_output(f"Test genome: {status['testGenome']['status']}")
+    human_output()
+    human_output(f"{'Annotation data':<16}{'hg19':<14}hg38")
     labels = {key: label for key, label, _exts, _builds in ANNOTATION_DATA}
     for key, builds in status["annotations"].items():
         cells = [
             _annotation_label(builds[build]) if build in builds else "-"
             for build in ("hg19", "hg38")
         ]
-        print(f"  {labels[key]:<14}{cells[0]:<14}{cells[1]}")
+        human_output(f"  {labels[key]:<14}{cells[0]:<14}{cells[1]}")
     vep = status["vepCache"]
     versions = ", ".join(vep["versions"]) or "missing"
-    print(f"\nVEP cache: {versions}" + (f" ({vep['path']})" if vep["versions"] else ""))
+    human_output(
+        f"\nVEP cache: {versions}" + (f" ({vep['path']})" if vep["versions"] else "")
+    )
     pharmcat = status["pharmcat"]
-    print(
+    human_output(
         f"PharmCAT: {pharmcat['version']} ({pharmcat['path']})"
         if pharmcat["installed"]
         else "PharmCAT: missing"
     )
-    print("\nGenomes:" if status["genomes"] else "\nGenomes: none")
+    human_output("\nGenomes:" if status["genomes"] else "\nGenomes: none")
     width = max((len(genome["name"]) for genome in status["genomes"]), default=0) + 2
     for genome in status["genomes"]:
         aligners = [
@@ -206,7 +208,7 @@ def print_ref_status(status: dict[str, Any]) -> None:
             if genome["faiIndex"]
             else "not indexed"
         )
-        print(f"  {genome['name']:<{width}}{ready}")
+        human_output(f"  {genome['name']:<{width}}{ready}")
 
 
 def _annotation_label(entry: dict[str, Any]) -> str:
