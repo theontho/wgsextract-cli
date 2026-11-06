@@ -45,6 +45,7 @@ from threading import Event, Thread
 from typing import IO
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.progress import ContigProgress
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.reference_resolver import header_contig_lengths
 from wgsextract_cli.core.samtools_commands import alignment_index
@@ -535,6 +536,13 @@ class _ContigCaller:
         return spliced
 
 
+def _then_report(
+    task: Callable[[], None], progress: ContigProgress, contig: str
+) -> None:
+    task()
+    progress.done(contig)
+
+
 def _drop_band_header(merged: str, work: str) -> str:
     header = run_command(["bcftools", "view", "-h", merged], capture_output=True)
     lines = [
@@ -581,6 +589,7 @@ def call_small_variants(
         dir=Path(output).parent, prefix=".wgse_call_"
     ) as work:
         parts, listings, tasks = [], [], []
+        progress = ContigProgress(contigs, contigs)
         for index, (contig, length) in enumerate(contigs.items()):
             # A TSV keeps names such as HLA-A*01:01:01:01 literal; -r would
             # interpret the colon as a coordinate separator.
@@ -590,16 +599,15 @@ def call_small_variants(
             )
             parts.append(str(Path(work, f"{index:06d}.vcf.gz")))
             listings.append(str(Path(work, f"{index:06d}.dense.tsv")))
-            tasks.append(
-                partial(
-                    caller.call,
-                    parts[-1],
-                    ["-R", str(request)],
-                    contig,
-                    "0",
-                    listings[-1] if replays else None,
-                )  # fmt: skip
-            )
+            call = partial(
+                caller.call,
+                parts[-1],
+                ["-R", str(request)],
+                contig,
+                "0",
+                listings[-1] if replays else None,
+            )  # fmt: skip
+            tasks.append(partial(_then_report, call, progress, contig))
         caller.run_all(tasks)
         if replays:
             parts = caller.match_one_stream(contigs, parts, listings, work)

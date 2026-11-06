@@ -121,7 +121,9 @@ Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
 60 seconds, including processed versus expected reads (when known), or completed
 shards, elapsed time and a rate-based ETA. Sampled FASTQ read counts are estimates;
 reaching the read count does not mean sorting/indexing has finished. Stdout data,
-alignment/caller arguments and generated genomic files are unchanged.
+alignment/caller arguments and generated genomic files are unchanged. Per-contig
+calling (`vcf snp`/`indel --parallel`, parallel `microarray`) reports each
+finished contig on the terminal's progress line and as a `contig` progress event.
 
 Persistent logging is off by default. Use a **new, dedicated** path:
 

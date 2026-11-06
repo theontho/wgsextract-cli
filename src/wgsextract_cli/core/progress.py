@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 
 _READS = re.compile(r"(?:Processed|mapped)\s+(\d+)\s+(?:reads|sequences)", re.I)
 
@@ -89,6 +89,34 @@ class Heartbeat:
         logging.info(
             "%s heartbeat: %s, elapsed %.0fs%s", self.label, progress, elapsed, eta
         )
+
+
+class ContigProgress:
+    """Reports each finished contig of a run split into per-contig workers as
+    a ``contig`` progress event. The fraction is the share of the contigs'
+    bases done, or of the contigs when their lengths are unknown."""
+
+    def __init__(
+        self, contigs: Iterable[str], lengths: Mapping[str, int] | None = None
+    ) -> None:
+        names = list(contigs)
+        self._sizes = {name: (lengths[name] if lengths else 1) for name in names}
+        self._total = sum(self._sizes.values())
+        self._finished = self._done = 0
+        self._lock = threading.Lock()
+
+    def done(self, contig: str) -> None:
+        from wgsextract_cli.api._runtime import report
+
+        # Under the lock, so events arrive in order and fractions only grow.
+        with self._lock:
+            self._finished += 1
+            self._done += self._sizes[contig]
+            report(
+                "contig",
+                f"{contig} ({self._finished}/{len(self._sizes)} contigs)",
+                self._done / self._total if self._total else None,
+            )
 
 
 def _report(count: str, fraction: float | None) -> None:

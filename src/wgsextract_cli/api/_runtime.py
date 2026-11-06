@@ -32,10 +32,12 @@ class ProgressEvent:
 
     Stages so far: ``start`` and ``finish`` (the command name, 0.0 and
     1.0), ``tool`` (an external tool is starting), ``step`` (a resumable
-    workflow runs or skips one of its steps, and why) and ``heartbeat`` (a
+    workflow runs or skips one of its steps, and why), ``heartbeat`` (a
     periodic count from a long tool run, such as ``"1,200/5,000 reads"``, with
-    the fraction of that run done when the total is known). More stages may be
-    added."""
+    the fraction of that run done when the total is known) and ``contig`` (a
+    per-contig worker finished, such as ``"chr2 (3/25 contigs)"``, with the
+    fraction of the contigs' bases done so far, or of the contigs when their
+    lengths are not known, as in ``microarray``). More stages may be added."""
 
     stage: str
     message: str = ""
