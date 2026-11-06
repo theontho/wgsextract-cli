@@ -1,6 +1,7 @@
 """A job's worker process: runs one operation through the typed API.
 
-Reads ``{"op", "params", "config", "debug"}`` as one JSON line on stdin, then
+Reads ``{"op", "params", "config", "debug", "allowed"}`` as one JSON line on
+stdin, then
 writes ``{"event": "progress", ...}`` lines and a final ``{"event":
 "result", "result": <manifest>}`` to stdout. A ``cancel`` line on stdin, or
 stdin closing (the server went away), cancels the operation.
@@ -12,6 +13,7 @@ import json
 import os
 import sys
 import threading
+from contextlib import nullcontext
 from typing import Any, TextIO
 
 from wgsextract_cli import api
@@ -40,10 +42,11 @@ def _private_pipes() -> tuple[TextIO, TextIO]:
 
 def main() -> int:
     from wgsextract_cli.cli.bootstrap import configure_logging
+    from wgsextract_cli.core import read_scope
     from wgsextract_cli.core.config import settings
     from wgsextract_cli.core.keep_awake import keep_awake
 
-    from .operations import find, params_from_json
+    from .operations import PathGuard, find, params_from_json
 
     control_in, out = _private_pipes()
     request = json.loads(control_in.readline())
@@ -70,7 +73,13 @@ def main() -> int:
     api.use_config(request.get("config"))
     op = find(request["op"])
     params = params_from_json(op, request["params"])
-    with keep_awake(bool(settings.get("keep_awake"))):
+    allowed = request.get("allowed")
+    scope = (
+        nullcontext()
+        if allowed is None
+        else read_scope.limited_to(PathGuard(allowed).allows)
+    )
+    with scope, keep_awake(bool(settings.get("keep_awake"))):
         result = op.run(params, progress=progress, cancel=token, check=False)
     emit({"event": "result", "result": result.to_dict()})
     return 0

@@ -423,6 +423,12 @@ _FULL = {
 _JOB_ID = {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}
 
 
+_DELETES = (
+    " It can delete data it didn't make, so the server refuses it (403 "
+    "destructive) unless started with `serve --allow-destructive`."
+)
+
+
 def openapi_document(server_url: str = "http://127.0.0.1") -> dict[str, Any]:
     """The OpenAPI 3.1 description of the HTTP API, generated from the API's
     Params classes."""
@@ -440,7 +446,8 @@ def openapi_document(server_url: str = "http://127.0.0.1") -> dict[str, Any]:
             "post": {
                 "operationId": op.tool_name,
                 "summary": op.summary,
-                "description": f"Runs `wgsextract {op.command}` as a {op.kind}.",
+                "description": f"Runs `wgsextract {op.command}` as a {op.kind}."
+                + (_DELETES if op.may_delete else ""),
                 "parameters": [_WAIT, _FULL],
                 "requestBody": {
                     "required": True,

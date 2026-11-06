@@ -109,11 +109,21 @@ def work(tmp_path: Path) -> Path:
 
 
 @contextlib.contextmanager
-def _serve(tmp_path: Path, roots: list[Path], max_jobs: int = 1) -> Iterator[Client]:
+def _serve(
+    tmp_path: Path,
+    roots: list[Path],
+    max_jobs: int = 1,
+    *,
+    allow_destructive: bool = False,
+) -> Iterator[Client]:
+    guard = PathGuard(roots, allow_destructive=allow_destructive)
     manager = JobManager(
-        tmp_path / "state" / "jobs", config_path=get_config_path(), max_jobs=max_jobs
+        tmp_path / "state" / "jobs",
+        config_path=get_config_path(),
+        max_jobs=max_jobs,
+        allowed=roots,
     )
-    server = Server(0, TOKEN, manager, PathGuard(roots))
+    server = Server(0, TOKEN, manager, guard)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -383,7 +393,10 @@ def test_a_library_job_waits_for_a_job_writing_its_genomes(
     library = work / "library"
     (library / "genomes").mkdir(parents=True)
     shutil.copy(ref, library / "genomes" / "ref.fa")
-    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+    # The installer deletes, which downloads nothing.
+    with _serve(
+        tmp_path, [work, FAKE_DIR], max_jobs=2, allow_destructive=True
+    ) as client:
         busy = {"input": str(bam), "ref": str(ref), "outdir": str(library / "genomes")}
         first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
         status, second = client.request("POST", f"/ops/{op}", params(library))
@@ -1316,3 +1329,285 @@ def test_mcp_runs_jobs_when_allowed(work, fake_data):
     assert "provenance" not in manifest["structuredContent"]
     assert mcp.call("cancel_job", job_id=started["id"])["isError"] is True
     assert mcp.close() == 0
+
+
+_DATA = r"C:\data"
+_FILE = _DATA + r"\in.vcf.gz"
+# Requests each operation accepts with every path inside _DATA, beyond its
+# required fields; a field's companions are what it needs beside it.
+_BASE_REQUESTS: dict[str, dict[str, Any]] = {
+    "align": {"r1": _FILE},
+    "pet-align": {"r1": _FILE},
+    "qc/fastp": {"r1": _FILE},
+    "analyze/batch-gen": {"output": _DATA + r"\batch.csv"},
+    "bam/to-ubam": {"input": _FILE},
+    "extract/custom": {"region": "chrM"},
+    "info/chip": {"input": _FILE},
+    "panel/bed": {"genes": ["BRCA1"]},
+    "qc/vcf": {"input": _FILE},
+    "ref/library": {"install": "hs38"},
+    "report": {"input": _FILE},
+    "sample/show": {"input": _FILE},
+    "sample/set": {"input": _FILE, "sex": "female"},
+    "sample/unset": {"input": _FILE, "sex": True},
+}
+_COMPANIONS: dict[tuple[str, str], dict[str, Any]] = {
+    ("basecall", "regions_bed"): {"alignment": _FILE, "regions_bed": _FILE},
+    ("basecall", "alignment"): {"alignment": _FILE, "regions_bed": _FILE},
+    ("bam/to-ubam", "r1"): {"input": None, "r1": _FILE},
+    ("bam/to-ubam", "r2"): {"input": None, "r1": _FILE},
+}
+
+
+def _path_value(item: Any, path: str) -> Any:
+    return [path] if typing.get_origin(item.base_type) in (tuple, list) else path
+
+
+def _filler(item: Any) -> Any:
+    if item.spec.path:
+        return _path_value(item, _DATA if item.spec.path == "directory" else _FILE)
+    if item.spec.choices:
+        return item.spec.choices[0]
+    return {int: 1, float: 1.0, bool: True}.get(item.base_type, "x")
+
+
+def _base_request(name: str) -> dict[str, Any]:
+    op = find(name)
+    body = {f.name: _filler(f) for f in op.fields() if f.required}
+    if any(f.name == "outdir" for f in op.fields()):
+        body["outdir"] = _DATA
+    return {**body, **_BASE_REQUESTS.get(name, {})}
+
+
+_EVERY_PATH = [
+    (name, item.name)
+    for name, op in operations().items()
+    for item in op.fields()
+    if item.spec.path and not item.spec.local_only
+]
+
+
+@pytest.mark.parametrize(("op", "field"), _EVERY_PATH, ids=map("-".join, _EVERY_PATH))
+def test_every_path_of_every_operation_must_be_inside_an_allowed_folder(op, field):
+    # #351 phase 2: the typed API brought 88 operations to the server with no
+    # server code each. Whatever an operation is, a file it names outside the
+    # allowed folders is refused before it runs.
+    guard = PathGuard([_DATA], allow_destructive=True, pathmod=_RecordingFlavour())
+    body = {**_base_request(op), **_COMPANIONS.get((op, field), {})}
+    guard.check(params_from_json(find(op), body))
+    item = next(f for f in find(op).fields() if f.name == field)
+    outside = {**body, field: _path_value(item, r"E:\elsewhere\x.vcf.gz")}
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), outside))
+    assert (refused.value.status, refused.value.code) == (403, "path_not_allowed")
+
+
+@pytest.mark.parametrize(
+    "region", ["chr1,-U/x/leak.bam", "-o/x/leak.bam", "chr1 --output=/x/leak.bam"]
+)
+def test_a_region_item_that_looks_like_an_option_is_refused(client, work, region):
+    # #351 phase 2 security review: vcf phase --haplotag passed each region
+    # item to `samtools view`, so `-U/any/file` wrote outside the allowed
+    # folders, on the CLI too.
+    with pytest.raises(UsageError, match="isn't a region"):
+        find("vcf/phase").params(input=work / "a.bam", region=region, haplotag=True)
+    body = {"input": str(work / "a.bam"), "region": region, "haplotag": True}
+    status, response = client.request("POST", "/ops/vcf/phase", body)
+    assert (status, response["error"]["code"]) == (400, "usage")
+    assert client.request("GET", "/jobs")[1]["jobs"] == []
+
+
+@pytest.mark.parametrize(
+    ("gpu", "accepted", "refused"),
+    [
+        (False, "/d/panel,-v2/t.bed", "/d/panel -old/t.bed"),
+        (True, "/d/panel -old/t.bed", "/d/panel,-v2/t.bed"),
+    ],
+)
+def test_region_items_are_split_as_the_backend_splits_them(
+    work, gpu, accepted, refused
+):
+    # Review of #486: every region was split on commas and spaces, refusing
+    # BED paths DeepVariant (spaces) or Parabricks (commas) reads as one item.
+    op = find("vcf/deepvariant")
+    assert op.params(input=work / "a.bam", region=accepted, gpu=gpu).region == accepted
+    with pytest.raises(UsageError, match="isn't a region"):
+        op.params(input=work / "a.bam", region=refused, gpu=gpu)
+
+
+def _indexed_bam(work: Path, bam: Path) -> Path:
+    copy = work / "s.bam"
+    shutil.copyfile(bam, copy)
+    subprocess.run(["samtools", "index", str(copy)], check=True)
+    return copy
+
+
+def test_deleting_data_needs_allow_destructive(tmp_path, work, fake_data):
+    # #351 asks for an explicit opt-in before a request deletes data the
+    # server didn't make: an index, a sample's settings, the gene maps.
+    bam = _indexed_bam(work, fake_data[0])
+    index = Path(f"{bam}.bai")
+    with _serve(tmp_path, [work]) as client:
+        listed = {o["op"]: o for o in client.request("GET", "/ops")[1]["ops"]}
+        assert listed["bam/unindex"]["destructive"] is True
+        assert listed["ref/gene-map"]["destructive"] is True
+        assert "destructive" not in listed["bam/index"]
+        status, response = client.request(
+            "POST", "/ops/bam/unindex", {"input": str(bam)}
+        )
+        assert (status, response["error"]["code"]) == (403, "destructive")
+        status, response = client.request(
+            "POST", "/ops/ref/gene-map", {"ref": str(work), "delete": True}
+        )
+        assert (status, response["error"]["code"]) == (403, "destructive")
+        assert client.request("GET", "/jobs")[1]["jobs"] == []
+    assert index.exists()
+    with _serve(tmp_path / "again", [work], allow_destructive=True) as client:
+        status, job = client.request(
+            "POST", "/ops/bam/unindex?wait=60", {"input": str(bam)}
+        )
+    assert (status, job["status"]) == (200, "succeeded")
+    assert not index.exists() and bam.exists()
+
+
+def test_mcp_offers_deleting_tools_only_with_allow_destructive(work):
+    default = Mcp("--allow", str(work), "--allow-jobs")
+    names = {t["name"]: t for t in default.request("tools/list", {})["result"]["tools"]}
+    assert default.close() == 0
+    assert "bam_unindex" not in names and "sample_unset" not in names
+    assert names["ref_gene_map"]["annotations"]["destructiveHint"] is False
+    allowed = Mcp("--allow", str(work), "--allow-jobs", "--allow-destructive")
+    names = {t["name"]: t for t in allowed.request("tools/list", {})["result"]["tools"]}
+    assert names["bam_unindex"]["annotations"]["destructiveHint"] is True
+    assert names["ref_gene_map"]["annotations"]["destructiveHint"] is True
+    assert names["bam_index"]["annotations"]["destructiveHint"] is False
+    assert allowed.close() == 0
+
+
+@pytest.mark.parametrize("through_link", [False, True])
+def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
+    tmp_path, work, through_link
+):
+    # #351 phase 2 security review: report reads the outputs earlier runs'
+    # manifests list, wherever they are, so a manifest in an allowed folder
+    # could lead a server job to any file. Review of #486: an allowed folder
+    # named through a symlink must still count as inside.
+    allowed = work
+    if through_link:
+        allowed = tmp_path / "link"
+        try:
+            allowed.symlink_to(work, target_is_directory=True)
+        except OSError:
+            pytest.skip("can't create symlinks here")
+    sample = allowed / "HG002"
+    sample.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    phenotypes = {
+        "geneReports": {
+            "CYP2C19": {
+                "recommendationDiplotypes": [
+                    {
+                        "allele1": {"name": "*1"},
+                        "allele2": {"name": "*17"},
+                        "phenotypes": ["Rapid Metabolizer"],
+                    }
+                ]
+            }
+        }
+    }
+
+    def pharmcat_run(folder: Path) -> None:
+        evidence = folder / "HG002.phenotype.json"
+        evidence.write_text(json.dumps(phenotypes))
+        manifest = sample / "HG002.phenotype.manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema": "wgsextract.result/1",
+                    "command": "vcf pharmcat",
+                    "status": "ok",
+                    "exit_code": 0,
+                    "inputs": [{"path": str(sample / "HG002.vcf.gz"), "role": "input"}],
+                    "outputs": [{"path": str(evidence), "role": "pharmcat_phenotypes"}],
+                    "manifest": str(manifest),
+                    "provenance": {"finished": "2025-01-01T00:00:00+00:00"},
+                }
+            )
+        )
+
+    def genes(job: dict[str, Any]) -> set[str]:
+        assert job["status"] == "succeeded", job
+        (document,) = (
+            o["path"] for o in job["result"]["outputs"] if o["path"].endswith(".json")
+        )
+        section = json.loads(Path(document).read_text())["sections"]["pharmacogenomics"]
+        return {f["gene"] for f in section["findings"]}
+
+    def over_http(client: Client) -> set[str]:
+        body = {"workspace": str(sample)}
+        return genes(client.request("POST", "/ops/report?wait=120", body)[1])
+
+    with _serve(tmp_path, [allowed]) as client:
+        pharmcat_run(sample)
+        assert over_http(client) == {"CYP2C19"}
+        pharmcat_run(outside)
+        assert over_http(client) == set()
+    mcp = Mcp("--allow", str(allowed), "--allow-jobs")
+
+    def over_mcp() -> set[str]:
+        started = mcp.call("report", workspace=str(sample))["structuredContent"]
+        job = mcp.call("job_status", job_id=started["id"], wait_seconds=120)
+        return genes(job["structuredContent"])
+
+    assert over_mcp() == set()
+    pharmcat_run(sample)
+    assert over_mcp() == {"CYP2C19"}
+    assert mcp.close() == 0
+
+
+def test_a_server_report_never_touches_a_refused_recorded_path(
+    tmp_path, work, monkeypatch
+):
+    # Review of #486: report checked that a recorded output existed before
+    # asking the read scope, so a manifest naming a UNC path made a server
+    # job connect to that host (sending this user's credentials on Windows).
+    from tests.htslib_helpers import run_wgsextract
+    from wgsextract_cli.core import read_scope
+
+    sample = work / "HG002"
+    sample.mkdir()
+    share = "//host/share"
+    for command, role, name in (
+        ("vcf pharmcat", "pharmcat_phenotypes", "HG002.phenotype.json"),
+        ("microarray", "combined_kit", "HG002_CombinedKit.txt"),
+    ):
+        manifest = sample / f"{name}.manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema": "wgsextract.result/1",
+                    "command": command,
+                    "status": "ok",
+                    "exit_code": 0,
+                    "outputs": [{"path": f"{share}/{name}", "role": role}],
+                    "manifest": str(manifest),
+                    "provenance": {"finished": "2025-01-01T00:00:00+00:00"},
+                }
+            )
+        )
+    probed: list[str] = []
+    stat = os.stat
+
+    def spy(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if os.fspath(path).replace("\\", "/").startswith(share):
+            probed.append(os.fspath(path))
+        return stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", spy)
+    with read_scope.limited_to(PathGuard([work]).allows):
+        run_wgsextract("report", "--workspace", str(sample))
+    assert probed == []
+    report = json.loads((sample / "HG002_personal_report.json").read_text())
+    assert report["sections"]["pharmacogenomics"]["findings"] == []
+    assert [f["exists"] for f in report["sections"]["microarray"]["files"]] == [False]

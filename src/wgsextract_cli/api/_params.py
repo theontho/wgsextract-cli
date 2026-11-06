@@ -7,6 +7,7 @@ import argparse
 import dataclasses
 import logging
 import os
+import re
 import types
 import typing
 from collections.abc import Callable, Collection, Iterator
@@ -48,6 +49,8 @@ class ParamSpec:
     numeric field (or each element of a tuple one) may hold.
     ``expression`` text fields are bcftools expressions, which read the file
     an ``@FILE`` operand names; the server refuses those.
+    A true ``deletes`` field makes the command delete data it didn't make
+    (gene maps, an index); a server refuses that unless allowed.
     A ``positional`` field is a positional CLI argument named by ``metavar``;
     a tuple one takes one or more values, as does an option whose type is a
     variable-length tuple (``tuple[Path, ...]``). ``group`` (title, description) puts
@@ -74,6 +77,7 @@ class ParamSpec:
     splits: Callable[[Any, str], list[str]] | None = None
     minimum: float | None = None
     expression: bool = False
+    deletes: bool = False
     positional: bool = False
     group: tuple[str, str | None] | None = None
 
@@ -106,6 +110,7 @@ def param(
     splits: Callable[[Any, str], list[str]] | None = None,
     minimum: float | None = None,
     expression: bool = False,
+    deletes: bool = False,
     positional: bool = False,
     group: tuple[str, str | None] | None = None,
 ) -> Any:
@@ -135,6 +140,7 @@ def param(
         splits=splits,
         minimum=minimum,
         expression=expression,
+        deletes=deletes,
         positional=positional,
         group=group,
     )
@@ -205,13 +211,24 @@ class Params:
     config.toml. ``WRITES_BESIDE`` names the path field an operation writes
     beside when it has no ``outdir`` (config output_directory doesn't apply).
     ``SAVES_IN_WORKING_FOLDER``: with no ``outdir`` the command saves in the
-    working folder rather than beside its input.
+    working folder rather than beside its input. A ``DELETES`` operation
+    deletes data it didn't make (an index, a sample's settings), which a
+    server does only when allowed.
     """
 
     COMMAND: ClassVar[str] = ""
     LOCAL_ONLY: ClassVar[bool] = False
+    DELETES: ClassVar[bool] = False
     WRITES_BESIDE: ClassVar[str] = ""
     SAVES_IN_WORKING_FOLDER: ClassVar[bool] = False
+
+    def deletes_data(self) -> bool:
+        """Whether running these parameters deletes data the command didn't
+        make: a ``DELETES`` operation, or a true ``deletes`` field."""
+        return self.DELETES or any(
+            item.spec.deletes and getattr(self, item.name)
+            for item in param_fields(type(self))
+        )
 
     def implied_paths(self) -> Iterator[tuple[str, Path]]:
         """(field, path) for each path the operation derives from its fields,
@@ -252,6 +269,8 @@ class Params:
                             f"{item.flags[0]} must be at least "
                             f"{item.spec.minimum:g}, not {one!r}."
                         )
+            if item.name == "region" and isinstance(value, str):
+                _check_region_items(self, item, value)
             if item.spec.choices is not None and value is not None:
                 values = value if isinstance(value, tuple) else (value,)
                 for one in values:
@@ -267,6 +286,21 @@ class Params:
         for item in param_fields(type(self)):
             out[item.name] = _plain(getattr(self, item.name))
         return out
+
+
+def _check_region_items(params: Params, item: ParamField, value: str) -> None:
+    """Commands pass a ``region`` field's items (contigs, intervals or BED
+    files) to tools as arguments, so an item can't start with ``-`` and be
+    read as an option. Items are split as the command splits them, else on
+    commas and whitespace."""
+    splits = item.spec.splits
+    items = splits(params, value) if splits else re.split(r"[,\s]+", value)
+    for one in items:
+        if one.startswith("-"):
+            raise UsageError(
+                f"{item.flags[0]}: {one!r} isn't a region; a region or BED file "
+                "can't start with '-'."
+            )
 
 
 def _plain(value: Any) -> Any:

@@ -110,6 +110,7 @@ class BamUnindexParams(_InputParams):
     """Delete the input's index files (``.bai``, ``.crai``, ``.csi``)."""
 
     COMMAND = "bam unindex"
+    DELETES = True
 
 
 @dataclass(frozen=True, kw_only=True)

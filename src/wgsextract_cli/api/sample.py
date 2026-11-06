@@ -117,6 +117,7 @@ class SampleUnsetParams(_SampleParams):
     folder-wide one and, with ``input``, that file's own."""
 
     COMMAND = "sample unset"
+    DELETES = True
 
     sex: bool = param(False, help="Remove the sex override.", action="store_true")
     platform: bool = param(

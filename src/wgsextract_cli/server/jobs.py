@@ -19,7 +19,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -113,9 +113,11 @@ class JobManager:
         max_jobs: int = 1,
         debug: bool = False,
         default_outdir: str | None = None,
+        allowed: Iterable[str | os.PathLike[str]] | None = None,
         worker_command: list[str] | None = None,
     ) -> None:
         self.directory = directory
+        self.allowed = None if allowed is None else [os.fspath(a) for a in allowed]
         self.default_outdir = default_outdir
         self.config_path = config_path
         self.max_jobs = max(1, max_jobs)
@@ -376,6 +378,7 @@ class JobManager:
             "params": job.params,
             "config": str(self.config_path) if self.config_path else None,
             "debug": self.debug,
+            "allowed": self.allowed,
         }
         log = open(self.log_path(job.id), "a", encoding="utf-8", newline="\n")  # noqa: SIM115
         try:
