@@ -119,7 +119,9 @@ weakest confidence label of those calls. For a gene the list marks as
 autosomal recessive (`inheritance` `AR`; the built-in lists take it from Table
 1) it gives a status:
 
-- **biallelic**: a homozygous call;
+- **biallelic**: a homozygous call, or calls of two ALTs of one multi-allelic
+  call such as `1/2` (one on each copy; `vcf clinvar` keeps the split record
+  in `OLD_MULTIALLELIC`);
 - **possible biallelic**: two or more heterozygous calls, whose phase is
   unknown, so they may be on the same copy (cis) rather than one on each
   (trans); or a hemizygous or partly called genotype, which doesn't show the
