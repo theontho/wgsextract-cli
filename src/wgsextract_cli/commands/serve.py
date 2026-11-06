@@ -70,6 +70,12 @@ def register(
         "a sample's settings, not just the read-only queries.",
     )
     parser.add_argument(
+        "--allow-destructive",
+        action="store_true",
+        help="Also run requests that delete data a command didn't make: "
+        "bam unindex, sample unset and ref gene-map --delete.",
+    )
+    parser.add_argument(
         "--openapi",
         action="store_true",
         help="Print the HTTP API's OpenAPI document and exit.",
@@ -129,7 +135,9 @@ def run(args: argparse.Namespace) -> None:
 
     from wgsextract_cli.server.operations import PathGuard
 
-    guard = PathGuard(allowed_roots(args.allow))
+    guard = PathGuard(
+        allowed_roots(args.allow), allow_destructive=args.allow_destructive
+    )
     if not guard.roots:
         logging.warning(
             "No folders are allowed, so requests can't name any file. Pass "
@@ -150,6 +158,7 @@ def run(args: argparse.Namespace) -> None:
         max_jobs=max_jobs,
         debug=bool(getattr(args, "debug", False)),
         default_outdir=settings.get("output_directory"),
+        allowed=guard.roots,
     )
     try:
         if args.mcp:

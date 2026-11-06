@@ -104,8 +104,21 @@ class Operation:
             if f.spec.safe_value is not UNSET
         }
 
+    @property
+    def deletes(self) -> bool:
+        """Whether the operation always deletes data it didn't make."""
+        return self.params.DELETES
+
+    @property
+    def may_delete(self) -> bool:
+        """Whether some request to it deletes data it didn't make."""
+        return self.deletes or any(f.spec.deletes for f in self.fields())
+
     def describe(self) -> dict[str, Any]:
-        return {"op": self.name, "kind": self.kind, "summary": self.summary}
+        out: dict[str, Any] = {"op": self.name, "kind": self.kind}
+        if self.may_delete:
+            out["destructive"] = True
+        return {**out, "summary": self.summary}
 
 
 def _group_modules() -> list[ModuleType]:
@@ -280,16 +293,23 @@ def is_network_path(text: str) -> bool:
 
 
 class PathGuard:
-    """The folders requests may name. A path is allowed when it is one of them
-    or inside one, both as written and with symbolic links resolved.
+    """What requests may do: the folders they may name, and whether they may
+    delete data an operation didn't make (``allow_destructive``). A path is
+    allowed when it is one of the folders or inside one, both as written and
+    with symbolic links resolved.
 
     ``pathmod`` is the path flavour (``os.path``); everything before the
     final ``realpath`` is lexical, so a refused path is never opened.
     """
 
     def __init__(
-        self, roots: Iterable[str | os.PathLike[str]], *, pathmod: Any = os.path
+        self,
+        roots: Iterable[str | os.PathLike[str]],
+        *,
+        allow_destructive: bool = False,
+        pathmod: Any = os.path,
     ) -> None:
+        self.allow_destructive = allow_destructive
         self.pathmod = pathmod
         unique: dict[str, None] = {}
         lexical: dict[str, None] = {}
@@ -313,6 +333,14 @@ class PathGuard:
                 return True
         return False
 
+    def allows(self, path: str | os.PathLike[str]) -> bool:
+        """Whether a request may name ``path``."""
+        try:
+            self.check_path("path", path)
+        except RequestError:
+            return False
+        return True
+
     def check_path(self, name: str, value: str | os.PathLike[str]) -> None:
         text = os.fspath(value)
         refused = RequestError(
@@ -334,6 +362,13 @@ class PathGuard:
             raise refused
 
     def check(self, params: Params) -> None:
+        if params.deletes_data() and not self.allow_destructive:
+            raise RequestError(
+                403,
+                "destructive",
+                f"{params.COMMAND} would delete data; the server does that only "
+                "when started with serve --allow-destructive.",
+            )
         for item in param_fields(type(params)):
             value = getattr(params, item.name)
             for path in value if isinstance(value, tuple) else (value,):

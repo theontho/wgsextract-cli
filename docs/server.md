@@ -59,6 +59,19 @@ you start yourself:
   The guard limits what a client can name. It is not a sandbox against other
   programs running as you, which can change the allowed folders (for example
   retarget a symlink) whatever the server does.
+- **Paths recorded in manifests.** `report` reads the outputs that earlier
+  runs' manifests list. Run by the server, it reads only those inside the
+  allowed folders, so a manifest can't lead it to other files.
+- **Regions can't pass for options.** A `region` item that starts with `-`
+  is refused (on the CLI and the API too), and commands pass regions to
+  samtools and tabix after `--`.
+- **Deleting needs an opt-in.** Requests that delete data a command didn't
+  make are refused (403 `destructive`) unless the server was started with
+  `--allow-destructive`: `bam unindex`, `sample unset` and
+  `ref gene-map` with `delete`. Over MCP, `bam_unindex` and `sample_unset`
+  are offered only then, and their tools carry `destructiveHint`.
+  Regenerating a command's own outputs (`restart`, `force_*`) isn't
+  deleting in this sense.
 - Parameters that name programs to run, such as `haplogrep_path`, or that
   hide paths inside other text, such as `indel_manifest`, can't be set by a
   request. They come from config.toml as usual.
@@ -83,7 +96,7 @@ All responses are compact JSON. Errors are
 | --- | --- |
 | 400 | Bad parameters: `usage`, `bad_json` or `bad_length` |
 | 401 | Missing or wrong token |
-| 403 | A path outside the allowed folders (`path_not_allowed`), or a bad Host or Origin |
+| 403 | A path outside the allowed folders (`path_not_allowed`), a request that deletes data (`destructive`), or a bad Host or Origin |
 | 404 | Unknown operation or job |
 | 409 | Cancelling a finished job |
 
@@ -95,7 +108,7 @@ A failed analysis is not an HTTP error. Its job finishes with status
 | `GET /v1/health` | `{"ok": true, "version": ...}`; needs no token |
 | `GET /v1` | Index and the allowed folders |
 | `GET /v1/openapi.json` | The OpenAPI 3.1 document, also `wgsextract serve --openapi` |
-| `GET /v1/ops` | Operations: `op`, `kind` (`query` or `job`) and a one-line summary |
+| `GET /v1/ops` | Operations: `op`, `kind` (`query` or `job`), `destructive` when a request may delete data, and a one-line summary |
 | `GET /v1/ops/{op}` | One operation and the JSON Schema of its parameters |
 | `POST /v1/ops/{op}?wait=S` | Start the operation as a job; the body is its parameters |
 | `GET /v1/jobs?status=` | Jobs, newest last |
@@ -201,6 +214,7 @@ that says why, so the agent can correct itself.
 | `server_port` | `--port` | 0: any free port |
 | `server_allowed_paths` | `--allow DIR` (adds) | none, plus the library and output folders |
 | `server_max_jobs` | `--max-jobs` | 1 |
+| | `--allow-destructive` | off: requests that delete data are refused |
 
 Workers use the same config.toml as the server (`--config`). A request
 parameter that is left out takes its setting, as on the CLI.

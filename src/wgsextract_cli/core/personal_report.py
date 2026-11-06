@@ -33,7 +33,7 @@ from typing import Any
 from urllib.parse import quote
 
 from wgsextract_cli import __version__
-from wgsextract_cli.core import gene_lists, variant_confidence
+from wgsextract_cli.core import gene_lists, read_scope, variant_confidence
 from wgsextract_cli.core.builds import (
     build_from_chr1_length,
     canonical_build,
@@ -172,12 +172,13 @@ class Source:
         return [r for r in self.document.get(kind) or [] if isinstance(r, Mapping)]
 
     def output(self, *roles: str) -> Path | None:
-        """The first existing output with one of ``roles``, in ``roles`` order."""
+        """The first existing output with one of ``roles``, in ``roles`` order,
+        that this run may read (see :mod:`read_scope`)."""
         for role in roles:
             for record in self.records("outputs"):
                 if record.get("role") == role and record.get("path"):
                     path = self.locate(str(record["path"]))
-                    if path.exists():
+                    if path.exists() and read_scope.may_follow(path):
                         return path
         return None
 
@@ -932,6 +933,7 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         for r in source.records("inputs")
         if r.get("role") == role
         and str(r.get("path") or "").lower().endswith(_VCF_SUFFIXES)
+        and read_scope.may_follow(source.locate(str(r["path"])))
     ]
     build = _gene_build(
         (_vcf_build(vcf) if vcf else None)

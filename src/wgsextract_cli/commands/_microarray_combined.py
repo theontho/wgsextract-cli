@@ -213,7 +213,12 @@ def _write_vcf_mode_kit(
     with contextlib.ExitStack() as stack:
         targets: Iterator[str] = (
             _command_lines(
-                ["tabix", ref_vcf_tab, *_in_targets_naming(params.region, ref_vcf_tab)],
+                [
+                    "tabix",
+                    "--",
+                    ref_vcf_tab,
+                    *_in_targets_naming(params.region, ref_vcf_tab),
+                ],
                 outdir,
             )
             if params.region
@@ -379,7 +384,8 @@ def _write_alignment_mode_kit(
 def _target_lines(params: MicroarrayParams, targets: str, outdir: str) -> Iterator[str]:
     if params.region:
         yield from _command_lines(
-            ["tabix", targets, *_in_targets_naming(params.region, targets)], outdir
+            ["tabix", "--", targets, *_in_targets_naming(params.region, targets)],
+            outdir,
         )
     else:
         with _open_text(targets) as source:

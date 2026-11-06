@@ -55,6 +55,7 @@ def _tool(
     schema: dict[str, Any],
     *,
     read_only: bool,
+    destructive: bool = False,
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -62,7 +63,7 @@ def _tool(
         "inputSchema": schema,
         "annotations": {
             "readOnlyHint": read_only,
-            "destructiveHint": False,
+            "destructiveHint": destructive,
             "openWorldHint": False,
         },
     }
@@ -204,6 +205,8 @@ class McpServer:
         }
 
     def _offered(self, op: Operation) -> bool:
+        if op.deletes and not self.guard.allow_destructive:
+            return False
         return op.kind == "query" or self.allow_jobs
 
     def tools(self) -> list[dict[str, Any]]:
@@ -219,6 +222,7 @@ class McpServer:
                 ),
                 op.schema(read_only=read_only),
                 read_only=read_only,
+                destructive=op.may_delete and self.guard.allow_destructive,
             )
             for op in operations().values()
             if self._offered(op)

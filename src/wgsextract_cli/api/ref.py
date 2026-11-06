@@ -255,6 +255,7 @@ class RefGeneMapParams(_InLibrary, Params):
         False,
         help="Delete gene maps instead of downloading",
         action="store_true",
+        deletes=True,
     )
     ref: Path | None = ref_param()
 

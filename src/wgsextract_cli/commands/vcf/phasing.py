@@ -474,7 +474,7 @@ def haplotag(
             subset = str(Path(work, "regions.bam"))
             run_command(
                 ["samtools", "view", "-M", "-b", "--reference", ref,
-                 "-@", str(threads), "-o", subset, reads, *regions]
+                 "-@", str(threads), "-o", subset, "--", reads, *regions]
             )  # fmt: skip
             run_command(["samtools", "index", subset])
             reads, regions = subset, []
