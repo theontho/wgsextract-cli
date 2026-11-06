@@ -183,10 +183,17 @@ def run_freebayes(params: VcfFreebayesParams) -> None:
 
 def _gatk_gpu(params: VcfGatkParams) -> None:
     """HaplotypeCaller on an NVIDIA GPU (Parabricks), which reads CRAM itself."""
-    from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
+    from wgsextract_cli.core.parabricks import (
+        call_variants,
+        plan_gpu_memory,
+        verify_parabricks,
+    )
 
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
+    fit = plan_gpu_memory(
+        "haplotypecaller", "gatk", check=not params.no_gpu_memory_check
+    )
     setup = setup_caller(params)
     outdir, ref = setup.outdir, setup.ref
     input_file, region = str(params.input), params.region
@@ -195,7 +202,7 @@ def _gatk_gpu(params: VcfGatkParams) -> None:
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
     with safe_output(out_vcf) as staged:
-        call_variants("haplotypecaller", input_file, ref, staged, region)
+        call_variants("haplotypecaller", input_file, ref, staged, region, fit)
     ensure_vcf_indexed(out_vcf)
     record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, region))
 

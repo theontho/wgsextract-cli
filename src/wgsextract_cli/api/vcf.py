@@ -32,6 +32,7 @@ from ._shared import (
     dry_run_param,
     force_steps_param,
     input_param,
+    no_gpu_memory_check_param,
     optional_input_param,
     outdir_param,
     ref_param,
@@ -957,6 +958,7 @@ class VcfGatkParams(_CallerParams):
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
         action="store_true",
     )
+    no_gpu_memory_check: bool = no_gpu_memory_check_param()
     qc_min_depth: float | None = depth_param()
 
 
@@ -1016,6 +1018,7 @@ class VcfDeepvariantParams(_CallerParams):
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
         action="store_true",
     )
+    no_gpu_memory_check: bool = no_gpu_memory_check_param()
     qc_min_depth: float | None = depth_param()
     restart: bool = restart_param()
     force_steps: tuple[str, ...] | None = force_steps_param(DEEPVARIANT_STEPS)

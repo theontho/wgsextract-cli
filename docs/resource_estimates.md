@@ -142,6 +142,68 @@ FASTQ in the output directory. For the 103.7 GB HG002 ONT CRAM at `--threads 5
 GiB of FASTQ. Before #474 the guard asked for 376 GiB of scratch; the
 whole-genome run stopped at 12% of its input had already spilled 33.6 GB.
 
+## NVIDIA GPUs (Parabricks)
+
+With `--gpu`, `align`, `realign`, `vcf deepvariant` and `vcf gatk` read each
+GPU's total and free memory from `nvidia-smi` before starting Parabricks, and
+report a `gpu` row beside the host `memory` row. pbrun uses every GPU, so each
+GPU is checked against its own memory: low-memory mode is chosen when any GPU
+is short of its default need, and a GPU that reports no memory doesn't hide
+another one's shortage.
+
+- A GPU with less than 16 GB (a T4 reports 15 GiB) is refused.
+- When less memory is free than a tool's default mode needs, the tool runs
+  with its low-memory option, `--low-memory` for fq2bam and minimap2 and
+  `--htvc-low-memory` for HaplotypeCaller. The run logs this and records a
+  `parabricks_low_memory` warning. fq2bam sizes its work from the GPU's
+  *total* memory, so it needs its low-memory mode whenever another program
+  holds more than about 2 GiB of the GPU.
+- When even the low-memory mode won't fit, the command stops before running
+  anything. DeepVariant has no low-memory mode.
+- Each tool also needs host RAM, whatever the GPU mode: at least 34 GiB for
+  fq2bam, and 41 GiB for a whole 30x genome, whose sort holds more (minimap2
+  is assumed to match); 25 GiB for DeepVariant; 18 GiB for HaplotypeCaller.
+  A computer with less RAM than the minimum is refused. When it has the
+  minimum but less than the whole-genome need is available, because the
+  computer is smaller or other programs hold it, the run continues with a
+  `parabricks_host_memory` warning: available memory moves, and the
+  kernel can often reclaim cache. The log also notes when the host has less
+  RAM than NVIDIA recommends (100 GB for one or two GPUs, 49 GB a GPU beyond
+  that).
+- `--no-gpu-memory-check` runs anyway, with a `parabricks_memory` warning.
+  When `nvidia-smi` reports no memory (`[N/A]`), Parabricks runs with its
+  defaults.
+
+Measured with Parabricks 4.8.0 on an RTX 3090 (24 GiB), 4 CPUs, on chr20 of
+HG00096 (8.6 M read pairs, hs38DH). Another process held the "other" memory
+with `cudaMalloc`:
+
+| Run | GPU peak | Host RAM peak | Result |
+| --- | ---: | ---: | --- |
+| fq2bam | 21.5 GiB | 32.7 GiB | ok |
+| fq2bam, 8 GiB held by another process (15.3 GiB free) | | | out of memory |
+| fq2bam `--low-memory` | 13.5 GiB | 30.1 GiB | ok, also with 15.3 GiB free |
+| fq2bam `--low-memory`, 12.3 GiB free | | | out of memory |
+| DeepVariant | 12.9 GiB | 24.2 GiB | ok, also with 15.3 GiB free |
+| DeepVariant, 12.3 GiB free | | | out of memory |
+| HaplotypeCaller | 17.2 GiB | 16.6 GiB | ok |
+| HaplotypeCaller `--htvc-low-memory` | 10.7 GiB | 16.6 GiB | ok, also with 15.3 GiB free |
+
+The low-memory runs took as long as the defaults on this data. With the
+container's RAM capped (no swap), every run was killed: fq2bam at 24 and
+16 GiB, also with `--low-memory --memory-limit 8`; DeepVariant at 16 GiB;
+HaplotypeCaller at 12 GiB. fq2bam's `--memory-limit 16` left its peak at
+33 GiB. minimap2's 18 GB default need is NVIDIA's figure, not measured here.
+
+The whole genome, `realign --gpu` of HG00096 (30x, 49.6 GB BAM out) on the
+same host with the GPU free, ran fq2bam in its default mode with no warnings:
+
+| Step | Time | GPU peak | Host RAM peak |
+| --- | ---: | ---: | ---: |
+| Extract FASTQs (CPU) | 34 min | | |
+| fq2bam: align, mark duplicates, sort | 53 min | 21.6 GiB | 40.8 GiB, while sorting |
+| Total | 88 min | | |
+
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource
 estimate is unavailable, and lets the command continue. Existing dependency,
@@ -151,8 +213,9 @@ These are conservative estimates, **not reservations, memory limits or
 guarantees**. When size or free-space measurement is unavailable the row says
 `UNKNOWN`, never a misleading `OK`. Regional disk estimates deliberately retain
 whole-input upper bounds rather than guessing coverage. CPU models do not
-describe GPU/Parabricks or pbmm2 pipelines; see
-[hardware and acceleration](hardware.md) for GPU alignment.
+describe pbmm2 pipelines; Parabricks has its own memory check
+([above](#nvidia-gpus-parabricks)), and [hardware and acceleration](hardware.md)
+covers GPU alignment.
 
 ## GUI/API integration
 

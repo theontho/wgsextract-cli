@@ -382,6 +382,20 @@ def run(args: argparse.Namespace) -> None:
         )
 
 
+def _check_gpu(args: argparse.Namespace) -> None:
+    """Refuse a GPU setup or GPU memory that can't run the alignment before
+    the FASTQs are extracted; alignment plans its options when it starts."""
+    from wgsextract_cli.core.parabricks import plan_gpu_memory, verify_parabricks
+
+    verify_parabricks()
+    plan_gpu_memory(
+        "minimap2" if align_cmd.is_long_read(args) else "fq2bam",
+        "realign",
+        check=not getattr(args, "no_gpu_memory_check", False),
+        report=False,
+    )
+
+
 def _check_long_read_options(args: argparse.Namespace) -> None:
     """realign streams long reads from the BAM/CRAM into CPU minimap2."""
     if args.aligner == "pbmm2":
@@ -795,6 +809,9 @@ def _run_steps(
         if journal.dry_run:
             journal.decide(_index_step(out_path))
             return
+    if getattr(args, "gpu", False):
+        # Only once the alignment will run: a dry run or a finished one needs no GPU.
+        _check_gpu(args)
     statistics = None if need_extract else fastq_input_statistics(r1_path, r2_path)
     reads = (
         indexed_read_count(args.input, threads)

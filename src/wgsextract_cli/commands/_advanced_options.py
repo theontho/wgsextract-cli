@@ -19,7 +19,7 @@ COMMON_ADVANCED = frozenset(
     }
 )
 
-_ALIGNERS = ("--preset", "--long-read", "--gpu")
+_ALIGNERS = ("--preset", "--long-read", "--gpu", "--no-gpu-memory-check")
 _VEP = ("--vep-cache-version", "--vcf-type", "--add-chr", "--vep-args")
 
 ADVANCED_OPTIONS: dict[str, tuple[str, ...]] = {
@@ -51,7 +51,13 @@ ADVANCED_OPTIONS: dict[str, tuple[str, ...]] = {
     "lineage y-str": ("--min-reads", "--min-fraction", "--min-mapq"),
     "vep": _VEP,
     "vep run": _VEP,
-    "vcf deepvariant": ("--checkpoint", "--batch-size", "--model-type"),
+    "vcf gatk": ("--no-gpu-memory-check",),
+    "vcf deepvariant": (
+        "--checkpoint",
+        "--batch-size",
+        "--model-type",
+        "--no-gpu-memory-check",
+    ),
     "benchmark": (
         "--seed",
         "--target-count",

@@ -5,92 +5,92 @@
 # clinical exome and genome sequencing: a policy statement of the ACMG.
 # Genet Med 2025;27(8):101454. doi:10.1016/j.gim.2025.101454, PMID 40568962,
 # Table 1: https://pmc.ncbi.nlm.nih.gov/articles/PMC12318660/
-# Genes and categories are facts from that Table 1 (checked gene by gene,
-# NCBI E-utilities efetch db=pmc id=12318660, 2026-11-06). Notes paraphrase its
-# inheritance column and footnotes. scripts/build_report_gene_lists.py adds the
-# gene spans.
-gene	category	note
-ABCD1	metabolism	hemizygous, homozygous or two heterozygous P/LP variants are reportable; a single heterozygous one is not
-ACTA2	cardiovascular
-ACTC1	cardiovascular
-ACVRL1	miscellaneous
-APC	cancer
-APOB	cardiovascular
-ATP7B	miscellaneous	two P/LP variants (biallelic) are reportable
-BAG3	cardiovascular
-BMPR1A	cancer
-BRCA1	cancer
-BRCA2	cancer
-BTD	metabolism	two P/LP variants (biallelic) are reportable
-CACNA1S	miscellaneous
-CALM1	cardiovascular
-CALM2	cardiovascular
-CALM3	cardiovascular
-CASQ2	cardiovascular	two P/LP variants (biallelic) are reportable
-COL3A1	cardiovascular
-CYP27A1	metabolism	two P/LP variants (biallelic) are reportable
-DES	cardiovascular
-DSC2	cardiovascular
-DSG2	cardiovascular
-DSP	cardiovascular
-ENG	miscellaneous
-FBN1	cardiovascular
-FLNC	cardiovascular
-GAA	metabolism	two P/LP variants (biallelic) are reportable
-GLA	metabolism	hemizygous, heterozygous or homozygous P/LP variants are reportable
-HFE	metabolism	only p.C282Y (NM_000410.3) homozygotes are reportable
-HNF1A	miscellaneous
-KCNH2	cardiovascular
-KCNQ1	cardiovascular
-LDLR	cardiovascular
-LMNA	cardiovascular	P/LP missense variants never associated with cardiac disease are not reportable
-MAX	cancer
-MEN1	cancer
-MLH1	cancer
-MSH2	cancer
-MSH6	cancer
-MUTYH	cancer	two P/LP variants (biallelic) are reportable
-MYBPC3	cardiovascular
-MYH11	cardiovascular
-MYH7	cardiovascular
-MYL2	cardiovascular
-MYL3	cardiovascular
-NF2	cancer
-OTC	metabolism	hemizygous, heterozygous or homozygous P/LP variants are reportable
-PALB2	cancer
-PCSK9	cardiovascular
-PKP2	cardiovascular
-PLN	cardiovascular
-PMS2	cancer
-PRKAG2	cardiovascular
-PTEN	cancer
-RB1	cancer
-RBM20	cardiovascular
-RET	cancer
-RPE65	miscellaneous	two P/LP variants (biallelic) are reportable
-RYR1	miscellaneous	only P/LP variants associated with malignant hyperthermia are reportable
-RYR2	cardiovascular
-SCN5A	cardiovascular
-SDHAF2	cancer
-SDHB	cancer
-SDHC	cancer
-SDHD	cancer
-SMAD3	cardiovascular
-SMAD4	cancer
-STK11	cancer
-TGFBR1	cardiovascular
-TGFBR2	cardiovascular
-TMEM127	cancer
-TMEM43	cardiovascular
-TNNC1	cardiovascular
-TNNI3	cardiovascular
-TNNT2	cardiovascular
-TP53	cancer
-TPM1	cardiovascular
-TRDN	cardiovascular	two P/LP variants (biallelic) are reportable
-TSC1	cancer
-TSC2	cancer
-TTN	cardiovascular	only truncating P/LP variants (TTNtv) are reportable
-TTR	miscellaneous
-VHL	cancer
-WT1	cancer
+# Genes, categories and inheritance (AD, AR, SD semidominant, XL) are facts
+# from that Table 1 (checked gene by gene, NCBI E-utilities efetch db=pmc
+# id=12318660, 2026-11-06). Notes paraphrase its inheritance column and
+# footnotes. scripts/build_report_gene_lists.py adds the gene spans.
+gene	category	inheritance	note
+ABCD1	metabolism	XL	hemizygous, homozygous or two heterozygous P/LP variants are reportable; a single heterozygous one is not
+ACTA2	cardiovascular	AD
+ACTC1	cardiovascular	AD
+ACVRL1	miscellaneous	AD
+APC	cancer	AD
+APOB	cardiovascular	AD
+ATP7B	miscellaneous	AR	two P/LP variants (biallelic) are reportable
+BAG3	cardiovascular	AD
+BMPR1A	cancer	AD
+BRCA1	cancer	AD
+BRCA2	cancer	AD
+BTD	metabolism	AR	two P/LP variants (biallelic) are reportable
+CACNA1S	miscellaneous	AD
+CALM1	cardiovascular	AD
+CALM2	cardiovascular	AD
+CALM3	cardiovascular	AD
+CASQ2	cardiovascular	AR	two P/LP variants (biallelic) are reportable
+COL3A1	cardiovascular	AD
+CYP27A1	metabolism	AR	two P/LP variants (biallelic) are reportable
+DES	cardiovascular	AD
+DSC2	cardiovascular	AD
+DSG2	cardiovascular	AD
+DSP	cardiovascular	AD
+ENG	miscellaneous	AD
+FBN1	cardiovascular	AD
+FLNC	cardiovascular	AD
+GAA	metabolism	AR	two P/LP variants (biallelic) are reportable
+GLA	metabolism	XL	hemizygous, heterozygous or homozygous P/LP variants are reportable
+HFE	metabolism	AR	only p.C282Y (NM_000410.3) homozygotes are reportable
+HNF1A	miscellaneous	AD
+KCNH2	cardiovascular	AD
+KCNQ1	cardiovascular	AD
+LDLR	cardiovascular	SD
+LMNA	cardiovascular	AD	P/LP missense variants never associated with cardiac disease are not reportable
+MAX	cancer	AD
+MEN1	cancer	AD
+MLH1	cancer	AD
+MSH2	cancer	AD
+MSH6	cancer	AD
+MUTYH	cancer	AR	two P/LP variants (biallelic) are reportable
+MYBPC3	cardiovascular	AD
+MYH11	cardiovascular	AD
+MYH7	cardiovascular	AD
+MYL2	cardiovascular	AD
+MYL3	cardiovascular	AD
+NF2	cancer	AD
+OTC	metabolism	XL	hemizygous, heterozygous or homozygous P/LP variants are reportable
+PALB2	cancer	AD
+PCSK9	cardiovascular	AD
+PKP2	cardiovascular	AD
+PLN	cardiovascular	AD
+PMS2	cancer	AD
+PRKAG2	cardiovascular	AD
+PTEN	cancer	AD
+RB1	cancer	AD
+RBM20	cardiovascular	AD
+RET	cancer	AD
+RPE65	miscellaneous	AR	two P/LP variants (biallelic) are reportable
+RYR1	miscellaneous	AD	only P/LP variants associated with malignant hyperthermia are reportable
+RYR2	cardiovascular	AD
+SCN5A	cardiovascular	AD
+SDHAF2	cancer	AD
+SDHB	cancer	AD
+SDHC	cancer	AD
+SDHD	cancer	AD
+SMAD3	cardiovascular	AD
+SMAD4	cancer	AD
+STK11	cancer	AD
+TGFBR1	cardiovascular	AD
+TGFBR2	cardiovascular	AD
+TMEM127	cancer	AD
+TMEM43	cardiovascular	AD
+TNNC1	cardiovascular	AD
+TNNI3	cardiovascular	AD
+TNNT2	cardiovascular	AD
+TP53	cancer	AD
+TPM1	cardiovascular	AD
+TRDN	cardiovascular	AR	two P/LP variants (biallelic) are reportable
+TSC1	cancer	AD
+TSC2	cancer	AD
+TTN	cardiovascular	AD	only truncating P/LP variants (TTNtv) are reportable
+TTR	miscellaneous	AD
+VHL	cancer	AD
+WT1	cancer	AD

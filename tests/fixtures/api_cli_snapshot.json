@@ -1,7 +1,7 @@
 {
  "commands": {
   "align": {
-   "help": "usage: wgsextract align [-h] [--r1 R1] [--r2 R2]\n                        [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                        [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}] [--sample SAMPLE]\n                        [--format {BAM,CRAM}] [--input-ref INPUT_REF] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform; selects platform-specific alignment tooling (default:\n                        detected from read groups or read names, else illumina).\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use. Auto uses bwa-mem2 for short reads when the reference has\n                        its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio\n                        when installed, otherwise minimap2.\n  --sample SAMPLE       Sample name for the read group (default: the reads' file name).\n  --format {BAM,CRAM}   Output format\n  --input-ref INPUT_REF\n                        Reference FASTA a CRAM --r1 was encoded with (default: --ref when its\n                        sequence names, lengths and MD5s match the CRAM).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract align --help-all' lists them.\n\nexamples:\n  wgsextract align --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz --ref hs38.fa\n  wgsextract align --r1 hifi_reads.fastq.gz --preset map-hifi --ref hs38.fa\n\noutputs (in the output directory unless noted):\n  <reads stem>_aligned.bam or .cram (+ index).\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bwa, bwa-mem2,\n  curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x genome.\n",
+   "help": "usage: wgsextract align [-h] [--r1 R1] [--r2 R2]\n                        [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                        [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}] [--sample SAMPLE]\n                        [--format {BAM,CRAM}] [--input-ref INPUT_REF] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform; selects platform-specific alignment tooling (default:\n                        detected from read groups or read names, else illumina).\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use. Auto uses bwa-mem2 for short reads when the reference has\n                        its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio\n                        when installed, otherwise minimap2.\n  --sample SAMPLE       Sample name for the read group (default: the reads' file name).\n  --format {BAM,CRAM}   Output format\n  --input-ref INPUT_REF\n                        Reference FASTA a CRAM --r1 was encoded with (default: --ref when its\n                        sequence names, lengths and MD5s match the CRAM).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n4 advanced options not shown; 'wgsextract align --help-all' lists them.\n\nexamples:\n  wgsextract align --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz --ref hs38.fa\n  wgsextract align --r1 hifi_reads.fastq.gz --preset map-hifi --ref hs38.fa\n\noutputs (in the output directory unless noted):\n  <reads stem>_aligned.bam or .cram (+ index).\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bwa, bwa-mem2,\n  curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -397,6 +397,22 @@
       "nargs": 0,
       "option_strings": [
        "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "no_gpu_memory_check",
+      "exclusive_group": null,
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--no-gpu-memory-check"
       ],
       "required": false,
       "type": null
@@ -15326,7 +15342,7 @@
    }
   },
   "realign": {
-   "help": "usage: wgsextract realign [-h] [--r1 R1] [--r2 R2] [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}]\n                          [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                          [--sample SAMPLE] [--format {BAM,CRAM}] [--force] [--force-step STEP]\n                          [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use (matches the 'align' command).\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform (default: detected from read groups or read names,\n                        else illumina).\n  --sample SAMPLE       Sample name to embed in read-group metadata.\n  --format {BAM,CRAM}   Output format.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        extract, align, index.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n7 advanced options not shown; 'wgsextract realign --help-all' lists them.\n\nexamples:\n  wgsextract realign --input sample_hg19.bam --ref hs38.fa\n  wgsextract realign --input sample_hg19.bam --ref hs38.fa --dry-run\n\noutputs (in the output directory unless noted):\n  <input stem>_aligned.bam or .cram (+ index); with --keep-fastq, also <input\n  stem>_R1/_R2.fastq.gz (single-end ONT/PacBio: <input stem>.fastq.gz).\n  Completed steps are recorded in <output>.steps.json, so a rerun resumes\n  after a crash.\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bgzip, bwa, bwa-\n  mem2, curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x\n  genome.\n",
+   "help": "usage: wgsextract realign [-h] [--r1 R1] [--r2 R2] [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}]\n                          [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                          [--sample SAMPLE] [--format {BAM,CRAM}] [--force] [--force-step STEP]\n                          [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use (matches the 'align' command).\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform (default: detected from read groups or read names,\n                        else illumina).\n  --sample SAMPLE       Sample name to embed in read-group metadata.\n  --format {BAM,CRAM}   Output format.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        extract, align, index.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n8 advanced options not shown; 'wgsextract realign --help-all' lists them.\n\nexamples:\n  wgsextract realign --input sample_hg19.bam --ref hs38.fa\n  wgsextract realign --input sample_hg19.bam --ref hs38.fa --dry-run\n\noutputs (in the output directory unless noted):\n  <input stem>_aligned.bam or .cram (+ index); with --keep-fastq, also <input\n  stem>_R1/_R2.fastq.gz (single-end ONT/PacBio: <input stem>.fastq.gz).\n  Completed steps are recorded in <output>.steps.json, so a rerun resumes\n  after a crash.\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bgzip, bwa, bwa-\n  mem2, curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x\n  genome.\n",
    "parser": {
     "actions": [
      {
@@ -15674,6 +15690,22 @@
       "nargs": 0,
       "option_strings": [
        "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "no_gpu_memory_check",
+      "exclusive_group": null,
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--no-gpu-memory-check"
       ],
       "required": false,
       "type": null
@@ -23764,7 +23796,7 @@
    }
   },
   "report": {
-   "help": "usage: wgsextract report [-h] [--workspace DIR] [--results DIR] [--format {tsv,parquet}]\n                         [--gene-list LIST]\n\nSummarise a sample's results (overview, QC, lineage, pharmacogenomics, ClinVar pathogenic calls in\nACMG SF genes, microarray files) as a local HTML, Markdown and JSON report with confidence-\nlabelled findings. Reads earlier runs' result manifests; runs no analysis and makes no network\ncalls. Technical results, not diagnosis.\n\noptions:\n  -h, --help            show this help message and exit\n  --workspace DIR       Sample folder whose results are reported (default: the --genome folder,\n                        else the --input's folder).\n  --results DIR         Also read result manifests from this folder (repeatable); only runs on\n                        this sample's files are used. The --outdir is always read.\n  --format {tsv,parquet}\n                        Format of the findings table, <sample>_personal_report_findings.tsv or\n                        .parquet (needs pyarrow) (default: tsv)\n  --gene-list LIST      Genes for the ClinVar section: a built-in list (acmg-sf-3.3, acmg-sf-3.2;\n                        downloaded once into the reference library), or a TSV (column gene;\n                        optional hg19_/hg38_ or build-free chrom, start, end spans) or BED file\n                        (gene symbol in column 4) (default: config report_gene_list, else acmg-\n                        sf-3.3)\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract report --genome HG002\n  wgsextract report --input sample.cram\n  wgsextract report --genome HG002 --gene-list acmg-sf-3.2\n  wgsextract report --genome HG002 --gene-list my_genes.bed\n  wgsextract report --workspace HG002 --results ~/wgs-out/HG002 --format parquet\n\noutputs (in the output directory unless noted):\n  <sample>_personal_report.html, .md and .json and\n  <sample>_personal_report_findings.tsv (or .parquet with --format parquet) in\n  the sample folder (or --outdir); evidence links are relative to the sample\n  folder.\n\nneeds:\n  no external tools; depending on options and inputs, also: curl; seconds from\n  existing results.\n",
+   "help": "usage: wgsextract report [-h] [--workspace DIR] [--results DIR] [--format {tsv,parquet}]\n                         [--gene-list LIST]\n\nSummarise a sample's results (overview, QC, lineage, pharmacogenomics including HLA, ClinVar\npathogenic calls in ACMG SF genes with carrier status, microarray files) as a local HTML, Markdown\nand JSON report with confidence-labelled findings. Reads earlier runs' result manifests and runs\nno analysis; its only network call downloads a built-in gene list once. Technical results, not\ndiagnosis.\n\noptions:\n  -h, --help            show this help message and exit\n  --workspace DIR       Sample folder whose results are reported (default: the --genome folder,\n                        else the --input's folder).\n  --results DIR         Also read result manifests from this folder (repeatable); only runs on\n                        this sample's files are used. The --outdir is always read.\n  --format {tsv,parquet}\n                        Format of the findings table, <sample>_personal_report_findings.tsv or\n                        .parquet (needs pyarrow) (default: tsv)\n  --gene-list LIST      Genes for the ClinVar section: a built-in list (acmg-sf-3.3, acmg-sf-3.2;\n                        downloaded once into the reference library), or a TSV (column gene;\n                        optional hg19_/hg38_ or build-free chrom, start, end spans) or BED file\n                        (gene symbol in column 4) (default: config report_gene_list, else acmg-\n                        sf-3.3)\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract report --genome HG002\n  wgsextract report --input sample.cram\n  wgsextract report --genome HG002 --gene-list acmg-sf-3.2\n  wgsextract report --genome HG002 --gene-list my_genes.bed\n  wgsextract report --workspace HG002 --results ~/wgs-out/HG002 --format parquet\n\noutputs (in the output directory unless noted):\n  <sample>_personal_report.html, .md and .json and\n  <sample>_personal_report_findings.tsv (or .parquet with --format parquet) in\n  the sample folder (or --outdir); evidence links are relative to the sample\n  folder.\n\nneeds:\n  no external tools; depending on options and inputs, also: curl; seconds from\n  existing results.\n",
    "parser": {
     "actions": [
      {
@@ -24134,7 +24166,7 @@
      "_command": "report",
      "func": "cli_ReportParams"
     },
-    "description": "Summarise a sample's results (overview, QC, lineage, pharmacogenomics, ClinVar pathogenic calls in ACMG SF genes, microarray files) as a local HTML, Markdown and JSON report with confidence-labelled findings. Reads earlier runs' result manifests; runs no analysis and makes no network calls. Technical results, not diagnosis.",
+    "description": "Summarise a sample's results (overview, QC, lineage, pharmacogenomics including HLA, ClinVar pathogenic calls in ACMG SF genes with carrier status, microarray files) as a local HTML, Markdown and JSON report with confidence-labelled findings. Reads earlier runs' result manifests and runs no analysis; its only network call downloads a built-in gene list once. Technical results, not diagnosis.",
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract report"
    }
@@ -27137,7 +27169,7 @@
    }
   },
   "vcf deepvariant": {
-   "help": "usage: wgsextract vcf deepvariant [-h] [-r REGION] [--wes] [--ont] [--pacbio] [--gpu] [--force]\n                                  [--force-step STEP] [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region (e.g. chrM)\n  --wes                 Set model type to WES (default: WGS)\n  --ont                 Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).\n  --pacbio              Alias for --model-type PACBIO.\n  --gpu                 Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        stage_reads, make_examples, call_variants, postprocess_variants.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n4 advanced options not shown; 'wgsextract vcf deepvariant --help-all' lists them.\n\nexamples:\n  wgsextract vcf deepvariant --input sample.cram\n  wgsextract vcf deepvariant --input hifi.bam --pacbio\n  wgsextract vcf deepvariant --input sample.cram --force-step call_variants\n\noutputs (in the output directory unless noted):\n  deepvariant.vcf.gz (+ .tbi) and deepvariant.vcf.gz.steps.json; until it\n  finishes, the stages' work in .deepvariant.work, where a rerun resumes.\n\nneeds:\n  samtools, tabix; depending on options and inputs, also: bcftools, docker,\n  run_deepvariant, sambamba; hours on a 30x genome.\n",
+   "help": "usage: wgsextract vcf deepvariant [-h] [-r REGION] [--wes] [--ont] [--pacbio] [--gpu] [--force]\n                                  [--force-step STEP] [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region (e.g. chrM)\n  --wes                 Set model type to WES (default: WGS)\n  --ont                 Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).\n  --pacbio              Alias for --model-type PACBIO.\n  --gpu                 Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        stage_reads, make_examples, call_variants, postprocess_variants.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n5 advanced options not shown; 'wgsextract vcf deepvariant --help-all' lists them.\n\nexamples:\n  wgsextract vcf deepvariant --input sample.cram\n  wgsextract vcf deepvariant --input hifi.bam --pacbio\n  wgsextract vcf deepvariant --input sample.cram --force-step call_variants\n\noutputs (in the output directory unless noted):\n  deepvariant.vcf.gz (+ .tbi) and deepvariant.vcf.gz.steps.json; until it\n  finishes, the stages' work in .deepvariant.work, where a rerun resumes.\n\nneeds:\n  samtools, tabix; depending on options and inputs, also: bcftools, docker,\n  run_deepvariant, sambamba; hours on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -27551,6 +27583,22 @@
       "nargs": 0,
       "option_strings": [
        "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "no_gpu_memory_check",
+      "exclusive_group": null,
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--no-gpu-memory-check"
       ],
       "required": false,
       "type": null
@@ -28384,7 +28432,7 @@
    }
   },
   "vcf gatk": {
-   "help": "usage: wgsextract vcf gatk [-h] [-r REGION] [--scatter] [--gpu] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM)\n  --scatter            Opt-in Ultima flow-mode interval scattering, bounded by --threads and\n                       available RAM (6 GiB per worker, 4 GiB Java heap). Can change\n                       genotypes/annotations away from interval boundaries; default: one\n                       unscattered process.\n  --gpu                Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract vcf gatk --help-all' lists them.\n\nexamples:\n  wgsextract vcf gatk --input sample.cram\n\noutputs (in the output directory unless noted):\n  gatk.vcf.gz (+ .tbi).\n\nneeds:\n  gatk, samtools, tabix; depending on options and inputs, also: bcftools;\n  hours on a 30x genome.\n",
+   "help": "usage: wgsextract vcf gatk [-h] [-r REGION] [--scatter] [--gpu] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM)\n  --scatter            Opt-in Ultima flow-mode interval scattering, bounded by --threads and\n                       available RAM (6 GiB per worker, 4 GiB Java heap). Can change\n                       genotypes/annotations away from interval boundaries; default: one\n                       unscattered process.\n  --gpu                Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n2 advanced options not shown; 'wgsextract vcf gatk --help-all' lists them.\n\nexamples:\n  wgsextract vcf gatk --input sample.cram\n\noutputs (in the output directory unless noted):\n  gatk.vcf.gz (+ .tbi).\n\nneeds:\n  gatk, samtools, tabix; depending on options and inputs, also: bcftools;\n  hours on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -28711,6 +28759,22 @@
       "nargs": 0,
       "option_strings": [
        "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "no_gpu_memory_check",
+      "exclusive_group": null,
+      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--no-gpu-memory-check"
       ],
       "required": false,
       "type": null
@@ -34309,6 +34373,7 @@
    "log_file": null,
    "long_read": false,
    "memory": null,
+   "no_gpu_memory_check": false,
    "outdir": null,
    "parent_pid": null,
    "platform": null,
@@ -34346,6 +34411,7 @@
    "log_file": null,
    "long_read": true,
    "memory": null,
+   "no_gpu_memory_check": false,
    "outdir": null,
    "parent_pid": null,
    "platform": "ont",
@@ -34383,6 +34449,7 @@
    "log_file": null,
    "long_read": false,
    "memory": null,
+   "no_gpu_memory_check": false,
    "outdir": null,
    "parent_pid": null,
    "platform": null,
@@ -36075,6 +36142,7 @@
    "log_file": null,
    "long_read": false,
    "memory": null,
+   "no_gpu_memory_check": false,
    "no_preflight": false,
    "outdir": null,
    "parent_pid": null,
@@ -36125,6 +36193,7 @@
    "log_file": null,
    "long_read": true,
    "memory": null,
+   "no_gpu_memory_check": false,
    "no_preflight": true,
    "outdir": null,
    "parent_pid": null,
@@ -36168,6 +36237,7 @@
    "log_file": null,
    "long_read": false,
    "memory": null,
+   "no_gpu_memory_check": false,
    "no_preflight": false,
    "outdir": null,
    "parent_pid": null,
@@ -36211,6 +36281,7 @@
    "log_file": null,
    "long_read": false,
    "memory": null,
+   "no_gpu_memory_check": false,
    "no_preflight": false,
    "outdir": null,
    "parent_pid": null,
@@ -36254,6 +36325,7 @@
    "log_file": null,
    "long_read": false,
    "memory": null,
+   "no_gpu_memory_check": false,
    "no_preflight": false,
    "outdir": null,
    "parent_pid": null,
@@ -37434,6 +37506,7 @@
    "log_file": null,
    "memory": null,
    "model_type": "PACBIO",
+   "no_gpu_memory_check": false,
    "ont": false,
    "outdir": null,
    "pacbio": false,
@@ -37475,6 +37548,7 @@
    "log_file": null,
    "memory": null,
    "model_type": null,
+   "no_gpu_memory_check": false,
    "ont": true,
    "outdir": null,
    "pacbio": true,
@@ -37514,6 +37588,7 @@
    "log_file": null,
    "memory": null,
    "model_type": null,
+   "no_gpu_memory_check": false,
    "ont": false,
    "outdir": null,
    "pacbio": false,
@@ -37641,6 +37716,7 @@
    "log_dir": null,
    "log_file": null,
    "memory": null,
+   "no_gpu_memory_check": false,
    "outdir": null,
    "parent_pid": null,
    "qc_min_depth": 3.0,
@@ -37672,6 +37748,7 @@
    "log_dir": null,
    "log_file": null,
    "memory": null,
+   "no_gpu_memory_check": false,
    "outdir": null,
    "parent_pid": null,
    "qc_min_depth": null,
