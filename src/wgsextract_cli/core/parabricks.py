@@ -62,6 +62,16 @@ def verify_parabricks() -> None:
     setup = _SETUP.format(image=image)
     if not sys.platform.startswith("linux"):
         raise UsageError(f"Parabricks runs on Linux only. {setup}")
+    verify_gpu_docker(setup)
+    require_image(
+        image,
+        f"The Parabricks image isn't downloaded: docker pull {image} "
+        "(set parabricks_image in config.toml for another version).",
+    )
+
+
+def verify_gpu_docker(setup: str) -> None:
+    """Docker, an NVIDIA driver and Docker's NVIDIA runtime, which --gpus needs."""
     docker(setup)
     if not get_tool_path("nvidia-smi"):
         raise MissingDependencyError(
@@ -73,11 +83,6 @@ def verify_parabricks() -> None:
             "then run 'sudo nvidia-ctk runtime configure --runtime=docker' and "
             "restart Docker."
         )
-    require_image(
-        image,
-        f"The Parabricks image isn't downloaded: docker pull {image} "
-        "(set parabricks_image in config.toml for another version).",
-    )
 
 
 def gpu_memory() -> tuple[GpuMemory, ...]:

@@ -408,7 +408,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "help": "With --gpu, run despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -15701,7 +15701,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "help": "With --gpu, run despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -27169,7 +27169,7 @@
    }
   },
   "vcf deepvariant": {
-   "help": "usage: wgsextract vcf deepvariant [-h] [-r REGION] [--wes] [--ont] [--pacbio] [--gpu] [--force]\n                                  [--force-step STEP] [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region (e.g. chrM)\n  --wes                 Set model type to WES (default: WGS)\n  --ont                 Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).\n  --pacbio              Alias for --model-type PACBIO.\n  --gpu                 Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        stage_reads, make_examples, call_variants, postprocess_variants.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n5 advanced options not shown; 'wgsextract vcf deepvariant --help-all' lists them.\n\nexamples:\n  wgsextract vcf deepvariant --input sample.cram\n  wgsextract vcf deepvariant --input hifi.bam --pacbio\n  wgsextract vcf deepvariant --input sample.cram --force-step call_variants\n\noutputs (in the output directory unless noted):\n  deepvariant.vcf.gz (+ .tbi) and deepvariant.vcf.gz.steps.json; until it\n  finishes, the stages' work in .deepvariant.work, where a rerun resumes.\n\nneeds:\n  samtools, tabix; depending on options and inputs, also: bcftools, docker,\n  run_deepvariant, sambamba; hours on a 30x genome.\n",
+   "help": "usage: wgsextract vcf deepvariant [-h] [-r REGION] [--wes] [--ont] [--pacbio] [--gpu] [--force]\n                                  [--force-step STEP] [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region (e.g. chrM)\n  --wes                 Set model type to WES (default: WGS)\n  --ont                 Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).\n  --pacbio              Alias for --model-type PACBIO.\n  --gpu                 Call on an NVIDIA GPU: Parabricks, or Google's ULTIMA GPU image for Ultima\n                        reads (x86-64 Linux, Docker; see README).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        stage_reads, make_examples, call_variants, postprocess_variants.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n5 advanced options not shown; 'wgsextract vcf deepvariant --help-all' lists them.\n\nexamples:\n  wgsextract vcf deepvariant --input sample.cram\n  wgsextract vcf deepvariant --input hifi.bam --pacbio\n  wgsextract vcf deepvariant --input sample.cram --force-step call_variants\n\noutputs (in the output directory unless noted):\n  deepvariant.vcf.gz (+ .tbi) and deepvariant.vcf.gz.steps.json; until it\n  finishes, the stages' work in .deepvariant.work, where a rerun resumes.\n\nneeds:\n  samtools, tabix; depending on options and inputs, also: bcftools, docker,\n  run_deepvariant, sambamba; hours on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -27562,7 +27562,7 @@
       "default": null,
       "dest": "batch_size",
       "exclusive_group": null,
-      "help": "CPU inference batch size (upstream default: 1024). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch.",
+      "help": "call_variants batch size (upstream default: 1024; not Parabricks). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch.",
       "metavar": null,
       "nargs": null,
       "option_strings": [
@@ -27578,7 +27578,7 @@
       "default": false,
       "dest": "gpu",
       "exclusive_group": null,
-      "help": "Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
+      "help": "Call on an NVIDIA GPU: Parabricks, or Google's ULTIMA GPU image for Ultima reads (x86-64 Linux, Docker; see README).",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -27594,7 +27594,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "help": "With --gpu, run despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
@@ -28770,7 +28770,7 @@
       "default": false,
       "dest": "no_gpu_memory_check",
       "exclusive_group": null,
-      "help": "With --gpu, run Parabricks despite too little GPU or host memory.",
+      "help": "With --gpu, run despite too little GPU or host memory.",
       "metavar": null,
       "nargs": 0,
       "option_strings": [

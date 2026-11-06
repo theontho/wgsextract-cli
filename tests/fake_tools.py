@@ -733,7 +733,8 @@ elif args[0] == "run":
     name = opts.get("--name", "anonymous")
     log({"cmd": "run", "image": image, "name": name, "label": opts.get("--label"),
          "entrypoint": opts.get("--entrypoint"), "pull": opts.get("--pull"),
-         "env": env, "mounts": mounts, "command": command})
+         "gpus": opts.get("--gpus"), "env": env, "mounts": mounts,
+         "command": command})
     if image not in st["images"]:
         sys.exit(f"docker: Error response from daemon: No such image: {image}")
     if "--gpus" in opts and not st["gpus"]:
@@ -976,6 +977,21 @@ else:
 """
 
 
+def fake_nvidia_smi(bindir: Path, gpus: Path) -> None:
+    """An ``nvidia-smi`` in ``bindir`` that reports the GPUs ``set_gpus``
+    wrote to ``gpus``."""
+    python_tool(bindir, "nvidia-smi", f"GPUS = {str(gpus)!r}\n" + _FAKE_NVIDIA_SMI)
+
+
+def set_gpus(path: Path, *gpus: tuple[int, int] | None) -> None:
+    """GPUs as (total, used) MiB, or None for one that reports its memory
+    as [N/A]; an RTX 3090 with nothing else on it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps([None if g is None else {"total": g[0], "used": g[1]} for g in gpus])
+    )
+
+
 class FakeParabricks:
     """A GPU host: ``bin`` holds an ``nvidia-smi`` and a FakeDocker with the
     NVIDIA runtime and ``image``, whose ``pbrun`` aligns with the real bwa and
@@ -995,9 +1011,7 @@ class FakeParabricks:
         self.log = root / "pbrun.jsonl"
         self.gpus = root / "gpus.json"
         self.set_gpus((24_576, 0))
-        python_tool(
-            self.bin, "nvidia-smi", f"GPUS = {str(self.gpus)!r}\n" + _FAKE_NVIDIA_SMI
-        )
+        fake_nvidia_smi(self.bin, self.gpus)
         header = (
             f"LOG = {str(self.log)!r}\nTOOLS = {tools!r}\nGPUS = {str(self.gpus)!r}\n"
         )
@@ -1007,14 +1021,7 @@ class FakeParabricks:
         self.docker.add_image(image)
 
     def set_gpus(self, *gpus: tuple[int, int] | None) -> None:
-        """GPUs as (total, used) MiB, or None for one that reports its memory
-        as [N/A]; an RTX 3090 with nothing else on it."""
-        self.gpus.parent.mkdir(parents=True, exist_ok=True)
-        self.gpus.write_text(
-            json.dumps(
-                [None if g is None else {"total": g[0], "used": g[1]} for g in gpus]
-            )
-        )
+        set_gpus(self.gpus, *gpus)
 
     def runs(self) -> list[tuple[str, list[str]]]:
         if not self.log.exists():

@@ -17,7 +17,13 @@ from types import SimpleNamespace
 import pytest
 
 from tests.disk_volumes import GIB, Volumes
-from tests.fake_tools import FakeDeepVariant, FakeDocker, require_bare_name_fakes
+from tests.fake_tools import (
+    FakeDeepVariant,
+    FakeDocker,
+    fake_nvidia_smi,
+    require_bare_name_fakes,
+    set_gpus,
+)
 from tests.htslib_helpers import (
     require_runnable,
     run_wgsextract,
@@ -26,10 +32,16 @@ from tests.htslib_helpers import (
     vcf_calls,
     write_fasta,
 )
+from wgsextract_cli import api
 from wgsextract_cli.commands.vcf import deepvariant
 from wgsextract_cli.core import alignment_memory, containers
 from wgsextract_cli.core.dependencies import clear_tool_caches, get_tool_path
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    UsageError,
+    WGSExtractError,
+    run_command,
+)
 
 # Found before a test replaces PATH.
 CORE_TOOLS = {tool: shutil.which(tool) for tool in ("samtools", "bcftools", "tabix")}
@@ -635,11 +647,9 @@ def test_invalid_batch_size_is_refused(batch_size):
         run_wgsextract("vcf", "deepvariant", "-i", "s.bam", "--batch-size", batch_size)
 
 
-def test_batch_size_is_not_silently_ignored_by_gpu():
-    with pytest.raises(WGSExtractError, match="CPU-only"):
-        run_wgsextract(
-            "vcf", "deepvariant", "-i", "s.bam", "--batch-size", "256", "--gpu"
-        )
+def test_batch_size_is_not_silently_ignored_by_parabricks(dv):
+    with pytest.raises(UsageError, match="--batch-size doesn't apply to Parabricks"):
+        call(dv, "--batch-size", "256", "--gpu")
 
 
 def test_batch_size_reaches_call_variants_without_changing_shards(dv):
@@ -894,3 +904,133 @@ def test_dry_run_and_forced_steps(dv, capsys):
 
     rerun(dv, "--force")
     assert dv.deepvariant.stages() == STAGES
+
+
+# Ultima on the GPU (#358) --------------------------------------------------
+
+
+@pytest.fixture
+def ultima_gpu(dv):
+    """Ultima reads on a GPU host: an RTX 3090 with nothing else on it, Docker's
+    NVIDIA runtime and Google's ULTIMA GPU image, but no Parabricks."""
+    dv.docker.set(gpus=True, runtimes='{"nvidia":{},"runc":{}}')
+    dv.docker.add_image(deepvariant.DEFAULT_ULTIMA_GPU_IMAGE)
+    dv.gpus = dv.tmp / "gpus.json"
+    set_gpus(dv.gpus, (24_576, 0))
+    fake_nvidia_smi(dv.docker.root.parent / "bin", dv.gpus)
+    clear_tool_caches()
+    dv.ultima = other_sample(dv, ULTIMA[0], tags=ULTIMA[1])
+    return dv
+
+
+def without_gpu_driver(dv, monkeypatch):
+    """Only the fake Docker and the core tools on PATH: no nvidia-smi."""
+    bindir = dv.docker.root.parent / "bin"
+    for name in ("nvidia-smi", "nvidia-smi.py", "nvidia-smi.cmd"):
+        (bindir / name).unlink(missing_ok=True)
+    tools = {str(Path(path).parent) for path in CORE_TOOLS.values()}
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bindir), *tools]))
+    clear_tool_caches()
+
+
+def gpu_call(dv, *options):
+    call(dv, "--gpu", *options, reads=dv.ultima.bam)
+
+
+def gpu_stages(dv):
+    """The stages that ran, each with whether its container had the GPUs."""
+    return [
+        (re.search(r"/(\w+)\s", r["command"][2]).group(1), r["gpus"])
+        for r in stage_runs(dv)
+    ]
+
+
+@pytest.mark.parametrize("selection", [[], ["--model-type", "ULTIMA"]])
+def test_ultima_reads_call_on_the_gpu_in_googles_ultima_gpu_image(
+    ultima_gpu, selection
+):
+    gpu_call(ultima_gpu, *selection, "-r", "chr1:1-1500,chr1:1501-3000")
+
+    calls = vcf_calls(ultima_gpu.out / "deepvariant.vcf.gz")
+    assert calls == ultima_gpu.ultima.calls
+    # contract: Parabricks has no ULTIMA model, so DeepVariant's own ULTIMA
+    # model runs, in Google's GPU image, with call_variants on the GPU.
+    assert dv_flags(ultima_gpu)["model_type"] == "ULTIMA"
+    # contract: --gpu's comma-separated regions reach DeepVariant spaced.
+    assert dv_flags(ultima_gpu)["regions"] == "chr1:1-1500 chr1:1501-3000"
+    images = {r["image"] for r in ultima_gpu.docker.runs()}
+    assert images == {deepvariant.DEFAULT_ULTIMA_GPU_IMAGE}
+    assert gpu_stages(ultima_gpu) == [
+        ("make_examples", None), ("call_variants", "all"),
+        ("postprocess_variants", None),
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("problem", "message"),
+    [
+        ("no driver", "No NVIDIA GPU driver"),
+        ("no nvidia runtime", "NVIDIA runtime"),
+        ("no image", "docker pull google/deepvariant:gh1100-ultima-gpu@sha256:"),
+    ],
+)
+def test_ultima_gpu_setup_problems_are_named_before_any_work(
+    ultima_gpu, monkeypatch, problem, message
+):
+    if problem == "no driver":
+        without_gpu_driver(ultima_gpu, monkeypatch)
+    elif problem == "no nvidia runtime":
+        ultima_gpu.docker.set(runtimes='{"runc":{}}')
+    else:
+        ultima_gpu.docker.set(images={})
+    with pytest.raises(MissingDependencyError, match=message):
+        gpu_call(ultima_gpu)
+    assert ultima_gpu.docker.runs() == []
+
+
+@pytest.mark.parametrize(
+    ("system", "machine"),
+    [("darwin", "arm64"), ("linux", "aarch64"), ("win32", "AMD64")],
+)
+def test_ultima_gpu_needs_x86_64_linux(ultima_gpu, monkeypatch, system, machine):
+    monkeypatch.setattr(deepvariant.platform, "machine", lambda: machine)
+    monkeypatch.setattr(sys, "platform", system)
+    with pytest.raises(UsageError, match="x86-64 Linux"):
+        gpu_call(ultima_gpu, "--model-type", "ULTIMA")
+    assert ultima_gpu.docker.runs() == []
+
+
+def test_a_busy_gpu_stops_before_call_variants_and_a_rerun_resumes(ultima_gpu):
+    set_gpus(ultima_gpu.gpus, (24_576, 23_500))
+    with pytest.raises(WGSExtractError, match="free GPU memory"):
+        gpu_call(ultima_gpu)
+    assert ultima_gpu.deepvariant.stages() == ["make_examples"]
+
+    set_gpus(ultima_gpu.gpus, (24_576, 0))
+    rerun(ultima_gpu, "--gpu", reads=ultima_gpu.ultima.bam)
+    assert ultima_gpu.deepvariant.stages() == ["call_variants", "postprocess_variants"]
+
+    # A finished run needs no GPU to be kept, nor does a plan.
+    set_gpus(ultima_gpu.gpus, (24_576, 23_500))
+    rerun(ultima_gpu, "--gpu", reads=ultima_gpu.ultima.bam)
+    rerun(ultima_gpu, "--gpu", "--dry-run", reads=ultima_gpu.ultima.bam)
+    assert ultima_gpu.deepvariant.stages() == []
+
+
+def test_no_gpu_memory_check_runs_on_a_busy_gpu_with_a_warning(ultima_gpu):
+    set_gpus(ultima_gpu.gpus, (24_576, 23_500))
+    result = api.vcf.deepvariant(
+        api.VcfDeepvariantParams(
+            input=Path(ultima_gpu.ultima.bam), ref=Path(ultima_gpu.sample.ref),
+            outdir=ultima_gpu.out, gpu=True, no_gpu_memory_check=True,
+        )
+    )  # fmt: skip
+    assert "deepvariant_gpu_memory" in [w.code for w in result.warnings]
+    assert (ultima_gpu.out / "deepvariant.vcf.gz").is_file()
+
+
+def test_a_gpu_plan_needs_no_gpu_driver(ultima_gpu, monkeypatch, capsys):
+    without_gpu_driver(ultima_gpu, monkeypatch)
+    gpu_call(ultima_gpu, "--dry-run")
+    assert re.search(r"call_variants +run", capsys.readouterr().out)
+    assert ultima_gpu.deepvariant.stages() == []

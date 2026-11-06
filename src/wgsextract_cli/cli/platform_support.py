@@ -94,8 +94,7 @@ def verify_platform_support(args: argparse.Namespace) -> None:
         )
     ):
         raise UsageError(
-            "Parabricks --gpu is not supported on this platform; "
-            "use Linux with an NVIDIA GPU."
+            "--gpu is not supported on this platform; use Linux with an NVIDIA GPU."
         )
     if sys.platform != "win32":
         return
