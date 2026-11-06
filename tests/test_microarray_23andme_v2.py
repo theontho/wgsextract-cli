@@ -3,20 +3,20 @@ from pathlib import Path
 
 from wgsextract_cli.commands.microarray import (
     _PACKAGED_ASSETS,
-    _resolve_microarray_format,
     _template_search_roots,
 )
 from wgsextract_cli.core.microarray_utils import (
     convert_to_vendor_format,
     get_template_format,
+    resolve_format_key,
 )
 
 TEMPLATES = _PACKAGED_ASSETS / "microarray" / "raw_file_templates"
 
 
 def test_v1_and_v2_resolve_to_the_shipped_template():
-    assert _resolve_microarray_format("23andme_v1") == "23andMe_V2"
-    assert _resolve_microarray_format("23andMe-V2") == "23andMe_V2"
+    assert resolve_format_key("23andme_v1") == "23andMe_V2"
+    assert resolve_format_key("23andMe-V2") == "23andMe_V2"
     assert get_template_format("23andMe_V2") == {"suffix": ".txt", "parts": 1}
 
 

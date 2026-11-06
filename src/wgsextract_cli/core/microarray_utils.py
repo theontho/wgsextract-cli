@@ -12,7 +12,7 @@ from pyliftover import LiftOver
 
 from wgsextract_cli.core.microarray_identity import MicroarrayIdentity, resolve_rsid
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 TemplateSearchPath = str | os.PathLike[str]
 TemplateSearchInput = TemplateSearchPath | Sequence[TemplateSearchPath | None] | None
@@ -304,34 +304,89 @@ def liftover_hg38_to_hg19(
             f.write(f"{snp_id}\t{out_chrom}\t{projection.position}\t{result}\n")
 
 
+# Ported from legacy program/aconv.py logic
+_TEMPLATE_FORMATS: dict[str, TemplateFormat] = {
+    # v1 and v2 chips share one marker list (see assets/microarray).
+    "23andMe_V2": {"suffix": ".txt", "parts": 1},
+    "23andMe_V3": {"suffix": ".txt", "parts": 1},
+    "23andMe_V4": {"suffix": ".txt", "parts": 2},
+    "23andMe_V5": {"suffix": ".txt", "parts": 2},
+    "23andMe_V5_2025": {"suffix": ".txt", "parts": 1},
+    "Ancestry_V1": {"suffix": ".txt", "parts": 4},
+    "Ancestry_V2": {"suffix": ".txt", "parts": 5},
+    "Ancestry_V2_2021": {"suffix": ".txt", "parts": 1},
+    "Ancestry_V2_2024": {"suffix": ".txt", "parts": 1},
+    "FTDNA_V1_Affy": {"suffix": ".csv", "parts": 1, "ncbi36": True},
+    "FTDNA_V2": {"suffix": ".csv", "parts": 1},
+    "FTDNA_V3": {"suffix": ".csv", "parts": 3},
+    "MyHeritage_V1": {"suffix": ".csv", "parts": 1},
+    "MyHeritage_V2": {"suffix": ".csv", "parts": 1},
+    "MyHeritage_GSA_2025": {"suffix": ".csv", "parts": 1},
+    "MyHeritage_GSA_2025_609424": {"suffix": ".csv", "parts": 1},
+    "23andMe_SNPs_API": {"suffix": ".txt", "parts": 1},
+    "23andMe_V35": {"suffix": ".txt", "parts": 1},
+    "LDNA_V1": {"suffix": ".txt", "parts": 1},
+    "LDNA_V2": {"suffix": ".txt", "parts": 1},
+    "Nucleus_V1": {"suffix": ".txt", "parts": 1},
+}
+
+FORMAT_ALIASES = {
+    # 23andMe's v1 and v2 chips export the same marker list.
+    "23andme_v1": "23andMe_V2",
+    "23andme_v2": "23andMe_V2",
+    "23andme_v3": "23andMe_V3",
+    "23andme_v4": "23andMe_V4",
+    "23andme_v5": "23andMe_V5",
+    "23andme_v5_2025": "23andMe_V5_2025",
+    "23andme_v3+v5": "23andMe_V35",
+    "23andme_v3_v5": "23andMe_V35",
+    "23andme_v35": "23andMe_V35",
+    "23andme_api": "23andMe_SNPs_API",
+    "ancestry_v1": "Ancestry_V1",
+    "ancestry_v2": "Ancestry_V2",
+    "ancestry_v2_2021": "Ancestry_V2_2021",
+    "ancestry_v2_2024": "Ancestry_V2_2024",
+    "ftdna_v1": "FTDNA_V1_Affy",
+    "ftdna_v1_affy": "FTDNA_V1_Affy",
+    "familytreedna_v1": "FTDNA_V1_Affy",
+    "ftdna_v2": "FTDNA_V2",
+    "ftdna_v3": "FTDNA_V3",
+    "familytreedna_v2": "FTDNA_V2",
+    "familytreedna_v3": "FTDNA_V3",
+    "ldna_v1": "LDNA_V1",
+    "ldna_v2": "LDNA_V2",
+    "livingdna_v1": "LDNA_V1",
+    "livingdna_v2": "LDNA_V2",
+    "myheritage_v1": "MyHeritage_V1",
+    "myheritage_v2": "MyHeritage_V2",
+    "myheritage_gsa_2025": "MyHeritage_GSA_2025",
+    "myheritage_gsa_2025_609424": "MyHeritage_GSA_2025_609424",
+    "nucleus": "Nucleus_V1",
+    "nucleus_v1": "Nucleus_V1",
+}
+
+
+def resolve_format_key(format_key: str) -> str | None:
+    """The template name for a --formats item, or None for the combined kit
+    ("all", "combined_all" or empty). Refuses anything else: the name becomes
+    part of template and output paths."""
+    normalized = format_key.strip().lower().replace("-", "_")
+    if normalized in {"", "all", "combined_all"}:
+        return None
+    name = FORMAT_ALIASES.get(normalized) or next(
+        (known for known in _TEMPLATE_FORMATS if known.lower() == normalized), None
+    )
+    if name is None:
+        raise UsageError(
+            f"Unknown microarray format {format_key.strip()!r}; see "
+            "`wgsextract microarray --help` for the list."
+        )
+    return name
+
+
 def get_template_format(format_name: str) -> TemplateFormat | None:
     """Returns metadata for known microarray formats."""
-    # Ported from legacy program/aconv.py logic
-    formats: dict[str, TemplateFormat] = {
-        # v1 and v2 chips share one marker list (see assets/microarray).
-        "23andMe_V2": {"suffix": ".txt", "parts": 1},
-        "23andMe_V3": {"suffix": ".txt", "parts": 1},
-        "23andMe_V4": {"suffix": ".txt", "parts": 2},
-        "23andMe_V5": {"suffix": ".txt", "parts": 2},
-        "23andMe_V5_2025": {"suffix": ".txt", "parts": 1},
-        "Ancestry_V1": {"suffix": ".txt", "parts": 4},
-        "Ancestry_V2": {"suffix": ".txt", "parts": 5},
-        "Ancestry_V2_2021": {"suffix": ".txt", "parts": 1},
-        "Ancestry_V2_2024": {"suffix": ".txt", "parts": 1},
-        "FTDNA_V1_Affy": {"suffix": ".csv", "parts": 1, "ncbi36": True},
-        "FTDNA_V2": {"suffix": ".csv", "parts": 1},
-        "FTDNA_V3": {"suffix": ".csv", "parts": 3},
-        "MyHeritage_V1": {"suffix": ".csv", "parts": 1},
-        "MyHeritage_V2": {"suffix": ".csv", "parts": 1},
-        "MyHeritage_GSA_2025": {"suffix": ".csv", "parts": 1},
-        "MyHeritage_GSA_2025_609424": {"suffix": ".csv", "parts": 1},
-        "23andMe_SNPs_API": {"suffix": ".txt", "parts": 1},
-        "23andMe_V35": {"suffix": ".txt", "parts": 1},
-        "LDNA_V1": {"suffix": ".txt", "parts": 1},
-        "LDNA_V2": {"suffix": ".txt", "parts": 1},
-        "Nucleus_V1": {"suffix": ".txt", "parts": 1},
-    }
-    return formats.get(format_name)
+    return _TEMPLATE_FORMATS.get(format_name)
 
 
 @dataclass(frozen=True)
@@ -504,8 +559,7 @@ def convert_to_vendor_format(
     flipped = 0
     fmt_info = get_template_format(format_name)
     if not fmt_info:
-        logging.warning(f"Unknown format: {format_name}, using generic fallback.")
-        fmt_info = {"suffix": ".txt", "parts": 1}
+        raise WGSExtractError(f"Unknown microarray format: {format_name}")
 
     match_rsid = fmt_info.get("ncbi36", False) and not ncbi36_chain
     lifter = LiftOver(ncbi36_chain) if fmt_info.get("ncbi36") and ncbi36_chain else None

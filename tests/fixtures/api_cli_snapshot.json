@@ -12240,7 +12240,7 @@
        "--formats"
       ],
       "required": false,
-      "type": null
+      "type": "_formats_type"
      },
      {
       "choices": [

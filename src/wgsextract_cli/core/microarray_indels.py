@@ -7,13 +7,12 @@ import json
 import re
 import tempfile
 from collections import Counter, defaultdict
-from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from wgsextract_cli.core.builds import canonical_build
-from wgsextract_cli.core.microarray_aadr import aadr_lifter
+from wgsextract_cli.core.microarray_aadr import aadr_lifter, aadr_panel
 from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_indel_probes import (
     IndelProbe,
@@ -26,6 +25,7 @@ from wgsextract_cli.core.microarray_utils import (
     _haploid_letter,
     _resolve_templates_for_format,
     get_template_format,
+    resolve_format_key,
     template_rows,
     vendor_chrom,
     vendor_output_profile,
@@ -67,15 +67,17 @@ def prepare_indel_vcf(source: str, outdir: str) -> str:
     return prepared
 
 
-def indel_manifest_bindings(
-    params: MicroarrayParams, resolve_format: Callable[[str], str | None]
-) -> dict[str, str]:
+def indel_manifest_bindings(params: MicroarrayParams) -> dict[str, str]:
     bindings = {}
-    selected = {resolve_format(value) for value in params.formats.split(",")}
+    selected = {
+        resolve_format_key(value)
+        for value in params.formats.split(",")
+        if aadr_panel(value) is None
+    }
     for entry in params.indel_manifest:
         label, separator, path = entry.partition("=")
-        name = resolve_format(label)
-        if not separator or not name or not path:
+        name = resolve_format_key(label) if separator and path else None
+        if name is None:
             raise WGSExtractError("--indel-manifest requires FORMAT=PATH.")
         if name not in selected:
             raise WGSExtractError(f"Indel format {name} must be selected in --formats.")
