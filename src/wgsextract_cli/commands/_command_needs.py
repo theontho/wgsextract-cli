@@ -171,6 +171,7 @@ COMMAND_NEEDS: dict[str, CommandNeeds] = {
     "deps check": _n(SECONDS, scale=""),
     "example-genome list": _n(INSTANT),
     "example-genome download": _n(DOWNLOAD, optional="curl"),
+    "panel bed": _n(INSTANT),
     "report": _n(SECONDS, scale=" from existing results"),
     "report-issue": _n(SECONDS, scale=""),
     "serve": _n(SECONDS, scale=" to start; runs until stopped"),

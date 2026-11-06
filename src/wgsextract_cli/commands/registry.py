@@ -14,6 +14,7 @@ from . import (
     lineage,
     methylation,
     microarray,
+    panel,
     pet,
     qc,
     realign,
@@ -52,6 +53,7 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     methylation,
     report,
     report_issue,
+    panel,
     serve,
 )
 
@@ -153,6 +155,11 @@ COMMAND_TIERS: tuple[CommandTier, ...] = (
         "methylation",
         ADVANCED,
         "5mC/5hmC methylation from Nanopore and PacBio reads.",
+    ),
+    CommandTier(
+        "panel",
+        ADVANCED,
+        "Gene lists to BED targets for Nanopore adaptive sampling.",
     ),
     CommandTier(
         "pet-align", ADVANCED, "Align and call variants for a cat or dog genome."

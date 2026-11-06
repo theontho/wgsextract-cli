@@ -25,7 +25,7 @@ from its Params fields, so the API and ``--help`` cannot drift.
 
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
-``api.lineage``, ``api.microarray``, ``api.report``, ``api.sample``,
+``api.lineage``, ``api.microarray``, ``api.panel``, ``api.report``, ``api.sample``,
 ``api.support``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
@@ -53,6 +53,7 @@ from . import (
     info,
     lineage,
     microarray,
+    panel,
     qc,
     report,
     sample,
@@ -95,6 +96,7 @@ from .extract import (
 from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, InfoParams
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
 from .microarray import MicroarrayParams
+from .panel import PanelBedParams
 from .qc import (
     FakeDataParams,
     FastpParams,
@@ -165,6 +167,7 @@ __all__ = [
     "MitoVcfParams",
     "MtBamParams",
     "MtHaplogroupParams",
+    "PanelBedParams",
     "MultiqcMetricsParams",
     "MultiqcParams",
     "Params",
@@ -218,6 +221,7 @@ __all__ = [
     "json_schema",
     "lineage",
     "microarray",
+    "panel",
     "qc",
     "report",
     "sample",

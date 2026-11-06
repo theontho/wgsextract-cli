@@ -31,7 +31,7 @@ from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
-`api.lineage`, `api.microarray`, `api.report`, `api.sample`,
+`api.lineage`, `api.microarray`, `api.panel`, `api.report`, `api.sample`,
 `api.support`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
@@ -116,7 +116,9 @@ Exact coverage; outputs the coverage table (or the depth-bins TSV).
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `bins` | `bool` | `False` | `--bins` | Report exact per-contig depth 0, 1-3, 4-7 and 8+ breadth in one streaming pass. |
-| `table_format` | `str \| None` | `None` | `--format` | Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed; None saves none. With bins, the depth-band table's format instead (None: tsv). One of: `tsv`, `parquet` |
+| `by` | `Path \| None` | `None` | `--by` | Report depth per target of this BED (e.g. from 'panel bed'): mean, median and the fraction at >=10x, 20x, 30x and --min-depth, plus the on- versus off-target enrichment |
+| `min_depth` | `int` | `30` | `--min-depth` | With --by, list targets whose mean depth is below this (default: 30) |
+| `table_format` | `str \| None` | `None` | `--format` | Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed; None saves none. With bins or by, that table's format instead (None: tsv). One of: `tsv`, `parquet` |
 
 ### `api.info.coverage_sample(CoverageSampleParams)`
 

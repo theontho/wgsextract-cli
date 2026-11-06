@@ -71,11 +71,34 @@ class CalculateCoverageParams(Params):
         "streaming pass.",
         action="store_true",
     )
+    by: Path | None = param(
+        None,
+        help="Report depth per target of this BED (e.g. from 'panel bed'): mean, "
+        "median and the fraction at >=10x, 20x, 30x and --min-depth, plus the "
+        "on- versus off-target enrichment",
+        flags=("--by",),
+        path="file",
+        metavar="BED",
+    )
+    min_depth: int = param(
+        30,
+        help="With --by, list targets whose mean depth is below this (default: 30)",
+        flags=("--min-depth",),
+        metavar="N",
+        minimum=0,
+    )
     table_format: str | None = table_format_param(
-        f"{_TABLES}. With --bins, the depth-band table's format instead",
-        doc=f"{_TABLES}; None saves none. With bins, the depth-band table's "
+        f"{_TABLES}. With --bins or --by, that table's format instead",
+        doc=f"{_TABLES}; None saves none. With bins or by, that table's "
         "format instead (None: tsv).",
     )
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.by is not None and (self.bins or self.region):
+            from wgsextract_cli.core.utils import UsageError
+
+            raise UsageError("--by can't be combined with --bins or --region.")
 
 
 @dataclass(frozen=True, kw_only=True)

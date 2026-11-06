@@ -11,10 +11,12 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
         # Shipped coordinate data; the CHM13 v1 loader enforces its 7 MiB cap.
+        # The panel gene spans (about 1.3 MB per build) let `panel bed` work offline.
         exclude: |
-          (?x)^src/wgsextract_cli/assets/microarray/(
-            raw_file_templates/body/|
-            chm13/v1/chm13-sites-v1-[0-9a-f]{16}\.bin\.gz$
+          (?x)^src/wgsextract_cli/assets/(
+            microarray/raw_file_templates/body/|
+            microarray/chm13/v1/chm13-sites-v1-[0-9a-f]{16}\.bin\.gz$|
+            panel/genes_(hg38|t2t|hg19)\.tsv\.gz$
           )
   - repo: https://github.com/gitleaks/gitleaks
     # Same version as .github/workflows/gitleaks.yml; scans staged changes.
