@@ -15,9 +15,9 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from wgsextract_cli.core.download_progress import redact_urls
 from wgsextract_cli.core.file_lock import build_lock
@@ -52,6 +52,7 @@ ENTRY_KEYS = (
     "qc",
 )
 ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+SAFE_NAME = re.compile(r"[A-Za-z0-9._-]+")
 SHA256_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
 MARKER_COLUMNS = (
     "chromosome, marker, haplogroup, position, mutation, ancestral, derived"
@@ -100,16 +101,42 @@ def available_tree_ids() -> list[str]:
     return [*TREE_IDS, *(i for i in configured_trees() if i not in TREE_IDS)]
 
 
-def configured_tree_spec() -> dict[str, Any]:
-    """The tree a run without --tree uses, as resume-journal parameters:
-    config.toml's y_tree (else the default) with its pinned version or its
-    ``[y_trees.<id>]`` entry."""
+def configured_tree_step() -> tuple[dict[str, Any], dict[str, str]]:
+    """The tree a run without --tree uses (config.toml's y_tree, else the
+    default), as resume-journal params and input files.
+
+    The params hold no URL credentials or signed queries, since the journal
+    and its "settings changed" messages are written out; a remote file is
+    keyed by its pinned sha256, and a local file is an input so that editing
+    it reruns the step."""
     from wgsextract_cli.core.config import settings
 
     tree_id = str(settings.get("y_tree") or DEFAULT_TREE)
     if tree_id in MANIFEST["trees"]:
-        return {"id": tree_id, "version": MANIFEST["trees"][tree_id]["version"]}
-    return {"id": tree_id, "entry": configured_trees().get(tree_id)}
+        return {"id": tree_id, "version": MANIFEST["trees"][tree_id]["version"]}, {}
+    try:
+        spec = parse_entry(tree_id, configured_trees()[tree_id])
+    except (KeyError, WGSExtractError):
+        # The step itself reports the problem.
+        return {"id": tree_id, "valid": False}, {}
+    refs = {
+        "tree": spec.tree,
+        **{f"positions.{b}": ref for b, ref in spec.positions.items()},
+        **{f"positions_ancient.{b}": ref for b, ref in spec.positions_ancient.items()},
+    }
+    params = {
+        "id": tree_id,
+        "version": spec.version,
+        "qc": spec.qc,
+        "files": {
+            role: {"location": redact_urls(ref.location), "sha256": ref.sha256}
+            for role, ref in refs.items()
+        },
+    }
+    inputs = {
+        f"y_tree.{role}": ref.location for role, ref in refs.items() if not ref.remote
+    }
+    return params, inputs
 
 
 def _where(section: str, problem: str) -> str:
@@ -232,6 +259,16 @@ def parse_entry(tree_id: str, raw: Any) -> CustomTreeSpec:
     )
 
 
+def cache_name(url: str, sha256: str) -> str:
+    """The URL's last path segment if it is a plain file name, else one made
+    from the sha256: a name such as ``C:x`` or ``x.json:s`` would escape the
+    cache folder or name an alternate data stream on Windows."""
+    name = PurePosixPath(unquote(urlparse(url).path)).name
+    if SAFE_NAME.fullmatch(name) and name not in (".", ".."):
+        return name
+    return f"{sha256[:16]}.dat"
+
+
 def fetch(ref: FileRef, library: Path | None = None) -> Path:
     """A local file, or a remote one cached in the reference library; either
     checked against its SHA-256 when one is pinned."""
@@ -246,7 +283,7 @@ def fetch(ref: FileRef, library: Path | None = None) -> Path:
             )
         return path
     assert ref.sha256 is not None
-    name = Path(urlparse(ref.location).path).name or "file"
+    name = cache_name(ref.location, ref.sha256)
     base = Path(library or resolve_reference_library())
     folder = base / "yleaf" / "trees" / "custom" / ref.sha256
     path = folder / name

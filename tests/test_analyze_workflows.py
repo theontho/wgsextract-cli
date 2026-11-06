@@ -197,6 +197,8 @@ class FakeSteps:
         monkeypatch.setenv("PATH", f"{home / 'tools'}{os.pathsep}{os.environ['PATH']}")
         clear_tool_caches()
         self.runs = 0
+        self.tables = ""
+        """TOML tables, written after the top-level settings."""
 
     def install_only(self, *annotations: str) -> None:
         """Leave just these annotations' data (and VEP's cache) installed."""
@@ -233,7 +235,9 @@ class FakeSteps:
         }))  # fmt: skip
         # Literal strings: TOML would read a Windows path's backslashes as escapes.
         get_config_path().write_text(
-            self.config + "".join(f"{k} = '{v}'\n" for k, v in self.settings.items())
+            self.config
+            + "".join(f"{k} = '{v}'\n" for k, v in self.settings.items())
+            + self.tables
         )
 
     def run(self, *argv: str) -> Run:
@@ -330,6 +334,48 @@ def test_changing_the_y_tree_reruns_y_lineage_on_resume(
     fake.settings["y_tree"] = "isogg"
     run = fake.run("--input", bam, "--outdir", str(out), "--skip-calling")
     assert run.ran == ["y-haplogroup"]
+
+
+def test_custom_y_tree_resume_keys_on_pins_and_local_files_not_url_tokens(
+    fake: FakeSteps, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Issue #360 review: a signed URL's token leaked into analyze.steps.json
+    # and the "settings changed" reason; editing a local tree file didn't rerun.
+    markers = tmp_path / "markers.txt"
+    markers.write_text("chrY\tM-X\tX\t100\tA>G\tA\tG\n")
+
+    def entry(token: str, version: str = "1") -> str:
+        url = f"https://example.org/t.json?token={token}"
+        return (
+            f"\n[y_trees.mine]\nversion = '{version}'\n"
+            f"tree = {{url = '{url}', sha256 = '{'a' * 64}'}}\n"
+            f"positions.hg38 = '{markers.as_posix()}'\n"
+        )
+
+    fake.settings["y_tree"] = "mine"
+    out = tmp_path / "o"
+    documents = []
+    for token in ("SECRET1", "SECRET2"):
+        fake.tables = entry(token)
+        run = fake.run("--input", bam, "--outdir", str(out), "--skip-calling")
+        documents.append(json.dumps(run.document))
+    # A rotated token with the same pin is the same tree.
+    assert run.ran == []
+    markers.write_text("chrY\tM-X\tX\t200\tA>G\tA\tG\n")
+    run = fake.run("--input", bam, "--outdir", str(out), "--skip-calling")
+    assert run.ran == ["y-haplogroup"]
+
+    fake.tables = entry("SECRET3", version="2")
+    run = fake.run("--input", bam, "--outdir", str(out), "--skip-calling")
+    assert run.ran == ["y-haplogroup"]
+    documents.append(json.dumps(run.document))
+    fake.tables = entry("SECRET4", version="3")
+    run = fake.run("--input", bam, "--outdir", str(out), "--skip-calling", "--dry-run")
+    plan = json.dumps(run.document)
+    assert "settings changed: tree" in plan
+    documents.append(plan)
+    seen = [*documents, (out / wf.JOURNAL).read_text(), *capsys.readouterr()]
+    assert not [text for text in seen if "SECRET" in text]
 
 
 @needs_bcftools

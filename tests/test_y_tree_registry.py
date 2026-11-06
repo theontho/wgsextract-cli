@@ -3,6 +3,7 @@ run end to end with real bcftools on a synthetic VCF."""
 
 import hashlib
 import json
+import ntpath
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from tests.yleaf_helpers import native_tables as native_tables
 from wgsextract_cli.core.config import get_config_path, reload_settings
 from wgsextract_cli.core.ref_library import downloads
 from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.ydna.yleaf_native import custom_trees
 
 pytestmark = [needs_htslib, pytest.mark.usefixtures("native_tables")]
 
@@ -254,3 +256,25 @@ def test_remote_tree_files_are_pinned_and_cached(kit, tmp_path, monkeypatch):
             WGSExtractError, match="Check the URL and the pinned sha256"
         ):
             _call(kit, tmp_path / "third", "--tree", "changed")
+
+
+@pytest.mark.parametrize(
+    ("url", "kept"),
+    [
+        ("https://h/trees/x_hg38.txt?sig=1", True),
+        ("https://h/C:evil.json", False),
+        ("https://h/x.json:stream", False),
+        ("https://h/a/%2E%2E", False),
+        ("https://h/a/..%5Cevil.json", False),
+        ("https://h/", False),
+    ],
+)
+def test_remote_file_cache_names_stay_in_their_folder_on_windows(url, kept):
+    # Issue #360 review: "C:evil.json" or "x.json:s" escaped the cache folder
+    # or named an NTFS alternate data stream.
+    folder = r"C:\reflib\yleaf\trees\custom\abc"
+    name = custom_trees.cache_name(url, "f" * 64)
+    path = ntpath.join(folder, name)
+    assert ntpath.dirname(path) == folder
+    assert ":" not in ntpath.splitdrive(path)[1]
+    assert (name == url.split("/")[-1].split("?")[0]) is kept

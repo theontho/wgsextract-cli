@@ -554,9 +554,10 @@ def run_bam_chain(
         name: str,
         command: list[str],
         params: dict[str, Any] | None = None,
+        inputs: dict[str, str] | None = None,
         **extra: Any,
     ) -> Step:
-        return Step(name, inputs={"input": input_file},
+        return Step(name, inputs={"input": input_file, **(inputs or {})},
                     params=_step_params(args, command) | (params or {}),
                     **extra)  # fmt: skip
 
@@ -588,19 +589,20 @@ def run_bam_chain(
         command = [*command, "--input", input_file, "--outdir", outdir]
         tools = ["samtools", "bcftools"]
         params: dict[str, Any] = {}
+        tree_inputs: dict[str, str] = {}
         if name == "mt-haplogroup":
             tools.append("haplogrep3")
             # The configured tree and its pin shape the call, too.
             params["tree"] = configured_tree_spec()
         else:
             from wgsextract_cli.ydna.yleaf_native.custom_trees import (
-                configured_tree_spec as configured_y_tree_spec,
+                configured_tree_step,
             )
 
-            params["tree"] = configured_y_tree_spec()
+            params["tree"], tree_inputs = configured_tree_step()
         run_step(
             journal,
-            subcommand_step(name, command, params, tools=tools),
+            subcommand_step(name, command, params, tools=tools, inputs=tree_inputs),
             subcommand_action(command, args),
         )
 
