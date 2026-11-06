@@ -209,7 +209,8 @@ def run(args: argparse.Namespace) -> None:
     if args.platform == "ultima":
         align_ultima(args, args.r1)
         return
-    if not is_long_read(args):
+    # pbmm2 reads a PacBio BAM itself, whatever platform was resolved.
+    if not is_long_read(args) and aligner != "pbmm2":
         _refuse_short_read_alignment_file(args)
     if getattr(args, "gpu", False):
         _run_gpu(args, aligner)

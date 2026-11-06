@@ -1,10 +1,14 @@
 """align --r1 with a BAM, CRAM or SAM of the reads (#447)."""
 
+import os
 import random
+import shutil
 
 import pytest
 
+from tests.fake_tools import python_tool
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
+from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.utils import UsageError, run_command
 
 TAGS = "\tMM:Z:C+m,0,1;\tML:B:C,255,128"
@@ -26,12 +30,7 @@ def genome(tmp_path):
     return seq, write_fasta(tmp_path / "ref.fa", {"chr1": seq})
 
 
-@needs_tools("samtools", "minimap2")
-@pytest.mark.parametrize("platform", ["hifi", "clr", "pacbio"])
-def test_minimap2_aligns_long_reads_from_a_bam(tmp_path, genome, platform):
-    """#447: minimap2 was handed the BAM itself unless the reads were ONT and
-    failed with 'failed to parse the FASTA/FASTQ record'."""
-    seq, ref = genome
+def _hifi_bam(tmp_path, seq):
     reads = {"m1/1/ccs": seq[500:2500], "m1/2/ccs": _revcomp(seq[4000:6000])}
     records = [
         f"{name}\t4\t*\t0\t0\t*\t*\t0\t0\t{read}\t{'I' * len(read)}{TAGS}"
@@ -42,6 +41,16 @@ def test_minimap2_aligns_long_reads_from_a_bam(tmp_path, genome, platform):
     copy = records[0].split("\t")
     records += ["\t".join([copy[0], flag, *copy[2:]]) for flag in ("260", "2052")]
     bam = sam_to_bam(["@RG\tID:r\tPL:PACBIO\tSM:s", *records], tmp_path / "hifi.bam")
+    return bam, reads
+
+
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize("platform", ["hifi", "clr", "pacbio"])
+def test_minimap2_aligns_long_reads_from_a_bam(tmp_path, genome, platform):
+    """#447: minimap2 was handed the BAM itself unless the reads were ONT and
+    failed with 'failed to parse the FASTA/FASTQ record'."""
+    seq, ref = genome
+    bam, reads = _hifi_bam(tmp_path, seq)
     out = tmp_path / "out"
 
     run_wgsextract(
@@ -55,6 +64,40 @@ def test_minimap2_aligns_long_reads_from_a_bam(tmp_path, genome, platform):
     assert {(r[2], r[3]) for r in primary} == {("chr1", "501"), ("chr1", "4001")}
     assert {r[9] for r in primary} == {seq[500:2500], seq[4000:6000]}
     assert all("MM:Z:C+m,0,1;" in r[11:] for r in primary)
+
+
+@needs_tools("samtools", "minimap2")
+def test_pbmm2_aligns_a_pacbio_bam_without_a_platform(tmp_path, genome, monkeypatch):
+    """pbmm2 reads a PacBio BAM itself, so the short-read refusal must not
+    stop 'align --r1 x.bam --aligner pbmm2' when --platform is left out."""
+    seq, ref = genome
+    bam, reads = _hifi_bam(tmp_path, seq)
+    # pbmm2 is an optional PacBio tool: this one maps with the real minimap2.
+    tools = {t: shutil.which(t) for t in ("samtools", "minimap2")}
+    python_tool(
+        tmp_path / "bin",
+        "pbmm2",
+        f"""import subprocess, sys
+T = {tools!r}
+_, ref, reads, out = sys.argv[1:5]
+fq = subprocess.run([T["samtools"], "fastq", reads], capture_output=True, check=True)
+sam = subprocess.run([T["minimap2"], "-ax", "map-hifi", ref, "-"], input=fq.stdout,
+                     capture_output=True, check=True)
+subprocess.run([T["samtools"], "sort", "-o", out, "-"], input=sam.stdout, check=True)
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    clear_tool_caches()
+    out = tmp_path / "out"
+
+    run_wgsextract(
+        "align", "--r1", bam, "--aligner", "pbmm2", "--ref", str(ref),
+        "--outdir", str(out), "--threads", "1", "--memory", "256M",
+    )  # fmt: skip
+
+    primary = _view(out / "hifi_aligned.bam", "-F", "0x904")
+    assert sorted(r[0] for r in primary) == sorted(reads)
+    assert {(r[2], r[3]) for r in primary} == {("chr1", "501"), ("chr1", "4001")}
 
 
 @needs_tools("samtools", "bwa")
