@@ -203,6 +203,55 @@ def test_realign_budgets_output_and_staging_volumes_separately(
     assert list(scratch.iterdir()) == []
 
 
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize("short", [None, "scratch", "output"])
+def test_long_read_cram_realign_budgets_its_spills_and_cram_output(
+    capsys, monkeypatch, tmp_path, volumes, folders, short
+):
+    """#474: a 100 GB ONT CRAM -> CRAM realign with --tmp-dir was refused for
+    ~363 GB of scratch. Its reads stream into minimap2 -Y and the sorter: the
+    spills come to ~3x the input CRAM and the CRAM output to ~1.7x."""
+    real_memory = psutil.virtual_memory
+    monkeypatch.setattr(
+        psutil, "virtual_memory", lambda: real_memory()._replace(available=64 * GIB)
+    )
+    genome = "".join(random.Random(474).choices("ACGT", k=20_000))
+    ref = write_fasta(tmp_path / "ref.fa", {"chr1": genome})
+    reads = [genome[i : i + 3_000] for i in range(0, 15_000, 1_500)]
+    bam = sam_to_bam(
+        [f"@SQ\tSN:chr1\tLN:{len(genome)}", "@RG\tID:r\tPL:ONT\tSM:s"]
+        + [
+            f"a18d071b-8bb9-42fe-b929-1f24cfe1d05{i}\t4\t*\t0\t0\t*\t*\t0\t0\t"
+            f"{read}\t{'5' * len(read)}\tRG:Z:r"
+            for i, read in enumerate(reads)
+        ],
+        tmp_path / "ont.bam",
+    )
+    cram = tmp_path / "ont.cram"
+    run_command(["samtools", "view", "-C", "-T", ref, "-o", cram, bam])
+    output, scratch = folders
+    volumes.sizes[cram] = 100 * 10**9
+    # (output GB, --tmp-dir GB): 1.7e11 B of CRAM; 3e11 B of spills plus the
+    # 32 spill files samtools sort merges beside them.
+    budgets = (159, 285)
+    volumes.free[output] = budgets[0] - (short == "output")
+    volumes.free[scratch] = budgets[1] - (short == "scratch")
+    result = _wgsextract(
+        capsys, "realign", "--input", str(cram), "--ref", str(ref),
+        "--outdir", str(output), "--format", "CRAM", "--tmp-dir", str(scratch),
+        "--threads", "1", "--memory", "256M",
+    )  # fmt: skip
+    if short is None:
+        assert result["status"] == "ok", result["error"]
+        assert (output / "ont_aligned.cram").is_file()
+    else:
+        message = _failure(result)
+        directory, needed = (scratch, budgets[1]) if short == "scratch" else (
+            output, budgets[0])  # fmt: skip
+        assert str(directory) in message and f"~{needed} GB" in message
+        assert not (output / "ont_aligned.cram").exists()
+
+
 @needs_tools("samtools")
 @pytest.mark.parametrize("failure", [False, True], ids=["ok", "failed"])
 # sambamba sorts BAM where it is installed; samtools sorts CRAM.

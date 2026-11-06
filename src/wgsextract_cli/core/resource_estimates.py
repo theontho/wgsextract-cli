@@ -34,6 +34,22 @@ SORT_BYTES_PER_READ = 120
 CRAM_BYTES_PER_READ = 28
 BAM_BYTES_PER_READ = 100
 FASTQ_BYTES_PER_READ = 75
+# Long reads realigned with minimap2 -Y, which keeps every supplementary
+# record's full SEQ, QUAL and modification tags, per byte of input CRAM (#474).
+# HG002 ONT (PAO83395.pass.cram) onto hs38: the whole genome's sort spills
+# reached 2.8x by 12% of the input. A chr20 slice whose supplementary
+# alignments add 1.93x its bases, against 1.42-1.70x elsewhere, came to 3.35x
+# as spills and 1.9x as CRAM; scaled to a 1.55x genome, 2.7x and 1.5x.
+LONG_READ_SPILL_PER_CRAM_BYTE = 3.0
+LONG_READ_OUTPUT_PER_CRAM_BYTE = {"CRAM": 1.7, "BAM": 2.6}
+LONG_READ_FASTQ_PER_CRAM_BYTE = 1.45
+# The same reads as level-6 BAM, bgzipped and plain tagged FASTQ.
+_LONG_READ_BYTES_PER_CRAM_BYTE = {"bam": 1.76, "gz": 1.39, "plain": 3.3}
+# samtools sort spills its whole -m x threads buffer into each file, at about
+# 0.65 of the records' decoded size, then merges every 32 files into a new one
+# beside them.
+_SORT_SPILL_PER_BUFFER_BYTE = 0.65
+_SORT_CONSOLIDATED_FILES = 33
 # DeepVariant postprocess_variants: each partition worker loads and sorts its
 # partition's call_variants records in memory. #173 (HG008 Ultima ~30x, hs38DH,
 # --cpus 5): DeepVariant's five partitions held 1.06-3.30 million records; the
@@ -227,6 +243,41 @@ def _input_size(paths: Sequence[str]) -> int | None:
         return None
 
 
+@dataclass(frozen=True)
+class LongReadDisk:
+    """Peak bytes of a long-read minimap2 alignment: the sorter's spills, the
+    sorted output and, when kept, the tagged FASTQ.gz extracted from a BAM/CRAM."""
+
+    spill: int
+    output: int
+    fastq: int
+
+
+def long_read_disk(
+    input_path: str, input_bytes: int, output_format: str, sort_buffer_bytes: float
+) -> LongReadDisk:
+    """Scale by the input's size, not by short-read per-read sizes: one long
+    read takes tens of kilobytes. ``sort_buffer_bytes`` is -m times threads."""
+    name = input_path.lower()
+    kind = (
+        "cram"
+        if name.endswith(".cram")
+        else "bam"
+        if name.endswith(".bam")
+        else "gz"
+        if name.endswith((".gz", ".bgz"))
+        else "plain"
+    )
+    cram = max(0, input_bytes) / _LONG_READ_BYTES_PER_CRAM_BYTE.get(kind, 1)
+    spill = cram * LONG_READ_SPILL_PER_CRAM_BYTE
+    merging = _SORT_CONSOLIDATED_FILES * sort_buffer_bytes * _SORT_SPILL_PER_BUFFER_BYTE
+    return LongReadDisk(
+        math.ceil(spill + min(spill, merging)),
+        math.ceil(cram * LONG_READ_OUTPUT_PER_CRAM_BYTE.get(output_format, 2.6)),
+        math.ceil(cram * LONG_READ_FASTQ_PER_CRAM_BYTE),
+    )
+
+
 def estimate_resources(
     operation: Operation,
     *,
@@ -278,7 +329,8 @@ def estimate_resources(
             "threads/workers/batch size must be positive and reads/additional RAM nonnegative"
         )
     amount, unit = parse_memory(memory)
-    sort_memory = math.ceil(count * amount * (GIB if unit == "G" else 1024**2) * 1.25)
+    sort_buffer = count * amount * (GIB if unit == "G" else 1024**2)
+    sort_memory = math.ceil(sort_buffer * 1.25)
     size = _input_size(input_paths)
     cram_input = bool(input_paths) and input_paths[0].lower().endswith(".cram")
     bam_input = bool(input_paths) and input_paths[0].lower().endswith(".bam")
@@ -287,8 +339,16 @@ def estimate_resources(
     ]
     if region:
         notes.append("Regional disk estimates use the whole input as an upper bound.")
+    long_read = (
+        long_read_disk(input_paths[0], size, output_format, sort_buffer)
+        if operation in {"align", "realign"}
+        and aligner == "minimap2"
+        and preset not in {None, "sr"}
+        and size is not None
+        else None
+    )
     disk_reads = reads
-    if disk_reads is None and size is not None:
+    if disk_reads is None and size is not None and long_read is None:
         bytes_per_read = 12 if cram_input else (80 if bam_input else 70)
         disk_reads = math.ceil(size / bytes_per_read)
         notes.append(
@@ -355,6 +415,12 @@ def estimate_resources(
             * (CRAM_BYTES_PER_READ if output_format == "CRAM" else BAM_BYTES_PER_READ)
         )
         temporary = None if disk_reads is None else disk_reads * SORT_BYTES_PER_READ
+        if long_read is not None:
+            output, temporary = long_read.output, long_read.spill
+            notes.append(
+                "Long-read disk scales with the input's size: minimap2 -Y keeps "
+                "each supplementary alignment's full read and tags."
+            )
         if duplicate_marking == "gatk-flow":
             if disk_reads is not None:
                 retained = (

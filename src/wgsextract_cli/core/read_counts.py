@@ -86,9 +86,12 @@ def alignment_sample(
     path: PathInput,
     *,
     cram_opt: list[str] | None = None,
+    single_end: bool = False,
 ) -> AlignmentSample:
-    """Read at most 4096 SAM records / 16 MiB: the mean paired primary read
-    length and the largest BAM record data among all sampled records."""
+    """Read at most 4096 SAM records / 16 MiB: the mean paired (or with
+    ``single_end``, any) primary read length and the largest BAM record data
+    among all sampled records."""
+    mask, wanted = (0x900, 0) if single_end else (0x901, 1)
     command = ["samtools", "view", *(cram_opt or []), str(path)]
     try:
         with _sam_lines(command) as stdout:
@@ -103,7 +106,7 @@ def alignment_sample(
                 if len(fields) < 11:
                     continue
                 largest = max(largest, _bam_record_bytes(fields))
-                if int(fields[1]) & 0x901 == 1 and fields[9] != b"*":
+                if int(fields[1]) & mask == wanted and fields[9] != b"*":
                     bases += len(fields[9])
                     records += 1
         return AlignmentSample(bases / records if records else None, largest or None)
