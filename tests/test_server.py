@@ -1417,6 +1417,24 @@ def test_a_region_item_that_looks_like_an_option_is_refused(client, work, region
     assert client.request("GET", "/jobs")[1]["jobs"] == []
 
 
+@pytest.mark.parametrize(
+    ("gpu", "accepted", "refused"),
+    [
+        (False, "/d/panel,-v2/t.bed", "/d/panel -old/t.bed"),
+        (True, "/d/panel -old/t.bed", "/d/panel,-v2/t.bed"),
+    ],
+)
+def test_region_items_are_split_as_the_backend_splits_them(
+    work, gpu, accepted, refused
+):
+    # Review of #486: every region was split on commas and spaces, refusing
+    # BED paths DeepVariant (spaces) or Parabricks (commas) reads as one item.
+    op = find("vcf/deepvariant")
+    assert op.params(input=work / "a.bam", region=accepted, gpu=gpu).region == accepted
+    with pytest.raises(UsageError, match="isn't a region"):
+        op.params(input=work / "a.bam", region=refused, gpu=gpu)
+
+
 def _indexed_bam(work: Path, bam: Path) -> Path:
     copy = work / "s.bam"
     shutil.copyfile(bam, copy)
@@ -1546,3 +1564,50 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
     pharmcat_run(sample)
     assert over_mcp() == {"CYP2C19"}
     assert mcp.close() == 0
+
+
+def test_a_server_report_never_touches_a_refused_recorded_path(
+    tmp_path, work, monkeypatch
+):
+    # Review of #486: report checked that a recorded output existed before
+    # asking the read scope, so a manifest naming a UNC path made a server
+    # job connect to that host (sending this user's credentials on Windows).
+    from tests.htslib_helpers import run_wgsextract
+    from wgsextract_cli.core import read_scope
+
+    sample = work / "HG002"
+    sample.mkdir()
+    share = "//host/share"
+    for command, role, name in (
+        ("vcf pharmcat", "pharmcat_phenotypes", "HG002.phenotype.json"),
+        ("microarray", "combined_kit", "HG002_CombinedKit.txt"),
+    ):
+        manifest = sample / f"{name}.manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema": "wgsextract.result/1",
+                    "command": command,
+                    "status": "ok",
+                    "exit_code": 0,
+                    "outputs": [{"path": f"{share}/{name}", "role": role}],
+                    "manifest": str(manifest),
+                    "provenance": {"finished": "2025-01-01T00:00:00+00:00"},
+                }
+            )
+        )
+    probed: list[str] = []
+    stat = os.stat
+
+    def spy(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if os.fspath(path).replace("\\", "/").startswith(share):
+            probed.append(os.fspath(path))
+        return stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", spy)
+    with read_scope.limited_to(PathGuard([work]).allows):
+        run_wgsextract("report", "--workspace", str(sample))
+    assert probed == []
+    report = json.loads((sample / "HG002_personal_report.json").read_text())
+    assert report["sections"]["pharmacogenomics"]["findings"] == []
+    assert [f["exists"] for f in report["sections"]["microarray"]["files"]] == [False]

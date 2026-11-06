@@ -270,7 +270,7 @@ class Params:
                             f"{item.spec.minimum:g}, not {one!r}."
                         )
             if item.name == "region" and isinstance(value, str):
-                _check_region_items(item, value)
+                _check_region_items(self, item, value)
             if item.spec.choices is not None and value is not None:
                 values = value if isinstance(value, tuple) else (value,)
                 for one in values:
@@ -288,11 +288,14 @@ class Params:
         return out
 
 
-def _check_region_items(item: ParamField, value: str) -> None:
+def _check_region_items(params: Params, item: ParamField, value: str) -> None:
     """Commands pass a ``region`` field's items (contigs, intervals or BED
-    files, separated by commas or whitespace) to tools as arguments, so an
-    item can't start with ``-`` and be read as an option."""
-    for one in re.split(r"[,\s]+", value):
+    files) to tools as arguments, so an item can't start with ``-`` and be
+    read as an option. Items are split as the command splits them, else on
+    commas and whitespace."""
+    splits = item.spec.splits
+    items = splits(params, value) if splits else re.split(r"[,\s]+", value)
+    for one in items:
         if one.startswith("-"):
             raise UsageError(
                 f"{item.flags[0]}: {one!r} isn't a region; a region or BED file "

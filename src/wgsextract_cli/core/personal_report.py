@@ -178,7 +178,7 @@ class Source:
             for record in self.records("outputs"):
                 if record.get("role") == role and record.get("path"):
                     path = self.locate(str(record["path"]))
-                    if path.exists() and read_scope.may_follow(path):
+                    if read_scope.may_follow(path) and path.exists():
                         return path
         return None
 
@@ -199,7 +199,7 @@ class Source:
             except ValueError:
                 return path
             moved = self.manifest.parent / relative
-            if moved.exists():
+            if read_scope.may_follow(moved) and moved.exists():
                 return moved
         return path
 
@@ -1183,7 +1183,7 @@ def _microarray(ctx: _Context) -> dict[str, Any]:
                 "role": record.get("role"),
                 "format": metrics.get("format")
                 or ("CombinedKit" if record.get("role") == "combined_kit" else None),
-                "exists": path.exists(),
+                "exists": read_scope.may_follow(path) and path.exists(),
                 "sites": metrics.get("sites"),
                 "called": metrics.get("called"),
                 "no_call_rate": metrics.get("no_call_rate"),
@@ -1222,7 +1222,9 @@ def _choose_inputs(
         keys = (workspace.describe().get("files") or {}).keys()
         candidates.extend(folder / key for key in keys)
     for path in candidates:
-        if not _inside(path, folder) or not path.is_file():
+        if not (
+            _inside(path, folder) and read_scope.may_follow(path) and path.is_file()
+        ):
             continue
         name = path.name.lower()
         if alignment is None and name.endswith(_ALIGNMENT_SUFFIXES):
