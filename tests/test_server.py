@@ -238,6 +238,55 @@ def test_a_home_relative_folder_input_locks_the_folder_it_names(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+@pytest.mark.parametrize(
+    ("op", "into_work"),
+    [
+        (
+            "analyze/comprehensive",
+            lambda work, other: {
+                "vcf_inputs": [str(work / "x.vcf")],
+                "outdir": str(other),
+            },
+        ),
+        (
+            "analyze/batch-gen",
+            lambda work, other: {
+                "directory": str(other),
+                "output": str(work / "b.csv"),
+            },
+        ),
+    ],
+    ids=["vcf-prepared-beside", "batch-file"],
+)
+def test_an_analyze_job_writing_into_a_busy_folder_waits(
+    tmp_path, work, fake_data, slow_coverage, op, into_work
+):
+    # PR #463 review: comprehensive compresses and indexes a plain VCF beside
+    # itself, and batch-gen writes its batch file, yet only outdir was locked.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request("POST", f"/ops/{op}", into_work(work, other))
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_home_relative_paths_reach_the_job_expanded(tmp_path, work, monkeypatch):
+    # PR #463 review: the guard approved ~/x as the home folder's; the job
+    # must write there too, not in a `~` folder in its working folder.
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(work.parent))
+    shutil.copy(FAKE_DIR / "fake.bam", work / "s1.bam")
+    request = {"directory": f"~/{work.name}", "output": f"~/{work.name}/b.csv"}
+    with _serve(tmp_path, [work]) as client:
+        status, job = client.request("POST", "/ops/analyze/batch-gen?wait=120", request)
+    assert (status, job["status"]) == (200, "succeeded"), job
+    assert "s1" in (work / "b.csv").read_text()
+
+
 def test_a_trio_saving_beside_its_proband_waits_for_that_folder(
     tmp_path, work, fake_data, slow_coverage
 ):

@@ -7,6 +7,7 @@ batch file from a folder of genomes."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -82,6 +83,10 @@ class AnalyzeComprehensiveParams(Params):
     outdir: Path | None = outdir_param("the current folder")
     threads: int | None = threads_param()
 
+    def write_folders(self) -> Iterator[Path]:
+        # An unindexed or plain VCF is compressed and indexed beside itself.
+        yield from {path.parent for path in self.vcf_inputs or ()}
+
     def __post_init__(self) -> None:
         super().__post_init__()
         check_confidence(self)
@@ -106,6 +111,9 @@ class AnalyzeBatchGenParams(Params):
         doc="Batch file to write (CSV: name, input, vcf).",
         path="file",
     )
+
+    def write_folders(self) -> Iterator[Path]:
+        yield self.output.parent
 
 
 def comprehensive(
