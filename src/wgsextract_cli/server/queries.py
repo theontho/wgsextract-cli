@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sqlite3
+import zlib
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,12 +21,13 @@ from typing import Any
 from wgsextract_cli.core import personal_report
 from wgsextract_cli.core.results import MANIFEST_SUFFIX
 from wgsextract_cli.core.results import SCHEMA_ID as RESULT_SCHEMA
-from wgsextract_cli.core.utils import UsageError
+from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_table import COLUMN_NAMES, COLUMNS, INTEGER, REAL
 
 from .operations import PathGuard, RequestError
 
 MAX_ROWS = 1000
+_FAR = 2**62
 CONFIDENCE_RANK = {"low": 0, "moderate": 1, "high": 2}
 _TYPES = {c.name: c.type for c in COLUMNS}
 _REGION = re.compile(r"(?P<chrom>[^:\s]+)(?::(?P<start>[\d,]+)(?:-(?P<end>[\d,]+))?)?")
@@ -72,7 +74,10 @@ class Query:
         for name, values in query.items():
             spec = self.properties.get(name)
             value = values[-1]
-            if spec is None:
+            if spec is not None and spec["type"] == "array":
+                # Comma-separated, repeated, or both.
+                arguments[name] = [v for text in values for v in text.split(",") if v]
+            elif spec is None:
                 arguments[name] = value
             elif spec["type"] == "integer":
                 try:
@@ -83,8 +88,6 @@ class Query:
                     ) from None
             elif spec["type"] == "boolean":
                 arguments[name] = value.lower() in ("1", "true", "yes")
-            elif spec["type"] == "array":
-                arguments[name] = [v for v in value.split(",") if v]
             else:
                 arguments[name] = value
         return arguments
@@ -157,8 +160,9 @@ def _region(text: str) -> tuple[str, int, int]:
     match = _REGION.fullmatch(text.strip())
     if not match:
         raise RequestError(400, "usage", f"region {text!r} isn't chrom[:start[-end]].")
-    start = int((match["start"] or "1").replace(",", ""))
-    end = int((match["end"] or str(2**62)).replace(",", ""))
+    # Beyond any chromosome, and within SQLite's integers.
+    start = min(int((match["start"] or "1").replace(",", "")), _FAR)
+    end = min(int((match["end"] or str(_FAR)).replace(",", "")), _FAR)
     if match["start"] and not match["end"]:
         end = start
     if start > end:
@@ -200,11 +204,9 @@ def _parquet_rows(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
     from wgsextract_cli.core.table_writer import require_pyarrow
 
     try:
-        require_pyarrow()
-    except UsageError as e:
+        pq = require_pyarrow()
+    except WGSExtractError as e:
         raise RequestError(400, "usage", str(e)) from None
-    import pyarrow.parquet as pq
-
     number = 0
     for batch in pq.ParquetFile(path).iter_batches():
         for row in batch.to_pylist():
@@ -309,7 +311,7 @@ def query_variants(guard: PathGuard, arguments: Mapping[str, Any]) -> dict[str, 
                 break
             found.append({k: row[k] for k in wanted if row.get(k) not in (None, "")})
             last = number
-    except (OSError, ValueError, csv.Error) as e:
+    except (OSError, EOFError, ValueError, csv.Error, zlib.error) as e:
         raise RequestError(400, "usage", f"Can't read {path}: {e}") from None
     finally:
         close = getattr(rows, "close", None)

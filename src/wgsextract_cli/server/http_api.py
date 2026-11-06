@@ -484,6 +484,7 @@ def openapi_document(server_url: str = "http://127.0.0.1") -> dict[str, Any]:
                         "in": "query",
                         "required": name in lookup.required,
                         "schema": spec,
+                        **({"explode": False} if spec["type"] == "array" else {}),
                     }
                     for name, spec in lookup.properties.items()
                 ],

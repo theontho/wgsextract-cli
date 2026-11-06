@@ -1,6 +1,7 @@
 """`wgsextract serve` (#351): the typed API over local HTTP/JSON and MCP."""
 
 import contextlib
+import gzip
 import http.client
 import importlib.util
 import json
@@ -1712,6 +1713,16 @@ def test_variant_lookups_filter_and_page_every_table_format(
             {"pos": 400, "clinvar_significance": "Pathogenic/Likely_pathogenic"},
         ]
 
+        # Review of #351 PR B: OpenAPI clients repeat array parameters, and
+        # a region past SQLite's integers was a 500.
+        status, answer = client.request(
+            "GET",
+            f"/variants?path={urllib.parse.quote(str(table))}&rsid=rs4"
+            "&columns=pos&columns=gene",
+        )
+        assert answer["rows"] == [{"pos": 400, "gene": "GENEB"}]
+        assert positions(region=f"chr1:{10**20}-{10**21}") == []
+
         pages: list[list[int]] = []
         cursor = ""
         while cursor is not None:
@@ -1736,6 +1747,25 @@ def test_variant_lookups_filter_and_page_every_table_format(
             "GET", f"/variants?{urllib.parse.urlencode({'path': str(outside)})}"
         )
         assert (status, answer["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_unreadable_variant_tables_are_refused_not_failed(
+    tmp_path, work, variant_tables, monkeypatch
+):
+    # Review of #351 PR B: a truncated download and a missing pyarrow were
+    # internal errors (500) instead of saying what's wrong.
+    whole = gzip.compress(variant_tables["tsv"].read_bytes() * 200)
+    truncated = work / "cut_variants.tsv.gz"
+    truncated.write_bytes(whole[: len(whole) // 2])
+    parquet = work / "sample_variants.parquet"
+    parquet.touch()
+    monkeypatch.setitem(sys.modules, "pyarrow.parquet", None)
+    with _serve(tmp_path, [work]) as client:
+        for table in (truncated, parquet):
+            text = urllib.parse.urlencode({"path": str(table), "limit": 1000})
+            status, answer = client.request("GET", f"/variants?{text}")
+            assert (status, answer["error"]["code"]) == (400, "usage"), table
+        assert "pyarrow" in answer["error"]["message"]
 
 
 def test_report_lookup_reads_a_samples_newest_report(tmp_path, work):
