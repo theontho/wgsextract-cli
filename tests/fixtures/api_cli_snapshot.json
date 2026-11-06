@@ -33239,7 +33239,7 @@
    "quiet": false,
    "ref": null,
    "ref_cmd": "ybrowse",
-   "snapshot": "PosixPath('y.vcf.gz')",
+   "snapshot": "Path('y.vcf.gz')",
    "threads": null,
    "tmp_dir": null
   },

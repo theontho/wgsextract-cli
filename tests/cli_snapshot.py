@@ -17,7 +17,7 @@ import io
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 GOLDEN = Path(__file__).parent / "fixtures" / "api_cli_snapshot.json"
@@ -397,6 +397,8 @@ def _plain(value: Any) -> Any:
         return sorted(_plain(v) for v in value)
     if isinstance(value, type):
         return value.__name__
+    if isinstance(value, PurePath):  # the same on every system
+        return f"Path({value.as_posix()!r})"
     if callable(value):
         return getattr(value, "__qualname__", repr(value))
     return repr(value)
