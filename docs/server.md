@@ -156,7 +156,10 @@ an allowed folder.
   (comma-separated over HTTP); empty values are left out. An answer has at
   most `limit` rows (default 50, at most 1000); pass its `next_cursor` as
   `cursor` for the next page. The SQLite database is fastest: it uses its
-  gene, rsID and position indexes.
+  gene and position indexes, and starts a page at its cursor. A TSV or
+  Parquet table is read from the start for every page, so use SQLite for
+  paging through large tables. Boolean query parameters take `true`/`false`,
+  `yes`/`no` or `1`/`0`.
 - **Report.** `path` is a sample folder, whose newest
   `*_personal_report.json` is read, or the report JSON itself (run the
   `report` operation first). Without `section`, the answer lists each

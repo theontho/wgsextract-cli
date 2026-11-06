@@ -1801,6 +1801,15 @@ def test_report_lookup_reads_a_samples_newest_report(tmp_path, work):
         assert lookup(work)[1]["error"]["code"] == "no_report"
         assert lookup(outside)[1]["error"]["code"] == "path_not_allowed"
 
+        # Review of #487: a report whose sections aren't a mapping was a 500.
+        report = sample / "HG002_personal_report.json"
+        broken = work / "broken_personal_report.json"
+        for sections in (["pharmacogenomics"], {"pgx": "text"}):
+            document = json.loads(report.read_text())
+            broken.write_text(json.dumps({**document, "sections": sections}))
+            status, answer = lookup(broken)
+            assert (status, answer["error"]["code"]) == (400, "usage"), sections
+
         # A newer report reached through a link must still be inside.
         report = sample / "HG002_personal_report.json"
         elsewhere = outside / "HG003_personal_report.json"
@@ -1812,6 +1821,18 @@ def test_report_lookup_reads_a_samples_newest_report(tmp_path, work):
         os.utime(elsewhere, (time.time() + 60, time.time() + 60))
         status, answer = lookup(sample)
         assert (status, answer["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_a_lookup_refuses_a_boolean_it_cannot_read(tmp_path, work):
+    # Review of #487: full=maybe quietly meant false.
+    manifest = work / "snps.vcf.manifest.json"
+    with _serve(tmp_path, [work]) as client:
+        for value in ("maybe", "2", "Yes", "0"):
+            text = urllib.parse.urlencode({"path": str(manifest), "full": value})
+            status, answer = client.request("GET", f"/manifest?{text}")
+            # A readable value gets as far as looking for the (absent) file.
+            expected = (400, "usage") if value in ("maybe", "2") else (404,)
+            assert (status, answer["error"]["code"])[: len(expected)] == expected
 
 
 def test_a_blob_in_a_variant_database_is_returned_as_text(

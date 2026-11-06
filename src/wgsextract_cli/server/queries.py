@@ -34,6 +34,8 @@ _REGION = re.compile(
     r"(?P<chrom>[^:\s]+)(?::(?P<start>\d[\d,]*)(?:-(?P<end>\d[\d,]*))?)?"
 )
 _RSID = re.compile(r"rs\d+")
+_TRUE = ("1", "true", "yes")
+_FALSE = ("0", "false", "no")
 _SIGNIFICANCE_SPLIT = re.compile(r"[/|,]")
 
 
@@ -89,7 +91,10 @@ class Query:
                         400, "usage", f"{name} must be an integer."
                     ) from None
             elif spec["type"] == "boolean":
-                arguments[name] = value.lower() in ("1", "true", "yes")
+                text = value.lower()
+                if text not in _TRUE + _FALSE:
+                    raise RequestError(400, "usage", f"{name} must be true or false.")
+                arguments[name] = text in _TRUE
             else:
                 arguments[name] = value
         return arguments
@@ -288,7 +293,8 @@ def query_variants(guard: PathGuard, arguments: Mapping[str, Any]) -> dict[str, 
 
     name = path.name.lower()
     if name.endswith(".sqlite"):
-        # Narrow with the database's indexes; keep() decides.
+        # Narrow with the database's indexes; keep() decides. An rsID can be
+        # one of several in a cell (rs1;rs2), so that filter scans the table.
         where: list[str] = []
         values: list[Any] = []
         if gene is not None:
@@ -362,6 +368,10 @@ def report_section(guard: PathGuard, arguments: Mapping[str, Any]) -> dict[str, 
             400, "usage", f"{path} is not a {personal_report.SCHEMA_ID} report."
         )
     sections = document.get("sections") or {}
+    if not isinstance(sections, dict) or not all(
+        isinstance(s, dict) for s in sections.values()
+    ):
+        raise RequestError(400, "usage", f"{path} has malformed report sections.")
     head = {
         "path": str(path),
         "generated": document.get("generated"),
