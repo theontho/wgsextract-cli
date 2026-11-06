@@ -434,7 +434,7 @@ def test_vcf_confidence_thresholds_are_two_non_negative_numbers():
     with pytest.raises(api.UsageError, match="takes 2 values"):
         api.VcfClinvarParams(input=vcf, confidence_gq=(10,))
     for bad in (-1, float("nan")):
-        with pytest.raises(api.UsageError, match="non-negative"):
+        with pytest.raises(api.UsageError, match="at least 0"):
             api.VcfPharmcatParams(input=vcf, confidence_depth=(bad, 20))
     # PR #452 review: crossed thresholds failed only after the annotation ran.
     with pytest.raises(api.UsageError, match="LOW <= HIGH"):

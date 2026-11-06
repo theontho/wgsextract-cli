@@ -83,7 +83,9 @@ def depth_param() -> Any:
     """``--qc-min-depth``, as ``genotype_qc.add_depth_argument`` declares it."""
     from wgsextract_cli.core.genotype_qc import DEPTH_HELP, _non_negative
 
-    return param(None, help=DEPTH_HELP, cli_type=_non_negative, metavar="DEPTH")
+    return param(
+        None, help=DEPTH_HELP, cli_type=_non_negative, metavar="DEPTH", minimum=0
+    )
 
 
 def table_format_param(help: str, *, hint: str = "", doc: str | None = None) -> Any:

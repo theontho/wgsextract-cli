@@ -1,4 +1,3 @@
-import argparse
 import ctypes
 import logging
 import os
@@ -8,6 +7,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.vcf import VcfFreebayesParams, VcfGatkParams
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.atomic_output import safe_output
 from wgsextract_cli.core.dependencies import get_tool_path
@@ -17,6 +18,7 @@ from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import java_local_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths, reference_dict_path
+from wgsextract_cli.core.region_selection import region_items
 from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
@@ -30,35 +32,33 @@ from wgsextract_cli.core.utils import (
 )
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
-from .basic import get_base_args, plain_reference, record_variants
+from .basic import plain_reference, record_variants, setup_caller
 from .gatk_scatter import call_scattered, scatter_intervals
 
 
 def _prepare_gatk_input(
-    args: argparse.Namespace, ref: str, outdir: str
+    input_file: str, region: str | None, ref: str, outdir: str
 ) -> tuple[str, str | None]:
     """Return an input GATK can read, converting regional CRAM input when needed."""
-    if not args.input.lower().endswith(".cram"):
-        return args.input, None
+    if not input_file.lower().endswith(".cram"):
+        return input_file, None
 
-    if not args.region:
+    if not region:
         logging.warning(
             "GATK may not support CRAM 3.1 directly. For whole-genome CRAM input, "
             "convert to BAM first with 'wgsextract bam to-bam' or pass --region for "
             "automatic regional conversion."
         )
-        return args.input, None
-
-    import tempfile
+        return input_file, None
 
     fd, temp_bam = tempfile.mkstemp(
         suffix=".bam", dir=configured_temp_directory() or outdir
     )
     os.close(fd)
-    logging.info(f"Preparing regional BAM for GATK from CRAM input ({args.region})...")
+    logging.info(f"Preparing regional BAM for GATK from CRAM input ({region})...")
     try:
         samtools = get_tool_path("samtools")
-        regions = [part.strip() for part in args.region.split(",") if part.strip()]
+        regions = region_items(region, commas=True)
         run_command(
             [
                 samtools,
@@ -69,7 +69,8 @@ def _prepare_gatk_input(
                 ref,
                 "-o",
                 temp_bam,
-                args.input,
+                "--",  # a region can't be read as another option
+                input_file,
                 *regions,
             ],
             check=True,
@@ -86,10 +87,14 @@ def _gatk_region_args(region: str | None, outdir: str) -> tuple[list[str], str |
     as a file path and fails on the ':'; a .intervals file reads the same everywhere."""
     if not region:
         return [], None
-    intervals = str(Path(outdir, "gatk_region.intervals"))
+    # A new file, never one a link at a fixed name points to.
+    fd, intervals = tempfile.mkstemp(
+        dir=outdir, prefix=".gatk_region_", suffix=".intervals"
+    )
     # One interval per line: a comma-separated --region is several.
-    lines = "".join(f"{r.strip()}\n" for r in region.split(",") if r.strip())
-    Path(intervals).write_text(lines, encoding="utf-8", newline="\n")
+    lines = "".join(f"{r}\n" for r in region_items(region, commas=True))
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        f.write(lines)
     return ["-L", java_local_path(intervals)], intervals
 
 
@@ -133,10 +138,13 @@ def write_region_bed(region: str, lengths: dict[str, int], bed: str) -> None:
             f.write(f"{contig}\t{first}\t{last}\n")
 
 
-def cmd_freebayes(args: argparse.Namespace) -> None:
+def run_freebayes(params: VcfFreebayesParams) -> None:
+    """``vcf freebayes``: FreeBayes into ``freebayes.vcf.gz``."""
     verify_dependencies(["freebayes", "bcftools", "tabix", "samtools"])
-    _threads, outdir, ref, _lib = get_base_args(args)
-    if ultima.alignment_is_ultima(args.input):
+    setup = setup_caller(params)
+    outdir, ref = setup.outdir, setup.ref
+    input_file, region = str(params.input), params.region
+    if ultima.alignment_is_ultima(input_file):
         ultima.warn_no_flow_model("FreeBayes")
 
     out_vcf = str(Path(outdir, "freebayes.vcf.gz"))
@@ -150,53 +158,56 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
         # Regions as a BED: freebayes reads -r as 0-based (so chr1:1000-1050
         # lost position 1000).
         bed = None
-        if args.region:
+        if region:
             bed = str(Path(work, "regions.bed"))
-            write_region_bed(args.region, read_fai_lengths(use_ref), bed)
-        if args.input.lower().endswith(".cram"):
+            write_region_bed(region, read_fai_lengths(use_ref), bed)
+        if input_file.lower().endswith(".cram"):
             # Decode CRAM with samtools and stream uncompressed BAM to freebayes.
             # It can't seek in a stream, so its calls are cut to the region
             # afterwards: the streamed reads overlap the region's edges.
-            view_cmd = ["samtools", "view", "-u", "-h", "-T", use_ref, args.input]
-            if args.region:
-                view_cmd += [r.strip() for r in args.region.split(",") if r.strip()]
+            view_cmd = ["samtools", "view", "-u", "-h", "-T", use_ref, "--", input_file]
+            if region:
+                view_cmd += region_items(region, commas=True)
             stages = [view_cmd, ["freebayes", "-f", use_ref, "--stdin"]]
             keep = ["-T", bed] if bed else []
         else:
             targets = ["--targets", bed] if bed else []
-            stages = [["freebayes", "-f", use_ref, *targets, args.input]]
+            stages = [["freebayes", "-f", use_ref, *targets, input_file]]
             keep = []
         with safe_output(out_vcf) as staged:
             stages.append(["bcftools", "view", *keep, "-Oz", "-o", staged])
             run_pipeline(stages, description="FreeBayes variant calling")
     ensure_vcf_indexed(out_vcf)
-    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, region))
 
 
-def _gatk_gpu(args: argparse.Namespace) -> None:
+def _gatk_gpu(params: VcfGatkParams) -> None:
     """HaplotypeCaller on an NVIDIA GPU (Parabricks), which reads CRAM itself."""
     from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
 
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
-    _threads, outdir, ref, _lib = get_base_args(args)
-    if ultima.alignment_is_ultima(args.input):
+    setup = setup_caller(params)
+    outdir, ref = setup.outdir, setup.ref
+    input_file, region = str(params.input), params.region
+    if ultima.alignment_is_ultima(input_file):
         ultima.warn_no_flow_model("Parabricks HaplotypeCaller (--gpu)")
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
     with safe_output(out_vcf) as staged:
-        call_variants("haplotypecaller", args.input, ref, staged, args.region)
+        call_variants("haplotypecaller", input_file, ref, staged, region)
     ensure_vcf_indexed(out_vcf)
-    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, region))
 
 
-def cmd_gatk(args: argparse.Namespace) -> None:
+def run_gatk(params: VcfGatkParams) -> None:
+    """``vcf gatk``: HaplotypeCaller into ``gatk.vcf.gz``, or Parabricks."""
     require_native_tool("gatk")
-    scatter = getattr(args, "scatter", False)
-    if getattr(args, "gpu", False):
+    scatter = params.scatter
+    if params.gpu:
         if scatter:
             raise UsageError("GATK --scatter cannot be combined with --gpu.")
-        _gatk_gpu(args)
+        _gatk_gpu(params)
         return
     verify_dependencies(
         ["gatk", "samtools", *(["bcftools", "tabix"] if scatter else [])]
@@ -207,16 +218,18 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             "compression remains Java-based. Runtime and numeric annotations may differ "
             "from Linux; check GATK's kernel-selection logs."
         )
-    _threads, outdir, ref, lib = get_base_args(args)
-    shards = scatter_intervals(ref, args.region, _threads) if scatter else []
+    setup = setup_caller(params)
+    _threads, outdir, ref, lib = setup.threads, setup.outdir, setup.ref, setup.lib
+    input_file, region = str(params.input), params.region
+    shards = scatter_intervals(ref, region, _threads) if scatter else []
     preflight_resources(
         lambda: estimate_resources(
             "gatk",
-            input_paths=[args.input],
+            input_paths=[input_file],
             output_dir=outdir,
             reference=ref,
             threads=_threads,
-            region=args.region,
+            region=region,
             temp_dir=configured_temp_directory() or tempfile.gettempdir(),
             gatk_staging_dir=configured_temp_directory(),
             gatk_workers=len(shards) or 1,
@@ -225,7 +238,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
     # Ultima's own pipeline calls with the flow-based likelihood model.
     flow_args = []
-    if ultima.alignment_flow_data(args.input, ref).flow_aware:
+    if ultima.alignment_flow_data(input_file, ref).flow_aware:
         logging.info(
             "Ultima reads: calling in GATK's flow mode (--flow-mode ADVANCED)."
         )
@@ -250,13 +263,15 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"Failed to generate GATK dict file: {e}") from e
 
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
-    region_args, region_file = _gatk_region_args(args.region, outdir)
-    gatk_input = args.input
+    region_args, region_file = _gatk_region_args(region, outdir)
+    gatk_input = input_file
     temp_gatk_input = None
     gatk_tmp = _gatk_tmp_dir()
 
     try:
-        gatk_input, temp_gatk_input = _prepare_gatk_input(args, ref, outdir)
+        gatk_input, temp_gatk_input = _prepare_gatk_input(
+            input_file, region, ref, outdir
+        )
         if shards:
             with tempfile.TemporaryDirectory(
                 dir=configured_temp_directory() or outdir, prefix=".wgse_gatk_scatter_"
@@ -279,7 +294,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
                     )
             ensure_vcf_indexed(out_vcf)
             record_variants(
-                out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region)
+                out_vcf, "variants", warn_if_no_variants(out_vcf, ref, region)
             )
             return
         cmd = (
@@ -302,12 +317,10 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             cmd[cmd.index("-O") + 1] = java_local_path(staged)
             run_command(cmd)
         ensure_vcf_indexed(out_vcf)
-        record_variants(
-            out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region)
-        )
+        record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, region))
     except subprocess.CalledProcessError as e:
         logging.error(f"GATK failed: {e}")
-        if args.input.lower().endswith(".cram"):
+        if input_file.lower().endswith(".cram"):
             logging.error(
                 "Hint: Older GATK versions do not support CRAM version 3.1. "
                 "If this failed with a CRAM error, please convert to BAM or upgrade GATK."
@@ -318,3 +331,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
         if region_file:
             Path(region_file).unlink(missing_ok=True)
         shutil.rmtree(gatk_tmp, ignore_errors=True)
+
+
+cmd_freebayes = cli_handler(VcfFreebayesParams, run_freebayes)
+cmd_gatk = cli_handler(VcfGatkParams, run_gatk)

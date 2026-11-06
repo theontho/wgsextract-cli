@@ -1,31 +1,38 @@
-from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
+from wgsextract_cli.api import VcfDeepvariantParams
+from wgsextract_cli.api._params import from_namespace
 from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.commands.vcf import deepvariant
 from wgsextract_cli.core.utils import WGSExtractError
+
+
+def _params(**values) -> VcfDeepvariantParams:
+    return VcfDeepvariantParams(**{"input": Path("reads.bam"), **values})
 
 
 @pytest.mark.parametrize(
     ("selection", "expected"),
     [
         ({}, "ONT_R104"),
-        ({"input_platform": "illumina"}, "WGS"),
-        ({"input_platform": "pacbio"}, "WGS"),
-        ({"input_platform": None}, "WGS"),
+        ({"platform": "illumina"}, "WGS"),
+        ({"platform": "pacbio"}, "WGS"),
+        ({"platform": None}, "WGS"),
         ({"model_type": "WGS"}, "WGS"),
         ({"model_type": "WES"}, "WES"),
         ({"pacbio": True}, "PACBIO"),
         ({"wes": True}, "WES"),
-        ({"input_platform": None, "ont": True}, "ONT_R104"),
-        ({"input_platform": None, "model_type": "ONT_R104"}, "ONT_R104"),
+        ({"platform": None, "ont": True}, "ONT_R104"),
+        ({"platform": None, "model_type": "ONT_R104"}, "ONT_R104"),
     ],
 )
 def test_ont_model_default_and_explicit_overrides(selection, expected):
-    args = Namespace(input="reads.bam", input_platform="ont")
-    vars(args).update(selection)
-    assert deepvariant._model_type(args) == expected
+    selection = {"platform": "ont", **selection}
+    platform = selection.pop("platform")
+    params = _params(**selection)
+    assert deepvariant._model_type(params, platform=platform) == expected
 
 
 def test_model_uses_shared_resolver_with_decoding_reference(monkeypatch, caplog):
@@ -38,7 +45,7 @@ def test_model_uses_shared_resolver_with_decoding_reference(monkeypatch, caplog)
     monkeypatch.setattr(deepvariant, "input_platform", detect)
     with caplog.at_level("INFO"):
         assert (
-            deepvariant._model_type(Namespace(input="reads.cram"), "ref.fa")
+            deepvariant._model_type(_params(input=Path("reads.cram")), "ref.fa")
             == "ONT_R104"
         )
     assert calls == [("reads.cram", "ref.fa")]
@@ -57,7 +64,7 @@ def test_model_uses_shared_resolver_with_decoding_reference(monkeypatch, caplog)
 )
 def test_contradictory_ont_selectors_are_refused(selection):
     with pytest.raises(WGSExtractError, match="cannot be combined"):
-        deepvariant._model_type(Namespace(**selection))
+        deepvariant._model_type(_params(**selection))
 
 
 @pytest.mark.parametrize(
@@ -81,5 +88,6 @@ def test_r9_warning_uses_basecaller_metadata_only(monkeypatch, caplog, header, w
 @pytest.mark.parametrize("selection", [["--ont"], ["--model-type", "ONT_R104"]])
 def test_cli_accepts_ont_selectors(selection):
     parser, _ = build_parser()
-    args = parser.parse_args(["vcf", "deepvariant", *selection])
-    assert deepvariant._model_type(args) == "ONT_R104"
+    args = parser.parse_args(["vcf", "deepvariant", "-i", "reads.bam", *selection])
+    params = from_namespace(VcfDeepvariantParams, args)
+    assert deepvariant._model_type(params) == "ONT_R104"

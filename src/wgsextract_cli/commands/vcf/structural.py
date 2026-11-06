@@ -1,4 +1,4 @@
-import argparse
+import dataclasses
 import io
 import logging
 import subprocess
@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import IO
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.vcf import VcfCnvParams, VcfSvParams
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -32,7 +34,7 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 
-from .basic import get_base_args, plain_reference, record_variants
+from .basic import plain_reference, record_variants, setup_caller
 
 
 def _cram_args(input_path: str, ref: str) -> list[str]:
@@ -41,18 +43,18 @@ def _cram_args(input_path: str, ref: str) -> list[str]:
 
 @contextmanager
 def _region_input_bam(
-    args: argparse.Namespace, outdir: str, ref: str, failure_label: str
+    input_file: str, region: str | None, outdir: str, ref: str, failure_label: str
 ) -> Iterator[str]:
-    """Yield args.input, or a temporary indexed BAM of --region removed on exit."""
-    if not getattr(args, "region", None):
-        yield args.input
+    """Yield input_file, or a temporary indexed BAM of region removed on exit."""
+    if not region:
+        yield input_file
         return
 
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_region_") as tmp:
         temp_bam = str(Path(tmp, "region.bam"))
-        logging.info(f"Extracting region {args.region} to temporary BAM...")
+        logging.info(f"Extracting region {region} to temporary BAM...")
         try:
-            _extract_region_bam_with_reference_header(args, ref, temp_bam)
+            _extract_region_bam_with_reference_header(input_file, region, ref, temp_bam)
             run_command(["samtools", "index", temp_bam], capture_output=True)
         except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             raise WGSExtractError(
@@ -105,18 +107,18 @@ def _stderr_tail(stream: IO[bytes], max_lines: int = 20) -> str:
 
 
 def _extract_region_bam_with_reference_header(
-    args: argparse.Namespace, ref: str, temp_bam: str
+    input_file: str, region: str, ref: str, temp_bam: str
 ) -> None:
     """
-    Write args.region as BAM whose @SQ lines are exactly the reference's contigs.
+    Write region of input_file as BAM whose @SQ lines are exactly the reference's contigs.
 
     Delly rejects BAMs listing contigs the reference lacks (e.g. an hs38DH CRAM
     called against hg38). Records are passed as SAM text so contigs are remapped
     by name; Python only writes the header and never touches the records.
     """
-    cram_args = _cram_args(args.input, ref)
+    cram_args = _cram_args(input_file, ref)
     header = run_command(
-        ["samtools", "view", "-H", "--no-PG", *cram_args, args.input],
+        ["samtools", "view", "-H", "--no-PG", *cram_args, input_file],
         capture_output=True,
     ).stdout
     non_sq = [
@@ -141,7 +143,7 @@ def _extract_region_bam_with_reference_header(
                 sink.stdin.flush()
                 # Records only (no -h): they follow our header in the same pipe.
                 source = popen(
-                    ["samtools", "view", *cram_args, args.input, args.region],
+                    ["samtools", "view", *cram_args, "--", input_file, region],
                     stdout=sink.stdin,
                     stderr=source_err,
                 )
@@ -180,22 +182,26 @@ def _record_calls(out_vcf: str, role: str, ref: str, region: str | None) -> None
     record_variants(out_vcf, role, count)
 
 
-def cmd_cnv(args: argparse.Namespace) -> None:
+def run_cnv(params: VcfCnvParams) -> None:
+    """``vcf cnv``: delly cnv into ``cnv.vcf.gz``."""
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
-    _threads, outdir, ref, _lib = get_base_args(args)
+    setup = setup_caller(params)
+    outdir, ref = setup.outdir, setup.ref
 
     out_bcf = str(Path(outdir, "cnv.bcf"))
     out_vcf = str(Path(outdir, "cnv.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_cnv"].format(output=out_vcf))
 
-    if args.map:
+    if params.map:
         logging.warning(
             "Ignoring --map: Delly 2 estimates mappability from the reads and no "
             "longer takes a mappability map."
         )
-    ploidy_args = ["-y", str(args.ploidy)] if args.ploidy is not None else []
+    ploidy_args = ["-y", str(params.ploidy)] if params.ploidy is not None else []
 
-    with _region_input_bam(args, outdir, ref, "CNV") as input_file:
+    with _region_input_bam(
+        str(params.input), params.region, outdir, ref, "CNV"
+    ) as input_file:
         try:
             run_command(
                 ["delly", "cnv", "-g", ref, "-o", out_bcf, *ploidy_args, input_file]
@@ -205,17 +211,26 @@ def cmd_cnv(args: argparse.Namespace) -> None:
                 f"CNV calling failed with exit code {e.returncode}"
             ) from e
     _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
-    _record_calls(out_vcf, "copy_number_variants", ref, args.region)
+    _record_calls(out_vcf, "copy_number_variants", ref, params.region)
 
 
-def cmd_sv_pbsv(args: argparse.Namespace) -> None:
+cmd_cnv = cli_handler(VcfCnvParams, run_cnv)
+
+
+def _tandem_repeats(params: VcfSvParams) -> str | None:
+    return str(params.tandem_repeats) if params.tandem_repeats else None
+
+
+def run_sv_pbsv(params: VcfSvParams) -> None:
+    """``vcf sv`` with pbsv into ``pbsv.vcf.gz``."""
     verify_dependencies(["pbsv", "bcftools", "tabix", "samtools"])
     log_dependency_info(["pbsv", "bcftools", "tabix", "samtools"])
-    threads, outdir, ref, _lib = get_base_args(args)
+    setup = setup_caller(params)
+    threads, outdir, ref = setup.threads, setup.outdir, setup.ref
 
     out_vcf = str(Path(outdir, "pbsv.vcf.gz"))
-    region = getattr(args, "region", None)
-    tandem_repeats = getattr(args, "tandem_repeats", None)
+    region = params.region
+    tandem_repeats = _tandem_repeats(params)
     if tandem_repeats:
         verify_paths_exist({"--tandem-repeats": tandem_repeats})
 
@@ -232,14 +247,14 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
             discover_cmd.extend(["--region", region])
         if tandem_repeats:
             discover_cmd.extend(["--tandem-repeats", tandem_repeats])
-        if getattr(args, "ccs", False):
+        if params.ccs:
             discover_cmd.append("--hifi")
-        discover_cmd.extend([args.input, svsig])
+        discover_cmd.extend([str(params.input), svsig])
 
         call_cmd = ["pbsv", "call", "-j", threads]
         if region:
             call_cmd.extend(["--region", region])
-        if getattr(args, "ccs", False):
+        if params.ccs:
             call_cmd.append("--ccs")
         call_cmd.extend([pbsv_ref, svsig, raw_vcf])
         try:
@@ -251,7 +266,7 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
             ) from e
         run_command(["bcftools", "view", "-Oz", "-o", out_vcf, raw_vcf])
     ensure_vcf_indexed(out_vcf)
-    _record_calls(out_vcf, "structural_variants", ref, args.region)
+    _record_calls(out_vcf, "structural_variants", ref, region)
 
 
 def _write_region_bed(region: str, ref: str, bed_path: str) -> None:
@@ -272,14 +287,16 @@ def _write_region_bed(region: str, ref: str, bed_path: str) -> None:
         f.write(f"{chrom}\t{start - 1}\t{end}\n")
 
 
-def cmd_sv_sniffles(args: argparse.Namespace) -> None:
+def run_sv_sniffles(params: VcfSvParams) -> None:
+    """``vcf sv`` with Sniffles into ``sniffles.vcf.gz``."""
     verify_dependencies(["sniffles", "bcftools", "tabix", "samtools"])
     log_dependency_info(["sniffles", "bcftools", "tabix", "samtools"])
-    threads, outdir, ref, _lib = get_base_args(args)
+    setup = setup_caller(params)
+    threads, outdir, ref = setup.threads, setup.outdir, setup.ref
 
     out_vcf = str(Path(outdir, "sniffles.vcf.gz"))
-    region = getattr(args, "region", None)
-    tandem_repeats = getattr(args, "tandem_repeats", None)
+    region = params.region
+    tandem_repeats = _tandem_repeats(params)
     if tandem_repeats:
         verify_paths_exist({"--tandem-repeats": tandem_repeats})
 
@@ -289,12 +306,13 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_sniffles_") as work:
         raw_vcf = str(Path(work, "sniffles.vcf"))
         # --reference is needed to decode CRAM and to emit deletion sequences.
-        cmd = ["sniffles", "--input", args.input, "--vcf", raw_vcf]
+        input_file = str(params.input)
+        cmd = ["sniffles", "--input", input_file, "--vcf", raw_vcf]
         cmd += ["--reference", ref, "--threads", threads]
         if tandem_repeats:
             cmd += ["--tandem-repeats", tandem_repeats]
         # Sniffles names the sample "SAMPLE" unless told; match the other callers.
-        header = get_bam_header(args.input, ref)
+        header = get_bam_header(input_file, ref)
         samples = {g["SM"] for g in read_groups(header) if g.get("SM")}
         if len(samples) == 1:
             cmd += ["--sample-id", samples.pop()]
@@ -310,28 +328,33 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
             ) from e
         run_command(["bcftools", "view", "-Oz", "-o", out_vcf, raw_vcf])
     ensure_vcf_indexed(out_vcf)
-    _record_calls(out_vcf, "structural_variants", ref, args.region)
+    _record_calls(out_vcf, "structural_variants", ref, region)
 
 
-def _detected_platform(args: argparse.Namespace) -> str | None:
+def _detected_platform(params: VcfSvParams) -> str | None:
     """Platform of the input alignment, decoding CRAM with the resolved --ref."""
-    input_file = getattr(args, "input", None)
-    if not input_file or not Path(input_file).is_file():
+    input_file = str(params.input)
+    if not Path(input_file).is_file():
         return None
     lib = ReferenceLibrary(
-        getattr(args, "ref", None),
+        str(params.ref) if params.ref else None,
         calculate_bam_md5(input_file, None),
         input_path=input_file,
     )
     return input_platform(input_file, lib.fasta)
 
 
-def _select_sv_caller(args: argparse.Namespace) -> str:
+def _select_sv_caller(params: VcfSvParams) -> VcfSvParams:
+    """``params`` with the caller chosen (and ``ccs`` set for ``pacbio``)."""
+    return dataclasses.replace(
+        params, caller=_sv_caller(params), ccs=params.ccs or params.pacbio
+    )
+
+
+def _sv_caller(params: VcfSvParams) -> str:
     """Explicit flags win; only detected ONT changes the Delly default."""
-    caller: str | None = getattr(args, "caller", None)
-    pacbio = getattr(args, "pacbio", False)
-    ont = getattr(args, "ont", False)
-    long_read = getattr(args, "long_read", False)
+    caller = params.caller
+    pacbio, ont, long_read = params.pacbio, params.ont, params.long_read
     if pacbio and ont:
         raise UsageError("--pacbio and --ont cannot be combined.")
     if (pacbio or ont or long_read) and caller == "delly":
@@ -345,14 +368,13 @@ def _select_sv_caller(args: argparse.Namespace) -> str:
         "use --caller sniffles (the ONT default)."
     )
     if pacbio:
-        args.ccs = True
         caller = caller or ("pbsv" if get_tool_path("pbsv") is not None else "sniffles")
-        if caller == "pbsv" and _detected_platform(args) == "ont":
+        if caller == "pbsv" and _detected_platform(params) == "ont":
             raise pbsv_ont_error
         return caller
     detected = None
     if not ont and (caller in ("pbsv", "delly") or (not caller and not long_read)):
-        detected = _detected_platform(args)
+        detected = _detected_platform(params)
     if caller == "pbsv" and (ont or detected == "ont"):
         raise pbsv_ont_error
     if ont or long_read:
@@ -375,24 +397,28 @@ def _select_sv_caller(args: argparse.Namespace) -> str:
     return "delly"
 
 
-def cmd_sv(args: argparse.Namespace) -> None:
-    args.caller = _select_sv_caller(args)
-    current_result().add_metrics(caller=args.caller)
-    if args.caller == "pbsv":
-        cmd_sv_pbsv(args)
+def run_sv(params: VcfSvParams) -> None:
+    """``vcf sv``: delly, pbsv or Sniffles, as ``_select_sv_caller`` picks."""
+    params = _select_sv_caller(params)
+    current_result().add_metrics(caller=params.caller)
+    if params.caller == "pbsv":
+        run_sv_pbsv(params)
         return
-    if args.caller == "sniffles":
-        cmd_sv_sniffles(args)
+    if params.caller == "sniffles":
+        run_sv_sniffles(params)
         return
 
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
-    threads, outdir, ref, _lib = get_base_args(args)
+    setup = setup_caller(params)
+    threads, outdir, ref = setup.threads, setup.outdir, setup.ref
 
     out_bcf = str(Path(outdir, "sv.bcf"))
     out_vcf = str(Path(outdir, "sv.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_sv"].format(caller="delly", output=out_vcf))
 
-    with _region_input_bam(args, outdir, ref, "SV") as input_file:
+    with _region_input_bam(
+        str(params.input), params.region, outdir, ref, "SV"
+    ) as input_file:
         try:
             # Delly 2 short-read SV discovery; note `-h` is its thread count.
             run_command(
@@ -404,4 +430,7 @@ def cmd_sv(args: argparse.Namespace) -> None:
                 f"SV calling failed with exit code {e.returncode}"
             ) from e
     _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
-    _record_calls(out_vcf, "structural_variants", ref, args.region)
+    _record_calls(out_vcf, "structural_variants", ref, params.region)
+
+
+cmd_sv = cli_handler(VcfSvParams, run_sv)

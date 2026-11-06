@@ -13308,7 +13308,7 @@
     ],
     "defaults": {
      "_command": "qc vcf",
-     "func": "cmd_vcf_qc"
+     "func": "cli_QcVcfParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -15056,7 +15056,7 @@
     ],
     "defaults": {
      "_command": "vcf alphamissense",
-     "func": "cmd_alphamissense"
+     "func": "cli_VcfAlphamissenseParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -15413,7 +15413,7 @@
     ],
     "defaults": {
      "_command": "vcf annotate",
-     "func": "cmd_annotate"
+     "func": "cli_VcfAnnotateParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -15786,7 +15786,7 @@
     ],
     "defaults": {
      "_command": "vcf cadd",
-     "func": "cmd_cadd"
+     "func": "cli_VcfCaddParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -16143,11 +16143,369 @@
     ],
     "defaults": {
      "_command": "vcf chain-annotate",
-     "func": "cmd_chain_annotate"
+     "func": "cli_VcfChainAnnotateParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract vcf chain-annotate"
+   }
+  },
+  "vcf clair3": {
+   "help": "usage: wgsextract vcf clair3 [-h] [-r REGION] [--model NAME|DIR] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chr20:1-1000000)\n  --model NAME|DIR     Clair3 model directory, or the name of a bundled model, matching the reads'\n                       basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config clair3_model;\n                       default: chosen from the basecaller metadata.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract vcf clair3 --help-all' lists them.\n\nexamples:\n  wgsextract vcf clair3 --input ont.bam\n\noutputs (in the output directory unless noted):\n  clair3.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, run_clair3.sh, samtools, tabix; hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region (e.g. chr20:1-1000000)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "model",
+      "exclusive_group": null,
+      "help": "Clair3 model directory, or the name of a bundled model, matching the reads' basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config clair3_model; default: chosen from the basecaller metadata.",
+      "metavar": "NAME|DIR",
+      "nargs": null,
+      "option_strings": [
+       "--model"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "qc_min_depth",
+      "exclusive_group": null,
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "metavar": "DEPTH",
+      "nargs": null,
+      "option_strings": [
+       "--qc-min-depth"
+      ],
+      "required": false,
+      "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vcf clair3",
+     "func": "cmd_clair3"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vcf clair3"
    }
   },
   "vcf clinvar": {
@@ -16522,11 +16880,901 @@
     ],
     "defaults": {
      "_command": "vcf clinvar",
-     "func": "cmd_clinvar"
+     "func": "cli_VcfClinvarParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract vcf clinvar"
+   }
+  },
+  "vcf cnv": {
+   "help": "usage: wgsextract vcf cnv [-h] [-r REGION] [-M MAP] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region\n  -M, --map MAP        Deprecated and ignored: Delly 2 no longer uses mappability maps.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n2 advanced options not shown; 'wgsextract vcf cnv --help-all' lists them.\n\nexamples:\n  wgsextract vcf cnv --input sample.cram\n\noutputs (in the output directory unless noted):\n  cnv.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, delly, samtools, tabix; hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "map",
+      "exclusive_group": null,
+      "help": "Deprecated and ignored: Delly 2 no longer uses mappability maps.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-M",
+       "--map"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "ploidy",
+      "exclusive_group": null,
+      "help": "Baseline ploidy for delly cnv (default: 2)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ploidy"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "qc_min_depth",
+      "exclusive_group": null,
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "metavar": "DEPTH",
+      "nargs": null,
+      "option_strings": [
+       "--qc-min-depth"
+      ],
+      "required": false,
+      "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vcf cnv",
+     "func": "cmd_cnv"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vcf cnv"
+   }
+  },
+  "vcf deepvariant": {
+   "help": "usage: wgsextract vcf deepvariant [-h] [-r REGION] [--wes] [--ont] [--pacbio] [--gpu] [--force]\n                                  [--force-step STEP] [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region (e.g. chrM)\n  --wes                 Set model type to WES (default: WGS)\n  --ont                 Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).\n  --pacbio              Alias for --model-type PACBIO.\n  --gpu                 Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        stage_reads, make_examples, call_variants, postprocess_variants.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n4 advanced options not shown; 'wgsextract vcf deepvariant --help-all' lists them.\n\nexamples:\n  wgsextract vcf deepvariant --input sample.cram\n  wgsextract vcf deepvariant --input hifi.bam --pacbio\n  wgsextract vcf deepvariant --input sample.cram --force-step call_variants\n\noutputs (in the output directory unless noted):\n  deepvariant.vcf.gz (+ .tbi) and deepvariant.vcf.gz.steps.json; until it\n  finishes, the stages' work in .deepvariant.work, where a rerun resumes.\n\nneeds:\n  samtools, tabix; depending on options and inputs, also: bcftools, docker,\n  run_deepvariant, sambamba; hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region (e.g. chrM)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "wes",
+      "exclusive_group": null,
+      "help": "Set model type to WES (default: WGS)",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--wes"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "WGS",
+       "WES",
+       "PACBIO",
+       "HYBRID_PACBIO_ILLUMINA",
+       "ULTIMA",
+       "ONT_R104"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "model_type",
+      "exclusive_group": null,
+      "help": "DeepVariant model type (default: ONT_R104 for detected ONT, ULTIMA for Ultima reads with their flow tags, else WGS). ONT_R104 supports R10.4.1 only and requires x86-64; Linux ARM64 supports WGS only. Use PACBIO for PacBio HiFi/CCS alignments.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--model-type"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "ont",
+      "exclusive_group": null,
+      "help": "Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--ont"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "pacbio",
+      "exclusive_group": null,
+      "help": "Alias for --model-type PACBIO.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--pacbio"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "checkpoint",
+      "exclusive_group": null,
+      "help": "Path to DeepVariant model checkpoint",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--checkpoint"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "batch_size",
+      "exclusive_group": null,
+      "help": "CPU inference batch size (upstream default: 1024). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--batch-size"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "gpu",
+      "exclusive_group": null,
+      "help": "Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "qc_min_depth",
+      "exclusive_group": null,
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "metavar": "DEPTH",
+      "nargs": null,
+      "option_strings": [
+       "--qc-min-depth"
+      ],
+      "required": false,
+      "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "restart",
+      "exclusive_group": null,
+      "help": "Rerun every step, ignoring the steps an earlier run completed.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--force",
+       "--no-resume"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "stage_reads",
+       "make_examples",
+       "call_variants",
+       "postprocess_variants"
+      ],
+      "class": "_AppendAction",
+      "const": null,
+      "default": null,
+      "dest": "force_steps",
+      "exclusive_group": null,
+      "help": "Rerun STEP and the steps that use its outputs (repeatable). Steps: stage_reads, make_examples, call_variants, postprocess_variants.",
+      "metavar": "STEP",
+      "nargs": null,
+      "option_strings": [
+       "--force-step"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "dry_run",
+      "exclusive_group": null,
+      "help": "Print which steps would run or be skipped, and why, then exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--dry-run"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vcf deepvariant",
+     "func": "cmd_deepvariant"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vcf deepvariant"
    }
   },
   "vcf filter": {
@@ -16912,11 +18160,727 @@
     ],
     "defaults": {
      "_command": "vcf filter",
-     "func": "cmd_filter"
+     "func": "cli_VcfFilterParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract vcf filter"
+   }
+  },
+  "vcf freebayes": {
+   "help": "usage: wgsextract vcf freebayes [-h] [-r REGION] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract vcf freebayes --help-all' lists them.\n\nexamples:\n  wgsextract vcf freebayes --input sample.cram --region chr20\n\noutputs (in the output directory unless noted):\n  freebayes.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, freebayes, samtools, tabix; hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region (e.g. chrM, chrY:10000-20000)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "qc_min_depth",
+      "exclusive_group": null,
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "metavar": "DEPTH",
+      "nargs": null,
+      "option_strings": [
+       "--qc-min-depth"
+      ],
+      "required": false,
+      "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vcf freebayes",
+     "func": "cmd_freebayes"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vcf freebayes"
+   }
+  },
+  "vcf gatk": {
+   "help": "usage: wgsextract vcf gatk [-h] [-r REGION] [--scatter] [--gpu] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM)\n  --scatter            Opt-in Ultima flow-mode interval scattering, bounded by --threads and\n                       available RAM (6 GiB per worker, 4 GiB Java heap). Can change\n                       genotypes/annotations away from interval boundaries; default: one\n                       unscattered process.\n  --gpu                Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract vcf gatk --help-all' lists them.\n\nexamples:\n  wgsextract vcf gatk --input sample.cram\n\noutputs (in the output directory unless noted):\n  gatk.vcf.gz (+ .tbi).\n\nneeds:\n  gatk, samtools, tabix; depending on options and inputs, also: bcftools;\n  hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region (e.g. chrM)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "scatter",
+      "exclusive_group": null,
+      "help": "Opt-in Ultima flow-mode interval scattering, bounded by --threads and available RAM (6 GiB per worker, 4 GiB Java heap). Can change genotypes/annotations away from interval boundaries; default: one unscattered process.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--scatter"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "gpu",
+      "exclusive_group": null,
+      "help": "Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "qc_min_depth",
+      "exclusive_group": null,
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "metavar": "DEPTH",
+      "nargs": null,
+      "option_strings": [
+       "--qc-min-depth"
+      ],
+      "required": false,
+      "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vcf gatk",
+     "func": "cmd_gatk"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vcf gatk"
    }
   },
   "vcf gerp": {
@@ -17269,7 +19233,7 @@
     ],
     "defaults": {
      "_command": "vcf gerp",
-     "func": "cmd_gerp"
+     "func": "cli_VcfGerpParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -17664,7 +19628,7 @@
     ],
     "defaults": {
      "_command": "vcf gnomad",
-     "func": "cmd_gnomad"
+     "func": "cli_VcfGnomadParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -18465,7 +20429,7 @@
     ],
     "defaults": {
      "_command": "vcf pharmcat",
-     "func": "cmd_pharmcat"
+     "func": "cli_VcfPharmcatParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -18806,7 +20770,7 @@
     ],
     "defaults": {
      "_command": "vcf pharmgkb",
-     "func": "cmd_pharmgkb"
+     "func": "cli_VcfPharmgkbParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -19163,7 +21127,7 @@
     ],
     "defaults": {
      "_command": "vcf phylop",
-     "func": "cmd_phylop"
+     "func": "cli_VcfPhylopParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -19520,7 +21484,7 @@
     ],
     "defaults": {
      "_command": "vcf revel",
-     "func": "cmd_revel"
+     "func": "cli_VcfRevelParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -20251,11 +22215,453 @@
     ],
     "defaults": {
      "_command": "vcf spliceai",
-     "func": "cmd_spliceai"
+     "func": "cli_VcfSpliceaiParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract vcf spliceai"
+   }
+  },
+  "vcf sv": {
+   "help": "usage: wgsextract vcf sv [-h] [-r REGION] [--caller {delly,pbsv,sniffles}] [--pacbio] [--ont]\n                         [--long-read] [--ccs] [--tandem-repeats TANDEM_REPEATS] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Chromosomal region\n  --caller {delly,pbsv,sniffles}\n                        SV caller to use (default: sniffles for detected ONT, else delly;\n                        pbsv/sniffles with --pacbio; sniffles with --ont or --long-read). pbsv is\n                        PacBio-only and is refused for ONT reads.\n  --pacbio              PacBio HiFi/CCS data: use pbsv (or sniffles if pbsv is missing) with CCS\n                        thresholds.\n  --ont                 Oxford Nanopore data: use Sniffles (detected ONT input selects it\n                        automatically).\n  --long-read           Long-read data from any platform: use Sniffles unless --caller selects\n                        pbsv for PacBio reads.\n  --ccs                 Use pbsv CCS/HiFi thresholds when --caller pbsv is selected.\n  --tandem-repeats TANDEM_REPEATS\n                        Optional tandem-repeat BED for pbsv discover or Sniffles (recommended for\n                        long-read SV calling).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract vcf sv --help-all' lists them.\n\nexamples:\n  wgsextract vcf sv --input sample.cram\n  wgsextract vcf sv --input hifi.bam --pacbio\n\noutputs (in the output directory unless noted):\n  sv.vcf.gz (Delly), pbsv.vcf.gz or sniffles.vcf.gz (+ .tbi).\n\nneeds:\n  bcftools, samtools, tabix; depending on options and inputs, also: delly,\n  pbsv, sniffles; hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "delly",
+       "pbsv",
+       "sniffles"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "caller",
+      "exclusive_group": null,
+      "help": "SV caller to use (default: sniffles for detected ONT, else delly; pbsv/sniffles with --pacbio; sniffles with --ont or --long-read). pbsv is PacBio-only and is refused for ONT reads.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--caller"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "pacbio",
+      "exclusive_group": null,
+      "help": "PacBio HiFi/CCS data: use pbsv (or sniffles if pbsv is missing) with CCS thresholds.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--pacbio"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "ont",
+      "exclusive_group": null,
+      "help": "Oxford Nanopore data: use Sniffles (detected ONT input selects it automatically).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--ont"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "long_read",
+      "exclusive_group": null,
+      "help": "Long-read data from any platform: use Sniffles unless --caller selects pbsv for PacBio reads.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--long-read"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "ccs",
+      "exclusive_group": null,
+      "help": "Use pbsv CCS/HiFi thresholds when --caller pbsv is selected.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--ccs"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "tandem_repeats",
+      "exclusive_group": null,
+      "help": "Optional tandem-repeat BED for pbsv discover or Sniffles (recommended for long-read SV calling).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--tandem-repeats"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "qc_min_depth",
+      "exclusive_group": null,
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "metavar": "DEPTH",
+      "nargs": null,
+      "option_strings": [
+       "--qc-min-depth"
+      ],
+      "required": false,
+      "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vcf sv",
+     "func": "cmd_sv"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vcf sv"
    }
   },
   "vcf table": {
@@ -20676,7 +23082,7 @@
     ],
     "defaults": {
      "_command": "vcf table",
-     "func": "cmd_table"
+     "func": "cli_VcfTableParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -21123,7 +23529,7 @@
     ],
     "defaults": {
      "_command": "vcf to-fasta",
-     "func": "cmd_to_fasta"
+     "func": "cli_VcfToFastaParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -21569,7 +23975,7 @@
     ],
     "defaults": {
      "_command": "vcf trio",
-     "func": "cmd_trio"
+     "func": "cli_VcfTrioParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -23087,7 +25493,7 @@
    "command": "qc",
    "debug": false,
    "full_help": false,
-   "func": "cmd_vcf_qc",
+   "func": "cli_QcVcfParams",
    "genome": null,
    "input": null,
    "json": false,
@@ -23113,7 +25519,7 @@
    "command": "qc",
    "debug": false,
    "full_help": false,
-   "func": "cmd_vcf_qc",
+   "func": "cli_QcVcfParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23425,7 +25831,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_alphamissense",
+   "func": "cli_VcfAlphamissenseParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23454,7 +25860,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_alphamissense",
+   "func": "cli_VcfAlphamissenseParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23484,7 +25890,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_annotate",
+   "func": "cli_VcfAnnotateParams",
    "genome": null,
    "input": "y.bam",
    "json": false,
@@ -23514,7 +25920,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_annotate",
+   "func": "cli_VcfAnnotateParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23544,7 +25950,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_cadd",
+   "func": "cli_VcfCaddParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23574,7 +25980,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_cadd",
+   "func": "cli_VcfCaddParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23603,7 +26009,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_chain_annotate",
+   "func": "cli_VcfChainAnnotateParams",
    "genome": null,
    "input": null,
    "json": false,
@@ -23632,7 +26038,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_chain_annotate",
+   "func": "cli_VcfChainAnnotateParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23650,6 +26056,36 @@
    "vcf_cmd": "chain-annotate",
    "vcf_input": null
   },
+  "vcf clair3 -i x.bam --model r1041 -r chr20:1-100": {
+   "_command": "vcf clair3",
+   "_explicit_dests": [
+    "input",
+    "model",
+    "region"
+   ],
+   "atomic_output": false,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_clair3",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "model": "r1041",
+   "outdir": null,
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": "chr20:1-100",
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "clair3"
+  },
   "vcf clinvar -i x.vcf.gz --clinvar-file c.vcf.gz": {
    "_command": "vcf clinvar",
    "_explicit_dests": [
@@ -23663,7 +26099,7 @@
    "confidence_gq": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_clinvar",
+   "func": "cli_VcfClinvarParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23696,7 +26132,7 @@
    "confidence_gq": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_clinvar",
+   "func": "cli_VcfClinvarParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23729,7 +26165,7 @@
    ],
    "debug": false,
    "full_help": false,
-   "func": "cmd_clinvar",
+   "func": "cli_VcfClinvarParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23746,6 +26182,191 @@
    "vcf_cmd": "clinvar",
    "vcf_input": null
   },
+  "vcf cnv -i x.bam --qc-min-depth 2": {
+   "_command": "vcf cnv",
+   "_explicit_dests": [
+    "input",
+    "qc_min_depth"
+   ],
+   "atomic_output": false,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_cnv",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "map": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "ploidy": null,
+   "qc_min_depth": 2.0,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "cnv"
+  },
+  "vcf cnv -i x.bam -r chr1 --ploidy 3 -M m.gz": {
+   "_command": "vcf cnv",
+   "_explicit_dests": [
+    "input",
+    "map",
+    "ploidy",
+    "region"
+   ],
+   "atomic_output": false,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_cnv",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "map": "m.gz",
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "ploidy": 3,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": "chr1",
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "cnv"
+  },
+  "vcf deepvariant -i x.bam --model-type PACBIO --checkpoint c --force-step call_variants --dry-run": {
+   "_command": "vcf deepvariant",
+   "_explicit_dests": [
+    "checkpoint",
+    "dry_run",
+    "force_steps",
+    "input",
+    "model_type"
+   ],
+   "atomic_output": false,
+   "batch_size": null,
+   "checkpoint": "c",
+   "command": "vcf",
+   "debug": false,
+   "dry_run": true,
+   "force_steps": [
+    "call_variants"
+   ],
+   "full_help": false,
+   "func": "cmd_deepvariant",
+   "genome": null,
+   "gpu": false,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "model_type": "PACBIO",
+   "ont": false,
+   "outdir": null,
+   "pacbio": false,
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "restart": false,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "deepvariant",
+   "wes": false
+  },
+  "vcf deepvariant -i x.bam --ont --pacbio --gpu --force": {
+   "_command": "vcf deepvariant",
+   "_explicit_dests": [
+    "gpu",
+    "input",
+    "ont",
+    "pacbio",
+    "restart"
+   ],
+   "atomic_output": false,
+   "batch_size": null,
+   "checkpoint": null,
+   "command": "vcf",
+   "debug": false,
+   "dry_run": false,
+   "force_steps": null,
+   "full_help": false,
+   "func": "cmd_deepvariant",
+   "genome": null,
+   "gpu": true,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "model_type": null,
+   "ont": true,
+   "outdir": null,
+   "pacbio": true,
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "restart": true,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "deepvariant",
+   "wes": false
+  },
+  "vcf deepvariant -i x.bam --wes --batch-size 256": {
+   "_command": "vcf deepvariant",
+   "_explicit_dests": [
+    "batch_size",
+    "input",
+    "wes"
+   ],
+   "atomic_output": false,
+   "batch_size": 256,
+   "checkpoint": null,
+   "command": "vcf",
+   "debug": false,
+   "dry_run": false,
+   "force_steps": null,
+   "full_help": false,
+   "func": "cmd_deepvariant",
+   "genome": null,
+   "gpu": false,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "model_type": null,
+   "ont": false,
+   "outdir": null,
+   "pacbio": false,
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "restart": false,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "deepvariant",
+   "wes": true
+  },
   "vcf filter -i x.vcf.gz --exclude-near-gaps -r chr1": {
    "_command": "vcf filter",
    "_explicit_dests": [
@@ -23759,7 +26380,7 @@
    "exclude_near_gaps": true,
    "expr": null,
    "full_help": false,
-   "func": "cmd_filter",
+   "func": "cli_VcfFilterParams",
    "gene": null,
    "genome": null,
    "input": "x.vcf.gz",
@@ -23791,7 +26412,7 @@
    "exclude_near_gaps": false,
    "expr": "QUAL>30",
    "full_help": false,
-   "func": "cmd_filter",
+   "func": "cli_VcfFilterParams",
    "gene": "BRCA1",
    "genome": null,
    "input": "x.vcf.gz",
@@ -23810,6 +26431,97 @@
    "vcf_cmd": "filter",
    "vcf_input": null
   },
+  "vcf freebayes -i x.bam -r chrM -o out": {
+   "_command": "vcf freebayes",
+   "_explicit_dests": [
+    "input",
+    "outdir",
+    "region"
+   ],
+   "atomic_output": false,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_freebayes",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": "out",
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": "chrM",
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "freebayes"
+  },
+  "vcf gatk -i x.bam --gpu --qc-min-depth 3": {
+   "_command": "vcf gatk",
+   "_explicit_dests": [
+    "gpu",
+    "input",
+    "qc_min_depth"
+   ],
+   "atomic_output": false,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_gatk",
+   "genome": null,
+   "gpu": true,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "qc_min_depth": 3.0,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "scatter": false,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "gatk"
+  },
+  "vcf gatk -i x.cram --region chrM --scatter": {
+   "_command": "vcf gatk",
+   "_explicit_dests": [
+    "input",
+    "region",
+    "scatter"
+   ],
+   "atomic_output": false,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_gatk",
+   "genome": null,
+   "gpu": false,
+   "input": "x.cram",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": "chrM",
+   "scatter": true,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "gatk"
+  },
   "vcf gerp -i x.vcf.gz --gerp-file g.bw --min-score 2.0": {
    "_command": "vcf gerp",
    "_explicit_dests": [
@@ -23821,7 +26533,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_gerp",
+   "func": "cli_VcfGerpParams",
    "genome": null,
    "gerp_file": "g.bw",
    "input": "x.vcf.gz",
@@ -23855,7 +26567,7 @@
    "confidence_gq": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_gnomad",
+   "func": "cli_VcfGnomadParams",
    "genome": null,
    "gnomad_file": null,
    "input": "x.vcf.gz",
@@ -23887,7 +26599,7 @@
    "confidence_gq": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_gnomad",
+   "func": "cli_VcfGnomadParams",
    "genome": null,
    "gnomad_file": "g.vcf.gz",
    "input": "x.vcf.gz",
@@ -23955,7 +26667,7 @@
    ],
    "debug": false,
    "full_help": false,
-   "func": "cmd_pharmcat",
+   "func": "cli_VcfPharmcatParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -23991,7 +26703,7 @@
    "confidence_gq": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_pharmcat",
+   "func": "cli_VcfPharmcatParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -24020,7 +26732,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_pharmgkb",
+   "func": "cli_VcfPharmgkbParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -24049,7 +26761,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_phylop",
+   "func": "cli_VcfPhylopParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -24079,7 +26791,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_revel",
+   "func": "cli_VcfRevelParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -24173,7 +26885,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_spliceai",
+   "func": "cli_VcfSpliceaiParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -24191,6 +26903,78 @@
    "vcf_cmd": "spliceai",
    "vcf_input": null
   },
+  "vcf sv -i x.bam --caller pbsv --ccs --pacbio": {
+   "_command": "vcf sv",
+   "_explicit_dests": [
+    "caller",
+    "ccs",
+    "input",
+    "pacbio"
+   ],
+   "atomic_output": false,
+   "caller": "pbsv",
+   "ccs": true,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_sv",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": false,
+   "memory": null,
+   "ont": false,
+   "outdir": null,
+   "pacbio": true,
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "tandem_repeats": null,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "sv"
+  },
+  "vcf sv -i x.bam --ont --long-read --tandem-repeats t.bed": {
+   "_command": "vcf sv",
+   "_explicit_dests": [
+    "input",
+    "long_read",
+    "ont",
+    "tandem_repeats"
+   ],
+   "atomic_output": false,
+   "caller": null,
+   "ccs": false,
+   "command": "vcf",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_sv",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": true,
+   "memory": null,
+   "ont": true,
+   "outdir": null,
+   "pacbio": false,
+   "parent_pid": null,
+   "qc_min_depth": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "tandem_repeats": "t.bed",
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_cmd": "sv"
+  },
   "vcf table -i x.vcf.gz --pharmcat-json p.json --format parquet": {
    "_command": "vcf table",
    "_explicit_dests": [
@@ -24203,7 +26987,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_table",
+   "func": "cli_VcfTableParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -24238,7 +27022,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_table",
+   "func": "cli_VcfTableParams",
    "genome": null,
    "input": "x.vcf.gz",
    "json": false,
@@ -24272,7 +27056,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_to_fasta",
+   "func": "cli_VcfToFastaParams",
    "genome": null,
    "haplotype": "1",
    "include_filtered": false,
@@ -24307,7 +27091,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_to_fasta",
+   "func": "cli_VcfToFastaParams",
    "genome": null,
    "haplotype": "iupac",
    "include_filtered": true,
@@ -24343,7 +27127,7 @@
    "command": "vcf",
    "debug": false,
    "full_help": false,
-   "func": "cmd_to_fasta",
+   "func": "cli_VcfToFastaParams",
    "genome": null,
    "haplotype": "iupac",
    "include_filtered": false,
@@ -24378,7 +27162,7 @@
    "debug": false,
    "father": "f.vcf",
    "full_help": false,
-   "func": "cmd_trio",
+   "func": "cli_VcfTrioParams",
    "genome": null,
    "input": null,
    "json": false,
@@ -24417,7 +27201,7 @@
    "debug": false,
    "father": "f.bam",
    "full_help": false,
-   "func": "cmd_trio",
+   "func": "cli_VcfTrioParams",
    "genome": null,
    "input": "p.bam",
    "json": false,

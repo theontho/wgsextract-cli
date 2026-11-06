@@ -106,7 +106,9 @@ def add_resume_arguments(parser: argparse.ArgumentParser, steps: Sequence[str]) 
     group.add_argument("--dry-run", action="store_true", help=DRY_RUN_HELP)
 
 
-def resume_policy(args: argparse.Namespace) -> ResumePolicy:
+def resume_policy(args: object) -> ResumePolicy:
+    """The policy of parsed arguments or Params with restart, force_steps and
+    dry_run (each optional)."""
     return ResumePolicy(
         restart=bool(getattr(args, "restart", False)),
         force_steps=frozenset(getattr(args, "force_steps", None) or ()),

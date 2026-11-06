@@ -8,6 +8,7 @@ import functools
 import inspect
 import ntpath
 import os
+import re
 import typing
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -32,6 +33,11 @@ Kind = Literal["query", "job"]
 # longer or changes what is recorded about a sample, so MCP offers it only
 # with --allow-jobs.
 QUERIES = frozenset({"info", "info chip", "sample show"})
+
+
+# What follows the contig of an interval (chr1:1-100, X:1,000-): a drive
+# letter followed by it on Windows is still a region, not a file path.
+_INTERVAL_END = re.compile(r"\d[\d,]*(-[\d,]*)?")
 
 
 class RequestError(Exception):
@@ -308,6 +314,9 @@ class PathGuard:
             for path in value if isinstance(value, tuple) else (value,):
                 if isinstance(path, Path):
                     self.check_path(item.name, path)
+                elif isinstance(path, str) and item.spec.splits:
+                    for one in item.spec.splits(params, path):
+                        self._check_text(item.name, one)
                 elif isinstance(path, str) and item.spec.may_name_file:
                     self._check_text(item.name, path)
                 elif isinstance(path, str) and item.spec.expression and "@" in path:
@@ -321,13 +330,17 @@ class PathGuard:
     def _check_text(self, name: str, text: str) -> None:
         """A text value that names a file when one exists there (a BED file
         given as a region): written like a path, it must be an allowed one;
-        a bare name must not be a file in the server's working folder."""
+        a bare name must not be a file in the server's working folder.
+        On Windows an interval such as ``X:1-100`` counts as a bare name, so
+        it is refused only when a file of that name exists."""
         pathmod = self.pathmod
+        drive, rest = pathmod.splitdrive(text)
         if (
             "/" in text
             or "\\" in text
             or pathmod.isabs(pathmod.expanduser(text))
-            or pathmod.splitdrive(text)[0]  # D:evil.bam is D's working folder
+            # D:evil.bam is in D's working folder; X:1-100 is an interval.
+            or (drive and not _INTERVAL_END.fullmatch(rest))
             or is_network_path(text)
         ):
             self.check_path(name, text)

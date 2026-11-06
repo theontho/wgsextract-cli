@@ -1,4 +1,3 @@
-import argparse
 import hashlib
 import os
 import platform
@@ -98,15 +97,14 @@ def test_model_precedence_cli_then_config_then_metadata(
 
     pick = clair3.select_model
     monkeypatch.setitem(clair3.settings, "clair3_model", str(tmp_path / "config"))
-    args = argparse.Namespace(model=str(tmp_path / "cli"))
-    assert pick(args, DORADO_V500) == tmp_path / "cli"
-    assert pick(argparse.Namespace(model=None), DORADO_V500) == tmp_path / "config"
+    assert pick(str(tmp_path / "cli"), DORADO_V500) == tmp_path / "cli"
+    assert pick(None, DORADO_V500) == tmp_path / "config"
     monkeypatch.delitem(clair3.settings, "clair3_model")
     # The metadata picks the bundled model, whose weights are then checked.
     with pytest.raises(
         WGSExtractError, match=r"models.r1041_e82_400bps_sup_v500.\w+\.pt doesn't match"
     ):
-        pick(argparse.Namespace(model=None), DORADO_V500)
+        pick(None, DORADO_V500)
 
 
 @pytest.mark.parametrize(
@@ -121,23 +119,21 @@ def test_model_precedence_cli_then_config_then_metadata(
 )
 def test_unknown_or_mixed_basecaller_requires_model(fake_clair3, header, reason):
     with pytest.raises(WGSExtractError, match=f"{reason}.*--model"):
-        clair3.select_model(argparse.Namespace(model=None), header)
+        clair3.select_model(None, header)
 
 
 def test_refusal_lists_only_bundled_ont_models(fake_clair3):
     for name in ("hifi_revio", "r1041_e82_400bps_sup_v520_with_mv", "ont"):
         make_model(fake_clair3.models, name)
     with pytest.raises(WGSExtractError, match=r"Bundled ONT models: ont\.$"):
-        clair3.select_model(argparse.Namespace(model=None), "")
+        clair3.select_model(None, "")
 
 
 def test_missing_pinned_model_names_its_download(fake_clair3):
     with pytest.raises(
         WGSExtractError, match="clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v420"
     ):
-        clair3.select_model(
-            argparse.Namespace(model="r1041_e82_400bps_sup_v420"), "@HD\tVN:1.6\n"
-        )
+        clair3.select_model("r1041_e82_400bps_sup_v420", "@HD\tVN:1.6\n")
 
 
 @pytest.mark.parametrize(

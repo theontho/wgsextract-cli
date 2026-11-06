@@ -704,8 +704,10 @@ settings and tools are unchanged.
 
 `vcf`: call variants, and annotate, filter, tabulate and analyse VCFs.
 
-`snp` and `indel` call small variants from a BAM/CRAM with bcftools. The
-other operations read a VCF: `vcf_input`, else `input`. Their outputs go
+`snp` and `indel` call small variants from a BAM/CRAM with bcftools;
+`freebayes`, `gatk`, `deepvariant` and `clair3` with those tools, and
+`cnv` and `sv` call copy-number and structural variants. The other
+operations read a VCF: `vcf_input`, else `input`. Their outputs go
 to `outdir`, else beside that VCF. Annotators take their data file from the
 field, else config.toml, else the reference library (`ref`); see
 `wgsextract ref` to download it.
@@ -1080,6 +1082,141 @@ steps whose tool or data is missing are skipped with a warning.
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `annotations` | `str` | `'clinvar,revel,phylop,gnomad,vep'` | `--annotations` | Comma-separated list of annotations to apply in order (default: clinvar,revel,phylop,gnomad,vep). |
 | `keep_intermediates` | `bool` | `False` | `--keep-intermediates` | Keep intermediate VCF files generated during the chain process. |
+
+### `api.vcf.cnv(VcfCnvParams)`
+
+CLI: `wgsextract vcf cnv`.
+
+Call CNVs; output role `copy_number_variants`.
+
+`VcfCnvParams`: Call copy-number variants with delly into `cnv.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to call. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region |
+| `map` | `str \| None` | `None` | `-M`, `--map` | Deprecated and ignored: Delly 2 no longer uses mappability maps. |
+| `ploidy` | `int \| None` | `None` | `--ploidy` | Baseline ploidy for delly cnv (default: 2) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+### `api.vcf.sv(VcfSvParams)`
+
+CLI: `wgsextract vcf sv`.
+
+Call SVs; output role `structural_variants`, and the `caller`
+metric names the tool chosen.
+
+`VcfSvParams`: Call structural variants into `sv.vcf.gz` (delly), `pbsv.vcf.gz`
+or `sniffles.vcf.gz`.
+
+`caller` picks the tool; otherwise Sniffles for ONT input (detected or
+`ont`) and long reads, pbsv (else Sniffles) for `pacbio`, else delly.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to call. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region |
+| `caller` | `str \| None` | `None` | `--caller` | SV caller to use (default: sniffles for detected ONT, else delly; pbsv/sniffles with --pacbio; sniffles with --ont or --long-read). pbsv is PacBio-only and is refused for ONT reads. One of: `delly`, `pbsv`, `sniffles` |
+| `pacbio` | `bool` | `False` | `--pacbio` | PacBio HiFi/CCS data: use pbsv (or sniffles if pbsv is missing) with CCS thresholds. |
+| `ont` | `bool` | `False` | `--ont` | Oxford Nanopore data: use Sniffles (detected ONT input selects it automatically). |
+| `long_read` | `bool` | `False` | `--long-read` | Long-read data from any platform: use Sniffles unless --caller selects pbsv for PacBio reads. |
+| `ccs` | `bool` | `False` | `--ccs` | Use pbsv CCS/HiFi thresholds when --caller pbsv is selected. |
+| `tandem_repeats` | `Path \| None` | `None` | `--tandem-repeats` | Optional tandem-repeat BED for pbsv discover or Sniffles (recommended for long-read SV calling). |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+### `api.vcf.freebayes(VcfFreebayesParams)`
+
+CLI: `wgsextract vcf freebayes`.
+
+Call with FreeBayes; output role `variants`.
+
+`VcfFreebayesParams`: Call small variants with FreeBayes into `freebayes.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to call. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+### `api.vcf.gatk(VcfGatkParams)`
+
+CLI: `wgsextract vcf gatk`.
+
+Call with GATK; output role `variants`.
+
+`VcfGatkParams`: Call small variants with GATK HaplotypeCaller into `gatk.vcf.gz`
+(flow mode for Ultima reads), or with Parabricks on a GPU.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to call. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Comma-separated region(s) to call (e.g. chrM); with gpu, an item may be a BED file of them. |
+| `scatter` | `bool` | `False` | `--scatter` | Opt-in Ultima flow-mode interval scattering, bounded by --threads and available RAM (6 GiB per worker, 4 GiB Java heap). Can change genotypes/annotations away from interval boundaries; default: one unscattered process. |
+| `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README). |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+### `api.vcf.deepvariant(VcfDeepvariantParams)`
+
+CLI: `wgsextract vcf deepvariant`.
+
+Call with DeepVariant; output role `variants`.
+
+`VcfDeepvariantParams`: Call small variants with DeepVariant into `deepvariant.vcf.gz`.
+
+The model follows `ont`, `pacbio`, `model_type` and `wes`, else the
+reads (ONT_R104 for ONT, ULTIMA for flow-tagged Ultima reads, else WGS).
+The CPU version runs in stages that a rerun resumes; `gpu` runs
+Parabricks in one step.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to call. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region(s) to call (e.g. chrM) or BED files of them, separated by spaces (commas with gpu). |
+| `wes` | `bool` | `False` | `--wes` | Set model type to WES (default: WGS) |
+| `model_type` | `str \| None` | `None` | `--model-type` | DeepVariant model type (default: ONT_R104 for detected ONT, ULTIMA for Ultima reads with their flow tags, else WGS). ONT_R104 supports R10.4.1 only and requires x86-64; Linux ARM64 supports WGS only. Use PACBIO for PacBio HiFi/CCS alignments. One of: `WGS`, `WES`, `PACBIO`, `HYBRID_PACBIO_ILLUMINA`, `ULTIMA`, `ONT_R104` |
+| `ont` | `bool` | `False` | `--ont` | Alias for --model-type ONT_R104 (R10.4.1 only; x86-64). |
+| `pacbio` | `bool` | `False` | `--pacbio` | Alias for --model-type PACBIO. |
+| `checkpoint` | `Path \| None` | `None` | `--checkpoint` | A custom model: its directory, or a checkpoint prefix. |
+| `batch_size` | `int \| None` | `None` | `--batch-size` | CPU inference batch size (upstream default: 1024). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch. |
+| `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README). |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+| `restart` | `bool` | `False` | `--force`, `--no-resume` | Rerun every step, ignoring the steps an earlier run completed. |
+| `force_steps` | `tuple[str, ...] \| None` | `None` | `--force-step` | Steps to rerun with the steps that use their outputs; None reruns none. Steps: stage_reads, make_examples, call_variants, postprocess_variants. One of: `stage_reads`, `make_examples`, `call_variants`, `postprocess_variants` |
+| `dry_run` | `bool` | `False` | `--dry-run` | Log which steps would run or be skipped, and why, and run none. |
+
+### `api.vcf.clair3(VcfClair3Params)`
+
+CLI: `wgsextract vcf clair3`.
+
+Call with Clair3; output role `variants`.
+
+`VcfClair3Params`: Call small variants in Nanopore reads with Clair3 into
+`clair3.vcf.gz`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM to call. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chr20:1-1000000) |
+| `model` | `str \| None` | `None` | `--model` | Clair3 model directory, or the name of a bundled model, matching the reads' basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config clair3_model; default: chosen from the basecaller metadata. |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ## `api.lineage`
 

@@ -25,9 +25,10 @@ from jsonschema import Draft202012Validator
 
 from tests.fake_tools import python_tool
 from tests.smoke_utils import ensure_fake_data, get_cli_command
+from wgsextract_cli.api._params import json_schema
 from wgsextract_cli.core import results
 from wgsextract_cli.core.config import get_config_path
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.server.http_api import Server
 from wgsextract_cli.server.jobs import JobManager
 from wgsextract_cli.server.operations import (
@@ -526,6 +527,151 @@ def test_path_guard_refuses_file_operands_in_expressions():
         with pytest.raises(RequestError, match="@FILE") as refused:
             guard.check(params_from_json(find("vcf/filter"), {**allowed, "expr": expr}))
         assert refused.value.code == "path_not_allowed"
+
+
+_CALLER_OPS = ("cnv", "sv", "freebayes", "gatk", "deepvariant", "clair3")
+_CALLER_PATHS = [
+    (f"vcf/{name}", item)
+    for name in _CALLER_OPS
+    for item in find(f"vcf/{name}").fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _CALLER_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _CALLER_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.bed", r"D:\evil.bed", r"\\host\share\evil.bed", r"sub\evil.bed"]
+)
+def test_path_guard_covers_every_caller_path(op, field, value):
+    # #346: the BAM/CRAM variant callers became server operations; each file
+    # they read or write (a DeepVariant region BED, a Clair3 model folder
+    # included) must be inside an allowed folder, drive-relative included.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_caller_paths_cover_every_file():
+    guarded = {(op, item.name) for op, item in _CALLER_PATHS}
+    assert {("vcf/deepvariant", "checkpoint"), ("vcf/deepvariant", "region"),
+            ("vcf/clair3", "model"), ("vcf/sv", "tandem_repeats"),
+            *((f"vcf/{name}", f) for name in _CALLER_OPS
+              for f in ("input", "ref", "outdir"))} <= guarded  # fmt: skip
+    # Region text and a bundled model's name aren't files, so they pass.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(
+        params_from_json(find("vcf/deepvariant"), {**allowed, "region": "chr20:1-9"})
+    )
+    guard.check(
+        params_from_json(
+            find("vcf/clair3"), {**allowed, "model": "r1041_e82_400bps_sup_v500"}
+        )
+    )
+
+
+# Each backend's region list: DeepVariant splits on whitespace, Parabricks
+# (deepvariant/gatk --gpu) and GATK on commas.
+_REGION_LISTS = [
+    ("vcf/deepvariant", {}, " "),
+    ("vcf/deepvariant", {"gpu": True}, ","),
+    ("vcf/gatk", {}, ","),
+]
+
+
+@pytest.mark.parametrize(("op", "extra", "sep"), _REGION_LISTS)
+def test_path_guard_checks_every_file_in_a_region_list(
+    op, extra, sep, tmp_path, monkeypatch
+):
+    # Review of PR #454: DeepVariant reads every whitespace-separated BED file
+    # in its region, and Parabricks every comma-separated one, but the guard
+    # checked the region as one path: an allowed BED hid an outside file, and
+    # a bare name after a region read the server's working folder.
+    allowed, outside = tmp_path / "allowed", tmp_path / "outside"
+    for folder in (allowed, outside):
+        folder.mkdir()
+        (folder / "a.bed").write_text("chr1\t0\t9\n")
+    monkeypatch.chdir(outside)
+    guard = PathGuard([allowed])
+    body = {"input": str(allowed / "a.bam"), "outdir": str(allowed), **extra}
+    inside = str(allowed / "a.bed")
+    for region in (f"{inside}{sep}chr1", f"chr1:1-9{sep}chr2"):
+        guard.check(params_from_json(find(op), {**body, "region": region}))
+    for region, code in (
+        (f"{inside}{sep}{outside / 'a.bed'}", "path_not_allowed"),
+        (f"chr1{sep}a.bed", "usage"),
+    ):
+        with pytest.raises(RequestError) as refused:
+            guard.check(params_from_json(find(op), {**body, "region": region}))
+        assert refused.value.code == code, region
+
+
+@pytest.mark.parametrize(
+    ("extra", "name"), [({}, "panel,2026"), ({"gpu": True}, "panel files")]
+)
+def test_path_guard_splits_a_region_list_as_its_backend_does(extra, name, tmp_path):
+    # Review of PR #454: a folder name with the other backend's delimiter is
+    # one allowed path, not a refused fragment.
+    bed = tmp_path / name / "targets.bed"
+    bed.parent.mkdir()
+    bed.write_text("chr1\t0\t9\n")
+    body = {"input": str(tmp_path / "a.bam"), "outdir": str(tmp_path), **extra}
+    PathGuard([tmp_path]).check(
+        params_from_json(find("vcf/deepvariant"), {**body, "region": str(bed)})
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra", "region"),
+    [
+        ({}, r"C:\data\a.bed D:\evil.bed"),
+        ({"gpu": True}, r"C:\data\a.bed,D:evil.bed"),
+        ({}, "chr1 D:evil.bed"),
+        ({}, "D:evil.bed"),
+        ({}, r"chr1 \\host\share\evil.bed"),
+        ({}, r"C:\data\a.bed sub\evil.bed"),
+    ],
+)
+def test_path_guard_checks_every_windows_file_in_a_region_list(extra, region):
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    body = {"input": r"C:\data\a.bam", "outdir": r"C:\data", **extra}
+    with pytest.raises(RequestError) as refused:
+        guard.check(
+            params_from_json(find("vcf/deepvariant"), {**body, "region": region})
+        )
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+@pytest.mark.parametrize(
+    "region", [r"C:\data\a.bed chr1", "X:1-100", "1:1-100 Y:5,000-", "X"]
+)
+def test_path_guard_reads_a_windows_interval_as_a_region(region):
+    # Review of PR #454: on Windows "X:1-100" has a drive, so it was refused
+    # as a drive-relative path.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    body = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(params_from_json(find("vcf/deepvariant"), {**body, "region": region}))
+
+
+@pytest.mark.parametrize("depth", [-1, float("nan")])
+def test_a_negative_or_nan_depth_is_refused(depth):
+    # Review of PR #454: --qc-min-depth refused them, the API didn't.
+    with pytest.raises(UsageError, match="at least 0"):
+        find("vcf/deepvariant").params(input=Path("a.bam"), qc_min_depth=depth)
+    if depth == -1:
+        with pytest.raises(RequestError):
+            params_from_json(
+                find("vcf/deepvariant"), {"input": "/a.bam", "qc_min_depth": depth}
+            )
+    schema = json_schema(find("vcf/deepvariant").params)
+    assert schema["properties"]["qc_min_depth"]["minimum"] == 0
 
 
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):

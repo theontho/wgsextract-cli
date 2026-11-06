@@ -48,6 +48,14 @@ def _bed_intervals(path: str) -> list[tuple[str, int, int]]:
     return rows
 
 
+def region_items(region: str, *, commas: bool) -> list[str]:
+    """The regions and BED files in a ``--region`` list: GATK and Parabricks
+    separate them with commas, DeepVariant on the CPU with whitespace."""
+    if commas:
+        return [item.strip() for item in region.split(",") if item.strip()]
+    return region.split()
+
+
 def selected_intervals(region: str, lengths: dict[str, int]) -> Intervals:
     """Union of whitespace-separated literals and BED/BED.gz/BEDPE files.
 
@@ -55,7 +63,7 @@ def selected_intervals(region: str, lengths: dict[str, int]) -> Intervals:
     clipped to the contig; raises ValueError when nothing remains.
     """
     intervals: Intervals = {}
-    for selection in region.split():
+    for selection in region_items(region, commas=False):
         if selection.lower().endswith((".bed", ".bed.gz", ".bedpe")):
             rows = _bed_intervals(selection)
         else:

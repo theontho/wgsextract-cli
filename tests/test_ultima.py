@@ -1,12 +1,15 @@
 """Ultima Genomics reads: detection, flow-tag orientation and the tooling chosen."""
 
+import dataclasses
 import platform
 import subprocess
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
 from tests.htslib_helpers import needs_tools, sam_to_bam
+from wgsextract_cli.api import VcfDeepvariantParams
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands._bam_ubam import read_group_from_name
 from wgsextract_cli.commands.vcf import deepvariant
@@ -176,10 +179,10 @@ def test_deepvariant_picks_the_ultima_model_and_image(monkeypatch):
     monkeypatch.setattr(
         ultima, "alignment_flow_data", lambda *_a: ultima.FlowData(True, True, True)
     )
-    args = Namespace(input="ug.bam", pacbio=False, model_type=None, wes=False)
-    assert deepvariant._model_type(args, "ref.fa") == "ULTIMA"
-    assert deepvariant._model_type(Namespace(**{**vars(args), "wes": True}),
-                                   "ref.fa") == "WES"  # fmt: skip
+    params = VcfDeepvariantParams(input=Path("ug.bam"))
+    assert deepvariant._model_type(params, "ref.fa") == "ULTIMA"
+    wes = dataclasses.replace(params, wes=True)
+    assert deepvariant._model_type(wes, "ref.fa") == "WES"
     assert deepvariant.deepvariant_image("ULTIMA") == "google/deepvariant:gh1100-ultima"
 
 

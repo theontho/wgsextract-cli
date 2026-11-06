@@ -105,7 +105,7 @@ def test_caller_applies_the_ploidy_file(sample, tmp_path):
 
 def test_caller_requires_input(tmp_path):
     with pytest.raises(WGSExtractError, match="--input is required"):
-        basic.get_base_args(argparse.Namespace(input=None))
+        run_wgsextract("vcf", "freebayes", "--outdir", str(tmp_path))
 
 
 @needs_htslib

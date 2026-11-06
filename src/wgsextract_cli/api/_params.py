@@ -41,7 +41,11 @@ class ParamSpec:
     otherwise only reads save files, unless they hold their ``safe_value``
     (default: the field's default); a read-only server leaves them out and
     uses that value. ``may_name_file`` text fields (a region) may instead
-    name a file; the server path-checks values written like a path.
+    name a file; the server path-checks values written like a path. A
+    ``splits`` one is a list, any item of which may name a file: ``splits``
+    is the function ``(params, text) -> items`` the command splits it with,
+    and the server checks every item. ``minimum`` is the least number a
+    numeric field (or each element of a tuple one) may hold.
     ``expression`` text fields are bcftools expressions, which read the file
     an ``@FILE`` operand names; the server refuses those.
     A ``positional`` field is a positional CLI argument named by ``metavar``;
@@ -66,6 +70,8 @@ class ParamSpec:
     writes: bool = False
     safe_value: Any = UNSET
     may_name_file: bool = False
+    splits: Callable[[Any, str], list[str]] | None = None
+    minimum: float | None = None
     expression: bool = False
     positional: bool = False
     group: tuple[str, str | None] | None = None
@@ -96,6 +102,8 @@ def param(
     writes: bool = False,
     safe_value: Any = UNSET,
     may_name_file: bool = False,
+    splits: Callable[[Any, str], list[str]] | None = None,
+    minimum: float | None = None,
     expression: bool = False,
     positional: bool = False,
     group: tuple[str, str | None] | None = None,
@@ -122,7 +130,9 @@ def param(
         local_only=local_only,
         writes=writes or safe_value is not UNSET,
         safe_value=safe_value,
-        may_name_file=may_name_file,
+        may_name_file=may_name_file or splits is not None,
+        splits=splits,
+        minimum=minimum,
         expression=expression,
         positional=positional,
         group=group,
@@ -212,6 +222,13 @@ class Params:
                 if not isinstance(value, (tuple, list)) or len(value) != length:
                     raise UsageError(f"{item.flags[0]} takes {length} values.")
                 object.__setattr__(self, item.name, tuple(value))
+            if item.spec.minimum is not None and value is not None:
+                for one in value if isinstance(value, tuple) else (value,):
+                    if isinstance(one, int | float) and not one >= item.spec.minimum:
+                        raise UsageError(
+                            f"{item.flags[0]} must be at least "
+                            f"{item.spec.minimum:g}, not {one!r}."
+                        )
             if item.spec.choices is not None and value is not None:
                 values = value if isinstance(value, tuple) else (value,)
                 for one in values:
@@ -370,6 +387,9 @@ def _type_schema(tp: Any, spec: ParamSpec) -> dict[str, Any]:
     if spec.choices is not None:
         target = schema["items"] if schema["type"] == "array" else schema
         target["enum"] = list(spec.choices)
+    if spec.minimum is not None:
+        target = schema["items"] if schema["type"] == "array" else schema
+        target["minimum"] = spec.minimum
     if nullable:
         schema["type"] = [schema["type"], "null"]
         if "enum" in schema:

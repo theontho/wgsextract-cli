@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import Literal, Protocol, TypeVar
 
 from wgsextract_cli.api._cli import cli_handler
 from wgsextract_cli.api._params import Params
@@ -178,19 +178,33 @@ def caller_setup(
     return CallerSetup(thread_count, outdir, resolved_ref, lib, platform)
 
 
-def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLibrary]:
-    """Resolve (threads, outdir, reference FASTA, library) for BAM/CRAM callers;
-    sets ``args.input_platform``."""
-    setup = caller_setup(
-        getattr(args, "input", None),
-        threads=getattr(args, "threads", None),
-        outdir=getattr(args, "outdir", None),
-        ref=getattr(args, "ref", None),
-        region=getattr(args, "region", None),
-        qc_min_depth=getattr(args, "qc_min_depth", None),
+class CallerParams(Protocol):
+    """The fields every BAM/CRAM caller's Params has."""
+
+    @property
+    def input(self) -> Path: ...
+    @property
+    def ref(self) -> Path | None: ...
+    @property
+    def outdir(self) -> Path | None: ...
+    @property
+    def threads(self) -> int | None: ...
+    @property
+    def region(self) -> str | None: ...
+    @property
+    def qc_min_depth(self) -> float | None: ...
+
+
+def setup_caller(params: CallerParams) -> CallerSetup:
+    """``caller_setup`` for a BAM/CRAM caller's Params."""
+    return caller_setup(
+        os.fspath(params.input),
+        threads=params.threads,
+        outdir=os.fspath(params.outdir) if params.outdir else None,
+        ref=os.fspath(params.ref) if params.ref else None,
+        region=params.region,
+        qc_min_depth=params.qc_min_depth,
     )
-    args.input_platform = setup.platform
-    return setup.threads, setup.outdir, setup.ref, setup.lib
 
 
 def _ploidy_args(args: argparse.Namespace, lib: ReferenceLibrary) -> list[str]:
@@ -264,14 +278,7 @@ def run_small_variants(params: VcfSnpParams | VcfIndelParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file = str(params.input)
-    setup = caller_setup(
-        input_file,
-        threads=params.threads,
-        outdir=str(params.outdir) if params.outdir else None,
-        ref=str(params.ref) if params.ref else None,
-        region=params.region,
-        qc_min_depth=params.qc_min_depth,
-    )
+    setup = setup_caller(params)
     threads, outdir, ref = setup.threads, setup.outdir, setup.ref
     preflight_resources(
         lambda: estimate_resources(

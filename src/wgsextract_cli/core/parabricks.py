@@ -25,6 +25,7 @@ from wgsextract_cli.core.containers import (
 )
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.native_support import require_native_tool
+from wgsextract_cli.core.region_selection import region_items
 from wgsextract_cli.core.utils import (
     MissingDependencyError,
     UsageError,
@@ -105,8 +106,7 @@ def call_variants(
     require_native_tool("parabricks")
     regions = [
         host_path(r) if Path(r).is_file() else r
-        for r in (r.strip() for r in (region or "").split(","))
-        if r
+        for r in region_items(region or "", commas=True)
     ]
     beds = [r for r in regions if Path(r).is_file()]
     intervals = [

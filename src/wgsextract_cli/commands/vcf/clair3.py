@@ -1,6 +1,5 @@
 """Clair3 small-variant calling for Oxford Nanopore reads (optional caller)."""
 
-import argparse
 import hashlib
 import json
 import logging
@@ -14,6 +13,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.vcf import VcfClair3Params
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.atomic_output import safe_output
 from wgsextract_cli.core.config import settings
@@ -31,7 +32,7 @@ from wgsextract_cli.core.ultima import read_groups
 from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
-from .basic import get_base_args, plain_reference, record_variants
+from .basic import plain_reference, record_variants, setup_caller
 from .callers import write_region_bed
 
 CLAIR3 = "run_clair3.sh"
@@ -282,11 +283,12 @@ def check_model_matches(model_name: str, detected: set[Chemistry]) -> None:
                 break
 
 
-def select_model(args: argparse.Namespace, header: str) -> Path:
-    """--model, then clair3_model in config.toml, then the basecaller metadata."""
+def select_model(choice: str | None, header: str) -> Path:
+    """``choice`` (--model), then clair3_model in config.toml, then the
+    basecaller metadata."""
     detected = basecaller_chemistries(header)
     bundled = bundled_models_dir()
-    value = getattr(args, "model", None) or settings.get("clair3_model")
+    value = choice or settings.get("clair3_model")
     if not value:
         names = {model_for_chemistry(chemistry) for chemistry in detected}
         if len(names) != 1 or None in names:
@@ -375,21 +377,24 @@ def _clair3_env() -> dict[str, str]:
     return env
 
 
-def cmd_clair3(args: argparse.Namespace) -> None:
+def run_clair3(params: VcfClair3Params) -> None:
+    """``vcf clair3``: Clair3 on Nanopore reads into ``clair3.vcf.gz``."""
     require_supported_platform()
     verify_dependencies([CLAIR3, "samtools", "bcftools", "tabix"])
     log_dependency_info([CLAIR3])
-    threads, outdir, ref, _lib = get_base_args(args)
-    detected = getattr(args, "input_platform", None)
+    setup = setup_caller(params)
+    threads, outdir, ref = setup.threads, setup.outdir, setup.ref
+    input_file, region = str(params.input), params.region
+    detected = setup.platform
     if detected not in (None, "ont"):
         raise WGSExtractError(
             f"The input looks like {detected} reads; `vcf clair3` calls Nanopore "
             "reads. Use `vcf deepvariant` for other platforms."
         )
-    header = get_bam_header(args.input, ref)
+    header = get_bam_header(input_file, ref)
     require_ont_read_groups(header)
-    sample = sample_name(header, args.input)
-    model = select_model(args, header)
+    sample = sample_name(header, input_file)
+    model = select_model(params.model, header)
 
     out_vcf = str(Path(outdir, "clair3.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_clair3"].format(output=out_vcf))
@@ -398,15 +403,15 @@ def cmd_clair3(args: argparse.Namespace) -> None:
         tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_clair3_") as work,
     ):
         bed = None
-        if args.region:
+        if region:
             bed = str(Path(work, "regions.bed"))
-            write_region_bed(args.region, read_fai_lengths(use_ref), bed)
+            write_region_bed(region, read_fai_lengths(use_ref), bed)
         output = str(Path(work, "clair3"))
         try:
             # stdin closed: Clair3's GNU parallel would read it otherwise.
             run_command(
                 clair3_command(
-                    args.input, use_ref, model, threads, output, bed, sample
+                    input_file, use_ref, model, threads, output, bed, sample
                 ),
                 env=_clair3_env(),
                 stdin=subprocess.DEVNULL,
@@ -419,4 +424,7 @@ def cmd_clair3(args: argparse.Namespace) -> None:
         with safe_output(out_vcf) as staged:
             run_command(["bcftools", "view", "-Oz", "-o", staged, str(merged)])
     ensure_vcf_indexed(out_vcf)
-    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, region))
+
+
+cmd_clair3 = cli_handler(VcfClair3Params, run_clair3)

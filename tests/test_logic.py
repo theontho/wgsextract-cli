@@ -11,6 +11,8 @@ from unittest.mock import patch
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
+from wgsextract_cli.api import VcfSvParams
+from wgsextract_cli.commands.vcf.basic import CallerSetup
 from wgsextract_cli.core.bwa_index import INDEX_SUFFIXES
 from wgsextract_cli.core.gene_map import GeneMap, resolve_gene_map_reflib
 from wgsextract_cli.core.genome_library import (
@@ -1021,13 +1023,12 @@ class TestCLILogic(unittest.TestCase):
             with open(path, "w") as f:
                 f.write("data")
 
-        args = Namespace(
-            input=bam_path,
-            outdir=self.test_dir,
-            ref=ref_path,
+        params = VcfSvParams(
+            input=Path(bam_path),
+            outdir=Path(self.test_dir),
+            ref=Path(ref_path),
             region="chr20",
             ccs=True,
-            tandem_repeats=None,
         )
         commands = []
 
@@ -1049,13 +1050,15 @@ class TestCLILogic(unittest.TestCase):
             patch.object(vcf, "get_tool_path", side_effect=lambda tool: tool),
             patch.object(
                 vcf,
-                "get_base_args",
-                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+                "setup_caller",
+                return_value=CallerSetup(
+                    "2", self.test_dir, ref_path, DummyReferenceLibrary(), None
+                ),
             ),
             patch.object(vcf, "run_command", side_effect=fake_run_command),
             patch.object(vcf, "ensure_vcf_indexed"),
         ):
-            vcf.cmd_sv_pbsv(args)
+            vcf.run_sv_pbsv(params)
 
         self.assertEqual(commands[0][:2], ["pbsv", "discover"])
         self.assertIn("--region", commands[0])
@@ -1074,13 +1077,11 @@ class TestCLILogic(unittest.TestCase):
         with gzip.open(ref_path, "wt") as f:
             f.write(">chr1\nACGT\n")
 
-        args = Namespace(
-            input=bam_path,
-            outdir=self.test_dir,
-            ref=ref_path,
-            region=None,
+        params = VcfSvParams(
+            input=Path(bam_path),
+            outdir=Path(self.test_dir),
+            ref=Path(ref_path),
             ccs=True,
-            tandem_repeats=None,
         )
         commands = []
 
@@ -1102,14 +1103,16 @@ class TestCLILogic(unittest.TestCase):
             patch.object(vcf, "get_tool_path", side_effect=lambda tool: tool),
             patch.object(
                 vcf,
-                "get_base_args",
-                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+                "setup_caller",
+                return_value=CallerSetup(
+                    "2", self.test_dir, ref_path, DummyReferenceLibrary(), None
+                ),
             ),
             patch.object(vcf, "run_command", side_effect=fake_run_command),
             patch("wgsextract_cli.commands.vcf.basic.run_command", fake_run_command),
             patch.object(vcf, "ensure_vcf_indexed"),
         ):
-            vcf.cmd_sv_pbsv(args)
+            vcf.run_sv_pbsv(params)
 
         # Decompressed into a temporary dir under outdir, indexed, then removed.
         plain_ref = commands[0][-1]
@@ -1128,24 +1131,24 @@ class TestCLILogic(unittest.TestCase):
     def test_pacbio_sv_falls_back_to_sniffles_when_pbsv_missing(self):
         from wgsextract_cli.commands.vcf import structural as vcf
 
-        args = Namespace(pacbio=True, caller=None, ccs=False)
+        params = VcfSvParams(input=Path("sample.bam"), pacbio=True)
 
         with (
             patch.object(vcf, "get_tool_path", return_value=None),
-            patch.object(vcf, "cmd_sv_sniffles") as cmd_sv_sniffles,
+            patch.object(vcf, "run_sv_sniffles") as run_sv_sniffles,
         ):
-            vcf.cmd_sv(args)
+            vcf.run_sv(params)
 
-        cmd_sv_sniffles.assert_called_once_with(args)
-        self.assertEqual(args.caller, "sniffles")
-        self.assertTrue(args.ccs)
+        (chosen,) = run_sv_sniffles.call_args.args
+        self.assertEqual(chosen.caller, "sniffles")
+        self.assertTrue(chosen.ccs)
 
     def test_pacbio_sv_rejects_explicit_delly(self):
         from wgsextract_cli.commands.vcf import structural as vcf
 
-        args = Namespace(pacbio=True, caller="delly", ccs=False)
-        with self.assertRaises(WGSExtractError):
-            vcf.cmd_sv(args)
+        params = VcfSvParams(input=Path("sample.bam"), pacbio=True, caller="delly")
+        with self.assertRaisesRegex(WGSExtractError, "cannot be combined"):
+            vcf.run_sv(params)
 
     def test_sniffles_sv_builds_command(self):
         from wgsextract_cli.commands.vcf import structural as vcf
@@ -1156,10 +1159,10 @@ class TestCLILogic(unittest.TestCase):
             with open(path, "w") as f:
                 f.write("data")
 
-        args = Namespace(
-            input=bam_path,
-            outdir=self.test_dir,
-            ref=ref_path,
+        params = VcfSvParams(
+            input=Path(bam_path),
+            outdir=Path(self.test_dir),
+            ref=Path(ref_path),
             region="chr20",
         )
         commands = []
@@ -1187,13 +1190,15 @@ class TestCLILogic(unittest.TestCase):
             patch.object(vcf, "get_tool_path", side_effect=lambda tool: tool),
             patch.object(
                 vcf,
-                "get_base_args",
-                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+                "setup_caller",
+                return_value=CallerSetup(
+                    "2", self.test_dir, ref_path, DummyReferenceLibrary(), None
+                ),
             ),
             patch.object(vcf, "run_command", side_effect=fake_run_command),
             patch.object(vcf, "ensure_vcf_indexed"),
         ):
-            vcf.cmd_sv_sniffles(args)
+            vcf.run_sv_sniffles(params)
 
         self.assertEqual(commands[0][:3], ["sniffles", "--input", bam_path])
         # Sniffles2 --regions takes a BED file, not a region string.

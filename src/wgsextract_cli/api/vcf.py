@@ -1,7 +1,9 @@
 """``vcf``: call variants, and annotate, filter, tabulate and analyse VCFs.
 
-``snp`` and ``indel`` call small variants from a BAM/CRAM with bcftools. The
-other operations read a VCF: ``vcf_input``, else ``input``. Their outputs go
+``snp`` and ``indel`` call small variants from a BAM/CRAM with bcftools;
+``freebayes``, ``gatk``, ``deepvariant`` and ``clair3`` with those tools, and
+``cnv`` and ``sv`` call copy-number and structural variants. The other
+operations read a VCF: ``vcf_input``, else ``input``. Their outputs go
 to ``outdir``, else beside that VCF. Annotators take their data file from the
 field, else config.toml, else the reference library (``ref``); see
 ``wgsextract ref`` to download it."""
@@ -23,10 +25,13 @@ from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
 from ._shared import (
     depth_param,
+    dry_run_param,
+    force_steps_param,
     input_param,
     optional_input_param,
     outdir_param,
     ref_param,
+    restart_param,
     threads_param,
 )
 
@@ -152,6 +157,19 @@ def _min_score_param(label: str, example: str) -> Any:
     )
 
 
+def _comma_items(params: Any, text: str) -> list[str]:
+    from wgsextract_cli.core.region_selection import region_items
+
+    return region_items(text, commas=True)
+
+
+def _deepvariant_items(params: Any, text: str) -> list[str]:
+    """Parabricks (``gpu``) splits on commas, DeepVariant on whitespace."""
+    from wgsextract_cli.core.region_selection import region_items
+
+    return region_items(text, commas=params.gpu)
+
+
 def _confidence_param(help: str, what: str) -> Any:
     from wgsextract_cli.core.variant_confidence import _non_negative
 
@@ -159,6 +177,7 @@ def _confidence_param(help: str, what: str) -> Any:
         None,
         help=help,
         cli_type=_non_negative,
+        minimum=0,
         metavar=("LOW", "HIGH"),
         doc=f"(LOW, HIGH): {what} below LOW labels a call low confidence, below "
         "HIGH moderate (default: config confidence_min_* and confidence_high_*).",
@@ -187,9 +206,6 @@ class _AnnotatorParams(_VcfFileParams):
 def _check_confidence(params: Any) -> None:
     from wgsextract_cli.core.variant_confidence import thresholds_from
 
-    for name in ("confidence_depth", "confidence_gq"):
-        if any(not v >= 0 for v in getattr(params, name) or ()):
-            raise UsageError(f"{name} must be non-negative numbers.")
     thresholds_from(params)  # LOW <= HIGH, before any work
 
 
@@ -845,3 +861,300 @@ __all__ = [
     "to_fasta",
     "trio",
 ]
+
+
+# The stages of a CPU DeepVariant run, and of its step journal.
+DEEPVARIANT_STEPS = (
+    "stage_reads",
+    "make_examples",
+    "call_variants",
+    "postprocess_variants",
+)
+DEEPVARIANT_MODELS = (
+    "WGS",
+    "WES",
+    "PACBIO",
+    "HYBRID_PACBIO_ILLUMINA",
+    "ULTIMA",
+    "ONT_R104",
+)
+SV_CALLERS = ("delly", "pbsv", "sniffles")
+
+
+@dataclass(frozen=True, kw_only=True)
+class _CallerParams(Params):
+    input: Path = input_param("BAM or CRAM to call.")
+    ref: Path | None = ref_param()
+    outdir: Path | None = outdir_param()
+    threads: int | None = threads_param()
+    region: str | None = _region_param()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VcfCnvParams(_CallerParams):
+    """Call copy-number variants with delly into ``cnv.vcf.gz``."""
+
+    COMMAND = "vcf cnv"
+
+    map: str | None = param(
+        None,
+        help="Deprecated and ignored: Delly 2 no longer uses mappability maps.",
+        flags=("-M", "--map"),
+    )
+    ploidy: int | None = param(None, help="Baseline ploidy for delly cnv (default: 2)")
+    qc_min_depth: float | None = depth_param()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VcfSvParams(_CallerParams):
+    """Call structural variants into ``sv.vcf.gz`` (delly), ``pbsv.vcf.gz``
+    or ``sniffles.vcf.gz``.
+
+    ``caller`` picks the tool; otherwise Sniffles for ONT input (detected or
+    ``ont``) and long reads, pbsv (else Sniffles) for ``pacbio``, else delly.
+    """
+
+    COMMAND = "vcf sv"
+
+    caller: str | None = param(
+        None,
+        help="SV caller to use (default: sniffles for detected ONT, else delly; "
+        "pbsv/sniffles with --pacbio; sniffles with --ont or --long-read). "
+        "pbsv is PacBio-only and is refused for ONT reads.",
+        choices=SV_CALLERS,
+    )
+    pacbio: bool = param(
+        False,
+        help="PacBio HiFi/CCS data: use pbsv (or sniffles if pbsv is missing) "
+        "with CCS thresholds.",
+        action="store_true",
+    )
+    ont: bool = param(
+        False,
+        help="Oxford Nanopore data: use Sniffles (detected ONT input selects it "
+        "automatically).",
+        action="store_true",
+    )
+    long_read: bool = param(
+        False,
+        help="Long-read data from any platform: use Sniffles unless --caller "
+        "selects pbsv for PacBio reads.",
+        action="store_true",
+    )
+    ccs: bool = param(
+        False,
+        help="Use pbsv CCS/HiFi thresholds when --caller pbsv is selected.",
+        action="store_true",
+    )
+    tandem_repeats: Path | None = param(
+        None,
+        help="Optional tandem-repeat BED for pbsv discover or Sniffles "
+        "(recommended for long-read SV calling).",
+        path="file",
+    )
+    qc_min_depth: float | None = depth_param()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VcfFreebayesParams(_CallerParams):
+    """Call small variants with FreeBayes into ``freebayes.vcf.gz``."""
+
+    COMMAND = "vcf freebayes"
+
+    region: str | None = _region_param(
+        "Chromosomal region (e.g. chrM, chrY:10000-20000)"
+    )
+    qc_min_depth: float | None = depth_param()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VcfGatkParams(_CallerParams):
+    """Call small variants with GATK HaplotypeCaller into ``gatk.vcf.gz``
+    (flow mode for Ultima reads), or with Parabricks on a GPU."""
+
+    COMMAND = "vcf gatk"
+
+    region: str | None = param(
+        None,
+        help="Chromosomal region (e.g. chrM)",
+        flags=("-r", "--region"),
+        doc="Comma-separated region(s) to call (e.g. chrM); with gpu, an item "
+        "may be a BED file of them.",
+        splits=_comma_items,
+    )
+    scatter: bool = param(
+        False,
+        help="Opt-in Ultima flow-mode interval scattering, bounded by --threads "
+        "and available RAM (6 GiB per worker, 4 GiB Java heap). "
+        "Can change genotypes/annotations away from interval boundaries; "
+        "default: one unscattered process.",
+        action="store_true",
+    )
+    gpu: bool = param(
+        False,
+        help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
+        action="store_true",
+    )
+    qc_min_depth: float | None = depth_param()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VcfDeepvariantParams(_CallerParams):
+    """Call small variants with DeepVariant into ``deepvariant.vcf.gz``.
+
+    The model follows ``ont``, ``pacbio``, ``model_type`` and ``wes``, else the
+    reads (ONT_R104 for ONT, ULTIMA for flow-tagged Ultima reads, else WGS).
+    The CPU version runs in stages that a rerun resumes; ``gpu`` runs
+    Parabricks in one step.
+    """
+
+    COMMAND = "vcf deepvariant"
+
+    region: str | None = param(
+        None,
+        help="Chromosomal region (e.g. chrM)",
+        flags=("-r", "--region"),
+        doc="Region(s) to call (e.g. chrM) or BED files of them, separated by "
+        "spaces (commas with gpu).",
+        splits=_deepvariant_items,
+    )
+    wes: bool = param(
+        False, help="Set model type to WES (default: WGS)", action="store_true"
+    )
+    model_type: str | None = param(
+        None,
+        help="DeepVariant model type (default: ONT_R104 for detected ONT, "
+        "ULTIMA for Ultima reads with their flow tags, else WGS). "
+        "ONT_R104 supports R10.4.1 only and requires x86-64; "
+        "Linux ARM64 supports WGS only. Use PACBIO for PacBio HiFi/CCS alignments.",
+        choices=DEEPVARIANT_MODELS,
+    )
+    ont: bool = param(
+        False,
+        help="Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).",
+        action="store_true",
+    )
+    pacbio: bool = param(
+        False, help="Alias for --model-type PACBIO.", action="store_true"
+    )
+    checkpoint: Path | None = param(
+        None,
+        help="Path to DeepVariant model checkpoint",
+        doc="A custom model: its directory, or a checkpoint prefix.",
+        path="file_or_directory",
+    )
+    batch_size: int | None = param(
+        None,
+        help="CPU inference batch size (upstream default: 1024). "
+        "Use 256 to lower TensorFlow peak RAM without changing models or precision; "
+        "--threads controls make_examples shards, not this batch.",
+    )
+    gpu: bool = param(
+        False,
+        help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
+        action="store_true",
+    )
+    qc_min_depth: float | None = depth_param()
+    restart: bool = restart_param()
+    force_steps: tuple[str, ...] | None = force_steps_param(DEEPVARIANT_STEPS)
+    dry_run: bool = dry_run_param()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VcfClair3Params(_CallerParams):
+    """Call small variants in Nanopore reads with Clair3 into
+    ``clair3.vcf.gz``."""
+
+    COMMAND = "vcf clair3"
+
+    region: str | None = _region_param("Chromosomal region (e.g. chr20:1-1000000)")
+    model: str | None = param(
+        None,
+        help="Clair3 model directory, or the name of a bundled model, matching the "
+        "reads' basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config "
+        "clair3_model; default: chosen from the basecaller metadata.",
+        metavar="NAME|DIR",
+        may_name_file=True,
+    )
+    qc_min_depth: float | None = depth_param()
+
+
+def cnv(
+    params: VcfCnvParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Call CNVs; output role ``copy_number_variants``."""
+    from wgsextract_cli.commands.vcf.structural import run_cnv
+
+    return execute(params, run_cnv, progress=progress, cancel=cancel, check=check)
+
+
+def sv(
+    params: VcfSvParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Call SVs; output role ``structural_variants``, and the ``caller``
+    metric names the tool chosen."""
+    from wgsextract_cli.commands.vcf.structural import run_sv
+
+    return execute(params, run_sv, progress=progress, cancel=cancel, check=check)
+
+
+def freebayes(
+    params: VcfFreebayesParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Call with FreeBayes; output role ``variants``."""
+    from wgsextract_cli.commands.vcf.callers import run_freebayes
+
+    return execute(params, run_freebayes, progress=progress, cancel=cancel, check=check)
+
+
+def gatk(
+    params: VcfGatkParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Call with GATK; output role ``variants``."""
+    from wgsextract_cli.commands.vcf.callers import run_gatk
+
+    return execute(params, run_gatk, progress=progress, cancel=cancel, check=check)
+
+
+def deepvariant(
+    params: VcfDeepvariantParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Call with DeepVariant; output role ``variants``."""
+    from wgsextract_cli.commands.vcf.deepvariant import run_deepvariant
+
+    return execute(
+        params, run_deepvariant, progress=progress, cancel=cancel, check=check
+    )
+
+
+def clair3(
+    params: VcfClair3Params,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Call with Clair3; output role ``variants``."""
+    from wgsextract_cli.commands.vcf.clair3 import run_clair3
+
+    return execute(params, run_clair3, progress=progress, cancel=cancel, check=check)
