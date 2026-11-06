@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import IO, TextIO
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._runtime import checkpoint
 from wgsextract_cli.api.repair import RepairFtdnaBamParams, RepairFtdnaVcfParams
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
-from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, json_mode
@@ -27,6 +28,9 @@ from wgsextract_cli.core.utils import (
 from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 from ._extract_helpers import cleanup_files
+
+# Records between cancellation checks in the stream copies.
+_CHECK_EVERY = 10_000
 
 
 def register(
@@ -77,7 +81,7 @@ def repair_vcf(args: argparse.Namespace) -> None:
 
 def repair_bam_file(params: RepairFtdnaBamParams) -> None:
     """Stream samtools view -h | repair | samtools view -b without temp SAM files."""
-    input_path = str(params.input)
+    input_path = expand_path(params.input)
     if not Path(input_path).is_file():
         raise WGSExtractError(f"Input BAM/CRAM does not exist: {input_path}")
     verify_dependencies(["samtools"])
@@ -87,7 +91,7 @@ def repair_bam_file(params: RepairFtdnaBamParams) -> None:
     cram_opt: list[str] = []
     if input_path.lower().endswith(".cram"):
         md5 = calculate_bam_md5(input_path, None)
-        ref_arg = str(params.ref) if params.ref else None
+        ref_arg = expand_path(params.ref) if params.ref else None
         ref = ReferenceLibrary(ref_arg, md5, input_path=input_path).fasta or ref_arg
         if not ref or not Path(ref).is_file():
             raise WGSExtractError(
@@ -147,11 +151,18 @@ def repair_bam_file(params: RepairFtdnaBamParams) -> None:
 
 
 def repair_vcf_file(params: RepairFtdnaVcfParams) -> None:
-    input_path = str(params.input)
+    input_path = expand_path(params.input)
     if not Path(input_path).is_file():
         raise WGSExtractError(f"Input VCF/BCF does not exist: {input_path}")
     output_path = _repair_output_path(params, ".vcf")
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with cleanup_files(on_failure=[output_path]):
+        counts = _repair_vcf_to(input_path, output_path)
+    _record_repair(output_path, "repaired_vcf", counts)
+    logging.info("Repaired FTDNA VCF written to %s", output_path)
+
+
+def _repair_vcf_to(input_path: str, output_path: str) -> tuple[int, int]:
     if input_path.lower().endswith(".bcf"):
         with tempfile.NamedTemporaryFile(
             mode="w+", suffix=".vcf", delete=False, encoding="utf-8"
@@ -166,7 +177,7 @@ def repair_vcf_file(params: RepairFtdnaVcfParams) -> None:
                     output_path, "w", encoding="utf-8", newline="\n"
                 ) as repaired_output,
             ):
-                counts = repair_vcf_stream(vcf_input, repaired_output)
+                return repair_vcf_stream(vcf_input, repaired_output)
         finally:
             try:
                 Path(tmp_path).unlink()
@@ -177,9 +188,7 @@ def repair_vcf_file(params: RepairFtdnaVcfParams) -> None:
             _open_text_variant_input(input_path) as vcf_input,
             open(output_path, "w", encoding="utf-8", newline="\n") as repaired_output,
         ):
-            counts = repair_vcf_stream(vcf_input, repaired_output)
-    _record_repair(output_path, "repaired_vcf", counts)
-    logging.info("Repaired FTDNA VCF written to %s", output_path)
+            return repair_vcf_stream(vcf_input, repaired_output)
 
 
 def _refuse_json_in_pipe_mode() -> None:
@@ -204,6 +213,8 @@ def repair_bam_stream(input_stream: TextIO, output_stream: TextIO) -> tuple[int,
             output_stream.write(line)
             continue
         records += 1
+        if not records % _CHECK_EVERY:
+            checkpoint()
         fields = line.rstrip("\n").split("\t")
         if fields and " " in fields[0]:
             fields[0] = fields[0].replace(" ", ":")
@@ -221,6 +232,8 @@ def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> tuple[int,
             output_stream.write(line)
             continue
         records += 1
+        if not records % _CHECK_EVERY:
+            checkpoint()
         fields = line.rstrip("\n").split("\t")
         if len(fields) > 6:
             cleaned = re.sub(r"[^A-Za-z0-9_.;-]", "", fields[6])
@@ -234,13 +247,14 @@ def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> tuple[int,
 def _repair_output_path(
     params: RepairFtdnaBamParams | RepairFtdnaVcfParams, extension: str
 ) -> str:
+    input_path = expand_path(params.input)
     if params.output:
-        output = str(absolute_path(str(params.output)))
+        output = str(absolute_path(expand_path(params.output)))
     else:
-        outdir = params.outdir or absolute_path(params.input).parent
-        name = f"{input_stem(str(params.input))}_repaired{extension}"
+        outdir = expand_path(params.outdir or absolute_path(input_path).parent)
+        name = f"{input_stem(input_path)}_repaired{extension}"
         output = str(absolute_path(Path(outdir, name)))
-    if Path(output).resolve() == Path(params.input).resolve():
+    if Path(output).resolve() == Path(input_path).resolve():
         raise WGSExtractError(f"Output {output} would overwrite the input.")
     return output
 
