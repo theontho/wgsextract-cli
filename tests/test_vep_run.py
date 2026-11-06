@@ -4,6 +4,9 @@ line and writes what VEP would (a bgzipped copy of its input, or a text table)."
 import json
 import os
 import shutil
+import sys
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +21,8 @@ from tests.htslib_helpers import (
     vcf_calls,
     write_fasta,
 )
+from wgsextract_cli import api
+from wgsextract_cli.api import VepRunParams
 from wgsextract_cli.core.utils import WGSExtractError
 
 pytestmark = needs_htslib
@@ -30,7 +35,7 @@ _HEADER = (
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
 )
 
-_FAKE_VEP = """import json, subprocess, sys
+_FAKE_VEP = """import json, subprocess, sys, time
 argv = sys.argv[1:]
 if "-i" not in argv:  # version probes
     sys.exit(0)
@@ -42,6 +47,7 @@ if "--compress_output" in argv:
 else:
     open(out, "w").write("#Uploaded_variation\\tLocation\\n")
 open(out + "_summary.html", "w").write("<html/>")
+time.sleep({sleep})
 sys.exit({exit_code})
 """
 
@@ -49,14 +55,18 @@ sys.exit({exit_code})
 @pytest.fixture
 def fake_vep(tmp_path, monkeypatch):
     """Install a fake `vep`; returns a function giving the logged command lines.
-    ``fake_vep.install(exit_code=..., dirname=...)`` reinstalls it."""
+    ``fake_vep.install(exit_code=..., dirname=..., sleep=...)`` reinstalls it;
+    with ``sleep`` it waits that many seconds after writing its outputs."""
     log = tmp_path / "vep_calls.jsonl"
 
-    def install(exit_code: int = 0, dirname: str = "fakebin") -> None:
+    def install(exit_code: int = 0, dirname: str = "fakebin", sleep: int = 0) -> None:
         bindir = tmp_path / dirname
         bindir.mkdir(exist_ok=True)
         source = _FAKE_VEP.format(
-            log=str(log), bcftools=shutil.which("bcftools"), exit_code=exit_code
+            log=str(log),
+            bcftools=shutil.which("bcftools"),
+            exit_code=exit_code,
+            sleep=sleep,
         )
         python_tool(bindir, "vep", source)
         monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
@@ -379,6 +389,21 @@ def test_bam_input_calls_variants_in_region_then_annotates(tmp_path, fake_vep):
     assert [(c[0], c[1], c[4]) for c in calls] == [("chr1", "301", "1")]
 
 
+def test_bam_input_is_called_with_the_ploidy_file(tmp_path, fake_vep):
+    fasta, bam = _bam_with_snps(tmp_path)
+    ploidy = tmp_path / "haploid.txt"
+    ploidy.write_text("* * * M 1\n* * * F 1\n")
+
+    api.vep.run(
+        VepRunParams(
+            input=Path(bam), ref=Path(fasta), ploidy_file=ploidy, vep_cache=tmp_path
+        )
+    )
+
+    calls = vcf_calls(tmp_path / "s_vep.vcf.gz")
+    assert [(c[1], c[4]) for c in calls] == [("101", "1"), ("301", "1")]
+
+
 def test_bam_without_reference_fails_without_running_vep(tmp_path, fake_vep):
     _, bam = _bam_with_snps(tmp_path)
     Path(tmp_path, "ref.fa").unlink()
@@ -388,18 +413,97 @@ def test_bam_without_reference_fails_without_running_vep(tmp_path, fake_vep):
     assert fake_vep() == []
 
 
+# --- typed API -------------------------------------------------------------------
+
+
+def test_api_run_reports_outputs_and_batch_metrics(tmp_path, fake_vep):
+    vcf = _vcf(tmp_path / "s.vcf.gz")
+
+    result = api.vep.run(
+        VepRunParams(input=Path(vcf), vep_cache=tmp_path, vep_assembly="GRCh37")
+    )
+
+    out = tmp_path / "s_vep.vcf.gz"
+    assert vcf_calls(out) == [("1", "10", "A", "G", "0/1")]
+    assert {(Path(o.path).name, o.role) for o in result.outputs} >= {
+        ("s_vep.vcf.gz", "vep_annotated"),
+        ("s_vep.vcf_summary.html", "vep_summary"),
+    }
+    assert result.metrics["succeeded"] == 1 and result.metrics["failed"] == 0
+    [cmd] = fake_vep()
+    assert _value(cmd, "--assembly") == "GRCh37"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="killing a .cmd fake leaves its Python running"
+)
+def test_cancelled_batch_stops_and_leaves_no_partial_output(tmp_path, fake_vep):
+    """#478: cancelling while VEP runs stops the batch (no 'input_failed' for
+    the killed run, no later inputs) and leaves no partial output."""
+    fake_vep.install(sleep=60)
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    _vcf(batch / "a.vcf.gz")
+    _vcf(batch / "b.vcf.gz")
+    token = api.CancelToken()
+
+    def cancel_once_vep_writes() -> None:
+        deadline = time.monotonic() + 30
+        while not list(batch.glob(".wgse_vep_*/vep.gz_summary.html")):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.05)
+        token.cancel()
+
+    watcher = threading.Thread(target=cancel_once_vep_writes)
+    watcher.start()
+    started = time.monotonic()
+    result = api.vep.run(
+        VepRunParams(input=batch, vep_cache=tmp_path), cancel=token, check=False
+    )
+    watcher.join()
+
+    assert (result.status, result.exit_code) == ("cancelled", 130)
+    assert time.monotonic() - started < 30
+    assert len(fake_vep()) == 1
+    assert "input_failed" not in {w.code for w in result.warnings}
+    assert sorted(p.name for p in batch.iterdir() if "vep" in p.name) == [
+        "vep.manifest.json"
+    ]
+
+
+def test_api_expands_home_in_every_path(tmp_path, fake_vep, monkeypatch):
+    """#478: `~` paths reach VEP expanded, with no literal `~` folder."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    _vcf(tmp_path / "s.vcf.gz")
+    (tmp_path / "cache").mkdir()
+
+    api.vep.run(
+        VepRunParams(
+            input=Path("~/s.vcf.gz"),
+            outdir=Path("~/annotated"),
+            vep_cache=Path("~/cache"),
+        )
+    )
+
+    assert vcf_calls(tmp_path / "annotated" / "s_vep.vcf.gz")
+    [cmd] = fake_vep()
+    assert _value(cmd, "--dir_cache") == str(tmp_path / "cache")
+    assert "--offline" in cmd
+    assert not (tmp_path / "~").exists()
+
+
 # --- assembly and FASTA choice ---------------------------------------------------
 
 
 def _command(lib, **overrides):
     from wgsextract_cli.commands._vep_run import _build_vep_command
 
-    args = SimpleNamespace(
-        format="vcf", vep_assembly=None, vep_cache="/no/such/cache",
-        vep_cache_version="116", vep_args=None, preset="everything",
-    )  # fmt: skip
-    vars(args).update(overrides)
-    return _build_vep_command(args, "in.vcf.gz", "out.vcf", "snp-indel", lib, "2")
+    fields = {"input": Path("in.vcf.gz"), "vep_cache": Path("/no/such/cache")}
+    params = VepRunParams(**{**fields, **overrides})
+    return _build_vep_command(params, "in.vcf.gz", "out.vcf", "snp-indel", lib, "2")
 
 
 @pytest.mark.parametrize(
