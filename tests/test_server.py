@@ -401,6 +401,21 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
         # PR #442 review: with no input or outdir it saved into the server's
         # working folder.
         ("qc/fake-data", {}, 400, "usage"),
+        # #346: comprehensive saves into the working folder without outdir.
+        ("analyze/comprehensive", {"input": "{work}/a.bam"}, 400, "usage"),
+        (
+            "analyze/comprehensive",
+            {"batch": "{work}/b.csv", "outdir": "{work}"},
+            400,
+            "usage",
+        ),
+        ("analyze/batch-gen", {"directory": "{work}"}, 400, "usage"),
+        (
+            "pet-align",
+            {"r1": "{outside}/r1.fq", "species": "dog", "outdir": "{work}"},
+            403,
+            "path_not_allowed",
+        ),
         ("nope", {}, 404, "unknown_op"),
         # PR #422 review: these were 500 "internal" errors, or jobs with
         # values the schema forbids.
@@ -579,6 +594,22 @@ _REF_PATHS = [
 ]
 
 
+_PET_ANALYZE_REQUESTS = {
+    "pet-align": {"r1": r"C:\data\r1.fq", "species": "dog"},
+    "analyze/comprehensive": {"input": _IN},
+    "analyze/batch-gen": {
+        "directory": r"C:\data",
+        "output": r"C:\data\batch.csv",
+    },
+}
+_PET_ANALYZE_PATHS = [
+    (op, item)
+    for op in _PET_ANALYZE_REQUESTS
+    for item in find(op).fields()
+    if item.spec.path and not item.spec.local_only
+]
+
+
 def test_server_offers_no_ref_command_that_fetches_a_url_or_saves_config():
     # #346: ref download fetches any URL and ref bootstrap saves config.toml.
     ref_ops = {name for name in operations() if name.startswith("ref/")}
@@ -680,6 +711,39 @@ def test_ref_library_requests_must_name_a_genome():
     with pytest.raises(RequestError, match="ref library --list") as refused:
         params_from_json(find("ref/library"), {})
     assert refused.value.code == "usage"
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _PET_ANALYZE_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _PET_ANALYZE_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.fq", r"D:\evil.fq", r"\\host\share\evil.fq", "evil.fq"]
+)
+def test_path_guard_covers_every_pet_and_analyze_path(op, field, value):
+    # #346: pet-align and analyze became server operations; each file they
+    # read or write must be inside an allowed folder, drive-relative included.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {**_PET_ANALYZE_REQUESTS[op], "outdir": r"C:\data"}
+    if "outdir" not in {f.name for f in find(op).fields()}:
+        del allowed["outdir"]
+    guard.check(params_from_json(find(op), allowed))
+    item = next(f for f in find(op).fields() if f.name == field)
+    bad = [value] if typing.get_origin(item.base_type) is tuple else value
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: bad}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_pet_and_analyze_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _PET_ANALYZE_PATHS} == {
+        ("pet-align", "r1"), ("pet-align", "r2"), ("pet-align", "ref"),
+        ("pet-align", "outdir"), ("analyze/comprehensive", "vcf_inputs"),
+        ("analyze/comprehensive", "input"), ("analyze/comprehensive", "ref"),
+        ("analyze/comprehensive", "outdir"), ("analyze/batch-gen", "directory"),
+        ("analyze/batch-gen", "output"),
+    }  # fmt: skip
 
 
 def test_vcf_paths_cover_every_resource():

@@ -4,6 +4,7 @@ that turns parsed arguments back into Params."""
 from __future__ import annotations
 
 import argparse
+import os
 import typing
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -56,6 +57,8 @@ def add_arguments(
             kwargs["default"] = None if item.default is None else list(item.default)
         elif config_defaults and spec.config_key:
             kwargs["default"] = settings.get(spec.config_key, item.default)
+        elif isinstance(item.default, os.PathLike):
+            kwargs["default"] = os.fspath(item.default)
         else:
             kwargs["default"] = item.default
         if spec.action == "store_true":
@@ -66,6 +69,8 @@ def add_arguments(
             kwargs["action"] = argparse.BooleanOptionalAction
         if item.tuple_length is not None:
             kwargs["nargs"] = item.tuple_length
+        elif spec.action == "store" and typing.get_origin(item.base_type) is tuple:
+            kwargs["nargs"] = "+"
         if spec.action in ("store", "append"):
             value_type = spec.cli_type or _value_type(_element_type(item.base_type))
             if value_type is not None:

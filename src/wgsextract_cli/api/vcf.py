@@ -24,6 +24,9 @@ from wgsextract_cli.core.utils import UsageError
 from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
 from ._shared import (
+    check_confidence,
+    confidence_depth_param,
+    confidence_gq_param,
     depth_param,
     dry_run_param,
     force_steps_param,
@@ -123,16 +126,6 @@ def indel(
 # How ``to_fasta`` applies genotypes (``bcftools consensus`` options).
 HAPLOTYPES = ("iupac", "alt", "1", "2")
 _OVERRIDE_HELP = "Optional override for VCF input file."
-_CONFIDENCE_DEPTH_HELP = (
-    "Read depth below LOW labels a call low confidence, below HIGH "
-    "moderate (default: config confidence_min_depth 10, "
-    "confidence_high_depth 20; halved for haploid calls)"
-)
-_CONFIDENCE_GQ_HELP = (
-    "Genotype quality below LOW labels a call low confidence, below "
-    "HIGH moderate (default: config confidence_min_gq 20, "
-    "confidence_high_gq 30)"
-)
 
 
 def _vcf_input_param(help: str = _OVERRIDE_HELP) -> Any:
@@ -170,20 +163,6 @@ def _deepvariant_items(params: Any, text: str) -> list[str]:
     return region_items(text, commas=params.gpu)
 
 
-def _confidence_param(help: str, what: str) -> Any:
-    from wgsextract_cli.core.variant_confidence import _non_negative
-
-    return param(
-        None,
-        help=help,
-        cli_type=_non_negative,
-        minimum=0,
-        metavar=("LOW", "HIGH"),
-        doc=f"(LOW, HIGH): {what} below LOW labels a call low confidence, below "
-        "HIGH moderate (default: config confidence_min_* and confidence_high_*).",
-    )
-
-
 def _region_param(help: str = "Chromosomal region") -> Any:
     return param(None, help=help, flags=("-r", "--region"))
 
@@ -201,12 +180,6 @@ class _VcfFileParams(Params):
 class _AnnotatorParams(_VcfFileParams):
     ref: Path | None = ref_param()
     threads: int | None = threads_param()
-
-
-def _check_confidence(params: Any) -> None:
-    from wgsextract_cli.core.variant_confidence import thresholds_from
-
-    thresholds_from(params)  # LOW <= HIGH, before any work
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -388,16 +361,12 @@ class VcfClinvarParams(_AnnotatorParams):
     clinvar_file: Path | None = _resource_param(
         "Path to ClinVar VCF data file.", "clinvar_vcf_path"
     )
-    confidence_depth: tuple[float, float] | None = _confidence_param(
-        _CONFIDENCE_DEPTH_HELP, "read depth"
-    )
-    confidence_gq: tuple[float, float] | None = _confidence_param(
-        _CONFIDENCE_GQ_HELP, "genotype quality"
-    )
+    confidence_depth: tuple[float, float] | None = confidence_depth_param()
+    confidence_gq: tuple[float, float] | None = confidence_gq_param()
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        _check_confidence(self)
+        check_confidence(self)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -472,16 +441,12 @@ class VcfGnomadParams(_AnnotatorParams):
         doc="Also write the calls rarer than this gnomAD allele frequency "
         "(or absent from gnomAD), with confidence labels.",
     )
-    confidence_depth: tuple[float, float] | None = _confidence_param(
-        _CONFIDENCE_DEPTH_HELP, "read depth"
-    )
-    confidence_gq: tuple[float, float] | None = _confidence_param(
-        _CONFIDENCE_GQ_HELP, "genotype quality"
-    )
+    confidence_depth: tuple[float, float] | None = confidence_depth_param()
+    confidence_gq: tuple[float, float] | None = confidence_gq_param()
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        _check_confidence(self)
+        check_confidence(self)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -551,16 +516,12 @@ class VcfPharmcatParams(_VcfFileParams):
         path="file",
         action="append",
     )
-    confidence_depth: tuple[float, float] | None = _confidence_param(
-        _CONFIDENCE_DEPTH_HELP, "read depth"
-    )
-    confidence_gq: tuple[float, float] | None = _confidence_param(
-        _CONFIDENCE_GQ_HELP, "genotype quality"
-    )
+    confidence_depth: tuple[float, float] | None = confidence_depth_param()
+    confidence_gq: tuple[float, float] | None = confidence_gq_param()
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        _check_confidence(self)
+        check_confidence(self)
 
 
 @dataclass(frozen=True, kw_only=True)

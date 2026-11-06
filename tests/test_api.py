@@ -484,6 +484,33 @@ def test_align_then_realign_to_renamed_contigs(tmp_path):
     assert dry.status == "ok" and out.stat().st_mtime_ns == before
 
 
+def test_analyze_batch_gen_then_a_quiet_dry_run_of_the_batch(
+    fake_data, tmp_path, capfd
+):
+    _bam, ref = fake_data
+    scan = tmp_path / "scan"
+    scan.mkdir()
+    for name, copy in (("fake.cram", "ann.cram"), ("fake.vcf.gz", "ann_snp.vcf.gz")):
+        for suffix in ("", ".crai" if name.endswith("cram") else ".tbi"):
+            shutil.copy(FAKE_DIR / f"{name}{suffix}", scan / f"{copy}{suffix}")
+    batch = tmp_path / "batch.csv"
+
+    made = api.analyze.batch_gen(
+        api.AnalyzeBatchGenParams(directory=scan, output=batch)
+    )
+    assert _output(made, "batch_file") == batch and made.metrics["samples"] == 1
+    params = api.AnalyzeComprehensiveParams(
+        batch=batch, ref=ref, outdir=tmp_path / "out", dry_run=True
+    )
+    result = api.analyze.comprehensive(params)
+
+    assert_valid(result)
+    assert (result.metrics["samples"], result.metrics["failed_samples"]) == (1, 0)
+    assert not list((tmp_path / "out" / "ann").iterdir())  # a dry run saves nothing
+    # The workflow's stage lines were printed on the API caller's stdout.
+    assert capfd.readouterr().out == ""
+
+
 def _output(result: api.Result, role: str) -> Path:
     return Path(next(o.path for o in result.outputs if o.role == role))
 

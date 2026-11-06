@@ -29,7 +29,6 @@ while a killed run's tagged tools or containers are alive.
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import hashlib
 import json
@@ -83,27 +82,6 @@ def force_step_help(steps: Sequence[str]) -> str:
         "Rerun STEP and the steps that use its outputs (repeatable). "
         f"Steps: {', '.join(steps)}."
     )
-
-
-def add_resume_arguments(parser: argparse.ArgumentParser, steps: Sequence[str]) -> None:
-    """The --force, --force-step and --dry-run options of a step workflow."""
-    group = parser.add_argument_group(*RESUME_GROUP)
-    group.add_argument(
-        "--force",
-        "--no-resume",
-        dest="restart",
-        action="store_true",
-        help=RESTART_HELP,
-    )
-    group.add_argument(
-        "--force-step",
-        dest="force_steps",
-        action="append",
-        choices=list(steps),
-        metavar="STEP",
-        help=force_step_help(steps),
-    )
-    group.add_argument("--dry-run", action="store_true", help=DRY_RUN_HELP)
 
 
 def resume_policy(args: object) -> ResumePolicy:

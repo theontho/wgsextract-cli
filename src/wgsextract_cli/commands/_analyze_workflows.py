@@ -17,7 +17,7 @@ from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.haplogrep_trees import configured_tree_spec
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.results import Scalar, current_result, warn
+from wgsextract_cli.core.results import Scalar, current_result, human_output, warn
 from wgsextract_cli.core.steps import Decision, Step, StepJournal, StepRun
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -40,7 +40,7 @@ def _safe_console_text(value: object) -> str:
 
 
 def _print(value: object = "") -> None:
-    print(_safe_console_text(value))
+    human_output(_safe_console_text(value))
 
 
 class AnalyzeResult(TypedDict):
@@ -52,9 +52,6 @@ class AnalyzeResult(TypedDict):
 
 # Step names for --force-step. annotate and discovery run once per VCF, as
 # "annotate:<type>_<name>"; forcing the family forces each of them.
-STEPS = (
-    "info", "mt-haplogroup", "y-haplogroup", "snp", "indel", "annotate", "discovery",
-)  # fmt: skip
 JOURNAL = "analyze.steps.json"
 
 # The step running now: its subcommands' result documents add the files they
