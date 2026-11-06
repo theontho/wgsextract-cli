@@ -70,6 +70,9 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `low_coverage` | `info --detailed`, variant calling, lineage, `microarray`, `methylation` | Depth is below a threshold (`depth`, `threshold`). |
 | `sex_unknown` | `info --detailed`, `typing repeats` | The sex could not be inferred from X/Y coverage. |
 | `long_reads` | `info --detailed` | Long-read data; the short-read tools give poor results. |
+| `short_read_n50` | `info` | Long reads' N50 is under 3 kb, which suggests degraded DNA or a failed library (`read_n50`, `exact`, `threshold`). |
+| `low_mapped_read_fraction` | `info --detailed` | Under 95% of long reads map: contamination, a failed library or the wrong reference (`mapped_read_pct`, `threshold`). |
+| `mapped_read_fraction_unavailable` | `info --detailed` | Long reads' mapped percentage could not be estimated: no read starts in the sampled windows (a small targeted file). |
 | `alt_unaware`, `duplicates_unmarked` | `info`, `vcf snp`/`indel`, `microarray` | The alignment has ALT contigs without ALT-aware mapping, or its duplicates are not marked. |
 | `high_homozygosity`, `low_homozygosity`, `high_no_call_rate` | `microarray` | Genotype statistics outside the expected range. |
 | `alignment_memory` | `align`, `realign` | minimap2 is estimated to need more RAM than is available (`aligner`, `estimated_gib`, `available_gib`, and `suggested_threads`/`suggested_memory` that fit, or `null`). The run continues. |

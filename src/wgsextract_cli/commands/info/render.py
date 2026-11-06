@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import logging
+import math
 import re
 import subprocess
 import tempfile
@@ -39,6 +40,29 @@ def _health_lines(health: Mapping[str, Any]) -> list[str]:
             f"{'ALT-aware Mapping':<28}No: reads in ALT-covered regions (HLA among "
             "them) are lost; realign recovers them"
         )
+    return lines
+
+
+def _read_length_lines(lengths: Mapping[str, Any] | None, detailed: bool) -> list[str]:
+    """Long reads' N50, mapped fraction and (detailed) length histogram."""
+    if not lengths:
+        return []
+    lines = [f"{'Read N50':<28}{lengths['read_n50']:,} bp, {lengths['method']}"]
+    if lengths.get("mapped_read_pct") is not None:
+        lines.append(
+            f"{'Mapped Reads':<28}{lengths['mapped_read_pct']:.1f} % of reads, "
+            f"{lengths['mapped_read_method']}"
+        )
+    elif lengths.get("mapped_read_method"):
+        lines.append(f"{'Mapped Reads':<28}{lengths['mapped_read_method']}")
+    if detailed:
+        lines.append(f"{'Read Lengths':<28}{'reads':>8}{'bases':>8}")
+        for row in lengths["length_histogram"]:
+            low, high = row["min_bp"] / 1000, row["max_bp"]
+            label = f"{low:g}-{high / 1000:g} kb" if high else f">= {low:g} kb"
+            lines.append(
+                f"  {label:<26}{row['reads_pct']:>7.1f}%{row['bases_pct']:>7.1f}%"
+            )
     return lines
 
 
@@ -113,6 +137,7 @@ def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
         output_lines.append(
             f"{LOG_MESSAGES['info_avg_insert_size']:<28}{data.get('avg_insert_size', 0):.0f} bp (SD={data.get('std_insert_size', 0):.0f} bp)"
         )
+        output_lines.extend(_read_length_lines(data.get("read_lengths"), detailed))
     else:
         output_lines.append(
             f"{LOG_MESSAGES['info_avg_read_len']:<28}{LOG_MESSAGES['info_could_not_compute']}"
@@ -178,6 +203,9 @@ def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
             "  Bio Gender      - Predicted biological sex based on X/Y ratio.",
             "  Avg Read Length - Mean base pairs per read (SD = standard deviation).",
             "  Avg Insert Size - Mean distance between pairs (inner + reads).",
+            "  Read N50        - Long reads: half the bases are in reads at least",
+            "                    this long (from the first 20,000 records).",
+            "  Mapped Reads    - Long reads: % of reads (not records) that map.",
             "  File Content    - Auto (Autosomes), X/Y, Mito, Other (Alts), Unmap.",
             "  Sequencer       - Identified sequencing platform based on read IDs.",
             "  File Stats      - Binary status (Sorted/Indexed) and file size.",
@@ -189,6 +217,13 @@ def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
 
 
 SAMPLE_WINDOW_BP = 1000
+# Wider windows for counting the records that start in them: long reads start
+# about once per read length, and decoding costs the same either way.
+MAPPING_WINDOW_BP = 10_000
+# Mapping windows on one contig are at least this far apart (see
+# sampled_primary_share); human chromosomes' are about 3 Mb apart anyway.
+MAPPING_WINDOW_GAP_BP = 1_000_000
+MAPPING_UNAVAILABLE = "not estimated: no read starts in the sampled windows"
 SAMPLE_WINDOW_BUDGET = 1000
 SAMPLE_MIN_WINDOWS_PER_CONTIG = 10
 # Smaller contigs (unplaced, alt, decoy) share one sample of at least this many
@@ -208,6 +243,12 @@ def _cram_reference_opts(input_p: str, ref_p: str | None) -> list[str]:
     if input_p.lower().endswith(".cram") and ref_p and Path(ref_p).is_file():
         return ["--reference", ref_p]
     return []
+
+
+def _input_reference_opts(input_p: str, ref_p: str | None) -> list[str]:
+    """The CRAM reference for tools without --reference, such as flagstat."""
+    opts = _cram_reference_opts(input_p, ref_p)
+    return ["--input-fmt-option", f"reference={opts[1]}"] if opts else []
 
 
 def _is_fresh_output(path: str, input_p: str) -> bool:
@@ -346,7 +387,9 @@ def _resolve_sample_targets(
 
 
 def _sample_windows(
-    targets: Sequence[tuple[str, int, int]], budget: int = SAMPLE_WINDOW_BUDGET
+    targets: Sequence[tuple[str, int, int]],
+    budget: int = SAMPLE_WINDOW_BUDGET,
+    window_bp: int = SAMPLE_WINDOW_BP,
 ) -> list[tuple[str, int, int]]:
     """About `budget` evenly spaced, non-overlapping windows (0-based
     half-open, BED style).
@@ -358,7 +401,7 @@ def _sample_windows(
     windows = []
     for name, start, end in targets:
         span = end - start + 1
-        width = min(SAMPLE_WINDOW_BP, span)
+        width = min(window_bp, span)
         count = max(
             SAMPLE_MIN_WINDOWS_PER_CONTIG,
             round(budget * span / total_len),
@@ -427,7 +470,7 @@ def _window_depths(
 
 
 def _pooled_windows(
-    contigs: Sequence[tuple[str, int]], count: int
+    contigs: Sequence[tuple[str, int]], count: int, window_bp: int = SAMPLE_WINDOW_BP
 ) -> list[tuple[str, int, int]]:
     """About `count` windows evenly spaced along `contigs` laid end to end, so
     thousands of small contigs share one length-weighted sample."""
@@ -437,7 +480,7 @@ def _pooled_windows(
     offset, i = 0, 0
     for name, length in contigs:
         while (pos := int((i + 0.5) * spacing)) < offset + length:
-            width = min(SAMPLE_WINDOW_BP, length)
+            width = min(window_bp, length)
             start = min(max(pos - offset - width // 2, 0), length - width)
             if windows and windows[-1][0] == name and windows[-1][2] >= start:
                 # Merged, so no base is sampled twice.
@@ -446,6 +489,39 @@ def _pooled_windows(
                 windows.append((name, start, start + width))
             i += 1
         offset += length
+    return windows
+
+
+def _contigs_with_reads(
+    idx_stats: Sequence[IdxStat],
+) -> tuple[list[tuple[str, int, int]], list[tuple[str, int]]]:
+    """Contigs with mapped reads: those sampled on their own (chromosomes and
+    contigs of 1 Mb or more), and the smaller ones that share a pooled sample."""
+    with_reads = [s for s in idx_stats if s["mapped"] and s["length"] > 0]
+    own = [
+        (s["name"], 1, s["length"])
+        for s in with_reads
+        if is_primary_contig(s["name"])
+        or contig_key(s["name"]) == "M"
+        or s["length"] >= POOLED_CONTIG_BP
+    ]
+    named = {name for name, _s, _e in own}
+    pooled = [(s["name"], s["length"]) for s in with_reads if s["name"] not in named]
+    return own, pooled
+
+
+def _contig_windows(
+    own: Sequence[tuple[str, int, int]],
+    pooled: Sequence[tuple[str, int]],
+    window_bp: int,
+) -> list[tuple[str, int, int]]:
+    windows = _sample_windows(own, window_bp=window_bp) if own else []
+    pool_bp = sum(length for _name, length in pooled)
+    if pooled:
+        share = SAMPLE_WINDOW_BUDGET * pool_bp / (pool_bp + sum(e for *_, e in own))
+        windows += _pooled_windows(
+            pooled, max(POOLED_MIN_WINDOWS, round(share)), window_bp
+        )
     return windows
 
 
@@ -464,23 +540,10 @@ def sampled_mapped_bases(
     Long reads need this: a supplementary or secondary record carries the
     whole read (soft-clipped) but aligns only part of it, so records x read
     length overstates their depth, most on repetitive contigs like chrY."""
-    with_reads = [s for s in idx_stats if s["mapped"] and s["length"] > 0]
-    own = [
-        (s["name"], 1, s["length"])
-        for s in with_reads
-        if is_primary_contig(s["name"])
-        or contig_key(s["name"]) == "M"
-        or s["length"] >= POOLED_CONTIG_BP
-    ]
-    named = {name for name, _s, _e in own}
-    pooled = [(s["name"], s["length"]) for s in with_reads if s["name"] not in named]
+    own, pooled = _contigs_with_reads(idx_stats)
     if not own and not pooled:
         return {}
-    windows = _sample_windows(own) if own else []
-    pool_bp = sum(length for _name, length in pooled)
-    if pooled:
-        share = SAMPLE_WINDOW_BUDGET * pool_bp / (pool_bp + sum(e for *_, e in own))
-        windows += _pooled_windows(pooled, max(POOLED_MIN_WINDOWS, round(share)))
+    windows = _contig_windows(own, pooled, SAMPLE_WINDOW_BP)
     logging.info(f"Estimating mean depth from {len(windows)} sampled windows...")
     sampled = _sampled_bp([*own, *((n, 1, length) for n, length in pooled)], windows)
     depths = _window_depths(input_p, ref_p, windows, temp_parent)
@@ -495,6 +558,160 @@ def sampled_mapped_bases(
         mean = pool_depth / pool_sampled
         found.update((name, mean * length) for name, length in pooled)
     return found
+
+
+# A CRAM need only decode FLAG, RNAME, POS and CIGAR to count records: 4x
+# faster on a 30x ONT genome than decoding whole records.
+_COUNT_FIELDS = ["--input-fmt-option", "required_fields=0x2E"]
+
+
+def _flagstat_counts(
+    cmds: list[list[str]], names: Sequence[str], tmp: str, description: str
+) -> dict[str, int]:
+    """``names``' counts from a pipeline ending in ``samtools flagstat -O tsv``,
+    QC-passed and QC-failed records together (as idxstats counts them)."""
+    stats_p = Path(tmp, "flagstat.tsv")
+    with open(stats_p, "wb") as out:
+        run_pipeline(cmds, stdout=out, description=description)
+    # The TSV also has percentage lines ("100.00%"), hence picking by name.
+    return {
+        name: int(passed) + int(failed)
+        for passed, failed, name in (
+            line.split("\t", 2) for line in stats_p.read_text().splitlines()
+        )
+        if name in names
+    }
+
+
+def _mapped_and_primary(
+    input_p: str, ref_p: str | None, bed_p: str, tmp: str
+) -> tuple[int, int]:
+    """Mapped and primary mapped records overlapping the BED's regions, each
+    record counted once however many regions it overlaps."""
+    counts = _flagstat_counts(
+        [
+            ["samtools", "view", "-u", "-M", "-L", bed_p, *_COUNT_FIELDS,
+             *_cram_reference_opts(input_p, ref_p), input_p],
+            ["samtools", "flagstat", "-O", "tsv", "-"],
+        ],
+        ("mapped", "primary mapped"),
+        tmp,
+        "Sampled mapping counts",
+    )  # fmt: skip
+    return counts["mapped"], counts["primary mapped"]
+
+
+def _spaced_windows(
+    windows: Sequence[tuple[str, int, int]], gap: int
+) -> list[tuple[str, int, int]]:
+    """``windows`` (in order along each contig) thinned to at least ``gap``
+    apart, so no record shorter than that spans from one into the next."""
+    kept: list[tuple[str, int, int]] = []
+    for window in windows:
+        if not kept or kept[-1][0] != window[0] or window[1] - kept[-1][2] >= gap:
+            kept.append(window)
+    return kept
+
+
+def _mapping_strata(
+    windows: Sequence[tuple[str, int, int]],
+    own: Sequence[tuple[str, int, int]],
+    pooled: Sequence[tuple[str, int]],
+) -> list[tuple[list[tuple[str, int, int]], float]]:
+    """The windows grouped by how densely they sample their contig (chrM's
+    one window covers most of it, a chromosome's a fraction of a percent),
+    each group with the inverse of its sampled fraction. The pooled small
+    contigs count as one. A record starting on a window's first base is
+    not counted, so that base is not sampled."""
+    pool = {name for name, _length in pooled}
+    span = {name: length for name, _s, length in own}
+    span[""] = sum(length for _name, length in pooled)
+    sampled: dict[str, int] = {}
+    for name, start, end in windows:
+        unit = "" if name in pool else name
+        sampled[unit] = sampled.get(unit, 0) + end - start - 1
+    buckets: dict[int, list[str]] = {}
+    for unit, bp in sampled.items():
+        if bp > 0:
+            buckets.setdefault(round(math.log(bp / span[unit], 1.25)), []).append(unit)
+    strata = []
+    for units in buckets.values():
+        chosen = set(units)
+        strata.append(
+            (
+                [w for w in windows if ("" if w[0] in pool else w[0]) in chosen],
+                sum(span[u] for u in units) / sum(sampled[u] for u in units),
+            )
+        )
+    return strata
+
+
+def sampled_primary_share(
+    input_p: str,
+    ref_p: str | None,
+    idx_stats: Sequence[IdxStat],
+    temp_parent: str | None = None,
+) -> tuple[float, int] | None:
+    """The share of mapped records that are primary, and how many records it
+    is measured from, sampled from evenly spaced 10 kb windows: idxstats
+    counts every record, and long reads have many supplementary ones.
+
+    Each record that starts in a window counts once, whatever its length: the
+    records overlapping the windows less those overlapping their first bases.
+    (Counting overlaps alone would favour long primary records over short
+    split ones.) Windows are kept 1 Mb apart, so only a longer alignment can
+    start in one and reach the next's first base, and be missed. Like
+    idxstats, it counts QC-failed and duplicate records. Windows that sample
+    their contig more densely (chrM) are counted apart and weighted less.
+
+    None when no sampled primary record starts in a window: a mapped read
+    always has a mapped primary record, so that sample is too sparse."""
+    own, pooled = _contigs_with_reads(idx_stats)
+    windows = _spaced_windows(
+        _contig_windows(own, pooled, MAPPING_WINDOW_BP), MAPPING_WINDOW_GAP_BP
+    )
+    if not windows:
+        return None
+    logging.info(f"Estimating mapped reads from {len(windows)} sampled windows...")
+    starts = est_mapped = est_primary = 0.0
+    primary_starts = 0
+    with tempfile.TemporaryDirectory(dir=temp_parent) as tmp:
+        overlaps, first_bases = Path(tmp, "windows.bed"), Path(tmp, "first.bed")
+        for stratum, weight in _mapping_strata(windows, own, pooled):
+            overlaps.write_text(
+                "".join(f"{n}\t{s}\t{e}\n" for n, s, e in stratum), newline="\n"
+            )
+            first_bases.write_text(
+                "".join(f"{n}\t{s}\t{s + 1}\n" for n, s, _ in stratum), newline="\n"
+            )
+            mapped, primary = _mapped_and_primary(input_p, ref_p, str(overlaps), tmp)
+            on_first, primary_on_first = _mapped_and_primary(
+                input_p, ref_p, str(first_bases), tmp
+            )
+            starts += mapped - on_first
+            primary_starts += primary - primary_on_first
+            est_mapped += (mapped - on_first) * weight
+            est_primary += (primary - primary_on_first) * weight
+    if primary_starts <= 0:
+        return None
+    return est_primary / est_mapped, int(starts)
+
+
+def exact_mapped_read_pct(
+    input_p: str, ref_p: str | None, temp_parent: str | None = None
+) -> float:
+    """Percentage of primary records (reads) mapped, counting the whole file,
+    QC-failed reads included."""
+    with tempfile.TemporaryDirectory(dir=temp_parent) as tmp:
+        counts = _flagstat_counts(
+            [["samtools", "flagstat", "-O", "tsv", *_COUNT_FIELDS,
+              *_input_reference_opts(input_p, ref_p), input_p]],
+            ("primary", "primary mapped"),
+            tmp,
+            "Mapping counts",
+        )  # fmt: skip
+    reads = counts["primary"]
+    return round(100 * counts["primary mapped"] / reads, 2) if reads else 0.0
 
 
 def run_sampled_coverage(

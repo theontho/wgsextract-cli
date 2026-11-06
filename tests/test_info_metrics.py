@@ -313,19 +313,17 @@ def test_body_sample_skips_secondary_supplementary_and_qc_fail(tmp_path):
         f"c\t0\tc\t200\t60\t80M\t*\t0\t0\t{seq[:80]}\t{'I' * 80}",
     ]
     bam = sam_to_bam(["@SQ\tSN:c\tLN:1000", *reads], tmp_path / "b.bam")
-    count, avg_len, std_len, avg_tlen, std_tlen, paired, first = (
-        metrics.run_body_sample(bam, [])
-    )
-    assert (count, avg_len, avg_tlen, std_tlen, paired, first) == (
-        3, 80.0, 300.0, 0, True, "a",
-    )  # fmt: skip
-    assert std_len == pytest.approx((800 / 3) ** 0.5)
+    sample = metrics.run_body_sample(bam, [])
+    assert sample[:7] == (3, 80.0, sample.std_len, 300.0, 0, True, "a")
+    assert sample.std_len == pytest.approx((800 / 3) ** 0.5)
+    # The N50's lengths count the QC-failed primary read too (#338).
+    assert sorted(sample.lengths) == [60, 80, 100, 100]
 
 
 def test_body_sample_of_unreadable_file_returns_nothing(tmp_path):
     bad = tmp_path / "bad.bam"
     bad.write_bytes(b"junk")
-    assert metrics.run_body_sample(str(bad), []) == (0, 0, 0, 0, 0, False, None)
+    assert metrics.run_body_sample(str(bad), [])[:7] == (0, 0, 0, 0, 0, False, None)
 
 
 @pytest.mark.parametrize(

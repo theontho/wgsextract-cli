@@ -17,7 +17,9 @@ from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.main import main
 
 HG38_MD5 = "bd894134bddba260df88a90123a2ee9c"
-BODY_SAMPLE = (1000, 150.0, 2.0, 300.0, 50.0, True, "A00910:1:ABCDEFGHI:1:1:1:1")
+BODY_SAMPLE = metrics.BodySample(
+    1000, 150.0, 2.0, 300.0, 50.0, True, "A00910:1:ABCDEFGHI:1:1:1:1"
+)
 IDXSTATS = (
     [
         {"name": "1", "length": 248956422, "mapped": 1000000, "unmapped": 0},
