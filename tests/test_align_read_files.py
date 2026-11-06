@@ -3,6 +3,7 @@
 import os
 import random
 import shutil
+import sys
 
 import pytest
 
@@ -66,6 +67,7 @@ def test_minimap2_aligns_long_reads_from_a_bam(tmp_path, genome, platform):
     assert all("MM:Z:C+m,0,1;" in r[11:] for r in primary)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="pbmm2 has no Windows build")
 @needs_tools("samtools", "minimap2")
 def test_pbmm2_aligns_a_pacbio_bam_without_a_platform(tmp_path, genome, monkeypatch):
     """pbmm2 reads a PacBio BAM itself, so the short-read refusal must not
