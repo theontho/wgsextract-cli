@@ -17,9 +17,11 @@ printed by `--version`.
 
 ## Installing
 
-The `macos-aligners-4` prerelease has `wgse-bwa` 0.4.0 and `wgse-bwa-mem2`
+The `macos-aligners-5` prerelease has `wgse-bwa` 0.5.0 and `wgse-bwa-mem2`
 0.1.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
-later. Earlier prereleases: `macos-aligners-3` has `wgse-bwa` 0.3.0, whose
+later. Earlier prereleases: `macos-aligners-4` has `wgse-bwa` 0.4.0, whose
+`--metal` also rescues mates on the GPU but extends seeds on the CPU;
+`macos-aligners-3` has `wgse-bwa` 0.3.0, whose
 `--metal` seeds and locates on the GPU but rescues mates on the CPU;
 `macos-aligners-2` has `wgse-bwa` 0.2.0, whose `--metal` only seeds on the
 GPU; `macos-aligners-1` has `wgse-bwa` 0.1.0, which aligns on the CPU only.
@@ -31,8 +33,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-4 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-4 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-5 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-5 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -51,7 +53,7 @@ wgse-bwa-mem2 capabilities --json
 
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
-`xattr -dr com.apple.quarantine wgse-bwa-0.4.0-macos-arm64` (and
+`xattr -dr com.apple.quarantine wgse-bwa-0.5.0-macos-arm64` (and
 `wgse-bwa-mem2-0.1.0-macos-arm64`).
 
 ## Usage
@@ -94,7 +96,16 @@ What runs on the GPU:
   chunk, and the CPU threads use those results when they finish the pairs;
   on HG002 the GPU takes about 45% of the pairs. Windows with scores that need
   16 bits, mates over 256 bp, or bases other than A, C, G, T and N are
-  aligned on the CPU.
+  aligned on the CPU. From 0.5.0 the GPU also extends seeds (`mem_chain2aln`'s
+  `ksw_extend2`): after a CPU thread chains a pair, it stages each chain's
+  first extension (left, then right from the left score) in a batch shared by
+  all threads, the GPU extends full batches, and a CPU thread finishes the
+  pair, using a GPU result only when the query, reference, start score, band
+  and end bonus of upstream's call match it exactly (otherwise, as for the
+  other seeds of a chain, upstream's code extends on the CPU). On HG002 the GPU
+  extends the seeds of about 87% of the pairs, and 98% of those pairs'
+  extension calls use its results. Extensions with queries over 256 bp or scores that
+  need more than 16 bits are done on the CPU.
 - `wgse-bwa-mem2`: batches seed extension across worker threads, keeping small
   batches on the CPU.
 
@@ -116,6 +127,9 @@ Mate rescue on the GPU (0.4.0) added about 0.13 GiB on HG002: at most three
 prepared rescue batches wait for the CPU threads, each with at most 64 MiB of
 mate and reference bases and as much GPU scratch, and further windows are
 aligned on the CPU.
+Seed extension on the GPU (0.5.0) added about 0.14 GiB on HG002: at most six
+extension batches of 1024 pairs, each with up to 8 MiB of bases and 4 MiB of
+jobs and results; when none is free, threads extend on the CPU.
 With `--metal` the GPU uses the whole index
 (4.3 GiB for hs38) in place, so it stays resident while aligning; it has not
 been tested on 8 GB Macs.
@@ -139,6 +153,7 @@ three for 0.3.0 `--metal`):
 | `wgse-bwa --metal` 0.2.0 (seeding) | 9 | 423.4 s | 5.8 GiB | −12.3% |
 | `wgse-bwa --metal` 0.3.0 (seeding and locate) | 9 | 297.0 s | 5.8 GiB | −38.5% |
 | `wgse-bwa --metal` 0.4.0 (also mate rescue) | 9 | 241.2 s | 5.9 GiB | −50.0% |
+| `wgse-bwa --metal` 0.5.0 (also seed extension) | 9 | 213.1 s | 6.1 GiB | −55.9% |
 
 The 0.4.0 row comes from a later session on AC power that interleaved three
 runs each of 0.4.0 `--metal` (243.6, 243.0 and 237.0 s), 0.3.0 `--metal`
@@ -148,10 +163,20 @@ the machine during two of the CPU runs (579.5 and 564.5 s); the third took
 508.2 s. The 0.4.0 row's "vs CPU" therefore uses the earlier session's
 482.7 s, in which 0.3.0 `--metal` was 4% faster than in this one.
 
+The 0.5.0 row comes from a third session on AC power that interleaved three
+runs each of 0.5.0 `--metal` (209.6, 214.3 and 215.5 s) and 0.4.0 `--metal`
+(248.4, 233.4 and 232.5 s; mean 238.1 s), with the order reversed in the
+third round, and two of the 0.5.0 CPU backend (548.1 s under background load
+and 480.5 s): 0.5.0 `--metal` took 10.5% less time than 0.4.0 `--metal`, and
+was faster in each round. It moves most of the gain into mapping (about
+115 s, down from about 140 s); the pairing step is unchanged. Its "vs CPU"
+uses 482.7 s like the rows above.
+
 An earlier session measured 481.2 s (CPU) and 425.4 s (0.2.0 `--metal`). On
 200k of those pairs 0.3.0 `--metal` saved 33% with 9 threads, 41% with 4 and
 50% with 1, and 0.4.0 `--metal` took a further 21% less time than 0.3.0
-`--metal` with 9 threads.
+`--metal` with 9 threads, and 0.5.0 `--metal` 11% less than 0.4.0 (11.1 s
+against 12.4 s, three runs each).
 
 The BWA-MEM2 human index cannot be built on this machine, so BWA-MEM2 was
 measured with 10.6M read pairs against a small reference (chr20 fragment, Y,
@@ -178,8 +203,11 @@ SMEM collection to the GPU, so it could save at most about a fifth of the run;
 0.3.0 `--metal` then put 52% of the CPU threads' busy time in mate rescue
 (`ksw_align2`, 45% in its 8-bit kernel) and 30% in seed extension
 (`ksw_extend2`). 0.4.0 aligns the rescue windows of about 45% of the pairs on
-the GPU, which leaves mostly seed extension and the remaining rescue on the CPU
-threads.
+the GPU, which left seed extension (41% of the CPU threads' busy time) and the
+remaining rescue on the CPU threads; 0.5.0 extends the seeds of most pairs on
+the GPU. The GPU is now busy for most of both steps (its seeding, locate and
+extension work in mapping, and mate rescue in pairing), so further offload
+gains less unless the GPU kernels get faster.
 
 ## Building
 
@@ -201,7 +229,7 @@ both executables, and publishes them when run with a `macos-aligners-N` tag.
 ## Licences
 
 `wgse-bwa` combines BWA (GPL-3.0) with the code in `bwa/` and `metal-common/`
-(GPL-3.0-or-later); its Metal seeding, locate and mate-rescue kernels are
+(GPL-3.0-or-later); its Metal seeding, locate, mate-rescue and extension kernels are
 adapted from BWA's MIT-licensed `bwt.c`, `bwamem.c`, `bwamem_pair.c` and
 `ksw.c` (`METAL-SEEDING-LICENSE`).
 `wgse-bwa-mem2` combines BWA-MEM2 (MIT), sse2neon

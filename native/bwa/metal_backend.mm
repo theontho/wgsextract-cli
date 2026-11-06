@@ -1,4 +1,5 @@
 #include "metal_backend.h"
+#include "extend_engine.h"
 #include "rescue_engine.h"
 #include "seeding_engine.h"
 
@@ -9,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <condition_variable>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <system_error>
@@ -18,6 +20,7 @@
 namespace {
 using namespace wgse::seeding;
 using wgse::rescue::GpuRescue;
+using wgse::extend::GpuExtend;
 
 constexpr size_t threadgroup_size = 64;
 constexpr size_t locate_rows_per_dispatch = size_t(1) << 21;
@@ -26,7 +29,7 @@ constexpr size_t max_outstanding_batches = 3;
 
 bool enabled = false;
 // Cleared by the first GPU failure; the remaining batches use the CPU.
-bool usable = true;
+std::atomic<bool> usable{true};
 bool inject_failure = false, inject_locate_failure = false;
 // Resolve the seeds' suffix-array rows (bwt_sa) on the GPU too.
 bool locate_enabled = true;
@@ -43,10 +46,24 @@ bool rescue_enabled = true, inject_rescue_failure = false, verify_rescue = false
 size_t rescue_batch_pairs = 4096;
 // Bounds one rescue batch's reads and reference windows (and its row scratch).
 constexpr size_t rescue_batch_bytes = size_t(64) << 20;
+// Seed extension (mem_chain2aln's ksw_extend2) on the GPU too.
+bool extend_enabled = true, inject_extend_failure = false, verify_extend = false;
+// Pairs per extension batch; all CPU threads fill the same batch.
+size_t extend_batch_pairs = 1024;
+// Extension batches (filling, queued, in flight or being finished). They bound
+// the memory of extensions in flight; when none is free a thread extends on
+// the CPU instead.
+size_t extend_batch_count = 6;
+// Batches running on the GPU at once.
+constexpr size_t extend_in_flight = 2;
+// A batch's jobs and bases per pair; a batch is full when it reaches either.
+constexpr size_t extend_jobs_per_pair = 24, extend_bases_per_pair = 8192;
+std::mutex failure_mutex;
 std::string execution_failure;
 std::unique_ptr<GpuSeeds> gpu;
 std::unique_ptr<GpuLocate> locator;
 std::unique_ptr<GpuRescue> rescuer;
+std::unique_ptr<GpuExtend> extender;
 const uint32_t *shared_bwt = nullptr;
 const uint64_t *shared_sa = nullptr;
 
@@ -89,6 +106,10 @@ size_t rescue_jobs = 0, rescue_declined = 0, rescue_skipped = 0;
 size_t rescue_hits = 0, rescue_misses = 0, rescue_mismatches = 0;
 double rescue_gpu_seconds = 0, rescue_kernel_seconds = 0, rescue_seconds = 0,
     rescue_wait_seconds = 0;
+size_t extend_batches = 0, extend_jobs = 0, extend_skipped = 0, extend_gpu_pairs = 0,
+    extend_cpu_pairs = 0, extend_hits = 0, extend_retry_hits = 0, extend_misses = 0,
+    extend_mismatches = 0;
+double extend_gpu_seconds = 0, extend_kernel_seconds = 0;
 
 SeedKernel &kernel() {
     static SeedKernel value;
@@ -97,6 +118,7 @@ SeedKernel &kernel() {
 
 void record_failure(const std::string &reason) {
     usable = false;
+    std::lock_guard<std::mutex> lock(failure_mutex);
     if (!execution_failure.empty()) return;
     execution_failure = reason;
     fprintf(stderr, "[wgse-bwa] CPU fallback: %s\n", reason.c_str());
@@ -172,8 +194,9 @@ public:
 
     Splitter(int threads, long pairs, long pairs_per_batch, const char *injected,
         void (*worker)(void *, long, int), void *data)
-        : threads_(threads), per_batch_(std::max<long>(1, pairs_per_batch)), injected_(injected),
-          worker_(worker), data_(data), back_(pairs), owner_(size_t(pairs)) {}
+        : worker_(worker), data_(data), threads_(threads),
+          per_batch_(std::max<long>(1, pairs_per_batch)), injected_(injected), back_(pairs),
+          owner_(size_t(pairs)) {}
     virtual ~Splitter() = default;
 
     void run() {
@@ -193,6 +216,18 @@ public:
     }
 
 protected:
+    // Work other than mapping a pair, such as finishing pairs whose extensions
+    // the GPU has run.
+    struct Work {
+        void *owner = nullptr;
+        size_t index = 0;
+    };
+
+    void (*const worker_)(void *, long, int);
+    void *const data_;
+    std::mutex mutex_;
+    std::condition_variable changed_;
+
     // Packs [first, last) for the GPU; CPU threads cannot take these pairs yet.
     virtual std::unique_ptr<BatchBase> pack(long first, long last) = 0;
     // The GPU work for a packed batch; may skip it if taken(first).
@@ -202,6 +237,18 @@ protected:
     virtual void end() = 0;
     // On each CPU thread after its last pair.
     virtual void finish_thread() {}
+    // Maps pair on CPU thread tid.
+    virtual void map(long pair, BatchBase *batch, int tid) {
+        begin(pair, batch);
+        worker_(data_, pair, tid);
+        end();
+    }
+    // With mutex_ held: takes other work, which CPU threads do before mapping pairs.
+    virtual bool claim(Work &) { return false; }
+    virtual void perform(const Work &, int) {}
+    // With mutex_ held when tid has nothing to take: whether work it must wait
+    // for is still in flight.
+    virtual bool idle(int) { return false; }
 
     // Whether CPU threads have taken every pair of the batch that starts at first.
     bool taken(long first) {
@@ -213,10 +260,7 @@ private:
     const int threads_;
     const long per_batch_;
     const char *injected_;
-    void (*worker_)(void *, long, int);
-    void *data_;
-    std::mutex mutex_;
-    std::condition_variable changed_, drained_;
+    std::condition_variable drained_;
     // Pairs [0, front_) and [back_, n) are taken; [0, ready_) are prepared or
     // were given up by the GPU; the GPU is packing [ready_, claimed_) if packing_.
     long front_ = 0, back_, ready_ = 0, claimed_ = 0;
@@ -230,12 +274,14 @@ private:
         double wait_time = 0;
         size_t accelerated_pairs = 0, unprepared_pairs = 0, wasted_pairs = 0;
         for (;;) {
-            long pair;
+            long pair = -1;
             BatchBase *batch = nullptr;
+            Work work;
             {
                 std::unique_lock<std::mutex> lock(mutex_);
                 auto wait = Clock::now();
                 for (;;) {
+                    if (claim(work)) break;
                     if (front_ < std::min(ready_, back_)) {
                         pair = front_++;
                         batch = owner_[size_t(pair)];
@@ -247,7 +293,8 @@ private:
                         if (pair < claimed_) ++wasted_pairs;
                         break;
                     }
-                    if (front_ >= back_) {
+                    const bool busy = idle(tid);
+                    if (front_ >= back_ && !busy) {
                         wait_time += seconds(wait);
                         prepared += accelerated_pairs;
                         unprepared += unprepared_pairs;
@@ -261,11 +308,13 @@ private:
                 }
                 wait_time += seconds(wait);
             }
+            if (pair < 0) {
+                perform(work, tid);
+                continue;
+            }
             if (batch) ++accelerated_pairs;
             else ++unprepared_pairs;
-            begin(pair, batch);
-            worker_(data_, pair, tid);
-            end();
+            map(pair, batch, tid);
             if (batch && batch->pending.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                 batch->release();
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -350,21 +399,172 @@ struct SeedBatch : BatchBase {
     }
 };
 
+// The seed extensions of one batch of pairs, in CPU/GPU-shared buffers of fixed size.
+struct ExtendBatch {
+    struct Pair {
+        long pair;
+        void *chains;
+        // The pair's jobs.
+        uint32_t first, last;
+    };
+    id<MTLBuffer> bases = nil, jobs = nil, results = nil, order = nil;
+    // Capacities, and the space reserved by staged pairs.
+    size_t base_capacity = 0, job_capacity = 0, base_count = 0, job_count = 0;
+    std::vector<Pair> pairs;
+    // Threads copying a staged pair's jobs in; a sealed batch takes no more
+    // pairs and is queued for the GPU once its last writer is done.
+    size_t writers = 0;
+    bool sealed = false;
+    // Pairs [0, next) are taken for finishing; `unfinished` of them are not finished.
+    size_t next = 0, unfinished = 0;
+    // Whether the GPU ran the jobs; if not, the pairs are finished on the CPU.
+    bool extended = false;
+
+    void reset() {
+        base_count = job_count = writers = next = unfinished = 0;
+        pairs.clear();
+        sealed = extended = false;
+    }
+};
+// Kept across chunks.
+std::vector<std::unique_ptr<ExtendBatch>> extend_pool;
+
+// The extensions of the pair a thread is chaining. Offsets index `bases`.
+struct ExtendStage {
+    std::vector<uint8_t> bases;
+    std::vector<ExtendJob> jobs;
+    int match = 0, max = 0;
+    size_t skipped = 0;
+    bool failed = false;
+};
+
+// Called by wgse_worker1_chain() with mem_chain2aln()'s first extension of a
+// chain; stages it as a GPU job unless the kernel cannot reproduce it.
+void stage_extension(void *context, int, const uint8_t *query, int l_query, int qbeg, int len,
+    const uint8_t *rseq, int64_t seed, int64_t window) {
+    auto &stage = *static_cast<ExtendStage *>(context);
+    const int64_t left_qlen = qbeg, right_qlen = int64_t(l_query) - qbeg - len;
+    const int64_t left_tlen = left_qlen ? seed : 0;
+    const int64_t right_tlen = right_qlen ? window - seed - len : 0;
+    const int64_t h0 = int64_t(len) * stage.match;
+    // An exact match of the whole read has nothing to extend.
+    if (left_qlen == 0 && right_qlen == 0) return;
+    // The kernel's scores are 16-bit: no cell exceeds h0 plus max per query base.
+    if (stage.failed || qbeg < 0 || len < 1 || left_qlen > int64_t(extend_max_query)
+        || right_qlen < 0 || right_qlen > int64_t(extend_max_query) || left_tlen < 0
+        || right_tlen < 0 || seed < 0 || h0 < 1
+        || h0 + (left_qlen + right_qlen) * stage.max > INT16_MAX
+        || left_qlen + left_tlen + right_qlen + right_tlen > int64_t(extend_bases_per_pair)) {
+        ++stage.skipped;
+        return;
+    }
+    const size_t start = stage.bases.size();
+    try {
+        stage.bases.resize(start + size_t(left_qlen + left_tlen + right_qlen + right_tlen));
+    } catch (const std::bad_alloc &) {
+        stage.failed = true;
+        return;
+    }
+    uint8_t *out = stage.bases.data() + start;
+    bool valid = true;
+    auto put = [&](uint8_t base) {
+        valid &= base <= 4;
+        *out++ = base;
+    };
+    ExtendJob job{};
+    // mem_chain2aln reverses the left extension's query and target.
+    job.left_query = uint32_t(start);
+    for (int64_t i = 0; i < left_qlen; ++i) put(query[qbeg - 1 - i]);
+    job.left_target = uint32_t(start + size_t(left_qlen));
+    for (int64_t i = 0; i < left_tlen; ++i) put(rseq[seed - 1 - i]);
+    job.right_query = uint32_t(start + size_t(left_qlen + left_tlen));
+    for (int64_t i = 0; i < right_qlen; ++i) put(query[qbeg + len + i]);
+    job.right_target = job.right_query + uint32_t(right_qlen);
+    for (int64_t i = 0; i < right_tlen; ++i) put(rseq[seed + len + i]);
+    job.left_qlen = uint32_t(left_qlen);
+    job.left_tlen = uint32_t(left_tlen);
+    job.left_h0 = uint32_t(h0);
+    job.right_qlen = uint32_t(right_qlen);
+    job.right_tlen = uint32_t(right_tlen);
+    try {
+        if (valid) stage.jobs.push_back(job);
+    } catch (const std::bad_alloc &) {
+        stage.failed = true;
+    }
+    if (!valid || stage.failed) {
+        stage.bases.resize(start);
+        ++stage.skipped;
+    }
+}
+
+// The GPU's extensions for the pair this thread is finishing.
+struct ExtendCurrent {
+    const ExtendBatch *batch = nullptr;
+    const ExtendParameters *parameters = nullptr;
+    const mem_opt_t *opt = nullptr;
+    uint32_t first = 0, last = 0;
+    // mem_chain2aln() extends chains in the order they were staged, so the
+    // search for a call's job starts at the job of the previous hit.
+    uint32_t cursor = 0;
+};
+thread_local ExtendCurrent extend_current;
+struct ExtendTally {
+    size_t skipped = 0, gpu_pairs = 0, cpu_pairs = 0, hits = 0, retry_hits = 0, misses = 0,
+        mismatches = 0;
+};
+thread_local ExtendTally extend_tally;
+
 inline int stride(const mem_opt_t *opt) {
     return (opt->flag & MEM_F_PE) ? 2 : 1;
 }
 
-// worker1 with GPU seeding and suffix-array locate.
+// worker1 with GPU seeding and suffix-array locate, and with GPU seed
+// extension if `extension` is given. Then a CPU thread chains each pair and
+// stages the first extension of each chain in the shared extension batch; the
+// GPU extends full batches (and partial ones when threads run out of work) on
+// its own queue, and CPU threads finish those pairs, using the GPU's result for
+// each extension whose inputs match exactly. Finishing pairs comes before
+// mapping new ones.
 class SeedScheduler : public Splitter {
 public:
     std::atomic<size_t> missing{0};
+    size_t extended_batches = 0, extended_jobs = 0;
+    double extend_time = 0, extend_kernel_time = 0;
 
     SeedScheduler(const mem_opt_t *opt, const bwt_t *bwt, int n, bseq1_t *seqs,
-        void (*worker)(void *, long, int), void *data)
+        void (*worker)(void *, long, int), void *data, const ExtendParameters *extension)
         : Splitter(opt->n_threads, n / stride(opt), long(gpu->capacity) / stride(opt),
               inject_failure ? "injected GPU failure (test)" : nullptr, worker, data),
           opt_(opt), bwt_(bwt), seqs_(seqs), stride_(stride(opt)),
-          prepared_(size_t(n / stride_) * stride_, nullptr) {}
+          prepared_(size_t(n / stride_) * stride_, nullptr), extend_(extension != nullptr) {
+        if (!extend_) return;
+        parameters_ = *extension;
+        stages_.resize(size_t(opt->n_threads));
+        for (auto &stage : stages_) {
+            stage.match = opt->a;
+            stage.max = parameters_.max;
+        }
+        for (auto &batch : extend_pool) free_.push_back(batch.get());
+    }
+
+    void align() {
+        std::thread extension;
+        if (extend_) {
+            try {
+                extension = std::thread(&SeedScheduler::extend_loop, this);
+            } catch (const std::system_error &) {
+                extend_ = false;
+            }
+        }
+        run();
+        if (!extension.joinable()) return;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stopping_ = true;
+        }
+        extend_changed_.notify_all();
+        extension.join();
+    }
 
 private:
     const mem_opt_t *opt_;
@@ -372,6 +572,221 @@ private:
     bseq1_t *seqs_;
     const int stride_;
     std::vector<const Prepared *> prepared_;
+    bool extend_;
+    ExtendParameters parameters_{};
+    std::vector<ExtendStage> stages_;
+    // Guarded by mutex_.
+    ExtendBatch *filling_ = nullptr;
+    std::vector<ExtendBatch *> free_;
+    std::deque<ExtendBatch *> queued_, done_;
+    // Pairs in extension batches that are not finished yet, and batches on the GPU.
+    size_t pending_ = 0, in_flight_ = 0;
+    bool stopping_ = false;
+    std::condition_variable extend_changed_;
+
+    void map(long pair, BatchBase *batch, int tid) override {
+        if (!extend_) {
+            Splitter::map(pair, batch, tid);
+            return;
+        }
+        ExtendStage &stage = stages_[size_t(tid)];
+        stage.bases.clear();
+        stage.jobs.clear();
+        stage.failed = false;
+        begin(pair, batch);
+        void *chains = wgse_worker1_chain(data_, pair, tid, stage_extension, &stage);
+        end();
+        if (!chains) {
+            // Out of memory: upstream's worker1 maps the pair from the start.
+            worker_(data_, pair, tid);
+            return;
+        }
+        extend_tally.skipped += stage.skipped;
+        stage.skipped = 0;
+        size_t base_offset = 0, job_offset = 0;
+        ExtendBatch *target = stage.failed || stage.jobs.empty()
+            ? nullptr : reserve(stage, pair, chains, base_offset, job_offset);
+        if (!target) {
+            if (!stage.jobs.empty()) ++extend_tally.cpu_pairs;
+            finish(pair, chains, nullptr, 0, 0);
+            return;
+        }
+        memcpy(static_cast<uint8_t *>(target->bases.contents) + base_offset, stage.bases.data(),
+            stage.bases.size());
+        auto *jobs = static_cast<ExtendJob *>(target->jobs.contents) + job_offset;
+        for (ExtendJob job : stage.jobs) {
+            job.left_query += uint32_t(base_offset);
+            job.left_target += uint32_t(base_offset);
+            job.right_query += uint32_t(base_offset);
+            job.right_target += uint32_t(base_offset);
+            *jobs++ = job;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (--target->writers == 0 && target->sealed) queue(target);
+    }
+
+    bool fits(const ExtendBatch &batch, const ExtendStage &stage) const {
+        return batch.pairs.size() < batch.pairs.capacity()
+            && stage.bases.size() <= batch.base_capacity - batch.base_count
+            && stage.jobs.size() <= batch.job_capacity - batch.job_count;
+    }
+
+    // Reserves room for the pair's jobs in the filling batch and returns it, or
+    // null to extend the pair on the CPU now (no free batch, or GPU failed).
+    ExtendBatch *reserve(const ExtendStage &stage, long pair, void *chains, size_t &base_offset,
+        size_t &job_offset) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (filling_ && !fits(*filling_, stage)) seal();
+        if (!filling_) {
+            if (free_.empty() || !usable) return nullptr;
+            filling_ = free_.back();
+            free_.pop_back();
+        }
+        ExtendBatch *batch = filling_;
+        // Only a pair with an extreme number of chains overflows an empty batch.
+        if (!fits(*batch, stage)) return nullptr;
+        base_offset = batch->base_count;
+        job_offset = batch->job_count;
+        batch->base_count += stage.bases.size();
+        batch->job_count += stage.jobs.size();
+        // pairs has the capacity for this (fits), so this does not allocate.
+        batch->pairs.push_back({pair, chains, uint32_t(job_offset), uint32_t(batch->job_count)});
+        ++batch->writers;
+        ++pending_;
+        if (batch->pairs.size() == batch->pairs.capacity()) seal();
+        return batch;
+    }
+
+    // With mutex_ held: closes the filling batch.
+    void seal() {
+        ExtendBatch *batch = filling_;
+        filling_ = nullptr;
+        if (batch->pairs.empty()) {
+            free_.push_back(batch);
+            return;
+        }
+        batch->sealed = true;
+        if (batch->writers == 0) queue(batch);
+    }
+
+    // With mutex_ held.
+    void queue(ExtendBatch *batch) {
+        batch->unfinished = batch->pairs.size();
+        queued_.push_back(batch);
+        extend_changed_.notify_one();
+    }
+
+    // Submits queued batches, at most extend_in_flight at once; their pairs are
+    // finished when the GPU completes them (or right away after a failure).
+    void extend_loop() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        for (;;) {
+            extend_changed_.wait(lock, [this] {
+                return (!queued_.empty() && in_flight_ < extend_in_flight)
+                    || (stopping_ && queued_.empty() && in_flight_ == 0);
+            });
+            if (queued_.empty()) return;
+            ExtendBatch *batch = queued_.front();
+            queued_.pop_front();
+            ++in_flight_;
+            lock.unlock();
+            submit(batch);
+            lock.lock();
+        }
+    }
+
+    void submit(ExtendBatch *batch) {
+        try {
+            if (!usable) throw std::runtime_error("");
+            if (inject_extend_failure)
+                throw std::runtime_error("injected GPU extension failure (test)");
+            const auto start = Clock::now();
+            extender->submit(parameters_, batch->bases, batch->jobs, batch->results, batch->order,
+                batch->job_count, batch->job_capacity, ^(id<MTLCommandBuffer> command) {
+                    double kernel = 0;
+                    bool extended = false;
+                    try {
+                        kernel = GpuExtend::finished(command);
+                        extended = true;
+                    } catch (const std::exception &error) {
+                        record_failure(error.what());
+                    }
+                    complete(batch, extended, seconds(start), kernel);
+                });
+        } catch (const std::exception &error) {
+            if (*error.what()) record_failure(error.what());
+            complete(batch, false, 0, 0);
+        }
+    }
+
+    // On the GPU's completion thread (or extend_loop's after a failure).
+    void complete(ExtendBatch *batch, bool extended, double elapsed, double kernel) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        batch->extended = extended;
+        if (extended) {
+            ++extended_batches;
+            extended_jobs += batch->job_count;
+            extend_time += elapsed;
+            extend_kernel_time += kernel;
+        }
+        done_.push_back(batch);
+        --in_flight_;
+        changed_.notify_all();
+        // Under the lock, so the scheduler outlives this call.
+        extend_changed_.notify_one();
+    }
+
+    bool claim(Work &work) override {
+        while (!done_.empty()) {
+            ExtendBatch *batch = done_.front();
+            if (batch->next < batch->pairs.size()) {
+                work = {batch, batch->next++};
+                if (batch->next == batch->pairs.size()) done_.pop_front();
+                return true;
+            }
+            done_.pop_front();
+        }
+        return false;
+    }
+
+    void perform(const Work &work, int) override {
+        auto &batch = *static_cast<ExtendBatch *>(work.owner);
+        const ExtendBatch::Pair &entry = batch.pairs[work.index];
+        ++(batch.extended ? extend_tally.gpu_pairs : extend_tally.cpu_pairs);
+        finish(entry.pair, entry.chains, batch.extended ? &batch : nullptr, entry.first,
+            entry.last);
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (--batch.unfinished == 0) {
+            batch.reset();
+            free_.push_back(&batch);
+        }
+        if (--pending_ == 0) changed_.notify_all();
+    }
+
+    // Out of pairs to map: the partial batch goes to the GPU rather than wait.
+    bool idle(int) override {
+        if (!extend_) return false;
+        if (filling_) seal();
+        return pending_ > 0;
+    }
+
+    void finish(long pair, void *chains, const ExtendBatch *batch, uint32_t first, uint32_t last) {
+        extend_current = {batch, &parameters_, opt_, first, last, first};
+        wgse_worker1_finish(data_, pair, chains);
+        extend_current = {};
+    }
+
+    void finish_thread() override {
+        std::lock_guard<std::mutex> lock(totals_mutex);
+        extend_skipped += extend_tally.skipped;
+        extend_gpu_pairs += extend_tally.gpu_pairs;
+        extend_cpu_pairs += extend_tally.cpu_pairs;
+        extend_hits += extend_tally.hits;
+        extend_retry_hits += extend_tally.retry_hits;
+        extend_misses += extend_tally.misses;
+        extend_mismatches += extend_tally.mismatches;
+        extend_tally = {};
+    }
 
     std::unique_ptr<BatchBase> pack(long first, long last) override {
         auto batch = std::make_unique<SeedBatch>();
@@ -617,6 +1032,22 @@ private:
         rescue_tally = {};
     }
 };
+// The extension kernel and its batches for opt->n_threads CPU threads.
+void prepare_extension() {
+    if (!extender)
+        extender = std::make_unique<GpuExtend>(kernel().extend_runtime, kernel().extend_left,
+            kernel().extend_right);
+    const size_t pairs = extend_batch_pairs;
+    while (extend_pool.size() < extend_batch_count) {
+        auto batch = std::make_unique<ExtendBatch>();
+        batch->base_capacity = pairs * extend_bases_per_pair;
+        batch->job_capacity = pairs * extend_jobs_per_pair;
+        extender->allocate(batch->base_capacity, batch->job_capacity, batch->bases, batch->jobs,
+            batch->results, batch->order);
+        batch->pairs.reserve(pairs);
+        extend_pool.push_back(std::move(batch));
+    }
+}
 } // namespace
 
 extern "C" void *wgse_metal_calloc(size_t count, size_t size) {
@@ -648,8 +1079,13 @@ extern "C" int wgse_metal_map(const mem_opt_t *opt, const bwt_t *bwt, int n,
         try {
             attach(bwt, opt);
             auto start = Clock::now();
-            SeedScheduler scheduler(opt, bwt, n, seqs, worker, data);
-            scheduler.run();
+            // bwa_verbose >= 4 prints each extension as mem_chain2aln runs it.
+            ExtendParameters extension;
+            const bool extend = extend_enabled && bwa_verbose < 4
+                && wgse::extend::parameters(*opt, extension);
+            if (extend) prepare_extension();
+            SeedScheduler scheduler(opt, bwt, n, seqs, worker, data, extend ? &extension : nullptr);
+            scheduler.align();
             const size_t reads = size_t(stride(opt));
             std::lock_guard<std::mutex> lock(totals_mutex);
             gpu_reads += scheduler.prepared * reads;
@@ -660,6 +1096,10 @@ extern "C" int wgse_metal_map(const mem_opt_t *opt, const bwt_t *bwt, int n,
             gpu_seconds += scheduler.gpu_time;
             cpu_wait_seconds += scheduler.waited;
             map_seconds += seconds(start);
+            extend_batches += scheduler.extended_batches;
+            extend_jobs += scheduler.extended_jobs;
+            extend_kernel_seconds += scheduler.extend_kernel_time;
+            extend_gpu_seconds += scheduler.extend_time;
         } catch (const std::exception &error) {
             record_failure(error.what());
             return 0;
@@ -734,6 +1174,81 @@ extern "C" int wgse_metal_matesw(const mem_opt_t *opt, const uint8_t *ms, uint8_
     return 0;
 }
 
+extern "C" int wgse_metal_extend(int qlen, const uint8_t *query, int tlen, const uint8_t *target,
+    int w, int end_bonus, int h0, int *qle, int *tle, int *gtle, int *gscore, int *max_off,
+    int *score) {
+    ExtendCurrent &pair = extend_current;
+    if (!pair.batch) return 0;
+    const ExtendParameters &p = *pair.parameters;
+    const auto *jobs = static_cast<const ExtendJob *>(pair.batch->jobs.contents);
+    const auto *results = static_cast<const ExtendResult *>(pair.batch->results.contents);
+    const auto *bases = static_cast<const uint8_t *>(pair.batch->bases.contents);
+    auto same = [](const uint8_t *a, const uint8_t *b, int length) {
+        return length == 0 || memcmp(a, b, size_t(length)) == 0;
+    };
+    const ExtendCall *found = nullptr;
+    const uint32_t count = pair.last - pair.first;
+    for (uint32_t n = 0; n < count && !found; ++n) {
+        uint32_t i = pair.cursor + n;
+        if (i >= pair.last) i -= count;
+        const ExtendJob &job = jobs[i];
+        const ExtendResult &r = results[i];
+        for (int side = 0; side < 2 && !found; ++side) {
+            const uint32_t length = side ? job.right_qlen : job.left_qlen;
+            const uint32_t window = side ? job.right_tlen : job.left_tlen;
+            const int start = side ? r.right_h0 : int(job.left_h0);
+            const int bonus = side ? p.right_bonus : p.left_bonus;
+            const int tries = std::min<int>(side ? r.right_tries : r.left_tries, extend_tries);
+            if (length != uint32_t(qlen) || window != uint32_t(tlen) || start != h0
+                || bonus != end_bonus) continue;
+            for (int t = 0; t < tries; ++t) {
+                if (w != p.w << t) continue;
+                if (same(bases + (side ? job.right_query : job.left_query), query, qlen)
+                    && same(bases + (side ? job.right_target : job.left_target), target, tlen)) {
+                    found = &r.calls[side * int(extend_tries) + t];
+                    pair.cursor = i;
+                    // A call with a doubled band.
+                    if (t > 0) ++extend_tally.retry_hits;
+                }
+                break;
+            }
+        }
+    }
+    if (!found) {
+        ++extend_tally.misses;
+        return 0;
+    }
+    *score = found->score;
+    *qle = found->qle;
+    *tle = found->tle;
+    *gtle = found->gtle;
+    *gscore = found->gscore;
+    *max_off = found->max_off;
+    ++extend_tally.hits;
+    if (verify_extend) {
+        const mem_opt_t &opt = *pair.opt;
+        int cpu[6];
+        cpu[0] = ksw_extend2(qlen, query, tlen, target, 5, opt.mat, opt.o_del, opt.e_del,
+            opt.o_ins, opt.e_ins, w, end_bonus, opt.zdrop, h0, &cpu[1], &cpu[2], &cpu[3], &cpu[4],
+            &cpu[5]);
+        const int gpu[6] = {*score, *qle, *tle, *gtle, *gscore, *max_off};
+        if (memcmp(cpu, gpu, sizeof(cpu))) {
+            if (extend_tally.mismatches++ < 3)
+                fprintf(stderr, "[wgse-bwa] extension mismatch qlen=%d tlen=%d w=%d h0=%d "
+                    "gpu=%d,%d,%d,%d,%d,%d cpu=%d,%d,%d,%d,%d,%d\n", qlen, tlen, w, h0, gpu[0],
+                    gpu[1], gpu[2], gpu[3], gpu[4], gpu[5], cpu[0], cpu[1], cpu[2], cpu[3], cpu[4],
+                    cpu[5]);
+            *score = cpu[0];
+            *qle = cpu[1];
+            *tle = cpu[2];
+            *gtle = cpu[3];
+            *gscore = cpu[4];
+            *max_off = cpu[5];
+        }
+    }
+    return 1;
+}
+
 extern "C" int wgse_metal_take(const uint8_t *seq, bwtintv_v *out) {
     finish_cursor();
     const Prepared *entry = current.seq[0] == seq ? current.prepared[0]
@@ -797,6 +1312,15 @@ void wgse_finish_backend() {
         rescue_skipped, rescue_hits, rescue_misses, rescue_mismatches);
     fprintf(stderr, "[wgse-bwa] rescue seconds gpu=%.3f kernel=%.3f pair=%.3f cpu_wait=%.3f\n",
         rescue_gpu_seconds, rescue_kernel_seconds, rescue_seconds, rescue_wait_seconds);
+    fprintf(stderr, "[wgse-bwa] extend_batches=%zu extend_jobs=%zu extend_skipped=%zu "
+        "extend_gpu_pairs=%zu extend_cpu_pairs=%zu extend_hits=%zu extend_retry_hits=%zu "
+        "extend_misses=%zu extend_mismatches=%zu\n", extend_batches, extend_jobs, extend_skipped,
+        extend_gpu_pairs, extend_cpu_pairs, extend_hits, extend_retry_hits, extend_misses,
+        extend_mismatches);
+    fprintf(stderr, "[wgse-bwa] extend seconds gpu=%.3f kernel=%.3f\n", extend_gpu_seconds,
+        extend_kernel_seconds);
+    extend_pool.clear();
+    extender.reset();
     rescuer.reset();
     locator.reset();
     gpu.reset();
@@ -840,4 +1364,24 @@ void wgse_inject_rescue_failure() {
 
 void wgse_verify_gpu_rescue() {
     verify_rescue = true;
+}
+
+void wgse_set_gpu_extend(bool enable) {
+    extend_enabled = enable;
+}
+
+void wgse_set_gpu_extend_pairs(size_t pairs) {
+    extend_batch_pairs = pairs;
+}
+
+void wgse_set_gpu_extend_batches(size_t batches) {
+    extend_batch_count = batches;
+}
+
+void wgse_inject_extend_failure() {
+    inject_extend_failure = true;
+}
+
+void wgse_verify_gpu_extend() {
+    verify_extend = true;
 }

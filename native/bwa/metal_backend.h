@@ -35,6 +35,25 @@ void wgse_rescue_candidates(const mem_opt_t *opt, const bntseq_t *bns, const uin
     const mem_pestat_t pes[4], const bseq1_t s[2], const mem_alnreg_v a[2],
     wgse_rescue_emit_f emit, void *ctx);
 
+// mem_chain2aln()'s ksw_extend2(): sets the outputs and returns 1 if the GPU
+// extended exactly these inputs for the pair this thread is finishing.
+int wgse_metal_extend(int qlen, const uint8_t *query, int tlen, const uint8_t *target, int w,
+    int end_bonus, int h0, int *qle, int *tle, int *gtle, int *gscore, int *max_off, int *score);
+
+// Appended to the generated bwamem.c: worker1() in two stages. The first chains
+// the reads of pair (or single-end read) i and reports, for each chain, the
+// highest-scoring seed mem_chain2aln() extends first, its reference window
+// rseq[0, window) and the seed's offset in it. It returns the chains (or null
+// if out of memory), which the second stage aligns and frees.
+typedef void (*wgse_extend_emit_f)(void *ctx, int mate, const uint8_t *query, int l_query,
+    int qbeg, int len, const uint8_t *rseq, int64_t seed, int64_t window);
+void *wgse_worker1_chain(void *data, long i, int tid, wgse_extend_emit_f emit, void *ctx);
+void wgse_worker1_finish(void *data, long i, void *chains);
+// bns_fetch_seq() for mem_chain2aln(): the window wgse_worker1_chain() fetched
+// for this chain, when wgse_worker1_finish() is aligning it.
+uint8_t *wgse_fetch_window(const bntseq_t *bns, const uint8_t *pac, int64_t *beg, int64_t mid,
+    int64_t *end, int *rid);
+
 // Upstream main(), renamed in the generated main.c.
 int wgse_bwa_main(int argc, char *argv[]);
 
@@ -66,4 +85,12 @@ void wgse_set_gpu_rescue_batch(size_t pairs);
 void wgse_inject_rescue_failure();
 // Also run each GPU rescue alignment on the CPU and count differences.
 void wgse_verify_gpu_rescue();
+void wgse_set_gpu_extend(bool enable);
+// Pairs per GPU extension batch.
+void wgse_set_gpu_extend_pairs(size_t pairs);
+// GPU extension batches; when none is free, CPU threads extend themselves.
+void wgse_set_gpu_extend_batches(size_t batches);
+void wgse_inject_extend_failure();
+// Also run each GPU seed extension on the CPU and count differences.
+void wgse_verify_gpu_extend();
 #endif

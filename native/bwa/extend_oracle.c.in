@@ -1,0 +1,158 @@
+
+/* wgse: worker1()'s mem_align1_core() in two stages, so that the Metal backend
+ * can extend seeds on the GPU between them. wgse_worker1_chain() runs the
+ * chaining half and reports the first extension mem_chain2aln() will run for
+ * each chain; wgse_worker1_finish() runs the rest unchanged. mem_chain2aln()
+ * asks wgse_metal_extend() for each ksw_extend2() result, which returns the
+ * GPU's result only for exactly the same inputs. The reference window fetched
+ * for each chain in the first stage is kept and handed to mem_chain2aln()
+ * through wgse_fetch_window() rather than fetched again. */
+typedef struct {
+	uint8_t *rseq;
+	int64_t beg, mid, end, fetched_beg, fetched_end;
+	int rid;
+} wgse_window_t;
+
+typedef struct {
+	mem_chain_v chn[2];
+	wgse_window_t *windows[2];
+} wgse_chains_t;
+
+static __thread wgse_window_t *wgse_next_window;
+
+uint8_t *wgse_fetch_window(const bntseq_t *bns, const uint8_t *pac, int64_t *beg, int64_t mid,
+	int64_t *end, int *rid)
+{
+	wgse_window_t *w = wgse_next_window;
+	uint8_t *rseq;
+	if (w == 0 || w->rseq == 0 || w->beg != *beg || w->mid != mid || w->end != *end)
+		return bns_fetch_seq(bns, pac, beg, mid, end, rid);
+	*beg = w->fetched_beg;
+	*end = w->fetched_end;
+	*rid = w->rid;
+	rseq = w->rseq;
+	w->rseq = 0; // mem_chain2aln() frees it
+	return rseq;
+}
+
+static mem_chain_v wgse_chain1(const worker_t *w, int l_seq, char *seq, void *buf)
+{
+	int i;
+	mem_chain_v chn;
+	for (i = 0; i < l_seq; ++i) // convert to 2-bit encoding if we have not done so
+		seq[i] = seq[i] < 4? seq[i] : nst_nt4_table[(int)seq[i]];
+	chn = mem_chain(w->opt, w->bwt, w->bns, l_seq, (uint8_t*)seq, buf);
+	chn.n = mem_chain_flt(w->opt, chn.n, chn.a);
+	mem_flt_chained_seeds(w->opt, w->bns, w->pac, l_seq, (uint8_t*)seq, chn.n, chn.a);
+	return chn;
+}
+
+/* mem_chain2aln()'s reference window and its first (highest-scoring) seed.
+ * Keeps each chain's window in windows[] if it is not null. */
+static void wgse_extend_candidates1(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
+	int l_query, const uint8_t *query, const mem_chain_v *chn, int mate, wgse_extend_emit_f emit,
+	void *ctx, wgse_window_t *windows)
+{
+	size_t j;
+	int i, rid, top;
+	int64_t l_pac = bns->l_pac, rmax[2];
+	for (j = 0; j < chn->n; ++j) {
+		const mem_chain_t *c = &chn->a[j];
+		const mem_seed_t *s;
+		uint8_t *rseq;
+		uint64_t best = 0;
+		if (c->n == 0) continue;
+		rmax[0] = l_pac<<1; rmax[1] = 0;
+		for (i = 0; i < c->n; ++i) {
+			int64_t b, e;
+			const mem_seed_t *t = &c->seeds[i];
+			b = t->rbeg - (t->qbeg + cal_max_gap(opt, t->qbeg));
+			e = t->rbeg + t->len + ((l_query - t->qbeg - t->len) + cal_max_gap(opt, l_query - t->qbeg - t->len));
+			rmax[0] = rmax[0] < b? rmax[0] : b;
+			rmax[1] = rmax[1] > e? rmax[1] : e;
+		}
+		rmax[0] = rmax[0] > 0? rmax[0] : 0;
+		rmax[1] = rmax[1] < l_pac<<1? rmax[1] : l_pac<<1;
+		if (rmax[0] < l_pac && l_pac < rmax[1]) {
+			if (c->seeds[0].rbeg < l_pac) rmax[1] = l_pac;
+			else rmax[0] = l_pac;
+		}
+		if (windows) {
+			windows[j].beg = rmax[0];
+			windows[j].mid = c->seeds[0].rbeg;
+			windows[j].end = rmax[1];
+		}
+		rseq = bns_fetch_seq(bns, pac, &rmax[0], c->seeds[0].rbeg, &rmax[1], &rid);
+		assert(c->rid == rid);
+		// The largest of mem_chain2aln()'s sort keys score<<32 | index.
+		for (i = top = 0; i < c->n; ++i) {
+			uint64_t key = (uint64_t)c->seeds[i].score<<32 | i;
+			if (i == 0 || key > best) best = key, top = i;
+		}
+		s = &c->seeds[top];
+		emit(ctx, mate, query, l_query, s->qbeg, s->len, rseq, s->rbeg - rmax[0], rmax[1] - rmax[0]);
+		if (windows) {
+			windows[j].rseq = rseq;
+			windows[j].fetched_beg = rmax[0];
+			windows[j].fetched_end = rmax[1];
+			windows[j].rid = rid;
+		} else free(rseq);
+	}
+}
+
+/* The rest of mem_align1_core(). */
+static mem_alnreg_v wgse_finish1(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
+	int l_seq, char *seq, mem_chain_v chn, wgse_window_t *windows)
+{
+	size_t i;
+	mem_alnreg_v regs;
+	kv_init(regs);
+	for (i = 0; i < chn.n; ++i) {
+		mem_chain_t *p = &chn.a[i];
+		wgse_next_window = windows? &windows[i] : 0;
+		mem_chain2aln(opt, bns, pac, l_seq, (uint8_t*)seq, p, &regs);
+		wgse_next_window = 0;
+		if (windows) free(windows[i].rseq);
+		free(chn.a[i].seeds);
+	}
+	free(chn.a);
+	free(windows);
+	regs.n = mem_sort_dedup_patch(opt, bns, pac, (uint8_t*)seq, regs.n, regs.a);
+	for (i = 0; i < regs.n; ++i) {
+		mem_alnreg_t *p = &regs.a[i];
+		if (p->rid >= 0 && bns->anns[p->rid].is_alt)
+			p->is_alt = 1;
+	}
+	return regs;
+}
+
+void *wgse_worker1_chain(void *data, long i, int tid, wgse_extend_emit_f emit, void *ctx)
+{
+	worker_t *w = (worker_t*)data;
+	int m, mates = (w->opt->flag&MEM_F_PE)? 2 : 1;
+	wgse_chains_t *chains = calloc(1, sizeof(wgse_chains_t));
+	if (chains == 0) return 0;
+	for (m = 0; m < mates; ++m) {
+		bseq1_t *s = &w->seqs[mates == 2? i<<1|m : i];
+		mem_chain_v *chn = &chains->chn[m];
+		*chn = wgse_chain1(w, s->l_seq, s->seq, w->aux[tid]);
+		// Without memory for the windows, mem_chain2aln() fetches them again.
+		chains->windows[m] = chn->n? calloc(chn->n, sizeof(wgse_window_t)) : 0;
+		wgse_extend_candidates1(w->opt, w->bns, w->pac, s->l_seq, (uint8_t*)s->seq, chn, m,
+			emit, ctx, chains->windows[m]);
+	}
+	return chains;
+}
+
+void wgse_worker1_finish(void *data, long i, void *chains)
+{
+	worker_t *w = (worker_t*)data;
+	int m, mates = (w->opt->flag&MEM_F_PE)? 2 : 1;
+	wgse_chains_t *c = (wgse_chains_t*)chains;
+	for (m = 0; m < mates; ++m) {
+		long k = mates == 2? i<<1|m : i;
+		w->regs[k] = wgse_finish1(w->opt, w->bns, w->pac, w->seqs[k].l_seq, w->seqs[k].seq,
+			c->chn[m], c->windows[m]);
+	}
+	free(c);
+}
