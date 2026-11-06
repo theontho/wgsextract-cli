@@ -167,24 +167,32 @@ def test_clinvar_findings_carry_labels_reasons_and_a_disclaimer(tmp_path):
 
 
 @needs_bcftools
-def test_clinvar_carries_its_geneinfo_into_the_calls_table(tmp_path):
-    # #397: the report names a call's gene from ClinVar's GENEINFO. (ClinVar
-    # files without it are annotated without it: see the test above.)
-    sample = _vcf(tmp_path / "s.vcf.gz", CALLS[:1])
+@pytest.mark.parametrize("clinvar_has_geneinfo", [True, False])
+def test_clinvar_carries_its_geneinfo_into_the_calls_table(
+    tmp_path, clinvar_has_geneinfo
+):
+    # #397: the report names a call's gene from ClinVar's GENEINFO, never from
+    # a GENEINFO the input VCF already had.
+    geneinfo = '##INFO=<ID=GENEINFO,Number=1,Type=String,Description="Genes">\n'
+    sample = _vcf(
+        tmp_path / "s.vcf.gz",
+        [CALLS[0].replace(" . GT", " GENEINFO=STALE:1 GT")],
+        header=geneinfo,
+    )
+    info = "CLNSIG=Pathogenic;CLNDN=D"
+    if clinvar_has_geneinfo:
+        info += ";GENEINFO=BRCA2:675|ZAR1L:345862"
     clinvar = _vcf(
         tmp_path / "clinvar.vcf.gz",
-        [
-            "100 0 C T . . CLNSIG=Pathogenic;CLNDN=D;GENEINFO=BRCA2:675|ZAR1L:345862 GT 0/1"
-        ],
-        header='##INFO=<ID=GENEINFO,Number=1,Type=String,Description="Genes">\n',
+        [f"100 0 C T . . {info} GT 0/1"],
+        header=geneinfo if clinvar_has_geneinfo else "",
     )
     out = tmp_path / "out"
     _run(tmp_path, "vcf", "clinvar", "--vcf-input", sample, "--clinvar-file",
          clinvar, "--outdir", str(out))  # fmt: skip
     rows = _table(out / "clinvar_pathogenic.confidence.tsv")
-    assert [(r["pos"], r["GENEINFO"]) for r in rows] == [
-        ("100", "BRCA2:675|ZAR1L:345862")
-    ]
+    expected = "BRCA2:675|ZAR1L:345862" if clinvar_has_geneinfo else ""
+    assert [(r["pos"], r["GENEINFO"]) for r in rows] == [("100", expected)]
 
 
 @needs_bcftools

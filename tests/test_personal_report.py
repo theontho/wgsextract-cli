@@ -307,6 +307,7 @@ def test_clinvar_lists_gene_list_hits_with_their_call_confidence(sample):
         "carried": 3,
         "in_gene_list": 2,
         "outside_gene_list": 1,
+        "unplaced": 0,
         "high": 1,
         "moderate": 0,
         "low": 1,
@@ -379,6 +380,12 @@ def test_without_a_verified_list_clinvar_calls_are_not_placed(
         served_lists.online = False
     else:
         served_lists.body = MINI_LIST.replace("BRCA2", "BRCA3").encode()
+    _clinvar_table(
+        sample,
+        (*_mid("BRCA2"), "Pathogenic", "BRCA2:675"),
+        (*_mid("MUTYH"), "Pathogenic", "MUTYH:4595"),
+        ("chr6", 1000, "Likely_pathogenic", "OTHER:1"),
+    )
     code, _ = _cli("report", "--workspace", str(sample))
     assert code == 0
     report = json.loads((sample / "HG002_personal_report.json").read_text())
@@ -389,6 +396,7 @@ def test_without_a_verified_list_clinvar_calls_are_not_placed(
     # Unplaced calls are not claimed to lie outside the list.
     assert clinvar["counts"]["carried"] == 3
     assert clinvar["counts"]["outside_gene_list"] == 0
+    assert clinvar["counts"]["unplaced"] == 3
     assert "not placed in genes" in clinvar["summary"]
     assert report["sections"]["lineage"]["findings"]
 
@@ -409,14 +417,16 @@ def test_geneinfo_names_the_gene_and_spans_are_the_fallback(sample):
         (*brca2, "Pathogenic", "ZAR1L:345862"),  # in BRCA2's span, ClinVar: ZAR1L
         ("chr6", 1000, "Pathogenic", "PLN:5350|OTHER:1"),  # outside every span
         (*mutyh, "Likely_pathogenic", "."),  # no GENEINFO: placed by span
+        ("chr6", 2000, "Pathogenic", "BRCA2:675|MUTYH:4595"),  # two listed genes
     )
     clinvar = pr.build_report(sample)["sections"]["clinvar"]
-    assert sorted(
-        (f["gene"], f["evidence"]["region"]) for f in clinvar["findings"]
-    ) == [
-        ("MUTYH", f"chr1:{mutyh[1]}"),
-        ("PLN", "chr6:1000"),
-    ]
+    findings = {f["evidence"]["region"]: f for f in clinvar["findings"]}
+    assert {region: f["gene"] for region, f in findings.items()} == {
+        f"chr1:{mutyh[1]}": "MUTYH",
+        "chr6:1000": "PLN",
+        "chr6:2000": "BRCA2/MUTYH",
+    }
+    assert findings["chr6:2000"]["note"].startswith("MUTYH: ")
     assert clinvar["counts"]["outside_gene_list"] == 1
 
 
@@ -440,14 +450,17 @@ def test_gene_list_from_the_flag_or_config_is_a_tsv_or_bed(
     assert clinvar["gene_list"] == {
         "id": "my_panel.bed",
         "name": "my_panel.bed",
-        "version": None,
-        "citation": None,
-        "url": None,
+        "version": "",
+        "citation": "",
+        "url": "",
         "genes": 2,
     }
     assert str(tmp_path) not in json.dumps(report)
+    markdown = (sample / "HG002_personal_report.md").read_text()
+    assert "Gene list: my\\_panel.bed (2 genes)." in markdown
 
-    # A list of symbols alone relies on ClinVar's GENEINFO.
+    # A list of symbols alone relies on ClinVar's GENEINFO: a call without it
+    # is unplaced, not outside the list.
     symbols = tmp_path / "symbols.tsv"
     symbols.write_text("# mine\ngene\nBRCA2\n")
     monkeypatch.setitem(settings, "report_gene_list", str(symbols))
@@ -459,18 +472,51 @@ def test_gene_list_from_the_flag_or_config_is_a_tsv_or_bed(
     result = api.report.build(api.ReportParams(workspace=sample))
     clinvar = result.details["sections"]["clinvar"]
     assert [f["gene"] for f in clinvar["findings"]] == ["BRCA2"]
+    assert (clinvar["counts"]["outside_gene_list"], clinvar["counts"]["unplaced"]) == (
+        0,
+        1,
+    )
+    assert [w["code"] for w in clinvar["warnings"]] == ["gene_annotation_missing"]
+    assert "1 not placed" in clinvar["summary"]
     assert clinvar["gene_list"]["id"] == "symbols.tsv"
     assert served_lists.downloads == []
 
 
-def test_an_unknown_gene_list_is_a_usage_error(sample, tmp_path):
+def test_an_unknown_gene_list_is_a_usage_error(sample):
     code, _ = _cli("report", "--workspace", str(sample), "--gene-list", "acmg-sf-9")
     assert code == 2
-    bad = tmp_path / "bad.bed"
-    bad.write_text("chr1\t10\t20\n")
-    with pytest.raises(api.CommandFailed, match="column 4"):
+    assert not list(sample.glob("*_personal_report*"))
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "error"),
+    [
+        ("no_symbol.bed", "chr1\t10\t20\n", "column 4"),
+        ("negative.bed", "chr1\t-5\t20\tBRCA2\n", "bad interval"),
+        ("empty.bed", "chr1\t20\t20\tBRCA2\n", "bad interval"),
+        ("no_end.tsv", "gene\tchrom\tstart\nBRCA2\tchr13\t5\n", "bad span"),
+        ("inverted.tsv", "gene\thg38_chrom\thg38_start\thg38_end\nBRCA2\tchr13\t9\t5\n", "bad span"),
+    ],
+)  # fmt: skip
+def test_a_malformed_gene_list_file_is_a_usage_error(
+    sample, tmp_path, name, text, error
+):
+    bad = tmp_path / name
+    bad.write_text(text)
+    with pytest.raises(api.CommandFailed, match=error):
         api.report.build(api.ReportParams(workspace=sample, gene_list=str(bad)))
     assert not list(sample.glob("*_personal_report*"))
+
+
+def test_a_reference_library_the_list_cannot_be_stored_in_keeps_the_report(
+    sample, tmp_path, monkeypatch
+):
+    # A file, not a folder: the list cannot be downloaded into it.
+    monkeypatch.setitem(settings, "reference_library", str(_touch(tmp_path / "lib")))
+    report = pr.build_report(sample)
+    clinvar = report["sections"]["clinvar"]
+    assert [w["code"] for w in clinvar["warnings"]] == ["gene_list_unavailable"]
+    assert clinvar["findings"] == [] and report["sections"]["lineage"]["findings"]
 
 
 def test_pgx_and_lineage_labels_come_from_the_callers_evidence(sample):

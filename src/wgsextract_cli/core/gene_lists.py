@@ -60,14 +60,22 @@ class GeneList:
         return {
             "id": self.id,
             "name": self.name,
-            "version": self.version,
-            "citation": self.citation,
-            "url": self.url,
+            # A user's file has none: empty, as report/1 keeps them strings.
+            "version": self.version or "",
+            "citation": self.citation or "",
+            "url": self.url or "",
             "genes": len(self.genes),
         }
 
     def needs_build(self) -> bool:
         return any(ANY_BUILD not in gene.spans for gene in self.genes)
+
+    def has_spans(self, build: str | None) -> bool:
+        """Whether any gene has a span to place a ``build`` position by."""
+        return any(
+            (build in gene.spans if build else False) or ANY_BUILD in gene.spans
+            for gene in self.genes
+        )
 
     def genes_at(self, build: str | None, chrom: str, pos: int) -> list[Gene]:
         """Genes whose ``build`` span (or build-free span) holds the position."""
@@ -135,8 +143,16 @@ def load(spec: str | Path | None, library: Path | None = None) -> GeneList:
     list_id = str(spec or default_id())
     meta = MANIFEST["lists"].get(list_id)
     if meta is not None:
-        path = ensure_builtin(list_id, library)
-        genes = _read_tsv(path.read_text(encoding="utf-8"), path)
+        try:
+            path = ensure_builtin(list_id, library)
+            genes = _read_tsv(path.read_text(encoding="utf-8"), path)
+        except GeneListUnavailable:
+            raise
+        except (OSError, WGSExtractError) as error:
+            raise GeneListUnavailable(
+                f"Cannot use the {meta['name']} gene list: {error}. Pass a TSV or "
+                "BED file with --gene-list."
+            ) from error
         return GeneList(
             list_id, meta["name"], genes, meta["version"], meta["citation"], meta["url"]
         )
@@ -149,8 +165,11 @@ def load(spec: str | Path | None, library: Path | None = None) -> GeneList:
 def _load_file(path_text: str, _mtime: int) -> GeneList:
     path = Path(path_text)
     opener = gzip.open if path.name.lower().endswith(".gz") else open
-    with opener(path, "rt", encoding="utf-8") as stream:
-        text = stream.read()
+    try:
+        with opener(path, "rt", encoding="utf-8") as stream:
+            text = stream.read()
+    except (OSError, EOFError, UnicodeDecodeError) as error:
+        raise UsageError(f"Cannot read gene list {path}: {error}") from error
     stem = path.name.lower().removesuffix(".gz")
     genes = _read_bed(text, path) if stem.endswith(".bed") else _read_tsv(text, path)
     if not genes:
@@ -208,28 +227,28 @@ def _read_tsv(text: str, path: Path) -> tuple[Gene, ...]:
     for number, row in enumerate(rows, start=2):
         try:
             spans = {
-                build: (
-                    chrom_key(row[f"{prefix}chrom"]),
-                    int(row[f"{prefix}start"]),
-                    int(row[f"{prefix}end"]),
-                )
-                for build, prefix in ((b, f"{b}_") for b in BUILDS)
+                build: _span(row, prefix)
+                for build, prefix in (*((b, f"{b}_") for b in BUILDS), (ANY_BUILD, ""))
                 if row.get(f"{prefix}chrom")
             }
-            if row.get("chrom"):
-                spans[ANY_BUILD] = (
-                    chrom_key(row["chrom"]),
-                    int(row["start"]),
-                    int(row["end"]),
-                )
-        except (TypeError, ValueError) as error:
-            raise UsageError(f"Gene list {path}, row {number}: {error}") from error
+        except (KeyError, TypeError, ValueError) as error:
+            raise UsageError(
+                f"Gene list {path}, row {number}: bad span ({error})."
+            ) from error
         symbol = (row.get("gene") or "").strip()
         if symbol:
             genes.append(
                 Gene(symbol, row.get("category") or "", row.get("note") or "", spans)
             )
     return tuple(genes)
+
+
+def _span(row: dict[str, str], prefix: str) -> tuple[str, int, int]:
+    """A row's 1-based, inclusive ``<prefix>chrom/start/end`` span."""
+    start, end = int(row[f"{prefix}start"]), int(row[f"{prefix}end"])
+    if not 1 <= start <= end:
+        raise ValueError(f"{prefix}start {start} and {prefix}end {end}")
+    return chrom_key(row[f"{prefix}chrom"]), start, end
 
 
 def _read_bed(text: str, path: Path) -> tuple[Gene, ...]:
@@ -247,8 +266,12 @@ def _read_bed(text: str, path: Path) -> tuple[Gene, ...]:
             )
         try:
             chrom, start, end = chrom_key(cols[0]), int(cols[1]) + 1, int(cols[2])
+            if not 1 <= start <= end:
+                raise ValueError(f"start {cols[1]} and end {cols[2]}")
         except ValueError as error:
-            raise UsageError(f"Gene list {path}, line {number}: {error}") from error
+            raise UsageError(
+                f"Gene list {path}, line {number}: bad interval ({error})."
+            ) from error
         symbol = cols[3].strip()
         old = spans.get(symbol)
         if old and old[0] != chrom:

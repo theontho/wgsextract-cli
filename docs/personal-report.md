@@ -86,9 +86,14 @@ Pick another list with `--gene-list` or `report_gene_list` in config.toml:
 A call is placed in a gene by ClinVar's own gene symbols (`GENEINFO`, which
 `vcf clinvar` carries over when the ClinVar file has it). For calls annotated
 without `GENEINFO`, it is placed by the gene spans, in the build of the VCF
-`vcf clinvar` read. A list of symbols alone therefore needs `GENEINFO`. The
-section also counts the P/LP calls outside the list and links the full table
-of every carried call (`clinvar_pathogenic.confidence.tsv`).
+`vcf clinvar` read. A list of symbols alone therefore needs `GENEINFO`; calls
+that neither can place are counted as `unplaced`, with a
+`gene_annotation_missing` warning (or `build_unknown` when the VCF's build is
+unknown). A variant ClinVar places in several listed genes is one finding,
+named after all of them (`GENE1/GENE2`). The section also counts the P/LP
+calls outside the list and links the full table of every carried call
+(`clinvar_pathogenic.confidence.tsv`). A user's file has no version, citation
+or URL; those fields are empty strings in the JSON.
 
 The built-in spans span each gene's curated RefSeq transcripts (NM_, NR_) in
 NCBI's annotation releases GCF_000001405.40-RS_2025_08 (GRCh38.p14) and
@@ -190,7 +195,7 @@ same document is the `details` of the report's result manifest
       "gene_list": {"id": "acmg-sf-3.3", "name": "ACMG SF v3.3", "version": "3.3", "citation": "...", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12318660/", "genes": 84},
       "build": "hg38",
       "counts": {"carried": 4, "in_gene_list": 1, "outside_gene_list": 3,
-                 "high": 1, "moderate": 0, "low": 0},
+                 "unplaced": 0, "high": 1, "moderate": 0, "low": 0},
       "all_calls": "clinvar_pathogenic.confidence.tsv"
     },
     "overview": {"...": "..."}, "lineage": {"...": "..."},

@@ -43,23 +43,26 @@ def run_clinvar(params: VcfClinvarParams) -> None:
     logging.info(LOG_MESSAGES["vcf_clinvar_resolve"].format(path=clinvar_vcf))
 
     # Transfer CLNSIG (significance), CLNDN (disease name) and, when the
-    # ClinVar file has it, GENEINFO.
+    # ClinVar file has it, GENEINFO. The input's own GENEINFO is dropped, so
+    # any left names ClinVar's genes.
     clinvar_vcf = ensure_vcf_prepared(clinvar_vcf)
-    header = run_command(["bcftools", "view", "-h", clinvar_vcf], capture_output=True)
+    input_vcf = ensure_vcf_prepared(input_file)
+    geneinfo = "##INFO=<ID=GENEINFO,"
     columns = [
         c
         for c in CLINVAR_COLUMNS
-        if c != "GENEINFO" or "##INFO=<ID=GENEINFO," in header.stdout
+        if c != "GENEINFO" or geneinfo in _vcf_header(clinvar_vcf)
     ]
     ann_out = str(Path(outdir, CLINVAR_ANNOTATED))
     annotate_vcf(
-        ensure_vcf_prepared(input_file),
+        input_vcf,
         clinvar_vcf,
         ",".join(columns),
         ann_out,
         outdir,
         "ClinVar",
         threads=params.threads,
+        remove=("INFO/GENEINFO",) if geneinfo in _vcf_header(input_vcf) else (),
     )
 
     path_out = str(Path(outdir, CLINVAR_PATHOGENIC))
@@ -89,6 +92,10 @@ def run_clinvar(params: VcfClinvarParams) -> None:
     )
     record_annotated(ann_out)
     logging.info(LOG_MESSAGES["vcf_clinvar_done"].format(output=path_out))
+
+
+def _vcf_header(vcf: str) -> str:
+    return run_command(["bcftools", "view", "-h", vcf], capture_output=True).stdout
 
 
 def run_revel(params: VcfRevelParams) -> None:

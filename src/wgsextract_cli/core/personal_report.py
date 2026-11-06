@@ -875,25 +875,34 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
             section["warnings"].append(
                 {"code": "gene_list_unavailable", "message": str(error)}
             )
-    outside = 0
+    outside = unplaced = 0
     findings = []
     for call in () if unavailable else calls:
         pos = _int(call.get("pos"))
         chrom = str(call.get("chrom") or "")
         genes = _call_genes(gene_list, call, build, chrom, pos)
+        if genes is None:
+            unplaced += 1
+            continue
         if not genes:
             outside += 1
             continue
         significance = str(call.get("CLNSIG") or "").replace("_", " ")
-        gene = genes[0]
+        # A variant ClinVar places in several listed genes is one finding.
+        symbols = "/".join(g.symbol for g in genes)
+        notes = [
+            f"{g.symbol}: {g.note}" if len(genes) > 1 else g.note
+            for g in genes
+            if g.note
+        ]
         findings.append(
             _finding(
                 "clinvar",
-                f"{gene.symbol} {significance}",
+                f"{symbols} {significance}",
                 significance,
                 detail=str(call.get("CLNDN") or "").replace("_", " ") or None,
-                gene=gene.symbol,
-                note=gene.note or None,
+                gene=symbols,
+                note="; ".join(notes) or None,
                 confidence=str(call.get("confidence") or NOT_ASSESSED),
                 reasons=list(call.get("reasons") or []),
                 basis=variant_confidence.SCHEME,
@@ -921,6 +930,7 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         "carried": len(calls),
         "in_gene_list": len(findings),
         "outside_gene_list": outside,
+        "unplaced": unplaced,
         **{
             label: sum(f["confidence"] == label for f in findings)
             for label in variant_confidence.LABELS
@@ -928,16 +938,13 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
     }
     section["all_calls"] = ctx.rel(source.output("confidence_table") or vcf)
     if unavailable:
+        section["counts"]["unplaced"] = len(calls)
         section["summary"] = (
             f"{len(calls)} call{'s' * (len(calls) != 1)} not placed in genes: "
             "the gene list is unavailable; see the full table."
         )
         return section
-    if (
-        build is None
-        and gene_list.needs_build()
-        and any(not _geneinfo(c) for c in calls)
-    ):
+    if unplaced and build is None and gene_list.needs_build():
         section["warnings"].append(
             {
                 "code": "build_unknown",
@@ -945,9 +952,20 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
                 "could not be placed in genes; see the full table.",
             }
         )
+    elif unplaced:
+        section["warnings"].append(
+            {
+                "code": "gene_annotation_missing",
+                "message": f"{unplaced} call{'s' * (unplaced != 1)} have no ClinVar "
+                "GENEINFO and the gene list has no spans to place them by; rerun "
+                "vcf clinvar with a current ClinVar file, or use a list with "
+                "spans. See the full table.",
+            }
+        )
     section["summary"] = (
         f"{len(findings)} call{'s' * (len(findings) != 1)} in "
-        f"{described['name']} genes; {outside} more elsewhere."
+        f"{described['name']} genes; {outside} more elsewhere"
+        + (f"; {unplaced} not placed." if unplaced else ".")
     )
     return section
 
@@ -958,12 +976,15 @@ def _call_genes(
     build: str | None,
     chrom: str,
     pos: int | None,
-) -> list[gene_lists.Gene]:
+) -> list[gene_lists.Gene] | None:
     """The list's genes ClinVar names for the call (GENEINFO), or, for an
-    annotation without GENEINFO, those whose span holds it."""
+    annotation without GENEINFO, those whose span holds it; None if neither
+    can place the call."""
     if symbols := _geneinfo(call):
         return gene_list.named(symbols)
-    return [] if pos is None else gene_list.genes_at(build, chrom, pos)
+    if pos is None or not gene_list.has_spans(build):
+        return None
+    return gene_list.genes_at(build, chrom, pos)
 
 
 def _geneinfo(call: Mapping[str, Any]) -> list[str]:
@@ -1316,9 +1337,12 @@ def _html_section_body(name: str, section: Mapping[str, Any], base: str) -> list
             )
     elif name == "clinvar":
         gl = section["gene_list"]
+        source = [_h(gl["citation"])] if gl["citation"] else []
+        source += [_link("Table 1", gl["url"])] if gl["url"] else []
         out.append(
-            f'<p class="muted">Gene list: {_h(gl["name"])} ({gl["genes"]} genes; '
-            f"{_h(gl['citation'])}, {_link('Table 1', gl['url'])}).</p>"
+            f'<p class="muted">Gene list: {_h(gl["name"])} ({gl["genes"]} genes'
+            + (f"; {', '.join(source)}" if source else "")
+            + ").</p>"
         )
         if section.get("all_calls"):
             out.append(
@@ -1449,10 +1473,13 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
             out += [f"| {_md(q['label'])} | {_md(q['text'])} |" for q in section["qc"]]
         if name == "clinvar":
             gl = section["gene_list"]
+            source = [_md(gl["citation"])] if gl["citation"] else []
+            source += [_md_link("Table 1", gl["url"])] if gl["url"] else []
             out += [
                 "",
-                f"Gene list: {_md(gl['name'])} ({_md(gl['genes'])} genes; "
-                f"{_md(gl['citation'])}, {_md_link('Table 1', gl['url'])}).",
+                f"Gene list: {_md(gl['name'])} ({_md(gl['genes'])} genes"
+                + (f"; {', '.join(source)}" if source else "")
+                + ").",
             ]
             if section.get("all_calls"):
                 href = _href(section["all_calls"], base)
