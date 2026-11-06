@@ -2,8 +2,9 @@
 
 The report summarises what earlier runs left in the sample folder (their
 result manifests and the sample workspace): overview and QC, lineage,
-pharmacogenomics, ClinVar pathogenic calls in the ACMG SF genes and the
-microarray export. It runs no analysis and makes no network calls::
+pharmacogenomics, ClinVar pathogenic calls in the ACMG SF genes (or another
+gene list) and the microarray export. It runs no analysis; its only network
+use is downloading a built-in gene list once into the reference library::
 
     res = api.report.build(api.ReportParams(workspace=Path("HG002")))
     report = res.details          # the wgsextract.report/1 document
@@ -19,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core import gene_lists
 from wgsextract_cli.core.results import CommandResult
 from wgsextract_cli.core.table_writer import FORMATS, table_format_type
 from wgsextract_cli.core.utils import UsageError
@@ -69,6 +71,17 @@ class ReportParams(Params):
         flags=("--format",),
         choices=FORMATS,
         cli_type=table_format_type(),
+    )
+    gene_list: str | None = param(
+        None,
+        help="Genes for the ClinVar section: a built-in list "
+        f"({', '.join(gene_lists.builtin_ids())}; downloaded once into the "
+        "reference library), or a TSV (column gene; optional hg19_/hg38_ or "
+        "build-free chrom, start, end spans) or BED file (gene symbol in column "
+        f"4) (default: config report_gene_list, else {gene_lists.default_id()})",
+        metavar="LIST",
+        config_key="report_gene_list",
+        may_name_file=True,
     )
 
     def __post_init__(self) -> None:

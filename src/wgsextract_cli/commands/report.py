@@ -38,7 +38,9 @@ def run_report(params: ReportParams) -> None:
     if outdir != folder:
         extra.append(outdir)
     sources = pr.sample_sources(folder, params.input, extra)
-    report = pr.build_report(folder, input_file=params.input, sources=sources)
+    report = pr.build_report(
+        folder, input_file=params.input, sources=sources, gene_list=params.gene_list
+    )
 
     result = current_result()
     for source in sources:

@@ -51,7 +51,7 @@ CRAM `--input`.
 | Sample overview | workspace facts (sex, platform, build, coverage, depth by target, read length, each with its method and confidence); `info --detailed` (QC metrics, plus sex, coverage and read length with confidence "not recorded" when the folder has no workspace) | none: facts and QC tables |
 | Lineage | `lineage y-haplogroup`, `lineage mt-haplogroup` | the Y and mtDNA haplogroups, with tree links (YFull, FTDNA). Y-DNA is not asked for when the recorded sex is Female. |
 | Pharmacogenomics | `vcf pharmcat`, `typing cyp2d6` (Cyrius) | one per PharmCAT gene (diplotype and phenotype); the CYP2D6 diplotype |
-| ClinVar | `vcf clinvar` | each carried ClinVar pathogenic or likely-pathogenic call in an ACMG SF v3.2 gene |
+| ClinVar | `vcf clinvar` | each carried ClinVar pathogenic or likely-pathogenic call in a gene of the gene list (default ACMG SF v3.3) |
 | Microarray export | `microarray` | none: the files produced, with sites, called sites and no-call rate |
 
 Warnings the source runs recorded (low coverage, high no-call rates, ...) are
@@ -59,22 +59,49 @@ shown with their section.
 
 ### ClinVar gene list
 
-ClinVar hits are listed only for the 81 genes of the ACMG secondary-findings
-list, version 3.2 (Miller DT et al., *Genet Med* 2023;25(8):100866, PMID
-37347242). The genes, categories and notes were checked against the paper's
-[Table 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/). The genes and
-their hg19/hg38 spans are in
-`src/wgsextract_cli/assets/report/acmg_sf_v3.2.tsv`. A call is placed in a
-gene by position, in the build of the VCF `vcf clinvar` read. The section
-also counts the P/LP calls outside the list and links the full table of every
-carried call (`clinvar_pathogenic.confidence.tsv`).
+ClinVar hits are listed only for the genes of one gene list, by default the 84
+genes of the ACMG secondary-findings list, version 3.3 (Lee K et al., *Genet
+Med* 2025;27(8):101454, PMID 40568962). The genes, categories and notes were
+checked against the paper's
+[Table 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC12318660/). v3.3 adds
+ABCD1, CYP27A1 and PLN to v3.2 and moves HFE to inborn errors of metabolism.
+
+Pick another list with `--gene-list` or `report_gene_list` in config.toml:
+
+- **A built-in list**: `acmg-sf-3.3` (the default) or `acmg-sf-3.2`. Built-in
+  lists are assets of the GitHub release `report-gene-lists-v1`, pinned by
+  SHA-256 in `src/wgsextract_cli/assets/report/gene_lists.json`. The report
+  downloads one the first time it has ClinVar calls to place, into
+  `report/gene_lists/` of the reference library, and checks it against the
+  pinned SHA-256 whenever it reads it. Offline, without a downloaded list,
+  the section warns (`gene_list_unavailable`) and places no calls; the other
+  sections are unaffected.
+- **A TSV file** with a `gene` column, and optionally `category`, `note`, and
+  spans (1-based, inclusive): `hg19_chrom`, `hg19_start`, `hg19_end` and the
+  `hg38_` columns, or `chrom`, `start` and `end` in the VCF's build. Lines
+  starting with `#` are comments. The built-in lists use this format.
+- **A BED file** (`.bed` or `.bed.gz`) with the gene symbol in column 4, in
+  the VCF's build. A gene's intervals are merged into one span.
+
+A call is placed in a gene by ClinVar's own gene symbols (`GENEINFO`, which
+`vcf clinvar` carries over when the ClinVar file has it). For calls annotated
+without `GENEINFO`, it is placed by the gene spans, in the build of the VCF
+`vcf clinvar` read. A list of symbols alone therefore needs `GENEINFO`. The
+section also counts the P/LP calls outside the list and links the full table
+of every carried call (`clinvar_pathogenic.confidence.tsv`).
+
+The built-in spans span each gene's curated RefSeq transcripts (NM_, NR_) in
+NCBI's annotation releases GCF_000001405.40-RS_2025_08 (GRCh38.p14) and
+105.20220307 (GRCh37.p13). `scripts/build_report_gene_lists.py` builds the
+lists and records where they differ from UCSC refGene.
 
 ACMG reports some genes only in particular cases. For MUTYH, CASQ2, TRDN, BTD,
-GAA, ATP7B and RPE65 only two P/LP variants (biallelic) count, and for HFE only
-p.C282Y homozygotes. TTN counts only truncating and high-PSI splicing variants,
-RYR1 only malignant-hyperthermia variants, and LMNA not missense variants never
-seen with cardiac disease. Those findings carry this as a note. The report does
-not work out phase, variant consequence or which HFE variant a call is.
+GAA, ATP7B, RPE65 and CYP27A1 only two P/LP variants (biallelic) count, for
+ABCD1 not a single heterozygous one, and for HFE only p.C282Y homozygotes. TTN
+counts only truncating variants, RYR1 only malignant-hyperthermia variants,
+and LMNA not missense variants never seen with cardiac disease. Those findings
+carry this as a note. The report does not work out phase, variant consequence
+or which HFE variant a call is.
 
 ## Confidence labels
 
@@ -139,9 +166,9 @@ same document is the `details` of the report's result manifest
   "confidence_reasons": {"low_depth": "read depth is below ...", "...": "..."},
   "sections": {
     "clinvar": {
-      "title": "ClinVar pathogenic / likely pathogenic in ACMG SF v3.2 genes",
+      "title": "ClinVar pathogenic / likely pathogenic in ACMG SF v3.3 genes",
       "status": "ok",
-      "summary": "1 call in ACMG SF v3.2 genes; 3 more elsewhere.",
+      "summary": "1 call in ACMG SF v3.3 genes; 3 more elsewhere.",
       "findings": [{
         "section": "clinvar", "label": "BRCA2 Pathogenic", "value": "Pathogenic",
         "detail": "Hereditary breast ovarian cancer syndrome", "gene": "BRCA2",
@@ -160,7 +187,7 @@ same document is the `details` of the report's result manifest
       "sources": [{"command": "vcf clinvar", "status": "ok",
                    "finished": "2025-06-01T11:00:00+00:00",
                    "manifest": "clinvar_pathogenic.vcf.manifest.json"}],
-      "gene_list": {"name": "ACMG SF v3.2", "version": "3.2", "citation": "...", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/", "genes": 81},
+      "gene_list": {"id": "acmg-sf-3.3", "name": "ACMG SF v3.3", "version": "3.3", "citation": "...", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12318660/", "genes": 84},
       "build": "hg38",
       "counts": {"carried": 4, "in_gene_list": 1, "outside_gene_list": 3,
                  "high": 1, "moderate": 0, "low": 0},

@@ -9,7 +9,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
 from .annotation_helpers import (
@@ -26,7 +26,8 @@ from .basic import vcf_input_handler
 
 CLINVAR_ANNOTATED = "clinvar_annotated.vcf.gz"
 CLINVAR_PATHOGENIC = "clinvar_pathogenic.vcf.gz"
-CLINVAR_COLUMNS = ("CLNSIG", "CLNDN")
+# GENEINFO (SYMBOL:GeneID|...) names the genes ClinVar placed the variant in.
+CLINVAR_COLUMNS = ("CLNSIG", "CLNDN", "GENEINFO")
 REVEL_ANNOTATED = "revel_annotated.vcf.gz"
 
 
@@ -41,12 +42,20 @@ def run_clinvar(params: VcfClinvarParams) -> None:
     )
     logging.info(LOG_MESSAGES["vcf_clinvar_resolve"].format(path=clinvar_vcf))
 
-    # Transfer CLNSIG (significance) and CLNDN (disease name).
+    # Transfer CLNSIG (significance), CLNDN (disease name) and, when the
+    # ClinVar file has it, GENEINFO.
+    clinvar_vcf = ensure_vcf_prepared(clinvar_vcf)
+    header = run_command(["bcftools", "view", "-h", clinvar_vcf], capture_output=True)
+    columns = [
+        c
+        for c in CLINVAR_COLUMNS
+        if c != "GENEINFO" or "##INFO=<ID=GENEINFO," in header.stdout
+    ]
     ann_out = str(Path(outdir, CLINVAR_ANNOTATED))
     annotate_vcf(
         ensure_vcf_prepared(input_file),
-        ensure_vcf_prepared(clinvar_vcf),
-        "CLNSIG,CLNDN",
+        clinvar_vcf,
+        ",".join(columns),
         ann_out,
         outdir,
         "ClinVar",
