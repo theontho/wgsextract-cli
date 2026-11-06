@@ -43,20 +43,23 @@ wgsextract bam merge run1.bam run2.bam --sample HG002 --output HG002.bam
 ```
 
 - **Read groups.** Each run keeps its own read group, so callers can tell the
-  runs apart. If an input has no `@RG` lines, or with `--attach-rg`, each
-  input's read group is named after its file (`run1`, `run2`); each input
-  must then hold at most one. Otherwise the inputs' read groups are kept, and
+  runs apart. If an input has no `@RG` lines or reads without an `RG` tag,
+  or with `--attach-rg`, each input's read group is named after its file
+  (`run1`, `run2`); each input must then hold at most one. Otherwise the inputs' read groups are kept, and
   IDs that clash get a suffix (warning `read_group_conflict`).
 - **Sample.** Every read group gets the same `SM`: `--sample`, else the
   inputs' own. Inputs naming different samples are refused unless `--sample`
   is given; inputs naming none take the output's name (`sample_name_assumed`).
 - **Platform.** Missing `PL` fields are filled from the detected platform.
-  Runs from different platforms (ONT and Illumina, say) are refused.
+  Reads from different platforms (ONT and Illumina, say), in one input or
+  across them, are refused.
 - **Reference.** Inputs must share contig names and lengths, and MD5s where
   both headers list them.
 - **Duplicates.** The first 5,000 reads of each input are compared. A run
-  included twice (the same reads in two inputs) is refused; different reads
-  that share names warn `read_name_collision`.
+  included twice (the same reads, as sequenced, in two inputs, even if
+  realigned) is refused, as are ONT runs sharing read IDs, which name
+  molecules: a run basecalled twice. Other different reads that share names
+  warn `read_name_collision`.
 - **Modifications.** `MM`/`ML` tags pass through unchanged. If only some runs
   carry them, or their read groups name different modified-base models, the
   merge warns (`mod_tags_partial`, `mod_models_differ`).

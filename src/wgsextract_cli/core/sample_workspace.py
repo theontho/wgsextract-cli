@@ -118,11 +118,13 @@ FACTS: dict[str, FactSpec] = {
         FactSpec("read_length", "Mean read length in bases."),
         # Version 2: long reads' depth is sampled, not counted (#427).
         FactSpec("mean_coverage", "Mean mapped read depth over the genome.", None, 2),
+        # Version 3: multi-reference CRAM containers are sampled on the contigs
+        # their index lists (#339).
         FactSpec(
             "target_depths",
             "Mean mapped depth of the autosomes, chrX, chrY and mtDNA.",
             None,
-            2,
+            3,
         ),
     )
 }

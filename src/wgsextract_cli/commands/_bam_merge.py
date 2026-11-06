@@ -57,17 +57,21 @@ PLATFORM_TAGS = {
     "ultima": "ULTIMA",
 }
 LONG_READ_PLATFORMS = {"ont", "pacbio"}
+_COMPLEMENT = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+# samtools merge's seed for the suffixes of clashing read-group IDs, fixed so
+# the header-only dry run names them as the real merge does.
+MERGE_SEED = "339"
 
 
 @dataclass
 class _Probe:
     """The first primary alignments of an input."""
 
-    # (name, which mate) -> (contig, position, strand, sequence hash)
-    reads: dict[tuple[str, int], tuple[str, str, int, int]] = field(
-        default_factory=dict
-    )
+    # (name, which mate) -> hash of the read's bases as sequenced
+    reads: dict[tuple[str, int], int] = field(default_factory=dict)
     modified: int = 0
+    # Reads without an RG tag.
+    untagged: int = 0
     first_qname: str | None = None
 
 
@@ -83,8 +87,18 @@ class _Input:
         return Path(self.path).name
 
     @property
-    def platform(self) -> str | None:
-        return platform_from_metadata(self.header, self.probe.first_qname)
+    def platforms(self) -> set[str]:
+        """The platforms its read groups declare, else the one its read names
+        suggest. An unrecognised PL stands for itself."""
+        declared = {
+            platform_from_metadata(f"@RG\tID:x\tPL:{g['PL']}") or g["PL"].upper()
+            for g in self.groups
+            if g.get("PL")
+        }
+        if declared:
+            return declared
+        found = platform_from_metadata("", self.probe.first_qname)
+        return {found} if found else set()
 
 
 def _is_cram(path: str) -> bool:
@@ -109,15 +123,24 @@ def _sequence_dictionary(header: str) -> list[dict[str, str]]:
     ]
 
 
-def _same_reference(a: str, b: str) -> bool:
-    """Same contig names and lengths, and the same MD5s where both list them."""
-    first, second = _sequence_dictionary(a), _sequence_dictionary(b)
-    return len(first) == len(second) and all(
-        x.get("SN") == y.get("SN")
-        and x.get("LN") == y.get("LN")
-        and (not (x.get("M5") and y.get("M5")) or x["M5"].lower() == y["M5"].lower())
-        for x, y in zip(first, second, strict=True)
-    )
+def _same_reference(headers: Sequence[str]) -> int | None:
+    """The first header (by index) whose contigs differ from the earlier ones'
+    in name or length, or in MD5 where both list one; None if all agree."""
+    names: list[tuple[str | None, str | None]] | None = None
+    md5s: list[str | None] = []
+    for i, header in enumerate(headers):
+        contigs = _sequence_dictionary(header)
+        found = [(c.get("SN"), c.get("LN")) for c in contigs]
+        if names is None:
+            names, md5s = found, [None] * len(found)
+        elif found != names:
+            return i
+        for j, contig in enumerate(contigs):
+            md5 = contig.get("M5", "").lower() or None
+            if md5 and md5s[j] and md5 != md5s[j]:
+                return i
+            md5s[j] = md5s[j] or md5
+    return None
 
 
 def _probe(samtools: str, path: str, ref: str | None) -> _Probe:
@@ -137,16 +160,17 @@ def _probe(samtools: str, path: str, ref: str | None) -> _Probe:
                 continue
             name = fields[0]
             probe.first_qname = probe.first_qname or name
-            seq = fields[9]
             flag = int(fields[1])
-            probe.reads[name, flag & 0xC0] = (
-                fields[2],
-                fields[3],
-                flag & 16,
-                hash(seq),
-            )
-            if any(tag.startswith(("MM:Z:", "Mm:Z:")) for tag in fields[11:]):
+            seq = fields[9]
+            if flag & 16:
+                seq = seq[::-1].translate(_COMPLEMENT)
+            # As sequenced, so a realigned copy of a run still matches.
+            probe.reads[name, flag & 0xC0] = hash(seq)
+            tags = fields[11:]
+            if any(tag.startswith(("MM:Z:", "Mm:Z:")) for tag in tags):
                 probe.modified += 1
+            if not any(tag.startswith("RG:Z:") for tag in tags):
+                probe.untagged += 1
             if len(probe.reads) >= PROBE_READS:
                 stopped = True
                 proc.kill()
@@ -160,18 +184,25 @@ def _probe(samtools: str, path: str, ref: str | None) -> _Probe:
 
 
 def _check_shared_reads(inputs: Sequence[_Input]) -> None:
-    """Refuse inputs that hold the same reads; warn of reads that only share a
-    name, which duplicate marking and mate pairing take for one template."""
+    """Refuse inputs that hold the same reads, or (ONT read IDs naming
+    molecules) the same read IDs; warn of other reads that only share a name,
+    which duplicate marking and mate pairing take for one template."""
     for i, a in enumerate(inputs):
         for b in inputs[i + 1 :]:
             shared = a.probe.reads.keys() & b.probe.reads.keys()
             same = sum(a.probe.reads[k] == b.probe.reads[k] for k in shared)
-            names = {name for name, _mate in shared}
+            names = {n for n, _ in a.probe.reads} & {n for n, _ in b.probe.reads}
             if same:
                 raise WGSExtractError(
                     f"{b.name} repeats {same} of the first {len(a.probe.reads)} "
                     f"reads of {a.name}: the same reads are in both. Merge each "
-                    "run once (was a run included twice, or basecalled twice?)."
+                    "run once (was a run included twice, or realigned?)."
+                )
+            if names and a.platforms == b.platforms == {"ont"}:
+                raise WGSExtractError(
+                    f"{len(names)} read IDs of {a.name} are also in {b.name}. "
+                    "ONT read IDs name molecules, so these are the same reads, "
+                    "basecalled again; merge one basecall of each run."
                 )
             if names:
                 warn(
@@ -213,7 +244,7 @@ def _check_modifications(inputs: Sequence[_Input]) -> None:
 def _sample_name(inputs: Sequence[_Input], sample: str | None, out_file: str) -> str:
     if sample:
         return sample
-    named = {x.name: sorted({g["SM"] for g in x.groups if g.get("SM")}) for x in inputs}
+    named = {x.path: sorted({g["SM"] for g in x.groups if g.get("SM")}) for x in inputs}
     names = {n for found in named.values() for n in found}
     if len(names) > 1:
         listing = "; ".join(f"{f}: {', '.join(n) or 'none'}" for f, n in named.items())
@@ -233,32 +264,39 @@ def _sample_name(inputs: Sequence[_Input], sample: str | None, out_file: str) ->
 
 
 def _platform(inputs: Sequence[_Input]) -> str | None:
-    found = {x.name: x.platform for x in inputs}
-    known = {p for p in found.values() if p}
+    found = {x.path: x.platforms for x in inputs}
+    known = set().union(*found.values())
     if len(known) > 1:
-        listing = "; ".join(f"{f}: {p or 'unknown'}" for f, p in found.items())
+        listing = "; ".join(
+            f"{f}: {', '.join(sorted(p)) or 'unknown'}" for f, p in found.items()
+        )
         raise WGSExtractError(
-            f"The inputs come from different sequencing platforms ({listing}); "
-            "callers model one platform's errors, so they are not merged."
+            f"The inputs hold reads from different sequencing platforms "
+            f"({listing}); callers model one platform's errors, so they are not "
+            "merged."
         )
     if not known:
         logging.info("The inputs' sequencing platform is unknown; PL is left unset.")
-    return known.pop() if known else None
+    platform = known.pop() if known else None
+    return platform if platform in PLATFORM_TAGS else None
 
 
 def _samtools_stem(path: str) -> str:
     """The read-group ID samtools merge -r gives a file's reads."""
-    name = path.rsplit("/", 1)[-1]
-    for ext in (".bam", ".sam", ".cram"):
-        if name.endswith(ext) and len(name) > len(ext):
-            return name[: -len(ext)]
-    return name
+    # As samtools does: strip .bam or .sam, then .cram, then the directory.
+    if len(path) > 4 and path.endswith((".bam", ".sam")):
+        path = path[:-4]
+    if len(path) > 5 and path.endswith(".cram"):
+        path = path[:-5]
+    return path.rsplit("/", 1)[-1]
 
 
 def _tag_by_file(inputs: Sequence[_Input], attach_rg: bool) -> bool:
     """Whether to name read groups after the files (samtools merge -r): when
-    asked, or when an input has none. Each input then has one read group."""
-    if not (attach_rg or any(not x.groups for x in inputs)):
+    asked, or when an input has none or reads without one. Each input then
+    has one read group."""
+    untagged = [x for x in inputs if not x.groups or x.probe.untagged]
+    if not (attach_rg or untagged):
         return False
     several = [x.name for x in inputs if len(x.groups) > 1]
     if several:
@@ -267,9 +305,10 @@ def _tag_by_file(inputs: Sequence[_Input], attach_rg: bool) -> bool:
             "groups after the files would merge into one"
             + (
                 "; leave out --attach-rg."
-                if all(x.groups for x in inputs)
-                else ". Give every input its own read groups (e.g. with "
-                "samtools addreplacerg) before merging."
+                if not untagged
+                else f", and {', '.join(x.name for x in untagged)} "
+                "need it for reads without one. Give every read its read group "
+                "(e.g. with samtools addreplacerg) before merging."
             )
         )
     stems: dict[str, str] = {}
@@ -294,7 +333,8 @@ def _merged_header(
         folder = Path(scratch, str(i))
         folder.mkdir()
         stem = _samtools_stem(Path(x.path).as_posix())
-        path = folder / f"{stem}.sam"
+        # SAM text, named so that samtools' stripping gives back the stem.
+        path = folder / f"{stem}.cram"
         path.write_text(x.header, newline="\n")
         files.append(path.as_posix())
     return run_command(
@@ -322,7 +362,7 @@ def _with_sample(header: str, sample: str, platform: str | None) -> str:
 
 
 def _check_read_groups(samtools: str, path: str, ref: str | None) -> None:
-    """Every read's RG of the first reads names a read group of the header."""
+    """Each of the first reads has an RG tag naming a read group of the header."""
     header = _header(samtools, path)
     ids = {g.get("ID") for g in read_groups(header)}
     cmd = [samtools, "view", *(["--reference", ref] if ref else []), path]
@@ -331,11 +371,14 @@ def _check_read_groups(samtools: str, path: str, ref: str | None) -> None:
     try:
         for count, line in enumerate(proc.stdout):
             m = re.search(r"\tRG:Z:([^\t\n]*)", line)
-            if m and m.group(1) not in ids:
-                raise WGSExtractError(
-                    f"Read group {m.group(1)!r} of the merged reads is missing "
-                    "from the merged header."
+            if not m or m.group(1) not in ids:
+                name = line.split("\t", 1)[0]
+                found = (
+                    f"read group {m.group(1)!r}, missing from its header"
+                    if m
+                    else "no read group"
                 )
+                raise WGSExtractError(f"Read {name} of the merged file has {found}.")
             if count >= PROBE_READS:
                 break
     finally:
@@ -361,7 +404,9 @@ def _report_depths(inputs: Sequence[_Input], out_file: str, ref: str | None) -> 
     from wgsextract_cli.core.genotype_qc import AUTOSOMES, target_depths
 
     def autosomal(path: str) -> float | None:
-        found = target_depths(path, str(Path(path).parent), ref)
+        # Sampling scratch goes beside the output: the inputs' folders may be
+        # read-only.
+        found = target_depths(path, str(Path(out_file).parent), ref)
         depth = found[0].get(AUTOSOMES) if found else None
         return round(depth, 2) if depth is not None else None
 
@@ -402,12 +447,14 @@ def run_merge(params: BamMergeParams) -> None:
             raise WGSExtractError(
                 f"{path} is not coordinate-sorted; run 'wgsextract bam sort' first."
             )
-        if inputs and not _same_reference(inputs[0].header, header):
-            raise WGSExtractError(
-                f"{path} has a different sequence dictionary (@SQ lines) than "
-                f"{paths[0]}; merge only files aligned to the same reference."
-            )
         inputs.append(_Input(path, header, read_groups(header)))
+    differs = _same_reference([x.header for x in inputs])
+    if differs is not None:
+        raise WGSExtractError(
+            f"{paths[differs]} has a different sequence dictionary (@SQ lines) "
+            "than the inputs before it; merge only files aligned to the same "
+            "reference."
+        )
 
     threads, _ = get_resource_defaults(params.threads, None)
     outdir = fspath(params.outdir or absolute_path(paths[0]).parent)
@@ -446,7 +493,7 @@ def run_merge(params: BamMergeParams) -> None:
             f"Insufficient free disk space at {outdir} (needs ~{needed_gb} GB)."
         )
 
-    flags = []
+    flags = ["-s", MERGE_SEED]
     by_file = _tag_by_file(inputs, params.attach_rg)
     if by_file:
         flags.append("-r")
@@ -502,7 +549,7 @@ def run_merge(params: BamMergeParams) -> None:
                         description="Merging",
                         stderr_dir=scratch,
                     )
-                    _check_read_groups(samtools, out_file, ref)
+                _check_read_groups(samtools, out_file, ref)
         except (OSError, subprocess.SubprocessError) as e:
             stderr = getattr(e, "stderr", None)
             raise WGSExtractError(

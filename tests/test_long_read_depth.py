@@ -18,6 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from tests.htslib_helpers import needs_htslib, sam_to_bam, write_fasta
+from wgsextract_cli.core import sample_workspace
 from wgsextract_cli.core.genotype_qc import AUTOSOMES, CHR_Y, warn_low_depth
 from wgsextract_cli.core.utils import run_command
 from wgsextract_cli.main import main
@@ -210,6 +211,17 @@ def test_multi_reference_cram_samples_only_the_contigs_its_index_lists(tmp_path)
          "--output-fmt-option", "multi_seq_per_slice=1", bam]
     )  # fmt: skip
     run_command(["samtools", "index", cram])
+    # The depth an earlier version measured and recorded is measured again.
+    fact = '[detected."chr2.cram".target_depths'
+    (tmp_path / sample_workspace.WORKSPACE_FILE).write_text(
+        f'schema = "{sample_workspace.SCHEMA_ID}"\n'
+        f'[detected."chr2.cram"]\n'
+        f'fingerprint = "{sample_workspace.file_fingerprint(cram)}"\n'
+        f'{fact}]\nmethod = "sampled read depth"\nconfidence = "high"\n'
+        'version = 2\nby = "wgsextract 0.1"\nat = "2020-01-01T00:00:00+00:00"\n'
+        f"{fact}.value]\nautosomes = 40.0\nchrX = 0.0\nchrY = 0.0\nmtDNA = 0.0\n",
+        newline="\n",
+    )
     depths = warn_low_depth(cram, {AUTOSOMES}, outdir=str(tmp_path), ref=ref)
     assert depths is not None
     assert depths[AUTOSOMES] == pytest.approx(len(starts) * READ / LENGTH, rel=0.05)

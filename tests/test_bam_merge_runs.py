@@ -33,20 +33,24 @@ def _run(
     rg: str = "",
     mods: bool = True,
     names: list[str] | None = None,
+    flag: int = 0,
+    tag_reads: bool = True,
+    sq: list[str] = _SQ,
+    length: int = 100,
 ) -> Path:
-    """An ONT-like run: 40 reads of 100 bp, UUID names, MM/ML tags unless
-    ``mods`` is false."""
+    """An ONT-like run: 40 reads of ``length`` bp, UUID names, MM/ML tags unless
+    ``mods`` is false, and an RG tag naming ``rg`` unless ``tag_reads`` is."""
     rng = random.Random(seed)
-    lines = ["@HD\tVN:1.6\tSO:coordinate", *_SQ, *([rg] if rg else [])]
-    rg_tag = "\tRG:Z:" + rg.split("\t")[1][3:] if rg else ""
+    lines = ["@HD\tVN:1.6\tSO:coordinate", *sq, *([rg] if rg else [])]
+    rg_tag = "\tRG:Z:" + rg.split("\t")[1][3:] if rg and tag_reads else ""
     for i in range(40):
         contig = rng.choice(list(_GENOME))
-        pos = rng.randrange(1, 1900)
-        seq = _GENOME[contig][pos - 1 : pos + 99]
+        pos = rng.randrange(1, 2001 - length)
+        seq = _GENOME[contig][pos - 1 : pos - 1 + length]
         name = names[i] if names else str(uuid.UUID(int=rng.getrandbits(128)))
         tags = "\tMM:Z:C+m?,0;\tML:B:C,200" if mods else ""
         lines.append(
-            f"{name}\t0\t{contig}\t{pos}\t60\t100M\t*\t0\t0\t{seq}\t{'I' * 100}"
+            f"{name}\t{flag}\t{contig}\t{pos}\t60\t{length}M\t*\t0\t0\t{seq}\t{'I' * length}"
             f"{tags}{rg_tag}"
         )
     sam_to_bam(lines, path)
@@ -200,3 +204,107 @@ def test_runs_on_references_with_other_sequences_are_refused(tmp_path):
         fixed.replace(path)
     with pytest.raises(api.CommandFailed, match="different sequence dictionary"):
         _merge(tmp_path, [a, b])
+
+
+@needs_samtools
+def test_a_run_basecalled_again_is_refused(tmp_path):
+    # Review of #465: ONT read IDs name molecules, so a second basecall of a
+    # run shares them though its sequences differ.
+    names = [str(uuid.UUID(int=i)) for i in range(40)]
+    a = _run(tmp_path / "a.bam", 1, names=names)
+    b = _run(tmp_path / "b.bam", 2, names=names)
+    with pytest.raises(api.CommandFailed, match="same reads, basecalled again"):
+        _merge(tmp_path, [a, b])
+
+
+@needs_samtools
+def test_mates_sharing_a_name_across_runs_are_flagged(tmp_path):
+    # Review of #465: the warning compared (name, mate) pairs.
+    names = [f"read{i}" for i in range(40)]
+    a = _run(tmp_path / "a.bam", 1, names=names, flag=64 | 1 | 8)
+    b = _run(tmp_path / "b.bam", 2, names=names, flag=128 | 1 | 8)
+    result = _merge(tmp_path, [a, b], sample="S")
+    assert [w.code for w in result.warnings] == ["read_name_collision"]
+
+
+@needs_samtools
+def test_same_file_names_in_different_folders_are_all_checked(tmp_path):
+    # Review of #465: checks keyed by file name let the second hide the first.
+    (tmp_path / "fcA").mkdir()
+    (tmp_path / "fcB").mkdir()
+    a = _run(tmp_path / "fcA" / "calls.bam", 1, rg="@RG\tID:a\tSM:alice")
+    b = _run(tmp_path / "fcB" / "calls.bam", 2, rg="@RG\tID:b\tSM:bob")
+    with pytest.raises(api.CommandFailed, match="name different samples"):
+        _merge(tmp_path, [a, b])
+
+
+@needs_samtools
+def test_an_input_mixing_platforms_is_refused(tmp_path):
+    mixed = _run(tmp_path / "mixed.bam", 1, rg="@RG\tID:a\tSM:S\tPL:ONT")
+    rgs = "@RG\tID:a\tSM:S\tPL:ONT\n@RG\tID:b\tSM:S\tPL:ILLUMINA"
+    header = "".join(
+        line + "\n" for line in _view(mixed, "-H", "--no-PG") if line[:3] != "@RG"
+    )
+    sam = tmp_path / "mixed.h.sam"
+    sam.write_text(header + rgs + "\n", newline="\n")
+    fixed = tmp_path / "mixed2.bam"
+    with open(fixed, "wb") as f:
+        run_command(
+            [get_tool_path("samtools"), "reheader", str(sam), str(mixed)], stdout=f
+        )
+    ont = _run(tmp_path / "ont.bam", 2, rg="@RG\tID:c\tSM:S\tPL:ONT")
+    with pytest.raises(api.CommandFailed, match="different sequencing platforms"):
+        _merge(tmp_path, [fixed, ont])
+
+
+@needs_samtools
+def test_file_names_samtools_strips_alike_are_refused(tmp_path):
+    # Review of #465: samtools strips .bam, then .cram, so both become "run".
+    a = _run(tmp_path / "run.cram.bam", 1)
+    (tmp_path / "b").mkdir()
+    b = _run(tmp_path / "b" / "run.bam", 2)
+    with pytest.raises(api.CommandFailed, match="would both get read group 'run'"):
+        _merge(tmp_path, [a, b], sample="S")
+
+
+@needs_samtools
+def test_md5s_are_compared_across_every_input(tmp_path):
+    # Review of #465: the first input's missing M5 hid the other two's clash.
+    sq = [line.split("\t") for line in _SQ]
+    with_md5 = [
+        ["\t".join([*fields, f"M5:{digit * 32}"]) for fields in sq] for digit in "01"
+    ]
+    runs = [
+        _run(tmp_path / "plain.bam", 1),
+        _run(tmp_path / "m0.bam", 2, sq=with_md5[0]),
+        _run(tmp_path / "m1.bam", 3, sq=with_md5[1]),
+    ]
+    with pytest.raises(api.CommandFailed, match="m1.bam has a different sequence"):
+        _merge(tmp_path, runs, sample="S")
+
+
+@needs_samtools
+def test_reads_without_a_read_group_are_given_their_file_s(tmp_path):
+    # Review of #465: a declared @RG whose reads lack RG tags left them
+    # assigned to no run.
+    a = _run(tmp_path / "a.bam", 1, rg="@RG\tID:fc1\tSM:S", tag_reads=False)
+    b = _run(tmp_path / "b.bam", 2, rg="@RG\tID:fc2\tSM:S")
+    merged = _reads(_merged(_merge(tmp_path, [a, b])))
+    for run in (a, b):
+        for name in _reads(run):
+            assert f"RG:Z:{run.stem}" in merged[name]
+
+
+@needs_samtools
+def test_runs_in_a_read_only_folder_still_report_depth(tmp_path):
+    # Review of #465: long reads' depth sampling wrote its scratch beside each
+    # input.
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    inputs = [_run(runs / f"run{i}.bam", i, length=1000) for i in (1, 2)]
+    runs.chmod(0o555)
+    try:
+        result = _merge(tmp_path, inputs, sample="S")
+    finally:
+        runs.chmod(0o755)
+    assert all(r["autosomal_depth"] for r in result.details["runs"])
