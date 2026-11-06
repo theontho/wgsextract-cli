@@ -5,6 +5,7 @@ user's download fails. The URLs come from the CLI's own tables.
 """
 
 from collections.abc import Mapping
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -15,7 +16,7 @@ from wgsextract_cli.commands.benchmark.models import (
     REAL_BENCHMARK_DATASETS,
 )
 from wgsextract_cli.core import annotation_resources as ar
-from wgsextract_cli.core import bigwig_resources, gnomad_af, pharmgkb
+from wgsextract_cli.core import bigwig_resources, gene_lists, gnomad_af, pharmgkb
 from wgsextract_cli.core.constants import BOOTSTRAP_URL
 from wgsextract_cli.core.gene_map import GENE_MAP_URLS
 from wgsextract_cli.core.ref_library.catalog import (
@@ -55,6 +56,7 @@ def _download_urls() -> list[str]:
     urls += [gnomad_af.GNOMAD_V4_URL.format(contig=c) for c in ("chr1", "chrY")]
     urls += [pharmgkb.CLINICAL_URL, pharmgkb.VARIANTS_URL]
     urls += [BOOTSTRAP_URL, DEFAULT_REAL_DATASET_URL]
+    urls += [meta["download"] for meta in gene_lists.MANIFEST["lists"].values()]
     urls += [
         f.url for spec in REAL_BENCHMARK_DATASETS.values() for f in spec.remote_files
     ]
@@ -82,3 +84,24 @@ def test_download_is_published(url: str) -> None:
     except (URLError, TimeoutError) as e:
         pytest.fail(f"{url}: {e}")
     assert status in (200, 206), f"{url} answered HTTP {status}"
+
+
+@pytest.mark.parametrize("list_id", gene_lists.builtin_ids())
+def test_built_in_gene_list_downloads_and_matches_its_pins(
+    list_id: str, tmp_path: Path
+) -> None:
+    pinned = gene_lists.MANIFEST["lists"][list_id]
+    loaded = gene_lists.load(list_id, tmp_path)
+    assert {g.symbol: g.category for g in loaded.genes} == pinned["genes"]
+    assert all(set(g.spans) == set(gene_lists.BUILDS) for g in loaded.genes)
+    # Review of #477: v1's merged hg38 transcripts ran MSH2 into KCNK12 and
+    # BRCA1 into NBR2, so calls there without GENEINFO were placed in them.
+    neighbours = {
+        "hg38": {("chr2", 47_540_000): "KCNK12", ("chr17", 43_135_000): "NBR2"},
+        "hg19": {("chr2", 47_767_000): "KCNK12", ("chr17", 41_287_000): "NBR2"},
+    }
+    for build, sites in neighbours.items():
+        for (chrom, pos), neighbour in sites.items():
+            placed = [g.symbol for g in loaded.genes_at(build, chrom, pos)]
+            assert placed == [], f"{build} {neighbour} call placed in {placed}"
+    assert [g.symbol for g in loaded.genes_at("hg38", "chr2", 47_450_000)] == ["MSH2"]

@@ -6,6 +6,7 @@ result, not diagnosis" disclaimer, the JSON follows its schema, and rendering
 is offline and keeps the sample's absolute paths out of the documents."""
 
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -13,6 +14,7 @@ import shutil
 import socket
 import sys
 from contextlib import redirect_stdout
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,9 @@ import pytest
 from markdown_it import MarkdownIt
 
 from wgsextract_cli import api
+from wgsextract_cli.core import gene_lists
 from wgsextract_cli.core import personal_report as pr
+from wgsextract_cli.core.config import get_config_path, reload_settings, settings
 from wgsextract_cli.core.sample_workspace import SampleWorkspace
 from wgsextract_cli.core.utils import UsageError
 from wgsextract_cli.main import main
@@ -35,13 +39,70 @@ TSV_HEADER = (
 )
 
 
-def _gene(symbol: str) -> pr.Gene:
-    return next(g for g in pr.gene_list() if g.symbol == symbol)
+# Three genes in the built-in lists' format, with their NCBI RefSeq spans.
+MINI_LIST = (
+    "# A test gene list\n"
+    "gene\tcategory\thg19_chrom\thg19_start\thg19_end\thg38_chrom\thg38_start\t"
+    "hg38_end\tnote\n"
+    "BRCA2\tcancer\tchr13\t32889645\t32974405\tchr13\t32315077\t32400268\t\n"
+    "MUTYH\tcancer\tchr1\t45794914\t45806112\tchr1\t45329242\t45340440\t"
+    "two P/LP variants (biallelic) are reportable\n"
+    "PLN\tcardiovascular\tchr6\t118869459\t118882879\tchr6\t118548296\t"
+    "118561716\t\n"
+)
+SPANS = {"BRCA2": ("chr13", 32315077, 32400268), "MUTYH": ("chr1", 45329242, 45340440)}
+
+
+@dataclass
+class ServedLists:
+    library: Path
+    body: bytes = MINI_LIST.encode()
+    online: bool = True
+    downloads: list[str] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def served_lists(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> ServedLists:
+    """Every built-in gene list is MINI_LIST, served by a counted download
+    into a fresh reference library."""
+    served = ServedLists(tmp_path_factory.mktemp("library"))
+    # In config.toml too, which the CLI reloads.
+    config = get_config_path()
+    config.write_text(
+        config.read_text() + f"reference_library = {json.dumps(str(served.library))}\n"
+    )
+    reload_settings()
+    pinned = {
+        "genes": {"BRCA2": "cancer", "MUTYH": "cancer", "PLN": "cardiovascular"},
+        "sha256": hashlib.sha256(MINI_LIST.encode()).hexdigest(),
+    }
+    lists = {
+        list_id: {
+            **meta,
+            **pinned,
+            "download": f"https://example.invalid/{list_id}.tsv",
+        }
+        for list_id, meta in gene_lists.MANIFEST["lists"].items()
+    }
+    monkeypatch.setitem(gene_lists.MANIFEST, "lists", lists)
+
+    def download(url: str, dest: str, **_kwargs) -> bool:
+        if not served.online:
+            return False
+        served.downloads.append(url)
+        Path(dest).write_bytes(served.body)
+        return True
+
+    # The network is the boundary: serve the list locally.
+    monkeypatch.setattr(gene_lists, "download_file", download)
+    return served
 
 
 def _mid(symbol: str) -> tuple[str, int]:
-    chrom, start, end = _gene(symbol).spans["hg38"]
-    return f"chr{chrom}", (start + end) // 2
+    chrom, start, end = SPANS[symbol]
+    return chrom, (start + end) // 2
 
 
 def _touch(path: Path, text: str = "x") -> Path:
@@ -246,6 +307,7 @@ def test_clinvar_lists_gene_list_hits_with_their_call_confidence(sample):
         "carried": 3,
         "in_gene_list": 2,
         "outside_gene_list": 1,
+        "unplaced": 0,
         "high": 1,
         "moderate": 0,
         "low": 1,
@@ -254,26 +316,235 @@ def test_clinvar_lists_gene_list_hits_with_their_call_confidence(sample):
 
 
 # Genes per category in each ACMG SF version's Table 1 (v3.2: Miller et al.
-# 2023, PMID 37347242, https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/).
+# 2023, PMID 37347242, https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/;
+# v3.3: Lee et al. 2025, PMID 40568962,
+# https://pmc.ncbi.nlm.nih.gov/articles/PMC12318660/).
 ACMG_SF_TABLE_1 = {
-    "3.2": {"cancer": 28, "cardiovascular": 40, "metabolism": 4, "miscellaneous": 9}
+    "3.2": {"cancer": 28, "cardiovascular": 40, "metabolism": 4, "miscellaneous": 9},
+    "3.3": {"cancer": 28, "cardiovascular": 41, "metabolism": 7, "miscellaneous": 8},
 }
 
 
-def test_gene_list_matches_the_cited_acmg_sf_version():
-    version = pr.GENE_LIST["version"]
-    genes = pr.gene_list()
-    assert len({g.symbol for g in genes}) == len(genes) == 81
-    by_category: dict[str, int] = {}
-    for gene in genes:
-        by_category[gene.category] = by_category.get(gene.category, 0) + 1
-    assert by_category == ACMG_SF_TABLE_1[version]
-    header = Path(pr.__file__).parent.parent.joinpath(pr.GENE_LIST_RESOURCE).read_text()
-    assert f"ACMG SF v{version} (version {version}, {len(genes)} genes)" in header
-    assert pr.GENE_LIST["url"] in header and "PMID 37347242" in header
-    # Table 1 lists these for autosomal recessive phenotypes: two P/LP variants
-    recessive = {"MUTYH", "CASQ2", "TRDN", "BTD", "GAA", "ATP7B", "RPE65"}
-    assert {g.symbol for g in genes if "biallelic" in g.note} == recessive
+def test_built_in_lists_match_the_cited_acmg_sf_tables():
+    # The pinned manifest as shipped (the served_lists fixture replaces its lists).
+    pinned = json.loads(
+        Path(gene_lists.__file__)
+        .parent.parent.joinpath("assets/report/gene_lists.json")
+        .read_text()
+    )
+    lists = pinned["lists"]
+    assert pinned["default"] == "acmg-sf-3.3"
+    for meta in lists.values():
+        by_category: dict[str, int] = {}
+        for category in meta["genes"].values():
+            by_category[category] = by_category.get(category, 0) + 1
+        assert by_category == ACMG_SF_TABLE_1[meta["version"]]
+    v32, v33 = (lists[f"acmg-sf-{v}"]["genes"] for v in ("3.2", "3.3"))
+    # v3.3 adds three genes and moves HFE to inborn errors of metabolism.
+    assert set(v33) - set(v32) == {"ABCD1", "CYP27A1", "PLN"}
+    assert set(v32) < set(v33)
+    assert (v32["HFE"], v33["HFE"]) == ("miscellaneous", "metabolism")
+
+
+def _clinvar_table(folder: Path, *calls: tuple[str, int, str, str]) -> None:
+    """Replace the sample's ClinVar calls with (chrom, pos, CLNSIG, GENEINFO)."""
+    table = folder / "clinvar_pathogenic.confidence.tsv"
+    table.write_text(
+        TSV_HEADER.replace("CLNDN\n", "CLNDN\tGENEINFO\n")
+        + "".join(
+            f"{chrom}\t{pos}\tC\tT\t0/1\thet\thigh\t\t30\t99\t0.5\t{sig}\tx\t{info}\n"
+            for chrom, pos, sig, info in calls
+        )
+    )
+
+
+def test_built_in_list_is_downloaded_once_and_checked_on_each_use(sample, served_lists):
+    first = pr.build_report(sample)["sections"]["clinvar"]
+    assert first["gene_list"]["id"] == "acmg-sf-3.3"
+    assert first["title"].endswith("in ACMG SF v3.3 genes")
+    assert pr.build_report(sample)["sections"]["clinvar"]["counts"]["in_gene_list"] == 2
+    assert served_lists.downloads == ["https://example.invalid/acmg-sf-3.3.tsv"]
+    (stored,) = served_lists.library.joinpath("report", "gene_lists").glob("*.tsv")
+    # A changed copy fails its pinned SHA-256 and is downloaded again.
+    stored.write_text(MINI_LIST.replace("MUTYH", "MUTYX"))
+    again = pr.build_report(sample)["sections"]["clinvar"]
+    assert {f["gene"] for f in again["findings"]} == {"BRCA2", "MUTYH"}
+    assert len(served_lists.downloads) == 2
+
+
+@pytest.mark.parametrize("problem", ["offline", "tampered"])
+def test_without_a_verified_list_clinvar_calls_are_not_placed(
+    sample, served_lists, problem
+):
+    if problem == "offline":
+        served_lists.online = False
+    else:
+        served_lists.body = MINI_LIST.replace("BRCA2", "BRCA3").encode()
+    _clinvar_table(
+        sample,
+        (*_mid("BRCA2"), "Pathogenic", "BRCA2:675"),
+        (*_mid("MUTYH"), "Pathogenic", "MUTYH:4595"),
+        ("chr6", 1000, "Likely_pathogenic", "OTHER:1"),
+    )
+    code, _ = _cli("report", "--workspace", str(sample))
+    assert code == 0
+    report = json.loads((sample / "HG002_personal_report.json").read_text())
+    clinvar = report["sections"]["clinvar"]
+    assert [w["code"] for w in clinvar["warnings"]] == ["gene_list_unavailable"]
+    assert "--gene-list" in clinvar["warnings"][0]["message"]
+    assert clinvar["findings"] == []
+    # Unplaced calls are not claimed to lie outside the list.
+    assert clinvar["counts"]["carried"] == 3
+    assert clinvar["counts"]["outside_gene_list"] == 0
+    assert clinvar["counts"]["unplaced"] == 3
+    assert "not placed in genes" in clinvar["summary"]
+    assert report["sections"]["lineage"]["findings"]
+
+
+def test_a_report_without_clinvar_calls_downloads_no_list(sample, served_lists):
+    served_lists.online = False
+    _clinvar_table(sample, (*_mid("BRCA2"), "Benign", "BRCA2:675"))
+    clinvar = pr.build_report(sample)["sections"]["clinvar"]
+    assert clinvar["findings"] == []
+    assert clinvar["gene_list"]["genes"] == 3
+    assert served_lists.downloads == [] and clinvar["warnings"] == []
+
+
+def test_geneinfo_names_the_gene_and_spans_are_the_fallback(sample):
+    brca2, mutyh = _mid("BRCA2"), _mid("MUTYH")
+    _clinvar_table(
+        sample,
+        (*brca2, "Pathogenic", "ZAR1L:345862"),  # in BRCA2's span, ClinVar: ZAR1L
+        ("chr6", 1000, "Pathogenic", "PLN:5350|OTHER:1"),  # outside every span
+        (*mutyh, "Likely_pathogenic", "."),  # no GENEINFO: placed by span
+        ("chr6", 2000, "Pathogenic", "BRCA2:675|MUTYH:4595"),  # two listed genes
+    )
+    clinvar = pr.build_report(sample)["sections"]["clinvar"]
+    findings = {f["evidence"]["region"]: f for f in clinvar["findings"]}
+    assert {region: f["gene"] for region, f in findings.items()} == {
+        f"chr1:{mutyh[1]}": "MUTYH",
+        "chr6:1000": "PLN",
+        "chr6:2000": "BRCA2/MUTYH",
+    }
+    assert findings["chr6:2000"]["note"].startswith("MUTYH: ")
+    assert clinvar["counts"]["outside_gene_list"] == 1
+
+
+def test_gene_list_from_the_flag_or_config_is_a_tsv_or_bed(
+    sample, tmp_path, monkeypatch, served_lists
+):
+    brca2, mutyh = _mid("BRCA2"), _mid("MUTYH")
+    # A BED file names no build: its spans are in the VCF's (0-based starts).
+    bed = tmp_path / "my_panel.bed"
+    bed.write_text(
+        f"track name=mine\n{mutyh[0]}\t{mutyh[1] - 1}\t{mutyh[1]}\tMUTYH\n"
+        f"{brca2[0]}\t{brca2[1]}\t{brca2[1] + 10}\tBRCA2\n"
+    )
+    code, _ = _cli("report", "--workspace", str(sample), "--gene-list", str(bed))
+    assert code == 0
+    report = json.loads((sample / "HG002_personal_report.json").read_text())
+    jsonschema.validate(report, pr.load_schema())
+    clinvar = report["sections"]["clinvar"]
+    assert [f["gene"] for f in clinvar["findings"]] == ["MUTYH"]
+    assert clinvar["title"].endswith("in my_panel.bed genes")
+    assert clinvar["gene_list"] == {
+        "id": "my_panel.bed",
+        "name": "my_panel.bed",
+        "version": "",
+        "citation": "",
+        "url": "",
+        "genes": 2,
+    }
+    assert str(tmp_path) not in json.dumps(report)
+    markdown = (sample / "HG002_personal_report.md").read_text()
+    assert "Gene list: my\\_panel.bed (2 genes)." in markdown
+
+    # A list of symbols alone relies on ClinVar's GENEINFO: a call without it
+    # is unplaced, not outside the list.
+    symbols = tmp_path / "symbols.tsv"
+    symbols.write_text("# mine\ngene\nBRCA2\n")
+    monkeypatch.setitem(settings, "report_gene_list", str(symbols))
+    _clinvar_table(
+        sample,
+        (*brca2, "Pathogenic", "BRCA2:675"),
+        (*mutyh, "Pathogenic", ""),
+    )
+    result = api.report.build(api.ReportParams(workspace=sample))
+    clinvar = result.details["sections"]["clinvar"]
+    assert [f["gene"] for f in clinvar["findings"]] == ["BRCA2"]
+    assert (clinvar["counts"]["outside_gene_list"], clinvar["counts"]["unplaced"]) == (
+        0,
+        1,
+    )
+    assert [w["code"] for w in clinvar["warnings"]] == ["gene_annotation_missing"]
+    assert "1 not placed" in clinvar["summary"]
+    assert clinvar["gene_list"]["id"] == "symbols.tsv"
+    assert served_lists.downloads == []
+
+
+def test_a_bed_gene_keeps_every_interval(sample, tmp_path):
+    # Review of #477: a PAR gene (on chrX and chrY) stopped the report, and a
+    # symbol repeated far apart merged into one span over the genes between.
+    bed = tmp_path / "genome_wide.bed"
+    bed.write_text(
+        "chrX\t600000\t650000\tSHOX\n"
+        "chrY\t600000\t650000\tSHOX\n"
+        "chr1\t1000\t2000\tSNORD3\n"
+        "chr1\t9000000\t9001000\tSNORD3\n"
+    )
+    _clinvar_table(
+        sample,
+        ("chrY", 620000, "Pathogenic", "."),
+        ("chr1", 9000500, "Pathogenic", "."),
+        ("chr1", 5000000, "Pathogenic", "."),  # between SNORD3's copies
+        ("chr2", 620000, "Pathogenic", "."),  # SHOX's position, other contig
+    )
+    clinvar = pr.build_report(sample, gene_list=str(bed))["sections"]["clinvar"]
+    assert sorted(
+        (f["gene"], f["evidence"]["region"]) for f in clinvar["findings"]
+    ) == [
+        ("SHOX", "chrY:620000"),
+        ("SNORD3", "chr1:9000500"),
+    ]
+    assert clinvar["counts"]["outside_gene_list"] == 2
+    assert clinvar["gene_list"]["genes"] == 2
+
+
+def test_an_unknown_gene_list_is_a_usage_error(sample):
+    code, _ = _cli("report", "--workspace", str(sample), "--gene-list", "acmg-sf-9")
+    assert code == 2
+    assert not list(sample.glob("*_personal_report*"))
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "error"),
+    [
+        ("no_symbol.bed", "chr1\t10\t20\n", "column 4"),
+        ("negative.bed", "chr1\t-5\t20\tBRCA2\n", "bad interval"),
+        ("empty.bed", "chr1\t20\t20\tBRCA2\n", "bad interval"),
+        ("no_end.tsv", "gene\tchrom\tstart\nBRCA2\tchr13\t5\n", "bad span"),
+        ("inverted.tsv", "gene\thg38_chrom\thg38_start\thg38_end\nBRCA2\tchr13\t9\t5\n", "bad span"),
+    ],
+)  # fmt: skip
+def test_a_malformed_gene_list_file_is_a_usage_error(
+    sample, tmp_path, name, text, error
+):
+    bad = tmp_path / name
+    bad.write_text(text)
+    with pytest.raises(api.CommandFailed, match=error):
+        api.report.build(api.ReportParams(workspace=sample, gene_list=str(bad)))
+    assert not list(sample.glob("*_personal_report*"))
+
+
+def test_a_reference_library_the_list_cannot_be_stored_in_keeps_the_report(
+    sample, tmp_path, monkeypatch
+):
+    # A file, not a folder: the list cannot be downloaded into it.
+    monkeypatch.setitem(settings, "reference_library", str(_touch(tmp_path / "lib")))
+    report = pr.build_report(sample)
+    clinvar = report["sections"]["clinvar"]
+    assert [w["code"] for w in clinvar["warnings"]] == ["gene_list_unavailable"]
+    assert clinvar["findings"] == [] and report["sections"]["lineage"]["findings"]
 
 
 def test_pgx_and_lineage_labels_come_from_the_callers_evidence(sample):

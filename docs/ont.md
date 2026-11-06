@@ -380,7 +380,7 @@ wgsextract info calculate-coverage --input run.bam --by panel_pharmacogenes_hla_
   nothing is written.
 - **Presets.** `pharmacogenes` (PharmCAT's genes), `hla` (the classical MHC,
   GABBR1 to KIFC1), `autoimmune` (Cotsapas 2011's shared autoimmune loci plus the
-  MHC), `acmg-sf` (ACMG SF v3.2's 81 genes) and `cardiac` (its cardiovascular
+  MHC), `acmg-sf` (ACMG SF v3.3's 84 genes) and `cardiac` (its cardiovascular
   genes). `--list-presets` prints each source and gene list.
 - **Regions.** Each gene's span is padded by `--pad-kb` (default 100 kb each
   side: adaptive sampling decides on a read's first few hundred bases, so
@@ -397,7 +397,7 @@ wgsextract info calculate-coverage --input run.bam --by panel_pharmacogenes_hla_
 - **Size.** ONT recommends targets of no more than 5% of the genome, best
   around 1%, for the best enrichment. Each run reports the fraction and warns
   above 5%. At 100 kb padding on hg38, `pharmacogenes` is 0.21%, `hla` 0.13%,
-  `autoimmune` 0.43%, `acmg-sf` 0.73% and `cardiac` 0.39%.
+  `autoimmune` 0.43%, `acmg-sf` 0.75% and `cardiac` 0.40%.
 
 `--by BED` replaces the per-chromosome report with one row per target: mean
 and median depth, the fraction of bases at 10x, 20x, 30x and `--min-depth`

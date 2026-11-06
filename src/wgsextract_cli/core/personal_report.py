@@ -3,8 +3,10 @@
 The report is assembled from what earlier commands left in the sample folder:
 their result manifests (``*.manifest.json``, docs/result-manifest.md) and the
 sample workspace (``wgsextract.sample.toml``, docs/sample-workspace.md). It
-runs no analysis and makes no network calls. A section whose command has not
-run says so and gives the command that produces it.
+runs no analysis. Its only network use is downloading a built-in gene list
+(core/gene_lists.py) into the reference library the first time ClinVar calls
+need one. A section whose command has not run says so and gives the command
+that produces it.
 
 Every finding carries a confidence label (``high``, ``moderate``, ``low``, or
 ``not_assessed`` when nothing supports a label), its reasons, the evidence
@@ -25,14 +27,13 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import cache
 from importlib import resources
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from urllib.parse import quote
 
 from wgsextract_cli import __version__
-from wgsextract_cli.core import variant_confidence
+from wgsextract_cli.core import gene_lists, variant_confidence
 from wgsextract_cli.core.builds import (
     build_from_chr1_length,
     canonical_build,
@@ -49,15 +50,6 @@ from wgsextract_cli.core.utils import UsageError
 COMMAND = "report"
 SCHEMA_ID = "wgsextract.report/1"
 SCHEMA_RESOURCE = "assets/schemas/wgsextract.report.1.schema.json"
-GENE_LIST_RESOURCE = "assets/report/acmg_sf_v3.2.tsv"
-GENE_LIST = {
-    "name": "ACMG SF v3.2",
-    "version": "3.2",
-    "citation": "Miller DT et al. ACMG SF v3.2 list for reporting of secondary "
-    "findings in clinical exome and genome sequencing. Genet Med "
-    "2023;25(8):100866. doi:10.1016/j.gim.2023.100866. PMID 37347242",
-    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/",
-}
 GUIDE = "docs/personal-report.md"
 NOT_DIAGNOSIS = "Technical result, not diagnosis."
 DISCLAIMER = (
@@ -84,7 +76,7 @@ SECTIONS = {
     "overview": "Sample overview",
     "lineage": "Lineage",
     "pharmacogenomics": "Pharmacogenomics",
-    "clinvar": f"ClinVar pathogenic / likely pathogenic in {GENE_LIST['name']} genes",
+    "clinvar": "ClinVar pathogenic / likely pathogenic in {gene_list} genes",
     "microarray": "Microarray export",
 }
 _ALIGNMENT_SUFFIXES = (".bam", ".cram")
@@ -369,58 +361,7 @@ def _command_or_role(command: str, *roles: str) -> Callable[[Source], bool]:
     )
 
 
-# --- the curated gene list ---------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Gene:
-    symbol: str
-    category: str
-    note: str
-    spans: Mapping[str, tuple[str, int, int]]
-
-
-def _chrom(name: str) -> str:
-    """A contig name without 'chr', with chrM as MT, to compare builds' styles."""
-    bare = name[3:] if name.lower().startswith("chr") else name
-    return "MT" if bare.upper() in ("M", "MT") else bare.upper()
-
-
-@cache
-def gene_list() -> tuple[Gene, ...]:
-    """The ACMG SF v3.2 genes and their hg19/hg38 spans (see the asset's header)."""
-    text = resources.files("wgsextract_cli").joinpath(GENE_LIST_RESOURCE).read_text()
-    rows = csv.DictReader(
-        (line for line in text.splitlines() if not line.startswith("#")),
-        delimiter="\t",
-    )
-    return tuple(
-        Gene(
-            row["gene"],
-            row["category"],
-            row["note"] or "",
-            {
-                build: (
-                    _chrom(row[f"{build}_chrom"]),
-                    int(row[f"{build}_start"]),
-                    int(row[f"{build}_end"]),
-                )
-                for build in ("hg19", "hg38")
-            },
-        )
-        for row in rows
-    )
-
-
-def genes_at(build: str, chrom: str, pos: int) -> list[Gene]:
-    contig = _chrom(chrom)
-    return [
-        gene
-        for gene in gene_list()
-        if (span := gene.spans.get(build))
-        and span[0] == contig
-        and span[1] <= pos <= span[2]
-    ]
+# --- the gene list's build ---------------------------------------------------
 
 
 def _gene_build(build: str | None) -> str | None:
@@ -458,6 +399,7 @@ class _Context:
     workspace: dict[str, Any]
     alignment: str | None
     vcf: str | None
+    gene_list: str | Path | None = None
 
     def rel(self, path: Path | str | None) -> str | None:
         """``path`` relative to the sample folder ('/'-separated), or absolute
@@ -894,7 +836,9 @@ def _float(value: Any) -> float | None:
 def _clinvar(ctx: _Context) -> dict[str, Any]:
     source = latest(ctx.sources, _command_or_role("vcf clinvar", "clinvar_pathogenic"))
     section = _section("clinvar", [source], ctx)
-    section["gene_list"] = {**GENE_LIST, "genes": len(gene_list())}
+    described = gene_lists.describe(ctx.gene_list)
+    section["title"] = SECTIONS["clinvar"].format(gene_list=described["name"])
+    section["gene_list"] = described
     if source is None or source.status != "ok":
         command = ctx.command_for("vcf clinvar", ctx.vcf, "vcf.gz")
         if ctx.vcf is None and ctx.alignment:
@@ -921,25 +865,44 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         for c in _labelled_calls(source, "clinvar_pathogenic", "confidence_table")
         if variant_confidence.is_pathogenic(str(c.get("CLNSIG") or ""))
     ]
-    outside = 0
+    gene_list = gene_lists.GeneList(described["id"], described["name"], ())
+    unavailable = False
+    if calls:
+        try:
+            gene_list = gene_lists.load(ctx.gene_list)
+        except gene_lists.GeneListUnavailable as error:
+            unavailable = True
+            section["warnings"].append(
+                {"code": "gene_list_unavailable", "message": str(error)}
+            )
+    outside = unplaced = 0
     findings = []
-    for call in calls:
+    for call in () if unavailable else calls:
         pos = _int(call.get("pos"))
         chrom = str(call.get("chrom") or "")
-        genes = genes_at(build, chrom, pos) if build and pos is not None else []
+        genes = _call_genes(gene_list, call, build, chrom, pos)
+        if genes is None:
+            unplaced += 1
+            continue
         if not genes:
             outside += 1
             continue
         significance = str(call.get("CLNSIG") or "").replace("_", " ")
-        gene = genes[0]
+        # A variant ClinVar places in several listed genes is one finding.
+        symbols = "/".join(g.symbol for g in genes)
+        notes = [
+            f"{g.symbol}: {g.note}" if len(genes) > 1 else g.note
+            for g in genes
+            if g.note
+        ]
         findings.append(
             _finding(
                 "clinvar",
-                f"{gene.symbol} {significance}",
+                f"{symbols} {significance}",
                 significance,
                 detail=str(call.get("CLNDN") or "").replace("_", " ") or None,
-                gene=gene.symbol,
-                note=gene.note or None,
+                gene=symbols,
+                note="; ".join(notes) or None,
                 confidence=str(call.get("confidence") or NOT_ASSESSED),
                 reasons=list(call.get("reasons") or []),
                 basis=variant_confidence.SCHEME,
@@ -967,13 +930,21 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         "carried": len(calls),
         "in_gene_list": len(findings),
         "outside_gene_list": outside,
+        "unplaced": unplaced,
         **{
             label: sum(f["confidence"] == label for f in findings)
             for label in variant_confidence.LABELS
         },
     }
     section["all_calls"] = ctx.rel(source.output("confidence_table") or vcf)
-    if build is None and calls:
+    if unavailable:
+        section["counts"]["unplaced"] = len(calls)
+        section["summary"] = (
+            f"{len(calls)} call{'s' * (len(calls) != 1)} not placed in genes: "
+            "the gene list is unavailable; see the full table."
+        )
+        return section
+    if unplaced and build is None and gene_list.needs_build():
         section["warnings"].append(
             {
                 "code": "build_unknown",
@@ -981,11 +952,45 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
                 "could not be placed in genes; see the full table.",
             }
         )
+    elif unplaced:
+        section["warnings"].append(
+            {
+                "code": "gene_annotation_missing",
+                "message": f"{unplaced} call{'s' * (unplaced != 1)} have no ClinVar "
+                "GENEINFO and the gene list has no spans to place them by; rerun "
+                "vcf clinvar with a current ClinVar file, or use a list with "
+                "spans. See the full table.",
+            }
+        )
     section["summary"] = (
         f"{len(findings)} call{'s' * (len(findings) != 1)} in "
-        f"{GENE_LIST['name']} genes; {outside} more elsewhere."
+        f"{described['name']} genes; {outside} more elsewhere"
+        + (f"; {unplaced} not placed." if unplaced else ".")
     )
     return section
+
+
+def _call_genes(
+    gene_list: gene_lists.GeneList,
+    call: Mapping[str, Any],
+    build: str | None,
+    chrom: str,
+    pos: int | None,
+) -> list[gene_lists.Gene] | None:
+    """The list's genes ClinVar names for the call (GENEINFO), or, for an
+    annotation without GENEINFO, those whose span holds it; None if neither
+    can place the call."""
+    if symbols := _geneinfo(call):
+        return gene_list.named(symbols)
+    if pos is None or not gene_list.has_spans(build):
+        return None
+    return gene_list.genes_at(build, chrom, pos)
+
+
+def _geneinfo(call: Mapping[str, Any]) -> list[str]:
+    """The gene symbols of ClinVar's GENEINFO (``SYMBOL:GeneID|...``)."""
+    text = str(call.get("GENEINFO") or "")
+    return [e.split(":")[0] for e in text.split("|") if e and e != "."]
 
 
 def _microarray(ctx: _Context) -> dict[str, Any]:
@@ -1101,8 +1106,13 @@ def build_report(
     input_file: Path | None = None,
     results: Iterable[Path] = (),
     sources: list[Source] | None = None,
+    gene_list: str | Path | None = None,
 ) -> dict[str, Any]:
-    """The report document (``wgsextract.report/1``) of the sample in ``folder``."""
+    """The report document (``wgsextract.report/1``) of the sample in ``folder``.
+
+    ``gene_list`` is a built-in list's id or a TSV or BED file (core/gene_lists.py);
+    by default the newest ACMG SF list."""
+    gene_lists.describe(gene_list)
     folder = Path(os.path.abspath(folder))
     if sources is None:
         sources = sample_sources(folder, input_file, results)
@@ -1110,7 +1120,7 @@ def build_report(
     alignment, vcf = _choose_inputs(folder, input_file, sources, workspace)
     main_file = alignment or vcf
     described = workspace.describe(folder / main_file if main_file else None)
-    ctx = _Context(folder, sources, described, alignment, vcf)
+    ctx = _Context(folder, sources, described, alignment, vcf, gene_list)
     info = latest(sources, _command("info"))
     name = (
         input_stem(alignment or vcf or "")
@@ -1327,9 +1337,12 @@ def _html_section_body(name: str, section: Mapping[str, Any], base: str) -> list
             )
     elif name == "clinvar":
         gl = section["gene_list"]
+        source = [_h(gl["citation"])] if gl["citation"] else []
+        source += [_link("Table 1", gl["url"])] if gl["url"] else []
         out.append(
-            f'<p class="muted">Gene list: {_h(gl["name"])} ({gl["genes"]} genes; '
-            f"{_h(gl['citation'])}, {_link('Table 1', gl['url'])}).</p>"
+            f'<p class="muted">Gene list: {_h(gl["name"])} ({gl["genes"]} genes'
+            + (f"; {', '.join(source)}" if source else "")
+            + ").</p>"
         )
         if section.get("all_calls"):
             out.append(
@@ -1460,10 +1473,13 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
             out += [f"| {_md(q['label'])} | {_md(q['text'])} |" for q in section["qc"]]
         if name == "clinvar":
             gl = section["gene_list"]
+            source = [_md(gl["citation"])] if gl["citation"] else []
+            source += [_md_link("Table 1", gl["url"])] if gl["url"] else []
             out += [
                 "",
-                f"Gene list: {_md(gl['name'])} ({_md(gl['genes'])} genes; "
-                f"{_md(gl['citation'])}, {_md_link('Table 1', gl['url'])}).",
+                f"Gene list: {_md(gl['name'])} ({_md(gl['genes'])} genes"
+                + (f"; {', '.join(source)}" if source else "")
+                + ").",
             ]
             if section.get("all_calls"):
                 href = _href(section["all_calls"], base)

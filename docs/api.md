@@ -1781,8 +1781,9 @@ other support files). Saves the library's path as config.toml's
 
 The report summarises what earlier runs left in the sample folder (their
 result manifests and the sample workspace): overview and QC, lineage,
-pharmacogenomics, ClinVar pathogenic calls in the ACMG SF genes and the
-microarray export. It runs no analysis and makes no network calls:
+pharmacogenomics, ClinVar pathogenic calls in the ACMG SF genes (or another
+gene list) and the microarray export. It runs no analysis; its only network
+use is downloading a built-in gene list once into the reference library:
 
 ```python
 res = api.report.build(api.ReportParams(workspace=Path("HG002")))
@@ -1812,6 +1813,7 @@ plus a findings table, from the result manifests in its folder.
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the sample folder). |
 | `results` | `tuple[Path, ...]` | `[]` | `--results` | Also read result manifests from this folder (repeatable); only runs on this sample's files are used. The --outdir is always read. |
 | `table_format` | `str` | `'tsv'` | `--format` | Format of the findings table, <sample>_personal_report_findings.tsv or .parquet (needs pyarrow) (default: tsv) One of: `tsv`, `parquet` |
+| `gene_list` | `str \| None` | `None` (config `report_gene_list`) | `--gene-list` | Genes for the ClinVar section: a built-in list (acmg-sf-3.3, acmg-sf-3.2; downloaded once into the reference library), or a TSV (column gene; optional hg19_/hg38_ or build-free chrom, start, end spans) or BED file (gene symbol in column 4) (default: config report_gene_list, else acmg-sf-3.3) |
 
 ## `api.sample`
 

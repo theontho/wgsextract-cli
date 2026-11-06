@@ -106,6 +106,13 @@ def test_unique_alias_resolves_with_a_warning(tmp_path):
     assert warning.code == "gene_alias" and warning.details["symbol"] == "CYP2D6"
 
 
+def test_acmg_sf_preset_follows_the_reports_default_list(tmp_path):
+    _, rows = _bed(tmp_path, presets=("acmg-sf",), pad_kb=0)
+    genes = {r[3] for r in rows}
+    # ACMG SF v3.3 has 84 genes; ABCD1, CYP27A1 and PLN are new since v3.2.
+    assert len(genes) == 84 and {"ABCD1", "CYP27A1", "PLN"} <= genes
+
+
 def test_large_panel_warns(tmp_path):
     result, _ = _bed(tmp_path, presets=("acmg-sf", "autoimmune"), pad_kb=2000)
     assert result.metrics["genome_fraction"] > panel.WARN_FRACTION

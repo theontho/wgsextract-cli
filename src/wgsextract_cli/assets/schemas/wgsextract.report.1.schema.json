@@ -61,10 +61,11 @@
               "type": "object",
               "required": ["name", "version", "citation", "url", "genes"],
               "properties": {
+                "id": {"type": "string", "description": "A built-in list's id (acmg-sf-3.3), or the name of the user's TSV or BED file."},
                 "name": {"type": "string"},
-                "version": {"type": "string"},
-                "citation": {"type": "string"},
-                "url": {"type": "string", "description": "The published gene table the list was checked against."},
+                "version": {"type": "string", "description": "Empty for a user's file."},
+                "citation": {"type": "string", "description": "Empty for a user's file."},
+                "url": {"type": "string", "description": "The published gene table a built-in list was checked against; empty for a user's file."},
                 "genes": {"type": "integer", "minimum": 1}
               }
             },

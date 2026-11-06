@@ -7,6 +7,8 @@ build. A ``Span`` is the stretch from one gene's start to another's end.
 
 from dataclasses import dataclass
 
+from wgsextract_cli.core import gene_lists
+
 
 @dataclass(frozen=True)
 class Span:
@@ -30,6 +32,8 @@ class Preset:
 # Nat Rev Genet 2004;5:889-899, doi:10.1038/nrg1489; Shiina T et al. J Hum
 # Genet 2009;54:15-39, doi:10.1038/jhg.2008.5). About 3.8 Mb on GRCh38.
 MHC = Span("MHC", "GABBR1", "KIFC1")
+# The report's default ACMG SF list (assets/report/gene_lists.json).
+_ACMG = gene_lists.MANIFEST["lists"][gene_lists.default_id()]
 
 PRESETS: dict[str, Preset] = {
     preset.name: preset
@@ -127,15 +131,13 @@ PRESETS: dict[str, Preset] = {
         Preset(
             "acmg-sf",
             "ACMG secondary findings genes",
-            "ACMG SF v3.2, all 81 genes (Miller DT et al. Genet Med "
-            "2023;25(8):100866, doi:10.1016/j.gim.2023.100866).",
+            f"{_ACMG['name']}, all {len(_ACMG['genes'])} genes ({_ACMG['citation']}).",
             acmg_category="",
         ),
         Preset(
             "cardiac",
             "Cardiac genes",
-            "The cardiovascular genes of ACMG SF v3.2 (Miller DT et al. Genet "
-            "Med 2023;25(8):100866, doi:10.1016/j.gim.2023.100866).",
+            f"The cardiovascular genes of {_ACMG['name']} ({_ACMG['citation']}).",
             acmg_category="cardiovascular",
         ),
     )
@@ -143,13 +145,9 @@ PRESETS: dict[str, Preset] = {
 
 
 def preset_genes(preset: Preset) -> tuple[str, ...]:
-    """The preset's gene symbols (an ACMG preset's from the bundled list)."""
+    """The preset's gene symbols (an ACMG preset's from the pinned list)."""
     if preset.acmg_category is None:
         return preset.genes
-    from wgsextract_cli.core.personal_report import gene_list
-
-    return tuple(
-        gene.symbol
-        for gene in gene_list()
-        if not preset.acmg_category or gene.category == preset.acmg_category
+    return gene_lists.builtin_symbols(
+        gene_lists.default_id(), preset.acmg_category or None
     )
