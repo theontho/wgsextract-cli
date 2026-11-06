@@ -126,3 +126,31 @@ def test_cli_writes_the_bed_and_lists_presets(tmp_path, capsys):
     assert (chrom, name) == ("chr6", "MHC")
     assert int(start) == 29_602_238 - 1 - 100_000
     assert int(end) == 33_409_896 + 100_000
+
+
+def test_ref_without_the_targeted_contigs_is_refused(tmp_path):
+    hg38 = dict(panel.load_annotations("hg38").contigs)
+    ref = tmp_path / "chr1only.fa"
+    ref.touch()
+    Path(f"{ref}.fai").write_text(f"chr1\t{hg38['chr1']}\t0\t60\t61\n")
+    with pytest.raises(api.CommandFailed, match="none of the targeted contigs"):
+        api.panel.bed(api.PanelBedParams(genes=("CYP2D6",), ref=ref, outdir=tmp_path))
+    assert not list(tmp_path.glob("*.bed"))
+
+
+def test_different_gene_lists_get_different_files(tmp_path):
+    names = set()
+    for genes in [("CYP2D6",), ("CYP2C19",), ("CYP2C9", "CYP2D6", "CYP2C19", "DPYD")]:
+        result, _ = _bed(tmp_path, genes=genes)
+        (output,) = [o for o in result.outputs if o.role == "panel_bed"]
+        names.add(Path(output.path).name)
+    assert len(names) == 3
+    assert "panel_CYP2D6_hg38_pad100kb.bed" in names
+
+
+def test_list_presets_reports_them_as_details(tmp_path):
+    result = api.panel.bed(api.PanelBedParams(list_presets=True, outdir=tmp_path))
+    presets = {p["name"]: p for p in result.details["presets"]}
+    assert set(presets) == set(PRESETS)
+    assert "CYP2D6" in presets["pharmacogenes"]["loci"]
+    assert not list(tmp_path.iterdir())

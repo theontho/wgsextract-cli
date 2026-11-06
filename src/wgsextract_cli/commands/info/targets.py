@@ -1,11 +1,11 @@
 """Per-target depth of a BED panel and its on- versus off-target enrichment
 (``info calculate-coverage --by``), as after Nanopore adaptive sampling.
 
-Two samtools passes with the same read filters as ``--bins`` (default flags,
-no base or mapping quality minimum, deletions not counted, both overlapping
-mates counted): ``samtools depth -a -b`` streams every targeted base into a
-depth histogram per target, and ``samtools bedcov -j`` sums the depth of the
-targets and of everything else for the enrichment.
+Two ``samtools depth`` passes with the same read filters as ``--bins``
+(default flags, no base or mapping quality minimum, deletions not counted,
+both overlapping mates counted): one over the targets fills a depth histogram
+per target, and one over the whole file sums the depth for the off-target
+mean.
 """
 
 from __future__ import annotations
@@ -13,13 +13,16 @@ from __future__ import annotations
 import logging
 import subprocess
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO
 
 from wgsextract_cli.core.results import Scalar, current_result, human_output, warn
+from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.table_writer import Column, Value, table_path, write_table
-from wgsextract_cli.core.utils import UsageError, WGSExtractError, popen, run_command
+from wgsextract_cli.core.utils import UsageError, WGSExtractError, popen
 
 from .render import _cram_reference_opts
 
@@ -146,19 +149,29 @@ def _segments(
         by_contig.setdefault(target.chrom, []).append(target)
     result: dict[str, list[tuple[int, int, list[BedTarget]]]] = {}
     for chrom, items in by_contig.items():
+        items.sort(key=lambda t: t.start)
         cuts = sorted({p for t in items for p in (t.start, t.end)})
         segments = []
+        active: list[BedTarget] = []
+        following = 0
         for start, end in zip(cuts, cuts[1:], strict=False):
-            active = [t for t in items if t.start <= start and end <= t.end]
+            while following < len(items) and items[following].start <= start:
+                active.append(items[following])
+                following += 1
+            # Every end is a cut, so a target still open here spans the stretch.
+            active = [t for t in active if t.end > start]
             if active:
-                segments.append((start, end, active))
+                segments.append((start, end, list(active)))
         result[chrom] = segments
     return result
 
 
-def _count_depths(stream: Iterator[bytes], targets: Sequence[BedTarget]) -> None:
-    """Fill each target's histogram from ``samtools depth -a`` rows; bases
-    samtools leaves out count as depth 0."""
+def _count_depths(
+    stream: Iterable[bytes], targets: Sequence[BedTarget]
+) -> dict[str, dict[int, int]]:
+    """Fill each target's histogram from ``samtools depth -a`` rows (bases
+    samtools leaves out count as depth 0); returns each contig's depth
+    histogram over its targets, overlaps counted once."""
     segments = _segments(targets)
     counts: dict[tuple[str, int], dict[bytes, int]] = {}
     current: list[tuple[int, int, list[BedTarget]]] = []
@@ -181,84 +194,108 @@ def _count_depths(stream: Iterator[bytes], targets: Sequence[BedTarget]) -> None
         if not histogram:
             histogram = counts.setdefault((contig.decode(), index), {})
         histogram[depth] = histogram.get(depth, 0) + 1
+    union: dict[str, dict[int, int]] = {c: {} for c in segments}
     for chrom, items in segments.items():
         for index, (start, end, active) in enumerate(items):
             found = {int(d): n for d, n in counts.get((chrom, index), {}).items()}
             found[0] = found.get(0, 0) + (end - start) - sum(found.values())
+            for d, n in found.items():
+                union[chrom][d] = union[chrom].get(d, 0) + n
             for target in active:
                 for d, n in found.items():
                     target.histogram[d] = target.histogram.get(d, 0) + n
+    return union
 
 
-def _run_depth(
-    input_path: str, reference: str | None, bed: Path, targets: Sequence[BedTarget]
-) -> None:
-    command = [
-        "samtools", "depth", "-a", "-b", str(bed),
-        *_cram_reference_opts(input_path, reference), input_path,
-    ]  # fmt: skip
-    with tempfile.TemporaryFile(dir=bed.parent) as stderr:
-        process = popen(command, stdout=subprocess.PIPE, stderr=stderr)
-        assert process.stdout is not None
-        try:
-            _count_depths(iter(process.stdout), targets)
+@contextmanager
+def _pipeline(commands: Sequence[Sequence[str]], scratch: Path) -> Iterator[IO[bytes]]:
+    """The output of ``commands`` piped one into the next; raises if any fails."""
+    errors = [tempfile.TemporaryFile(dir=scratch) for _ in commands]
+    processes: list[subprocess.Popen[bytes]] = []
+    try:
+        stdin: IO[bytes] | None = None
+        for command, stderr in zip(commands, errors, strict=True):
+            process = popen(command, stdin=stdin, stdout=subprocess.PIPE, stderr=stderr)
+            if stdin is not None:
+                stdin.close()
+            stdin = process.stdout
+            processes.append(process)
+        assert stdin is not None
+        with stdin:
+            yield stdin
+        failed = []
+        for command, process, stderr in zip(commands, processes, errors, strict=True):
             if process.wait():
                 stderr.seek(0)
-                detail = stderr.read().decode(errors="replace")[-4000:]
-                raise WGSExtractError(f"samtools depth failed: {detail}")
-        except ValueError as exc:
-            raise WGSExtractError(f"Unexpected samtools depth row: {exc}") from exc
-        finally:
-            process.stdout.close()
+                detail = stderr.read().decode(errors="replace").strip()[-2000:]
+                failed.append(f"samtools {command[1]} failed: {detail}")
+        if failed:
+            raise WGSExtractError("\n".join(failed))
+    finally:
+        for process in processes:
             if process.poll() is None:
                 process.terminate()
                 process.wait()
+        for stderr in errors:
+            stderr.close()
 
 
-def _depth_sums(
+def _target_depths(
     input_path: str,
     reference: str | None,
     bed: Path,
-    merged: Sequence[tuple[str, int, int]],
-    lengths: Mapping[str, int],
-) -> tuple[int, int, int]:
-    """On-target depth sum, off-target depth sum and off-target bases, from
-    one ``samtools bedcov -j`` over the targets and the gaps between them
-    (the mitochondrial contig is left out of off-target: its copy number
-    isn't the nuclear genome's)."""
-    regions: list[tuple[str, int, int, bool]] = []
-    by_contig: dict[str, list[tuple[int, int]]] = {}
-    for chrom, start, end in merged:
-        by_contig.setdefault(chrom, []).append((start, end))
-    for chrom, length in lengths.items():
-        cursor = 0
-        for start, end in by_contig.get(chrom, []):
-            if cursor < start and chrom not in MITOCHONDRIA:
-                regions.append((chrom, cursor, start, False))
-            regions.append((chrom, start, end, True))
-            cursor = end
-        if cursor < length and chrom not in MITOCHONDRIA:
-            regions.append((chrom, cursor, length, False))
-    bed.write_text("".join(f"{c}\t{s}\t{e}\n" for c, s, e, _ in regions), newline="\n")
-    output = run_command(
-        ["samtools", "bedcov", "-j", str(bed),
-         *_cram_reference_opts(input_path, reference), input_path],
-        capture_output=True,
-    )  # fmt: skip
-    rows = output.stdout.splitlines()
-    if len(rows) != len(regions):
-        raise WGSExtractError(
-            f"samtools bedcov returned {len(rows)} rows for {len(regions)} regions."
-        )
-    on = off = off_bases = 0
-    for row, (_, start, end, target) in zip(rows, regions, strict=True):
-        total = int(row.rsplit("\t", 1)[1])
-        if target:
-            on += total
-        else:
-            off += total
-            off_bases += end - start
-    return on, off, off_bases
+    targets: Sequence[BedTarget],
+) -> dict[str, dict[int, int]]:
+    """Fill the targets' histograms; returns each contig's, overlaps once.
+
+    With an index only the reads over the targets are decoded (``samtools
+    view -M -L``); ``samtools depth -b`` alone reads the whole file.
+    """
+    ref = _cram_reference_opts(input_path, reference)
+    depth = ["samtools", "depth", "-a", "-b", str(bed)]
+    index = alignment_index(input_path)
+    if index:
+        commands = [
+            ["samtools", "view", "-u", "-M", "-L", str(bed), *ref,
+             f"{input_path}##idx##{index}"],
+            [*depth, "-"],
+        ]  # fmt: skip
+    else:
+        commands = [[*depth, *ref, input_path]]
+    with _pipeline(commands, bed.parent) as stream:
+        try:
+            return _count_depths(stream, targets)
+        except ValueError as exc:
+            raise WGSExtractError(f"Unexpected samtools depth row: {exc}") from exc
+
+
+def _depth_total(
+    input_path: str, reference: str | None, bed: Path, contigs: Mapping[str, int]
+) -> int:
+    """The depth summed over whole ``contigs``, in one pass over the file.
+
+    ``samtools depth`` (not ``bedcov``, whose pileup took over 3 GB on a 60x
+    Nanopore genome) prints only covered bases; their third column is summed.
+    """
+    bed.write_text("".join(f"{c}\t0\t{n}\n" for c, n in contigs.items()), newline="\n")
+    command = [
+        "samtools", "depth", "-b", str(bed),
+        *_cram_reference_opts(input_path, reference), input_path,
+    ]  # fmt: skip
+    total = 0
+    rest = b""
+    with _pipeline([command], bed.parent) as stream:
+        while chunk := stream.read(8 << 20):
+            data = rest + chunk
+            cut = data.rfind(b"\n") + 1
+            try:
+                total += sum(map(int, data[:cut].split()[2::3]))
+            except ValueError as exc:
+                raise WGSExtractError(f"Unexpected samtools depth row: {exc}") from exc
+            rest = data[cut:]
+    if rest.strip():
+        raise WGSExtractError(f"Unexpected samtools depth row: {rest[:80]!r}")
+    return total
 
 
 def _columns() -> tuple[Column, ...]:
@@ -302,6 +339,9 @@ def run_target_coverage(
     table_format: str = "tsv",
     metadata: Mapping[str, str] | None = None,
 ) -> Path:
+    bed_path = bed_path.expanduser()
+    outdir = str(Path(outdir).expanduser())
+    current_result().add_input(bed_path, "targets_bed")
     targets = read_bed(bed_path, lengths)
     order = {name: i for i, name in enumerate(lengths)}
     merged = _merged(targets, order)
@@ -316,19 +356,32 @@ def run_target_coverage(
         union.write_text(
             "".join(f"{c}\t{s}\t{e}\n" for c, s, e in merged), newline="\n"
         )
-        _run_depth(input_path, reference, union, targets)
-        logging.info("Summing on- and off-target depth (one pass over the file)...")
-        on, off, off_bases = _depth_sums(
-            input_path, reference, Path(scratch, "all.bed"), merged, lengths
-        )
+        on_depths = _target_depths(input_path, reference, union, targets)
+        on_sums = {c: sum(d * n for d, n in h.items()) for c, h in on_depths.items()}
+        # The mitochondrial contig is left out of off-target: its copy
+        # number isn't the nuclear genome's.
+        nuclear = {c: n for c, n in lengths.items() if c not in MITOCHONDRIA}
+        targeted = dict.fromkeys(nuclear, 0)
+        for chrom, start, end in merged:
+            if chrom in targeted:
+                targeted[chrom] += end - start
+        off_bases = sum(nuclear.values()) - sum(targeted.values())
+        off = 0
+        if off_bases:
+            logging.info("Summing off-target depth (one pass over the file)...")
+            total = _depth_total(
+                input_path, reference, Path(scratch, "nuclear.bed"), nuclear
+            )
+            off = total - sum(on_sums.get(c, 0) for c in nuclear)
 
+    on = sum(on_sums.values())
     on_bases = sum(e - s for _, s, e in merged)
     on_mean = on / on_bases
     off_mean = off / off_bases if off_bases else 0.0
     enrichment = on_mean / off_mean if off_mean else None
     low = [t for t in targets if t.mean < min_depth]
-    covered = sum(t.bases_at_least(min_depth) for t in targets)
-    target_bases = sum(t.length for t in targets)
+    # Over the merged targets, so overlapping ones count once.
+    covered = sum(n for h in on_depths.values() for d, n in h.items() if d >= min_depth)
 
     stem = f"{Path(input_path).name}_{bed_path.stem}"
     table = Path(table_path(Path(outdir, f"{stem}_target_coverage"), table_format))
@@ -355,10 +408,10 @@ def run_target_coverage(
             if enrichment is not None
             else "n/a (no off-target depth)"
         ),
-        f"On-target share of sequenced bases: {on / (on + off):.2%}"
+        f"On-target share of the depth counted: {on / (on + off):.2%}"
         if on + off
-        else "On-target share: n/a",
-        f"Targeted bases at >={min_depth}x: {covered / target_bases:.2%}",
+        else "On-target share of the depth counted: n/a",
+        f"Targeted bases at >={min_depth}x: {covered / on_bases:.2%}",
         f"Targets with mean depth below {min_depth}x: {len(low)} of {len(targets)}",
     ]
     summary_path = Path(outdir, f"{stem}_target_summary.txt")
@@ -373,7 +426,7 @@ def run_target_coverage(
         "enrichment": round(enrichment, 2) if enrichment is not None else None,
         "min_depth": min_depth,
         "targets_below_min_depth": len(low),
-        "fraction_at_min_depth": round(covered / target_bases, 6),
+        "fraction_at_min_depth": round(covered / on_bases, 6),
     }
     result.add_output(table, "target_coverage", metrics={"rows": len(rows)})
     result.add_output(summary_path, "target_summary")

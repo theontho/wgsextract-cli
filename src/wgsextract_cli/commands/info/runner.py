@@ -663,12 +663,13 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
             not resolved_ref or not Path(resolved_ref).is_file()
         ):
             raise UsageError("--ref required for --by with CRAM.")
-        verify_paths_exist({"--by": str(params.by)})
+        by = Path(params.by).expanduser()
+        verify_paths_exist({"--by": str(by)})
         run_target_coverage(
             input_file,
             resolved_ref,
             sequence_lengths(header),
-            Path(params.by),
+            by,
             outdir_arg or str(absolute_path(input_file).parent),
             params.min_depth,
             table_format or "tsv",

@@ -241,7 +241,7 @@ reports how well a run covered it.
 wgsextract panel bed --list-presets
 wgsextract panel bed --preset pharmacogenes --preset hla --ref hg38.fa
 wgsextract panel bed --genes BRCA1,BRCA2 --gene-file my_genes.txt --pad-kb 50
-wgsextract info calculate-coverage --input run.bam --by panel_hla_pharmacogenes_hg38_pad100kb.bed
+wgsextract info calculate-coverage --input run.bam --by panel_pharmacogenes_hla_hg38_pad100kb.bed
 ```
 
 - **Genes.** Names are matched without regard to case against the bundled

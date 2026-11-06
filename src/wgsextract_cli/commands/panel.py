@@ -1,6 +1,7 @@
 """``panel bed``: genes and presets to a BED of padded, merged target regions."""
 
 import argparse
+import hashlib
 import logging
 from pathlib import Path
 
@@ -17,15 +18,38 @@ from wgsextract_cli.core.utils import UsageError
 
 
 def _list_presets() -> None:
+    listing = []
     for preset in PRESETS.values():
         genes = list(preset_genes(preset))
         genes += [f"{s.name} ({s.first}..{s.last})" for s in preset.spans]
+        listing.append(
+            {
+                "name": preset.name,
+                "title": preset.title,
+                "source": preset.source,
+                "note": preset.note,
+                "loci": genes,
+            }
+        )
         count = f"{len(genes)} {'locus' if len(genes) == 1 else 'loci'}"
         human_output(f"{preset.name}: {preset.title}, {count}")
         human_output(f"  Source: {preset.source}")
         if preset.note:
             human_output(f"  {preset.note}")
         human_output(f"  {', '.join(genes)}")
+    current_result().set_details({"presets": listing})
+
+
+def _genes_label(loci: list[panel.Locus]) -> list[str]:
+    """Up to three gene symbols, else a digest of them, so that panels of
+    different genes get different file names."""
+    symbols = sorted({x.symbol for x in loci})
+    if not symbols:
+        return []
+    if len(symbols) <= 3:
+        return ["-".join(symbols)]
+    digest = hashlib.sha256(",".join(symbols).encode()).hexdigest()[:8]
+    return [f"{len(symbols)}genes-{digest}"]
 
 
 def _reference(params: PanelBedParams) -> tuple[dict[str, int], str | None]:
@@ -64,7 +88,9 @@ def run_panel_bed(params: PanelBedParams) -> None:
         loci += panel.preset_loci(name, notes)
     names = [g for item in params.genes for g in item.replace(",", " ").split()]
     if params.gene_file:
-        names += panel.read_gene_file(Path(params.gene_file))
+        gene_file = Path(params.gene_file).expanduser()
+        current_result().add_input(gene_file, "gene_file")
+        names += panel.read_gene_file(gene_file)
     resolved = panel.resolve_genes(names, notes)
     loci += resolved.loci
     for given, symbol in resolved.aliases.items():
@@ -95,6 +121,8 @@ def run_panel_bed(params: PanelBedParams) -> None:
                 genes=",".join(missing),
             )
             loci = [x for x in loci if x.chrom in contig_names]
+            if not loci:
+                raise UsageError("--ref has none of the targeted contigs.")
         if "chrM" in differ:
             # Not the rCRS (e.g. hg19's Yoruba chrM): target the whole contig.
             lengths["chrM"] = fai[contig_names["chrM"]]
@@ -118,7 +146,7 @@ def run_panel_bed(params: PanelBedParams) -> None:
 
     outdir = Path(params.outdir or Path.cwd()).expanduser().absolute()
     outdir.mkdir(parents=True, exist_ok=True)
-    label = "_".join([*dict.fromkeys(params.presets), *(["genes"] if names else [])])
+    label = "_".join([*dict.fromkeys(params.presets), *_genes_label(resolved.loci)])
     pad_tag = f"{params.pad_kb:g}".replace(".", "p")
     bed_path = outdir / f"panel_{label}_{build}_pad{pad_tag}kb.bed"
     with (

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.htslib_helpers import needs_tools, sam_to_bam
+from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli import api
-from wgsextract_cli.core.utils import UsageError
+from wgsextract_cli.core.utils import UsageError, run_command
 
 needs_samtools = needs_tools("samtools")
 
@@ -40,12 +40,24 @@ def _ops(cigar: str):
     return re.findall(r"(\d+)([MIDNS])", cigar)
 
 
-def _coverage(tmp_path: Path, bed: str, **fields) -> tuple[api.Result, list[dict]]:
+def _coverage(
+    tmp_path: Path, bed: str, form: str = "bam", **fields
+) -> tuple[api.Result, list[dict]]:
     path = tmp_path / "panel.bed"
     path.write_text(bed)
+    sample = Path(_sample(tmp_path))
+    if form == "unindexed":
+        Path(f"{sample}.bai").unlink()
+    elif form == "cram":
+        ref = write_fasta(tmp_path / "ref.fa", {"chr1": "A" * 20, "chrM": "A" * 10})
+        cram = sample.with_suffix(".cram")
+        run_command(
+            ["samtools", "view", "-C", "-T", ref, "-o", cram, "--write-index", sample]
+        )
+        sample, fields = cram, {**fields, "ref": ref}
     result = api.info.calculate_coverage(
         api.CalculateCoverageParams(
-            input=Path(_sample(tmp_path)), by=path, outdir=tmp_path / "o", **fields
+            input=sample, by=path, outdir=tmp_path / "o", **fields
         )
     )
     (table,) = [o for o in result.outputs if o.role == "target_coverage"]
@@ -54,10 +66,12 @@ def _coverage(tmp_path: Path, bed: str, **fields) -> tuple[api.Result, list[dict
 
 
 @needs_samtools
-def test_per_target_depth_enrichment_and_low_targets(tmp_path):
+@pytest.mark.parametrize("form", ["bam", "unindexed", "cram"])
+def test_per_target_depth_enrichment_and_low_targets(tmp_path, form):
     result, rows = _coverage(
         tmp_path,
         "track name=panel\nchr1\t2\t8\tA\nchr1\t5\t12\tB\n1\t15\t20\n",
+        form,
         min_depth=2,
     )
     by_name = {r["Name"]: r for r in rows}
@@ -84,6 +98,13 @@ def test_per_target_depth_enrichment_and_low_targets(tmp_path):
     assert [w.code for w in result.warnings] == ["targets_below_min_depth"]
     summary = next(o for o in result.outputs if o.role == "target_summary")
     assert "Enrichment (on/off-target mean): 1.4x" in Path(summary.path).read_text()
+
+
+@needs_samtools
+def test_overlapping_targets_count_once_in_the_covered_fraction(tmp_path):
+    # Union chr1:3-8 has depths 3 3 3 2 2 3: four of six bases reach 3x.
+    result, _ = _coverage(tmp_path, "chr1\t2\t8\tA\nchr1\t2\t5\tB\n", min_depth=3)
+    assert result.metrics["fraction_at_min_depth"] == pytest.approx(4 / 6, abs=1e-5)
 
 
 @needs_samtools
