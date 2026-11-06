@@ -63,8 +63,10 @@ from wgsextract_cli.core.warnings import (
 
 from ._extract_helpers import cleanup_files
 
-_PACBIO_PLATFORMS = {"pacbio", "hifi", "clr"}
-_LONG_READ_PLATFORMS = _PACBIO_PLATFORMS | {"ont", "nanopore"}
+PACBIO_PLATFORMS = {"pacbio", "hifi", "clr"}
+_LONG_READ_PLATFORMS = PACBIO_PLATFORMS | {"ont", "nanopore"}
+# Base-modification tags (and ONT's MN) that long reads keep through alignment.
+LONG_READ_TAGS = "MM,ML,MN"
 # pbmm2-style preset names accepted by minimap2 under their minimap2 names.
 _MINIMAP2_PRESET_ALIASES = {"ccs": "map-hifi", "subread": "map-pb"}
 _PBMM2_PRESETS = {
@@ -165,7 +167,7 @@ def select_aligner(args: argparse.Namespace) -> str:
             raise UsageError("Ultima reads are single-end: drop --r2.")
         return "bwa" if aligner == "auto" else aligner
     if aligner == "auto":
-        if args.platform in _PACBIO_PLATFORMS and get_tool_path("pbmm2") is not None:
+        if args.platform in PACBIO_PLATFORMS and get_tool_path("pbmm2") is not None:
             aligner = "pbmm2"
         elif long_read or args.preset:
             aligner = "minimap2"
@@ -207,6 +209,8 @@ def run(args: argparse.Namespace) -> None:
     if args.platform == "ultima":
         align_ultima(args, args.r1)
         return
+    if not is_long_read(args):
+        _refuse_short_read_alignment_file(args)
     if getattr(args, "gpu", False):
         _run_gpu(args, aligner)
         return
@@ -216,6 +220,19 @@ def run(args: argparse.Namespace) -> None:
         align_minimap2(args)
     else:
         align_bwa(args)
+
+
+def _refuse_short_read_alignment_file(args: argparse.Namespace) -> None:
+    """Short-read aligners read FASTQ; pairing reads out of a BAM/CRAM is
+    realign's job (#447)."""
+    for reads in (args.r1, args.r2):
+        if reads and str(reads).lower().endswith((".bam", ".cram", ".sam")):
+            raise UsageError(
+                f"{reads} is a BAM/CRAM/SAM file, and short reads align from "
+                f"FASTQ. Realign its reads with 'wgsextract realign --input "
+                f"{reads} --ref <reference>', or pass --platform for long "
+                "(ONT or PacBio) reads."
+            )
 
 
 def short_read_aligner(
@@ -1051,6 +1068,26 @@ def _gpu_align(
     record_alignment(out_path, f"parabricks {tool}", setup.ref)
 
 
+def is_long_read(args: argparse.Namespace) -> bool:
+    return bool(args.long_read) or args.platform in _LONG_READ_PLATFORMS
+
+
+def long_read_fastq_command(path: str, cram_opt: Sequence[str] = ()) -> list[str]:
+    """samtools fastq writing each read of a BAM/CRAM once (its primary record,
+    not secondary or supplementary copies) with its modification tags."""
+    return [
+        "samtools",
+        "fastq",
+        "-n",
+        "-F",
+        "0x900",
+        "-T",
+        LONG_READ_TAGS,
+        *cram_opt,
+        path,
+    ]
+
+
 def _minimap2_preset(args: argparse.Namespace) -> str:
     if args.preset:
         preset: str = args.preset
@@ -1120,36 +1157,24 @@ def align_minimap2(args: argparse.Namespace) -> None:
     )
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
     upstream: list[Sequence[object]] = []
-    ont = args.platform in {"ont", "nanopore"}
     reads = args.r1
-    if ont:
+    if is_long_read(args):
         if args.r2:
-            raise UsageError("ONT reads are single-end: drop --r2.")
+            raise UsageError("Long reads are single-end: drop --r2.")
         # Soft clipping keeps SEQ and the modification coordinates consistent.
         align_cmd += ["-y", "-Y"]
         if reads.lower().endswith((".bam", ".cram", ".sam")):
             upstream = [
-                [
-                    "samtools",
-                    "fastq",
-                    "-n",
-                    "-F",
-                    "0x900",
-                    "-T",
-                    "MM,ML,MN",
-                    *getattr(args, "_input_cram_opt", []),
-                    reads,
-                ]
+                long_read_fastq_command(reads, getattr(args, "_input_cram_opt", []))
             ]
-            reads = "-"
         else:
-            # ONT FASTQ comments can mix runid/ch metadata with SAM tags;
+            # FASTQ comments can mix ONT runid/ch metadata with SAM tags;
             # minimap2 -y alone would emit invalid SAM for those comments.
             upstream = [
-                ["samtools", "import", "-u", "-T", "MM,ML,MN", "-0", reads],
-                ["samtools", "fastq", "-n", "-T", "MM,ML,MN", "-"],
+                ["samtools", "import", "-u", "-T", LONG_READ_TAGS, "-0", reads],
+                ["samtools", "fastq", "-n", "-T", LONG_READ_TAGS, "-"],
             ]
-            reads = "-"
+        reads = "-"
     align_cmd += ["-R", read_group(args, setup.stem), setup.ref, reads]
     try:
         run_streamed_alignment(

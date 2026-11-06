@@ -639,13 +639,13 @@ CLI: `wgsextract align`.
 
 Align reads to a reference (see `AlignParams`).
 
-`AlignParams`: Align FASTQ reads (or an unaligned BAM) to `ref` as
+`AlignParams`: Align FASTQ reads (or a BAM/CRAM of long or Ultima reads) to `ref` as
 `<reads stem>_aligned.bam` (or `.cram`) with its index. `r1` is
 required; the CLI's `--genome` may fill it in from a sample workspace.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
-| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ (or an unaligned BAM/CRAM of the reads). |
+| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ, or a BAM/CRAM of long or Ultima reads (short reads in a BAM/CRAM go through realign). |
 | `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, for pairs. |
 | `preset` | `str \| None` | `None` | `--preset` | minimap2 preset for non-BWA alignment. Defaults to map-hifi for PacBio and map-ont for ONT. One of: `sr`, `map-pb`, `map-hifi`, `map-ont`, `ccs`, `subread` |
 | `platform` | `str \| None` | `None` | `--platform` | Sequencing platform; selects platform-specific alignment tooling (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
