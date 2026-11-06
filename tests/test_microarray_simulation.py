@@ -387,6 +387,7 @@ def test_quality_thresholds_suppress_alignment_calls(
     report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
     assert report["rsHet"][-2:] == ["--", reason]
     assert _genotypes(tmp_path / "out/male_23andMe_V3.txt")["rsHet"] == "--"
+    assert "target genotypes are no-calls" in caplog.text
     assert "configured quality/FILTER gates" in caplog.text
     assert "the input has no reads at the kit's positions" not in caplog.text
 
@@ -464,6 +465,24 @@ def test_vcf_input_fills_absent_targets_with_the_reference(tmp_path, library):
         "rsX": "AG",
         "rsMT": "--",  # the VCF has no MT calls at all: unknown, not reference
     }
+
+
+def test_vcf_with_no_variant_at_any_target_warns(
+    tmp_path, library, monkeypatch, caplog
+):
+    from wgsextract_cli.commands import _microarray_combined
+
+    # A kit this small can be all reference; the warning is for a whole chip's.
+    monkeypatch.setattr(_microarray_combined, "MIN_TARGETS_TO_EXPECT_A_VARIANT", 1)
+    fasta, _ = library
+    vcf = _vcf(tmp_path / "elsewhere.vcf", ("1",), ["1 1500 . C G 50 PASS . GT 0/1"])
+
+    _microarray(vcf, fasta, tmp_path / "out")
+
+    # Issue #373: it said "written as the reference allele" over a kit of no-calls.
+    assert "absent markers are written as no-calls" in caplog.text
+    kit = _genotypes(tmp_path / "out" / "elsewhere_23andMe_V3.txt")
+    assert set(kit.values()) == {"--"}
 
 
 def test_vcf_input_without_chry_calls_writes_y_no_calls(tmp_path, library):

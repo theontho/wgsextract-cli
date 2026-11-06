@@ -11,11 +11,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.htslib_helpers import bgzip_index, needs_tools
+from tests.htslib_helpers import bgzip_index, needs_tools, run_wgsextract
 from wgsextract_cli.api import VcfFreebayesParams
 from wgsextract_cli.commands.vcf.basic import CallerSetup
 from wgsextract_cli.core.dependencies import get_tool_path
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 needs_bcftools = needs_tools("bcftools", "bgzip", "tabix")
 
@@ -356,6 +356,63 @@ def test_gaps_bed_parses_real_nbin_format(tmp_path):
         "chr1\t2702781\t2746290",
     ]
     assert not write_gaps_bed(str(tmp_path / "other.fa"), str(bed))
+
+
+@needs_bcftools
+def test_filter_reads_the_vcf_input_not_the_alignment(tmp_path):
+    body = "chrM\t10\tm\tA\tG\t50\tPASS\t.\nchr1\t10\tc\tA\tG\t50\tPASS\t.\n"
+    vcf = _write_vcf(
+        tmp_path / "s.vcf.gz", body, header="##contig=<ID=chrM,length=1000>\n"
+    )
+    out = tmp_path / "out"
+    run_wgsextract("vcf", "filter", "--vcf-input", vcf,
+                   "--input", str(tmp_path / "missing.cram"),
+                   "--region", "chrM", "--outdir", str(out))  # fmt: skip
+    assert _query(str(out / "filtered.vcf.gz")) == ["m"]
+
+
+@needs_bcftools
+def test_filter_with_an_invalid_expression_leaves_no_partial_vcf(tmp_path):
+    vcf = _write_vcf(tmp_path / "s.vcf.gz", "chr1\t10\tc\tA\tG\t50\tPASS\t.\n")
+    out = tmp_path / "out"
+    with pytest.raises(WGSExtractError, match="VCF filtering failed"):
+        run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--expr", "NOPE>1",
+                       "--outdir", str(out))  # fmt: skip
+    # Issue #373: bcftools had already created filtered.vcf.gz, left as a result.
+    assert list(out.iterdir()) == []
+
+
+@needs_bcftools
+def test_failed_atomic_filter_keeps_the_previous_result(tmp_path):
+    from wgsextract_cli.core.atomic_output import atomic_output_mode
+
+    vcf = _write_vcf(tmp_path / "s.vcf.gz", "chr1\t10\tc\tA\tG\t50\tPASS\t.\n")
+    out = tmp_path / "out"
+    run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--outdir", str(out))
+    before = sorted(p.name for p in out.iterdir())
+    with atomic_output_mode(True), pytest.raises(WGSExtractError):
+        run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--expr", "NOPE>1",
+                       "--outdir", str(out))  # fmt: skip
+    assert sorted(p.name for p in out.iterdir()) == before
+    assert _query(str(out / "filtered.vcf.gz")) == ["c"]
+
+
+@needs_bcftools
+@pytest.mark.parametrize("alias", ["same", "hard link"])
+def test_filter_refuses_to_overwrite_its_input(tmp_path, alias):
+    vcf = _write_vcf(tmp_path / "in.vcf.gz", "chr1\t10\tc\tA\tG\t50\tPASS\t.\n")
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    if alias == "same":
+        vcf = str(Path(vcf).rename(outdir / "filtered.vcf.gz"))
+    else:
+        # PR #453 review: a hard link (or another case on case-insensitive
+        # APFS) names the input by a path that doesn't resolve to it.
+        os.link(vcf, outdir / "filtered.vcf.gz")
+    with pytest.raises(UsageError, match="overwrite its input"):
+        run_wgsextract("vcf", "filter", "--vcf-input", vcf, "--expr", "NOPE>1",
+                       "--outdir", str(outdir))  # fmt: skip
+    assert _query(vcf) == ["c"]
 
 
 def test_filter_unresolved_gene_fails(tmp_path):

@@ -1,6 +1,8 @@
 """Stand-in executables written in Python that run on every platform."""
 
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -14,6 +16,21 @@ def require_bare_name_fakes() -> None:
     child running."""
     if sys.platform == "win32":
         pytest.skip("a .cmd fake can't stand in for a tool started by bare name")
+
+
+def only_tools(request: pytest.FixtureRequest, *tools: str) -> Path:
+    """Leave PATH with just the real ``tools`` and a pixi without environments
+    (the ``fake_pixi`` fixture), so every other tool is missing. Returns the
+    bin directory, for fakes. POSIX only: it links the tools."""
+    if sys.platform == "win32":
+        pytest.skip("links the real tools into a bin directory")
+    paths = {tool: shutil.which(tool) for tool in tools}
+    bindir: Path = request.getfixturevalue("fake_pixi").host_bin
+    for tool, path in paths.items():
+        if not path:
+            pytest.skip(f"{tool} missing")
+        os.symlink(path, bindir / tool)
+    return bindir
 
 
 def python_tool(bindir: Path, name: str, source: str) -> Path:

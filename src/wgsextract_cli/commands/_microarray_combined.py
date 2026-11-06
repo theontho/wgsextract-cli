@@ -266,17 +266,12 @@ def _write_vcf_mode_kit(
                 "Check the input build and selected marker/call policies."
             )
             return
-        # Every target was written as homozygous reference: a plausible-looking but
-        # meaningless kit.
+        # Absent targets are filled as reference only on contigs with a call
+        # at a target, so with none matched every marker is a no-call.
         logging.warning(
             f"None of {out_vcf}'s variants are at the kit's {written:,} target "
-            "positions, so "
-            + (
-                "every genotype is written as the reference allele. Check "
-                if policy.assume_hom_ref
-                else "absent markers are written as no-calls. Check "
-            )
-            + f"that the VCF's genome build matches the targets ({ref_vcf_tab})."
+            "positions, so absent markers are written as no-calls. Check that "
+            f"the VCF's genome build matches the targets ({ref_vcf_tab})."
         )
 
 
