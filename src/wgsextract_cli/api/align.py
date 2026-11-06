@@ -45,16 +45,20 @@ _FORMAT_DOC = "Output format: BAM or CRAM (written with the target reference)."
 
 @dataclass(frozen=True, kw_only=True)
 class AlignParams(Params):
-    """Align FASTQ reads (or an unaligned BAM) to ``ref`` as
-    ``<reads stem>_aligned.bam`` (or ``.cram``) with its index. ``r1`` is
-    required; the CLI's ``--genome`` may fill it in from a sample workspace."""
+    """Align FASTQ reads (or a BAM/CRAM of long or Ultima reads) to ``ref`` as ``<reads stem>_aligned.bam`` (or ``.cram``) with its index.
+    ``r1`` is required; the CLI's ``--genome`` may fill it in from a sample
+    workspace."""
 
     COMMAND = "align"
 
     r1: Path | None = param(
         None,
         help=CLI_HELP["arg_r1"],
-        doc="Read 1 FASTQ (or an unaligned BAM/CRAM of the reads).",
+        doc=(
+            "Read 1 FASTQ (or FASTA of long reads), or a BAM/CRAM of long reads "
+            "(PacBio is detected) or of Ultima reads. Short reads in a BAM/CRAM "
+            "go through realign."
+        ),
         path="file",
     )
     r2: Path | None = param(
@@ -98,6 +102,12 @@ class AlignParams(Params):
         "reference from the library when ref is unset."
     )
     ref: Path | None = ref_param()
+    input_ref: Path | None = param(
+        None,
+        help="Reference FASTA a CRAM --r1 was encoded with (default: --ref when "
+        "its sequence names, lengths and MD5s match the CRAM).",
+        path="file",
+    )
     outdir: Path | None = outdir_param("the input's folder, else the reads'")
     threads: int | None = threads_param()
     memory: str | None = memory_param()

@@ -1,7 +1,7 @@
 {
  "commands": {
   "align": {
-   "help": "usage: wgsextract align [-h] [--r1 R1] [--r2 R2]\n                        [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                        [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}] [--sample SAMPLE]\n                        [--format {BAM,CRAM}] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform; selects platform-specific alignment tooling (default:\n                        detected from read groups or read names, else illumina).\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use. Auto uses bwa-mem2 for short reads when the reference has\n                        its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio\n                        when installed, otherwise minimap2.\n  --sample SAMPLE       Sample name for the read group (default: the reads' file name).\n  --format {BAM,CRAM}   Output format\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract align --help-all' lists them.\n\nexamples:\n  wgsextract align --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz --ref hs38.fa\n  wgsextract align --r1 hifi_reads.fastq.gz --preset map-hifi --ref hs38.fa\n\noutputs (in the output directory unless noted):\n  <reads stem>_aligned.bam or .cram (+ index).\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bwa, bwa-mem2,\n  curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x genome.\n",
+   "help": "usage: wgsextract align [-h] [--r1 R1] [--r2 R2]\n                        [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                        [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}] [--sample SAMPLE]\n                        [--format {BAM,CRAM}] [--input-ref INPUT_REF] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform; selects platform-specific alignment tooling (default:\n                        detected from read groups or read names, else illumina).\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use. Auto uses bwa-mem2 for short reads when the reference has\n                        its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio\n                        when installed, otherwise minimap2.\n  --sample SAMPLE       Sample name for the read group (default: the reads' file name).\n  --format {BAM,CRAM}   Output format\n  --input-ref INPUT_REF\n                        Reference FASTA a CRAM --r1 was encoded with (default: --ref when its\n                        sequence names, lengths and MD5s match the CRAM).\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract align --help-all' lists them.\n\nexamples:\n  wgsextract align --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz --ref hs38.fa\n  wgsextract align --r1 hifi_reads.fastq.gz --preset map-hifi --ref hs38.fa\n\noutputs (in the output directory unless noted):\n  <reads stem>_aligned.bam or .cram (+ index).\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bwa, bwa-mem2,\n  curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -448,6 +448,22 @@
       "nargs": null,
       "option_strings": [
        "--format"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "input_ref",
+      "exclusive_group": null,
+      "help": "Reference FASTA a CRAM --r1 was encoded with (default: --ref when its sequence names, lengths and MD5s match the CRAM).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input-ref"
       ],
       "required": false,
       "type": null
@@ -24078,6 +24094,7 @@
    "genome": null,
    "gpu": true,
    "input": null,
+   "input_ref": null,
    "json": false,
    "keep_awake": false,
    "log_dir": null,
@@ -24114,6 +24131,7 @@
    "genome": null,
    "gpu": false,
    "input": null,
+   "input_ref": null,
    "json": false,
    "keep_awake": false,
    "log_dir": null,
@@ -24150,6 +24168,7 @@
    "genome": null,
    "gpu": false,
    "input": null,
+   "input_ref": null,
    "json": false,
    "keep_awake": false,
    "log_dir": null,

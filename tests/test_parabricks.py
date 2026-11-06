@@ -229,6 +229,33 @@ def test_gpu_alignment_without_a_parabricks_equivalent_is_refused(
 
 
 @posix_only
+@needs_tools("samtools")
+@pytest.mark.parametrize("suffix", [".sam", ".cram"])
+def test_gpu_refuses_long_reads_in_a_cram_or_sam(tmp_path, gpu, genome, suffix):
+    """#460 re-review: Parabricks minimap2 took anything but a .bam as FASTQ,
+    so a CRAM or SAM of long reads reached --in-fq."""
+    seq, ref = genome
+    sam = tmp_path / "movie.sam"
+    read = seq[:1_000]
+    sam.write_text(f"@RG\tID:m\tPL:PACBIO\tSM:s\nm0\t4\t*\t0\t0\t*\t*\t0\t0\t{read}"
+                   f"\t{'I' * len(read)}\tRG:Z:m\n")  # fmt: skip
+    reads = sam
+    if suffix == ".cram":
+        reads = tmp_path / "movie.cram"
+        run_command(
+            ["samtools", "view", "-C", "-T", str(ref), "-o", str(reads), str(sam)]
+        )
+    out = tmp_path / "out"
+
+    with pytest.raises(UsageError, match="--gpu"):
+        run_wgsextract(
+            "align", "--gpu", "--r1", str(reads), "--ref", str(ref),
+            "--outdir", str(out), "--platform", "hifi",
+        )  # fmt: skip
+    assert not out.exists() or not any(out.iterdir())
+
+
+@posix_only
 @needs_tools("samtools", "bcftools", "tabix")
 @pytest.mark.parametrize(
     ("command", "options", "read_group", "mode"),
