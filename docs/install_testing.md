@@ -272,6 +272,25 @@ manager can't remove what setup put in the user's home, and finally
 `sudo apt remove --autoremove`. The desktop entry must have been installed,
 and the home folder must end as it started.
 
+### Setup runs alone
+
+No scenario step may start while the app runs setup: the app's Uninstall
+stops every process under the runtime folder, including a running install
+(#448). So on every app target (Linux, macOS and Windows), however setup
+ends, the scenario closes the app and waits until the app and everything it
+started (processes under the install and the workspace) are gone. What won't
+stop after the window closes is killed; what won't die ends the scenario,
+and the evidence it then lacks fails the verdict. The Linux and macOS
+scenarios share this in `guest/app-lifecycle.sh`; they watch the app they
+launched by its process ID.
+
+Each scenario writes `timeline.tsv` (milliseconds, event): step starts and
+ends, the app's launch, exit and close, growth of setup's event log, and what
+the harness did. The oracle checks from it that nothing ran beside setup
+(`app.setup_alone`). When a setup step ends with a signal, `app.setup` names
+its likely sender: the last scenario step, harness action or app exit before
+the event was seen.
+
 ## Targets
 
 - **macos** – Tart VM (Apple Silicon hosts). `prepare macos` clones

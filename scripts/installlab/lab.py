@@ -1123,6 +1123,8 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     "no-window": lambda r: (r / _gui_platform(r).window_file).write_text(""),
     "preferences-kept": lambda r: _preferences_left(r, {"NSWindow Frame main": "x"}),
     "preferences-unsaved": lambda r: _preferences_left(r, None),
+    # The #448 race: a later step started while the app was still running setup.
+    "step-beside-setup": lambda r: _step_beside_setup(r / "timeline.tsv"),
 }
 _WIN_HOME = "C:/Users/lab user"
 _WIN_COMMON = [
@@ -1137,6 +1139,7 @@ _WIN_COMMON = [
     "action-failed",
     "action-missing",
     "uninstall-failed",
+    "step-beside-setup",
 ]
 # The Windows app: the same, plus what a Windows uninstall can leave behind.
 WINDOWS_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
@@ -1180,6 +1183,12 @@ LINUX_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     ),
     "no-window": lambda r: (r / "app-stdout.txt").write_text(""),
 }
+
+
+def _step_beside_setup(timeline: Path) -> None:
+    rows = timeline.read_text().splitlines()
+    ms = next(r.split("\t")[0] for r in rows if "\tapp-launched " in r)
+    _append(timeline, f"{int(ms) + 1}\tstep-start uninstall")
 
 
 def _planted(results: Path) -> dict[str, str]:

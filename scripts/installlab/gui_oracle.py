@@ -104,6 +104,8 @@ LINUX = AppPlatform(
     installed=["file\t/usr/share/applications/WGSExtract.desktop"],
     install_marker="/dev.guiforcli.web.embed.wgsextract/BundleWorkspaces",
 )
+# What a shell prints when a command it ran was ended by that signal.
+SIGNAL_TEXT = {"Terminated": "SIGTERM", "Killed": "SIGKILL"}
 
 
 def app_platform(meta: dict[str, Any]) -> AppPlatform:
@@ -113,6 +115,21 @@ def app_platform(meta: dict[str, Any]) -> AppPlatform:
     if target == "linux":
         return LINUX
     return MACOS_TAURI if meta.get("macos_runtime") == "tauri" else MACOS
+
+
+def describe(event: str) -> str:
+    """Who acted, for a timeline event that can stop a setup step."""
+    kind, _, rest = event.partition(" ")
+    if kind == "step-start":
+        note = (
+            ", whose app Uninstall stops every process under the runtime folder"
+            if rest == "uninstall"
+            else ""
+        )
+        return f"scenario step {rest!r}, started while setup was running{note}"
+    if kind == "app-exited":
+        return f"the app, which exited (status {rest}) and stopped what it ran"
+    return f"the lab harness ({kind}: {rest})"
 
 
 class GuiOracle(Oracle):
@@ -167,6 +184,7 @@ class GuiOracle(Oracle):
             if shown
             else f"no {self.app.window_text!r} in {self.app.window_file}",
         )
+        stopped = "".join(f"; {why}" for why in self.setup_terminations())
         try:
             setup = self.result_file("setup-result.json")
             failed = [r["id"] for r in setup.get("results", []) if r["status"] != "ok"]
@@ -174,10 +192,12 @@ class GuiOracle(Oracle):
                 "app.setup",
                 setup["status"] == "ok" and bool(setup.get("results")) and not failed,
                 f"status {setup['status']}; {len(setup.get('results', []))} steps"
-                + (f"; not ok: {', '.join(failed)}" if failed else ""),
+                + (f"; not ok: {', '.join(failed)}" if failed else "")
+                + stopped,
             )
         except (OSError, ValueError, KeyError) as e:
-            self.record("app.setup", False, f"no setup result: {e!r}")
+            self.record("app.setup", False, f"no setup result: {e!r}{stopped}")
+        self.check_setup_alone()
         try:
             report = self.result_file("bundle-report.json")
             planned = [s["id"] for s in json.loads(PLAN.read_text())["steps"]]
@@ -207,6 +227,131 @@ class GuiOracle(Oracle):
             )
         except (OSError, ValueError, KeyError) as e:
             self.record("app.uninstall", False, f"no uninstall result: {e!r}")
+
+    def read_timeline(self) -> list[tuple[int, str]] | None:
+        """The scenario's timeline.tsv as (milliseconds, event), in time order."""
+        try:
+            text = (self.results / "timeline.tsv").read_text(errors="replace")
+        except OSError:
+            return None
+        rows = []
+        for line in text.splitlines():
+            ms, _, event = line.partition("\t")
+            if ms.isdigit() and event:
+                rows.append((int(ms), event))
+        return sorted(rows, key=lambda row: row[0])
+
+    def setup_terminations(self) -> list[str]:
+        """Which process stopped each setup step a signal ended (#448).
+
+        A shell script that is sent TERM prints "Terminated" for the command it was
+        running and exits through its trap, so the step only shows the signal in
+        its stderr.
+        """
+        try:
+            lines = (self.results / "setup-events.ndjson").read_text(errors="replace")
+        except OSError:
+            return []
+        found = []
+        for number, line in enumerate(lines.splitlines(), 1):
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "step-complete":
+                continue
+            result = event.get("result")
+            if not isinstance(result, dict):
+                continue
+            stderr = str(result.get("stderr") or "").splitlines()
+            signal = result.get("signal") or next(
+                (SIGNAL_TEXT[s.strip()] for s in stderr if s.strip() in SIGNAL_TEXT),
+                None,
+            )
+            if signal:
+                found.append(
+                    f"setup step {result.get('id')} got {signal}, from "
+                    + self.terminated_by(number)
+                )
+        return found
+
+    def terminated_by(self, line_number: int) -> str:
+        """What the scenario did last before the given setup event was written."""
+        timeline = self.read_timeline()
+        if timeline is None:
+            return "an unknown process (no timeline.tsv)"
+        events = [e for _, e in timeline]
+        launched = next(
+            (i for i, e in enumerate(events) if e.startswith("app-launched ")), None
+        )
+        if launched is None:
+            return "an unknown process (the timeline has no app launch)"
+        # The setup loop notes the event count every 2 s: the event was written
+        # before the first note that counts it.
+        seen = next(
+            (
+                i
+                for i, e in enumerate(events)
+                if e.startswith("setup-events ")
+                and e.split()[1].isdigit()
+                and int(e.split()[1]) >= line_number
+            ),
+            None,
+        )
+        before = [
+            e
+            for e in events[launched + 1 : seen]
+            if (e.startswith("step-start ") and e.split()[1] != "setup")
+            or e.startswith(("harness-", "app-exited "))
+        ]
+        if not before:
+            return (
+                "the app's own setup runner or something outside the scenario: "
+                "no other scenario step, harness action or app exit came first"
+            )
+        if seen is None:
+            # The scenario stopped watching setup before this event was
+            # written: it came after any of these.
+            return "one of what ran while setup was unwatched: " + ", ".join(
+                map(describe, before)
+            )
+        return describe(before[-1])
+
+    def check_setup_alone(self) -> None:
+        """No other scenario step ran while the app that runs setup was open (#448)."""
+        timeline = self.read_timeline()
+        if timeline is None:
+            self.record("app.setup_alone", False, "no timeline.tsv")
+            return
+        # Positions, not times: events in the same millisecond keep the order
+        # the scenario wrote them in.
+        events = [e for _, e in timeline]
+        launched = next(
+            (i for i, e in enumerate(events) if e.startswith("app-launched ")), None
+        )
+        if launched is None:
+            self.record("app.setup_alone", False, "the timeline has no app launch")
+            return
+        closed = next(
+            (i for i, e in enumerate(events) if i > launched and e == "app-closed"),
+            None,
+        )
+        beside = [
+            e.split()[1]
+            for e in events[launched + 1 : closed]
+            if e.startswith("step-start ")
+        ]
+        problems = (["the app was never seen to close"] if closed is None else []) + (
+            [f"steps started while the app ran setup: {', '.join(beside)}"]
+            if beside
+            else []
+        )
+        took = timeline[closed][0] - timeline[launched][0] if closed else 0
+        self.record(
+            "app.setup_alone",
+            not problems,
+            "; ".join(problems) or f"the app ran setup alone for {took} ms",
+        )
 
     def excuse_leftovers(self, added: list[str]) -> tuple[list[str], list[str]]:
         suffix = self.app.emptied_preferences

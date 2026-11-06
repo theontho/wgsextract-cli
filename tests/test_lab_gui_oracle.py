@@ -153,3 +153,196 @@ def test_mutations_plant_the_run_machines_paths(tmp_path, monkeypatch, meta, hom
 
     (tmp_path / "lab-run.json").write_text(json.dumps(meta))
     assert lab._planted(tmp_path)["home"] == home
+
+
+def _linux_run(results: Path, timeline: list[str] | None, signal_text: str) -> None:
+    (results / "lab-run.json").write_text(json.dumps({"target": "linux"}))
+    events = [
+        {"type": "step-start", "step": {"id": "install-wgsextract"}},
+        {"type": "output", "id": "install-wgsextract", "text": "Installing Pixi...\n"},
+        {
+            "type": "step-complete",
+            "result": {
+                "id": "install-wgsextract",
+                "status": "failed",
+                "exitCode": 1,
+                "signal": None,
+                "stderr": signal_text,
+            },
+        },
+        {"type": "complete", "result": {"status": "failed", "results": []}},
+    ]
+    (results / "setup-events.ndjson").write_text(
+        "".join(json.dumps(e) + "\n" for e in events)
+    )
+    if timeline is not None:
+        (results / "timeline.tsv").write_text("".join(f"{t}\n" for t in timeline))
+
+
+def _linux_checks(results: Path) -> dict[str, str]:
+    import gui_oracle
+
+    current = gui_oracle.GuiOracle(results, "nonce", {}, signed=False)
+    current.check_app_reports()
+    return {c.name: ("ok: " if c.ok else "FAIL: ") + c.detail for c in current.checks}
+
+
+# Issue #448: the harness missed the just-launched app, ran the later steps
+# beside its setup, and the app's Uninstall TERMed install.sh ("Terminated").
+RACED = [
+    "1000\tstep-start setup",
+    "1010\tapp-launched 42",
+    "1030\tsetup-events 0",
+    "1040\tstep-end setup 1",
+    "1050\tstep-start optional_tools",
+    "1060\tstep-end optional_tools 1",
+    "1070\tstep-start actions",
+    "3000\tstep-end actions 1",
+    "3010\tstep-start uninstall",
+]
+
+
+def test_a_setup_step_terminated_by_a_step_run_beside_it_names_that_step(oracle):
+    _linux_run(oracle.results, RACED, "Terminated\n")
+    checks = _linux_checks(oracle.results)
+    assert checks["app.setup"].startswith("FAIL")
+    assert "install-wgsextract got SIGTERM" in checks["app.setup"]
+    # The scenario had stopped watching setup, so every step since is a suspect.
+    assert "ran while setup was unwatched" in checks["app.setup"]
+    assert (
+        "scenario step 'uninstall', started while setup was running, whose app Uninstall stops"
+        in checks["app.setup"]
+    )
+    assert checks["app.setup_alone"] == (
+        "FAIL: the app was never seen to close; steps started while the app ran "
+        "setup: optional_tools, actions, uninstall"
+    )
+
+
+def test_a_setup_step_terminated_when_the_harness_closed_the_app_blames_it(oracle):
+    _linux_run(
+        oracle.results,
+        [
+            "1000\tstep-start setup",
+            "1010\tapp-launched 42",
+            "5000\tsetup-events 2",
+            "9000\tharness-closes-app setup did not finish within 3 hours",
+            "9500\tsetup-events 4",
+            "9600\tapp-exited 0",
+            "9650\tapp-closed",
+            "9700\tstep-end setup 1",
+            "9800\tstep-start optional_tools",
+        ],
+        "Terminated\n",
+    )
+    checks = _linux_checks(oracle.results)
+    assert "the lab harness (harness-closes-app" in checks["app.setup"]
+    assert checks["app.setup_alone"].startswith("ok: the app ran setup alone")
+
+
+def test_a_setup_step_terminated_when_the_app_crashed_blames_the_app(oracle):
+    # The harness closes what a crashed app left behind, but the events the app
+    # wrote while dying are noted first, so the harness isn't blamed for them.
+    _linux_run(
+        oracle.results,
+        [
+            "1000\tstep-start setup",
+            "1010\tapp-launched 42",
+            "5000\tsetup-events 2",
+            "9000\tapp-exited 139",
+            "9001\tsetup-events 4",
+            "9002\tharness-closes-app the app exited during setup",
+            "9600\tapp-closed",
+            "9700\tstep-end setup 1",
+        ],
+        "Terminated\n",
+    )
+    setup = _linux_checks(oracle.results)["app.setup"]
+    assert "from the app, which exited (status 139)" in setup
+    assert "harness" not in setup
+
+
+def test_without_a_timeline_the_terminator_is_unknown_and_setup_alone_fails(oracle):
+    _linux_run(oracle.results, None, "Killed\n")
+    checks = _linux_checks(oracle.results)
+    assert (
+        "install-wgsextract got SIGKILL, from an unknown process" in checks["app.setup"]
+    )
+    assert checks["app.setup_alone"] == "FAIL: no timeline.tsv"
+
+
+def test_an_ordinary_setup_failure_blames_no_one(oracle):
+    _linux_run(oracle.results, RACED, "pixi: not found\n")
+    assert "got SIG" not in _linux_checks(oracle.results)["app.setup"]
+
+
+def test_the_step_beside_setup_mutation_fails_a_clean_timeline(oracle):
+    import lab
+
+    _linux_run(
+        oracle.results,
+        # setup's own start in the same millisecond as the launch is not beside it
+        ["1000\tstep-start setup", "1000\tapp-launched 42", "9000\tapp-closed"],
+        "",
+    )
+    assert _linux_checks(oracle.results)["app.setup_alone"].startswith("ok")
+    lab.LINUX_GUI_MUTATIONS["step-beside-setup"](oracle.results)
+    assert _linux_checks(oracle.results)["app.setup_alone"] == (
+        "FAIL: steps started while the app ran setup: uninstall"
+    )
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="pgrep -f and /bin/sh")
+def test_the_harness_notes_a_crashed_apps_events_then_stops_what_it_left(oracle):
+    # Review of #459: the harness closed what a crashed app left before noting
+    # the events it wrote while dying, so the harness got the blame.
+    import subprocess
+
+    root = oracle.results
+    (root / "lab-run.json").write_text(json.dumps({"target": "linux"}))
+    events = root / "setup-events.ndjson"
+    (root / "app").mkdir()
+    (root / "ws").mkdir()
+    (root / "ws" / "install.sh").write_text(
+        "trap 'exit 143' TERM\nwhile :; do sleep 0.2; done\n"
+    )
+    done = {"type": "step-complete", "result": {"id": "install-wgsextract"}}
+    done["result"].update(status="failed", exitCode=143, stderr="Terminated\n")
+    app = root / "app" / "fake-app"
+    app.write_text(
+        f'sh "{root}/ws/install.sh" &\n'
+        f"printf '%s\\n' '{json.dumps({'type': 'step-start'})}' >> \"{events}\"\n"
+        "sleep 3\n"
+        f"printf '%s\\n' '{json.dumps(done)}' >> \"{events}\"\n"
+        "exit 3\n"
+    )
+    driver = root / "driver.sh"
+    driver.write_text(
+        f'. "{LAB_SCRIPTS}/guest/app-lifecycle.sh"\n'
+        'sh "$APP_MAIN" & app_pid=$!\n'
+        "app_launched\n"
+        "await_setup 60\n"
+    )
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "R": str(root),
+        "events": str(events),
+        "APP_MAIN": str(app),
+        "APP_TREE": f"{root}/app/|{root}/ws/",
+    }
+    run = subprocess.run(
+        ["sh", str(driver)], env=env, capture_output=True, text=True, timeout=120
+    )
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert "the app exited during setup (exit status 3)" in run.stdout
+    found = subprocess.run(["pgrep", "-f", f"{root}/ws/"], capture_output=True)
+    assert found.stdout == b""
+    timeline = [
+        line.split("\t", 1)[1]
+        for line in (root / "timeline.tsv").read_text().splitlines()
+    ]
+    closes = timeline.index("harness-closes-app the app exited during setup")
+    # Everything the app wrote is noted before the harness acts, and it ends closed.
+    assert timeline.index("app-exited 3") < closes
+    assert timeline.index("setup-events 2") < closes
+    assert timeline[-1] == "app-closed"

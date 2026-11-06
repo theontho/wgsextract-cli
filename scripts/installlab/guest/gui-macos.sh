@@ -38,13 +38,21 @@ RUNNER_DIR="$R/runner"
 # the pinned release from GitHub instead).
 CLI_ARCHIVE="/tmp/wgse-lab-cli.tar.gz"
 export GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER="lab-bundle-runner"
+# The app's own processes, and everything it starts: setup's scripts and
+# downloads run from the workspace (set again once the bundle ID is known).
+APP_MAIN="$APP/Contents/MacOS/"
+APP_TREE="$APP_MAIN|$WORKSPACE/"
+# shellcheck source=scripts/installlab/guest/app-lifecycle.sh
+. "$HERE/app-lifecycle.sh"
 
 step() {
     name="$1"
     shift
     start=$(date +%s)
+    mark "step-start $name"
     "$@" > "$EVIDENCE/$name.log" 2>&1
     rc=$?
+    mark "step-end $name $rc"
     echo "$rc" > "$EVIDENCE/$name.rc"
     echo $(( $(date +%s) - start )) > "$EVIDENCE/$name.seconds"
     echo "scenario step $name rc=$rc"
@@ -65,7 +73,7 @@ wait_for_file() {
 }
 
 app_running() {
-    pgrep -f "$APP/Contents/MacOS/" >/dev/null 2>&1
+    [ -n "$(app_pids)" ]
 }
 
 is_tauri() {
@@ -98,6 +106,7 @@ install_app() {
     codesign --verify --deep --strict --verbose=2 "$APP" || rc=1
     BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Contents/Info.plist") || return 1
     WORKSPACE="$HOME/Library/Application Support/$BUNDLE_ID/BundleWorkspaces/wgs-extract"
+    APP_TREE="$APP_MAIN|$WORKSPACE/"
     return $rc
 }
 
@@ -124,35 +133,44 @@ launch_app() {
 }
 
 app_setup() {
+    events="$R/setup-events.ndjson"
     if is_tauri; then
         tauri_setup
         return $?
     fi
     rm -f "$R/setup-result.json"
+    # Launched through Launch Services, so known only by its command line.
+    app_pid=""
     launch_app --env GUI_FOR_CLI_AUTO_RUN_SETUP=1 --env GUI_FOR_CLI_QUIT_AFTER_SETUP=1 \
         --env "GUI_FOR_CLI_TERMINAL_LOG_FILE=$R/app-setup-terminal.log" \
         --env "GUI_FOR_CLI_SETUP_RESULT_FILE=$R/setup-result.json" \
         --env GFC_BENCHMARK_STARTUP=1 \
         --env "GFC_BENCHMARK_OUTPUT=$R/startup.txt" || return 1
-    wait_for_file "$R/startup.txt" 120 || return 1
+    app_launched
+    if ! wait_for_file "$R/startup.txt" 120; then
+        close_app "the app did not start within 120 s"
+        return 1
+    fi
     screencapture -x "$R/app-window.png" 2>/dev/null || true
-    wait_for_file "$R/setup-result.json" 7200 || return 1
+    if ! wait_for_file "$R/setup-result.json" 7200; then
+        close_app "setup did not finish within 7200 s"
+        return 1
+    fi
     cat "$R/setup-result.json"
-    wait_for_app_exit 120
+    # It quits by itself after setup.
+    app_gone 120 && return 0
+    echo "the app did not quit within 120 s of setup"
+    close_app "the app did not quit after setup"
+    return 1
 }
 
 tauri_setup() {
-    events="$R/setup-events.ndjson"
     env GUI_FOR_CLI_AUTO_RUN_SETUP=1 GUI_FOR_CLI_SETUP_EVENTS_LOG="$events" \
         ${LAB_ARCHIVE_URL:+WGSEXTRACT_ARCHIVE_URL="$CLI_ARCHIVE"} \
         "$APP/Contents/MacOS/gui-for-cli-webui-tauri" > "$R/app-stdout.txt" 2> "$R/app-stderr.txt" &
     app_pid=$!
-    deadline=$(( $(date +%s) + 7200 ))
-    while ! grep -q '"type":"complete"' "$events" 2>/dev/null; do
-        kill -0 "$app_pid" 2>/dev/null || { echo "the app exited during setup"; return 1; }
-        [ "$(date +%s)" -lt "$deadline" ] || { echo "setup timed out"; return 1; }
-        sleep 5
-    done
+    app_launched
+    await_setup 7200 || return 1
     /usr/bin/python3 - "$events" "$R/setup-result.json" <<'EOF'
 import json, sys
 events = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
@@ -161,8 +179,7 @@ with open(sys.argv[2], "w") as output:
     json.dump(complete["result"], output)
 EOF
     screencapture -x "$R/app-window.png" 2>/dev/null || true
-    pkill -TERM -f "$APP/Contents/MacOS/" || return 1
-    wait_for_app_exit 120
+    close_app "setup complete"
 }
 
 install_runner() {
