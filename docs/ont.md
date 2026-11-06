@@ -268,7 +268,50 @@ tags survive realignment.
 
 Platform detection, tagged CPU alignment/realignment, x86-64 DeepVariant
 ONT_R104 calling, optional Linux x86-64 Clair3 calling, Sniffles SV calling,
-and optional modkit CpG methylation are supported.
+optional modkit CpG methylation and optional read-backed phasing are supported.
+
+## Phasing
+
+`vcf phase` phases a sample's heterozygous calls with its own reads and writes
+`phased.vcf.gz` (phased `GT` with `PS` phase sets), `phased.blocks.tsv` (one
+row per phase block) and, with `--haplotag`, `haplotagged.bam`/`.cram` with
+`HP`/`PS` read tags for haplotype-resolved views or methylation.
+
+```bash
+pixi install -e phasing          # WhatsHap and LongPhase; checked, not installed
+wgsextract vcf phase --input sample.cram --vcf-input calls.vcf.gz --ref hs38.fa.gz \
+  --outdir phased --haplotag
+```
+
+- `--phaser` chooses `whatshap` or `longphase`. Unset, LongPhase is used for
+  Nanopore and PacBio reads (faster, and fewer switch errors below) when it is
+  installed, otherwise WhatsHap. LongPhase is long-read only; short reads get
+  WhatsHap and a `short_read_phasing` warning, since short reads link few
+  variants.
+- The VCF sample is the one named by the reads' `@RG SM`; a single-sample VCF
+  is used as is. Existing `PS` values are dropped and recomputed, so a phased
+  benchmark VCF (GIAB's `PS` is a string) can be re-phased.
+- WhatsHap is single-threaded; `--threads` runs contigs in parallel.
+- The result manifest records `heterozygous_variants`, `phased_variants`,
+  `phased_pct`, `phase_blocks` and `block_n50_bp` (block span = last minus
+  first phased position, as `whatshap stats` measures it).
+- Linux and macOS only. LongPhase has no Intel-Mac build; WhatsHap is used there.
+
+Measured on HG002 against the GIAB v4.2.1 phased benchmark
+(`whatshap compare`, all assessed pairs), 4 cores:
+
+| Reads, calls | Phaser | Time | Peak RAM | Hets phased | Blocks | Block N50 | Switch error |
+|---|---|---|---|---|---|---|---|
+| ONT R10.4.1 ~51x, whole chr20, Clair3 calls (91,909 hets) | LongPhase | 51 s | 1.3 GiB | 78.9% | 142 | 1.21 Mb | 0.10% (49/50,623) |
+| | WhatsHap | 251 s | 0.8 GiB | 87.8% | 134 | 1.29 Mb | 0.34% (174/51,865) |
+| PacBio HiFi, chr20:10-12 Mb, bcftools calls (1,457 hets) | LongPhase | 10 s | 0.2 GiB | 94.7% | 13 | 171 kb | 0 (0/1,346) |
+| | WhatsHap | 30 s | 0.3 GiB | 97.5% | 10 | 206 kb | 0 (0/1,353) |
+
+"Hets phased" counts every heterozygous record in the input, including Clair3's
+low-quality ones; WhatsHap's block-wise Hamming distance on chr20 was 5.4%
+against LongPhase's 0.8%. No whole-genome phasing run was made: it needs a
+whole-genome call set (#431). Scaling the chr20 time (about 2% of the genome),
+LongPhase would take about 40 minutes on 4 cores.
 
 ## Adaptive sampling targets
 
@@ -466,6 +509,12 @@ small-variant run is tracked in
 
   CI runs it in the `ont-hg002` job. `provenance.json` records the sources;
   `python scripts/ont_hg002_data.py fixture` rebuilds the fixture.
+- `tests/fixtures/ont_hg002_phasing/` (about 260 KB) holds the HG002 reads over
+  chr20:14,255,001-14,267,000, a window with 25 heterozygous sites and a
+  haplotype switch, and the GIAB phased truth there. `tests/test_phasing.py`
+  checks that both phasers recover the truth haplotypes and tag reads, also
+  from CRAM; the `ont-hg002` job runs it with the `phasing` environment.
+  `python scripts/ont_hg002_data.py phasing-fixture` rebuilds it.
 - The 5 Mb slice and whole chr20 (in two parts under GitHub's 2 GiB limit;
   `samtools cat` joins them) are assets of the
   [`ont-hg002-data-v1`](https://github.com/WGSExtract/wgsextract-cli/releases/tag/ont-hg002-data-v1)

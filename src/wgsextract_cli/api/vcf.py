@@ -2,16 +2,17 @@
 
 ``snp`` and ``indel`` call small variants from a BAM/CRAM with bcftools;
 ``freebayes``, ``gatk``, ``deepvariant`` and ``clair3`` with those tools, and
-``cnv`` and ``sv`` call copy-number and structural variants. The other
-operations read a VCF: ``vcf_input``, else ``input``. Their outputs go
-to ``outdir``, else beside that VCF. Annotators take their data file from the
+``cnv`` and ``sv`` call copy-number and structural variants, and ``phase``
+phases a sample's calls with its reads. The other operations read a VCF:
+``vcf_input``, else ``input``. Their outputs go to ``outdir``, else beside
+that VCF. Annotators take their data file from the
 field, else config.toml, else the reference library (``ref``); see
 ``wgsextract ref`` to download it."""
 
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -1040,6 +1041,52 @@ class VcfClair3Params(_CallerParams):
     qc_min_depth: float | None = depth_param()
 
 
+PHASERS = ("whatshap", "longphase")
+
+
+@dataclass(frozen=True, kw_only=True)
+class VcfPhaseParams(_CallerParams):
+    """Phase one sample's heterozygous calls with its reads into
+    ``phased.vcf.gz``, with WhatsHap or LongPhase.
+
+    ``input`` is the sample's BAM/CRAM and ``vcf_input`` its calls. The phase
+    blocks go to ``phased.blocks.tsv``; ``haplotag`` also writes the reads with
+    HP/PS tags to ``haplotagged.bam`` (or ``.cram``).
+    """
+
+    COMMAND = "vcf phase"
+
+    input: Path = input_param("BAM or CRAM of the sample's reads.")
+    vcf_input: Path | None = param(
+        None,
+        help="VCF of the sample's calls to phase (default: config default_input_vcf)",
+        path="file",
+        config_key="default_input_vcf",
+        doc="The calls to phase, read with ``input`` (not instead of it).",
+    )
+    region: str | None = _region_param(
+        "Phase only these regions (e.g. chr20 or chr20:1-1000000, comma-separated)"
+    )
+    phaser: str | None = param(
+        None,
+        help="Phasing tool (default: longphase for Nanopore and PacBio reads when "
+        "it is installed, else whatshap). LongPhase is refused for other reads.",
+        choices=PHASERS,
+    )
+    haplotag: bool = param(
+        False,
+        help="Also write the reads tagged with their haplotype (HP) and phase "
+        "block (PS) to haplotagged.bam (.cram for CRAM input).",
+        action="store_true",
+    )
+    qc_min_depth: float | None = depth_param()
+
+    def write_folders(self) -> Iterator[Path]:
+        # With no outdir, the outputs go beside the reads, not the VCF.
+        if self.outdir is None:
+            yield Path(self.input).expanduser().absolute().parent
+
+
 def cnv(
     params: VcfCnvParams,
     *,
@@ -1119,3 +1166,17 @@ def clair3(
     from wgsextract_cli.commands.vcf.clair3 import run_clair3
 
     return execute(params, run_clair3, progress=progress, cancel=cancel, check=check)
+
+
+def phase(
+    params: VcfPhaseParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Phase a VCF with its reads; output roles ``phased_variants``,
+    ``phase_blocks`` and, with ``haplotag``, ``haplotagged_alignments``."""
+    from wgsextract_cli.commands.vcf.phasing import run_phase
+
+    return execute(params, run_phase, progress=progress, cancel=cancel, check=check)

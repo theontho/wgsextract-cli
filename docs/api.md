@@ -752,9 +752,10 @@ required; the CLI's `--genome` may fill it in from a sample workspace.
 
 `snp` and `indel` call small variants from a BAM/CRAM with bcftools;
 `freebayes`, `gatk`, `deepvariant` and `clair3` with those tools, and
-`cnv` and `sv` call copy-number and structural variants. The other
-operations read a VCF: `vcf_input`, else `input`. Their outputs go
-to `outdir`, else beside that VCF. Annotators take their data file from the
+`cnv` and `sv` call copy-number and structural variants, and `phase`
+phases a sample's calls with its reads. The other operations read a VCF:
+`vcf_input`, else `input`. Their outputs go to `outdir`, else beside
+that VCF. Annotators take their data file from the
 field, else config.toml, else the reference library (`ref`); see
 `wgsextract ref` to download it.
 
@@ -1262,6 +1263,32 @@ Call with Clair3; output role `variants`.
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chr20:1-1000000) |
 | `model` | `str \| None` | `None` | `--model` | Clair3 model directory, or the name of a bundled model, matching the reads' basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config clair3_model; default: chosen from the basecaller metadata. |
+| `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+### `api.vcf.phase(VcfPhaseParams)`
+
+CLI: `wgsextract vcf phase`.
+
+Phase a VCF with its reads; output roles `phased_variants`,
+`phase_blocks` and, with `haplotag`, `haplotagged_alignments`.
+
+`VcfPhaseParams`: Phase one sample's heterozygous calls with its reads into
+`phased.vcf.gz`, with WhatsHap or LongPhase.
+
+`input` is the sample's BAM/CRAM and `vcf_input` its calls. The phase
+blocks go to `phased.blocks.tsv`; `haplotag` also writes the reads with
+HP/PS tags to `haplotagged.bam` (or `.cram`).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | BAM or CRAM of the sample's reads. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Phase only these regions (e.g. chr20 or chr20:1-1000000, comma-separated) |
+| `vcf_input` | `Path \| None` | `None` (config `default_input_vcf`) | `--vcf-input` | The calls to phase, read with ``input`` (not instead of it). |
+| `phaser` | `str \| None` | `None` | `--phaser` | Phasing tool (default: longphase for Nanopore and PacBio reads when it is installed, else whatshap). LongPhase is refused for other reads. One of: `whatshap`, `longphase` |
+| `haplotag` | `bool` | `False` | `--haplotag` | Also write the reads tagged with their haplotype (HP) and phase block (PS) to haplotagged.bam (.cram for CRAM input). |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ## `api.analyze`

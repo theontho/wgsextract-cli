@@ -137,6 +137,9 @@ COMMAND_NEEDS: dict[str, CommandNeeds] = {
         HOURS, "samtools", "tabix", optional="bcftools docker run_deepvariant sambamba"
     ),
     "vcf clair3": _n(HOURS, "bcftools", "run_clair3.sh", "samtools", "tabix"),
+    "vcf phase": _n(
+        HOURS, "bcftools", "samtools", "tabix", optional="longphase whatshap"
+    ),
     "vcf phylop": _n(MINUTES, "bcftools", "bgzip", "tabix", optional="samtools"),
     "vcf cadd": _n(MINUTES, *_VCF, optional="bgzip samtools"),
     "vcf gerp": _n(MINUTES, "bcftools", "bgzip", "tabix", optional="samtools"),
