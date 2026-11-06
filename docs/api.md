@@ -31,8 +31,8 @@ from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
-`api.lineage`, `api.microarray`, `api.panel`, `api.report`, `api.sample`,
-`api.support`) follow
+`api.lineage`, `api.microarray`, `api.panel`, `api.ref`, `api.report`,
+`api.sample`, `api.support`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -1346,6 +1346,278 @@ settings) and then to the documented default.
 | `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+## `api.ref`
+
+`ref`: the reference library: genomes, their indexes and N counts, and
+the annotation data and panels other commands read.
+
+`ref` names a FASTA (`index`, `count_ns`, `verify`) or the reference
+library folder, or a FASTA inside it; unset, it is config.toml's
+`reference_fasta`, else the configured or default library. Installers write
+into the library and record what they wrote as the result's outputs:
+
+```python
+api.ref.verify(api.RefVerifyParams(ref=Path("lib/genomes/hs38DH.fa.gz")))
+api.ref.status(api.RefStatusParams()).details["genomes"]
+```
+
+### `api.ref.aadr(RefAadrParams)`
+
+CLI: `wgsextract ref aadr`.
+
+Install the panel; output role `reference_resource`.
+
+`RefAadrParams`: Install the hash-pinned CC0 AADR v66.p1 2M SNP panel into the library.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.ybrowse(RefYbrowseParams)`
+
+CLI: `wgsextract ref ybrowse`.
+
+Install the snapshot; output role `reference_resource`.
+
+`RefYbrowseParams`: Install a hash-pinned, sites-only GRCh38 yBrowse snapshot into the
+library.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `snapshot` | `Path \| None` | `None` | `--snapshot` | Use a local GRCh38 VCF(.gz), verifying its header instead of the upstream pin. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.download(RefDownloadParams)`
+
+CLI: `wgsextract ref download`.
+
+Download the file; output role `download`. Not offered by the server.
+
+`RefDownloadParams`: Download a reference FASTA from `url` to `out`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `url` | `str` | required | `--url` | URL to download from |
+| `out` | `Path` | required | `--out` | Output FASTA file path |
+
+### `api.ref.index(RefIndexParams)`
+
+CLI: `wgsextract ref index`.
+
+Index the FASTA; output role `reference_index` for each file written.
+
+`RefIndexParams`: Index a FASTA: `.fai` (and `.gzi`), the `.dict` sequence
+dictionary and the aligner's index, written beside it.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | The reference FASTA (required; default: config reference_fasta). |
+| `aligner` | `str` | `'bwa'` | `--aligner` | Aligner index to make. bwa-mem2's maps faster but takes 17 GB of memory for a human genome; hs38DH's is downloaded, others need ~90 GB of memory to build. One of: `bwa`, `bwa-mem2` |
+
+### `api.ref.count_ns(RefCountNsParams)`
+
+CLI: `wgsextract ref count-ns`.
+
+Count the Ns; output roles `n_counts` and `n_bins`.
+
+`RefCountNsParams`: Count the FASTA's N runs into `<ref>_ncnt.csv` and `<ref>_nbin.csv`;
+sequence, length and N totals are metrics.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | The reference FASTA (required; default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` | `--outdir`, `-o` | Folder for the N-count files (default: beside the FASTA; config output_directory is not used). |
+
+### `api.ref.verify(RefVerifyParams)`
+
+CLI: `wgsextract ref verify`.
+
+Verify the FASTA; a mismatch fails, a missing `.dict` is a warning.
+
+`RefVerifyParams`: Check a FASTA's compression, its `.fai`/`.gzi` and `.dict` against
+the file, and its sequence signature against the library catalog. Writes
+a missing `.fai`/`.gzi`; `contigs` and `signature` are metrics.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | The reference FASTA, or a folder holding one (required; default: config reference_fasta). |
+
+### `api.ref.library(RefLibraryParams)`
+
+CLI: `wgsextract ref library`.
+
+Install `params.install`; output roles `reference` (the FASTA) and
+`reference_sidecar`. The CLI's listing and menu aren't offered: use
+`status` for what is installed.
+
+`RefLibraryParams`: Install a catalog genome into the library's `genomes` folder, trying
+each mirror that hosts it.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `install` | `str \| None` | `None` | `--install` | The genome's catalog code (e.g. hs38) or 1-based index (required). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.status(RefStatusParams)`
+
+CLI: `wgsextract ref status`.
+
+Report the library; the report is the result's `details`.
+
+`RefStatusParams`: What the reference library holds, as the result's `details`: genomes
+and their indexes, annotation data, gene maps, VEP cache, PharmCAT,
+ploidy and mappability files, and the test genome.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` | `--ref` | Reference library folder, or a FASTA in it (default: config reference_library, else reference_fasta's library, else the default library). |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | A BAM/CRAM or VCF whose build picks the annotation files to report. |
+| `genome_library` | `Path \| None` | `None` | `--genome-library` | Genome library folder for the test genome's status (default: config genome_library, else ``genomes`` beside the reference library). |
+| `annotation_vcf` | `Path \| None` | `None` | `--annotation-vcf` | Custom annotation VCF path to include in readiness checks. |
+
+### `api.ref.gene_map(RefGeneMapParams)`
+
+CLI: `wgsextract ref gene-map`.
+
+Download the gene maps (output role `reference_resource`) or delete them.
+
+`RefGeneMapParams`: Download the hg19 and hg38 gene maps into the library, or delete them.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `delete` | `bool` | `False` | `--delete` | Delete gene maps instead of downloading |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.clinvar(RefClinvarParams)`
+
+CLI: `wgsextract ref clinvar`.
+
+Download ClinVar; output role `reference_resource` for each file.
+
+`RefClinvarParams`: Download the official ClinVar VCF for hg19 and hg38.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.revel(RefRevelParams)`
+
+CLI: `wgsextract ref revel`.
+
+Download REVEL; output role `reference_resource` for each file.
+
+`RefRevelParams`: Download REVEL pathogenicity scores for hg19 and hg38.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.phylop(RefPhylopParams)`
+
+CLI: `wgsextract ref phylop`.
+
+Download PhyloP; output role `reference_resource`.
+
+`RefPhylopParams`: Download UCSC's PhyloP 100-way conservation scores (~10 GB bigWig).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `build` | `str` | `'hg38'` | `--build` | Genome build to download (default: hg38). One of: `hg38`, `hg19` |
+
+### `api.ref.gnomad(RefGnomadParams)`
+
+CLI: `wgsextract ref gnomad`.
+
+Download or build gnomAD; output role `reference_resource` for each file.
+
+`RefGnomadParams`: Download gnomAD allele frequencies: the 2.1.1 exome sites VCFs, or
+build the 4.1 frequency table.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `release` | `str` | `'2.1.1'` | `--release` | 2.1.1: exome sites VCFs for hg19 and hg38 (hg38 lifted over). 4.1: native hg38 exomes+genomes, streamed (~900 GB, hours) into an allele-frequency-only table of ~5 GB; --threads sets parallel streams. One of: `2.1.1`, `4.1` |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.ref.spliceai(RefSpliceaiParams)`
+
+CLI: `wgsextract ref spliceai`.
+
+Download SpliceAI; output role `reference_resource` for each file.
+
+`RefSpliceaiParams`: Download SpliceAI scores for hg38 (Ensembl, MANE SNVs), or index a
+manual hg19 download.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.alphamissense(RefAlphamissenseParams)`
+
+CLI: `wgsextract ref alphamissense`.
+
+Download AlphaMissense; output role `reference_resource` for each file.
+
+`RefAlphamissenseParams`: Download AlphaMissense scores for hg19 and hg38.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.pharmgkb(RefPharmgkbParams)`
+
+CLI: `wgsextract ref pharmgkb`.
+
+Download PharmGKB; output role `reference_resource` for each file.
+
+`RefPharmgkbParams`: Download PharmGKB annotations.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.cadd(RefCaddParams)`
+
+CLI: `wgsextract ref cadd`.
+
+Download CADD; output role `reference_resource` for each file.
+
+`RefCaddParams`: Download CADD v1.7 deleteriousness scores (~85 GB per build).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `build` | `str` | `'hg38'` | `--build` | Genome build to download (default: hg38). Each is about 85 GB. One of: `hg38`, `hg19` |
+
+### `api.ref.gerp(RefGerpParams)`
+
+CLI: `wgsextract ref gerp`.
+
+Download GERP; output role `reference_resource`.
+
+`RefGerpParams`: Download GERP++ conservation scores as a bigWig.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `build` | `str` | `'hg38'` | `--build` | Genome build to download (default: hg38). One of: `hg38`, `hg19` |
+
+### `api.ref.bootstrap(RefBootstrapParams)`
+
+CLI: `wgsextract ref bootstrap`.
+
+Install the bootstrap; output role `reference_resource` for each file.
+Not offered by the server.
+
+`RefBootstrapParams`: Download the reference library bootstrap (VCFs, chains, N counts and
+other support files). Saves the library's path as config.toml's
+`reference_library` when that is unset.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 
 ## `api.report`
 

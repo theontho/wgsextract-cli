@@ -199,10 +199,13 @@ class Params:
     Subclasses are frozen, keyword-only dataclasses. ``COMMAND`` names the CLI
     command ("vcf snp") and becomes the result's ``command``. Path fields accept
     ``str`` or ``os.PathLike`` and are stored as ``Path`` (an empty string is
-    ``None``); ``choices`` are checked on construction.
+    ``None``); ``choices`` are checked on construction. A ``LOCAL_ONLY``
+    operation is not offered by the server: it fetches any URL or changes
+    config.toml.
     """
 
     COMMAND: ClassVar[str] = ""
+    LOCAL_ONLY: ClassVar[bool] = False
 
     def __post_init__(self) -> None:
         for item in param_fields(type(self)):

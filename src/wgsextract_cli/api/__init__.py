@@ -25,8 +25,8 @@ from its Params fields, so the API and ``--help`` cannot drift.
 
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
-``api.lineage``, ``api.microarray``, ``api.panel``, ``api.report``, ``api.sample``,
-``api.support``) follow
+``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``, ``api.report``,
+``api.sample``, ``api.support``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -55,6 +55,7 @@ from . import (
     microarray,
     panel,
     qc,
+    ref,
     report,
     sample,
     support,
@@ -104,6 +105,27 @@ from .qc import (
     MultiqcMetricsParams,
     MultiqcParams,
     QcVcfParams,
+)
+from .ref import (
+    RefAadrParams,
+    RefAlphamissenseParams,
+    RefBootstrapParams,
+    RefCaddParams,
+    RefClinvarParams,
+    RefCountNsParams,
+    RefDownloadParams,
+    RefGeneMapParams,
+    RefGerpParams,
+    RefGnomadParams,
+    RefIndexParams,
+    RefLibraryParams,
+    RefPharmgkbParams,
+    RefPhylopParams,
+    RefRevelParams,
+    RefSpliceaiParams,
+    RefStatusParams,
+    RefVerifyParams,
+    RefYbrowseParams,
 )
 from .report import ReportParams
 from .sample import SampleSetParams, SampleShowParams, SampleUnsetParams
@@ -175,6 +197,25 @@ __all__ = [
     "ProgressEvent",
     "QcVcfParams",
     "RealignParams",
+    "RefAadrParams",
+    "RefAlphamissenseParams",
+    "RefBootstrapParams",
+    "RefCaddParams",
+    "RefClinvarParams",
+    "RefCountNsParams",
+    "RefDownloadParams",
+    "RefGeneMapParams",
+    "RefGerpParams",
+    "RefGnomadParams",
+    "RefIndexParams",
+    "RefLibraryParams",
+    "RefPharmgkbParams",
+    "RefPhylopParams",
+    "RefRevelParams",
+    "RefSpliceaiParams",
+    "RefStatusParams",
+    "RefVerifyParams",
+    "RefYbrowseParams",
     "ReportIssueParams",
     "ReportParams",
     "Result",
@@ -223,6 +264,7 @@ __all__ = [
     "microarray",
     "panel",
     "qc",
+    "ref",
     "report",
     "sample",
     "support",

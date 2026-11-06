@@ -35,6 +35,7 @@ from wgsextract_cli.server.operations import (
     PathGuard,
     RequestError,
     find,
+    operations,
     params_from_json,
 )
 
@@ -502,6 +503,42 @@ def test_path_guard_covers_every_vcf_path(op, field, value):
     bad = [value] if typing.get_origin(item.base_type) is tuple else value
     with pytest.raises(RequestError) as refused:
         guard.check(params_from_json(find(op), {**allowed, field: bad}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+_REF_PATHS = [
+    (name, item)
+    for name, op in operations().items()
+    if name.startswith("ref/")
+    for item in op.fields()
+    if item.spec.path and not item.spec.local_only
+]
+
+
+def test_server_offers_no_ref_command_that_fetches_a_url_or_saves_config():
+    # #346: ref download fetches any URL and ref bootstrap saves config.toml.
+    ref_ops = {name for name in operations() if name.startswith("ref/")}
+    assert {"ref/index", "ref/status", "ref/clinvar"} <= ref_ops
+    assert not ref_ops & {"ref/download", "ref/bootstrap"}
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _REF_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _REF_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.fa", r"D:\evil.fa", r"\\host\share\evil.fa", "evil.fa"]
+)
+def test_path_guard_covers_every_ref_path(op, field, value):
+    # #346: the ref commands became server operations; each file or library
+    # they read or write must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    paths = [item.name for name, item in _REF_PATHS if name == op]
+    allowed = {name: rf"C:\data\{name}" for name in paths}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
     assert refused.value.code in ("usage", "path_not_allowed")
 
 

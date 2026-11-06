@@ -29,10 +29,10 @@ from wgsextract_cli.core.utils import UsageError
 
 Kind = Literal["query", "job"]
 
-# Quick reads that describe a sample; everything else makes new files, takes
-# longer or changes what is recorded about a sample, so MCP offers it only
-# with --allow-jobs.
-QUERIES = frozenset({"info", "info chip", "sample show"})
+# Quick reads that describe a sample or the reference library; everything else
+# makes new files, takes longer or changes what is recorded about a sample, so
+# MCP offers it only with --allow-jobs.
+QUERIES = frozenset({"info", "info chip", "sample show", "ref status"})
 
 
 # What follows the contig of an interval (chr1:1-100, X:1,000-): a drive
@@ -134,6 +134,7 @@ def operations() -> dict[str, Operation]:
                 isinstance(cls, type)
                 and issubclass(cls, Params)
                 and hints.get("return") is CommandResult
+                and not cls.LOCAL_ONLY
             ):
                 continue
             op_name = cls.COMMAND.replace(" ", "/")
