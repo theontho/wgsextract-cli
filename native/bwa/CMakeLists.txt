@@ -8,7 +8,7 @@ FetchContent_Declare(bwa
 FetchContent_MakeAvailable(bwa)
 
 # Bump when the wgse-bwa package changes; it is versioned separately from BWA.
-set(WGSE_BWA_VERSION 0.3.0)
+set(WGSE_BWA_VERSION 0.4.0)
 set(generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${generated}")
 include("${CMAKE_CURRENT_SOURCE_DIR}/upstream_seams.cmake")
@@ -30,8 +30,11 @@ endforeach()
 
 file(READ seeding_types.h seeding_types)
 file(READ seeding.metal seeding_source)
+file(READ rescue_types.h rescue_types)
+file(READ rescue.metal rescue_source)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/seeding_types.h" "${CMAKE_CURRENT_SOURCE_DIR}/seeding.metal")
+    "${CMAKE_CURRENT_SOURCE_DIR}/seeding_types.h" "${CMAKE_CURRENT_SOURCE_DIR}/seeding.metal"
+    "${CMAKE_CURRENT_SOURCE_DIR}/rescue_types.h" "${CMAKE_CURRENT_SOURCE_DIR}/rescue.metal")
 configure_file(seeding_source.h.in "${generated}/seeding_source.h" @ONLY)
 
 # BWA plus the Metal seeding backend, shared by the executable and the tests.
@@ -70,8 +73,12 @@ if(BUILD_TESTING)
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/seeding_parity.sh"
         $<TARGET_FILE:wgse-bwa> $<TARGET_FILE:seeding_benchmark>
         "${CMAKE_CURRENT_BINARY_DIR}/seeding-parity")
+    add_test(NAME bwa_metal_rescue_parity
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rescue_parity.sh"
+        $<TARGET_FILE:wgse-bwa> "${CMAKE_CURRENT_BINARY_DIR}/rescue-parity")
     # Exit 77 means the machine has no unified-memory Metal device.
-    set_tests_properties(bwa_smoke bwa_metal_seeding_parity PROPERTIES SKIP_RETURN_CODE 77)
+    set_tests_properties(bwa_smoke bwa_metal_seeding_parity bwa_metal_rescue_parity
+        PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 install(TARGETS wgse-bwa RUNTIME DESTINATION bin)

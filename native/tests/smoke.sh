@@ -90,6 +90,11 @@ else
                 grep -q 'locate_misses=0$' metal.log
                 [ "$mode" != force-gpu ] || grep -Eq 'located_rows=[1-9]' metal.log
             fi
+            # ...and prepares mate rescue on the GPU; every prepared window must be used.
+            if grep -q 'rescue_misses=' metal.log; then
+                grep -q 'rescue_misses=0 ' metal.log
+                [ "$mode" != force-gpu ] || grep -Eq 'rescue_gpu_pairs=[1-9]' metal.log
+            fi
             echo "Metal alignments match CPU"
         fi
     elif grep -q '"metal_hardware_supported":true' capabilities.json; then

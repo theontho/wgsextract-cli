@@ -19,8 +19,9 @@ void help() {
         "  capabilities --json       report Metal availability\n"
         "  --version                 print executable and engine version\n"
         "Options precede the command and affect only mem. The default CPU backend is unmodified BWA.\n"
-        "--metal (EXPERIMENTAL) finds and locates the seeds of most reads on the GPU\n"
-        "while the CPU maps the rest, with identical output. It fails if Metal is\n"
+        "--metal (EXPERIMENTAL) finds and locates the seeds of most reads, and aligns\n"
+        "many mate-rescue windows, on the GPU while the CPU does the rest, with identical\n"
+        "output. It fails if Metal is\n"
         "unavailable, and exits 1 after finishing on the CPU if a GPU batch fails;\n"
         "--backend auto falls back to the CPU in both cases.\n"
         "SAM is written to stdout; diagnostics to stderr.\n"
@@ -93,6 +94,30 @@ int run(int argc, char **argv) {
             }
             wgse_set_gpu_locate_rows(static_cast<size_t>(rows));
             command_index += 2;
+        } else if (strcmp(option, "--gpu-rescue") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            if (strcmp(value, "on") && strcmp(value, "off")) {
+                fprintf(stderr, "--gpu-rescue requires on or off\n");
+                return 2;
+            }
+            wgse_set_gpu_rescue(strcmp(value, "on") == 0);
+            command_index += 2;
+        } else if (strcmp(option, "--gpu-rescue-batch") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long pairs = strtol(value, &end, 10);
+            if (end == value || *end || pairs < 1 || pairs > 65536) {
+                fprintf(stderr, "--gpu-rescue-batch requires 1..65536 pairs\n");
+                return 2;
+            }
+            wgse_set_gpu_rescue_batch(static_cast<size_t>(pairs));
+            command_index += 2;
+        } else if (strcmp(option, "--gpu-inject-rescue-failure") == 0) {
+            wgse_inject_rescue_failure();
+            ++command_index;
+        } else if (strcmp(option, "--gpu-rescue-verify") == 0) {
+            wgse_verify_gpu_rescue();
+            ++command_index;
 #endif
         } else break;
     }
