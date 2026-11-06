@@ -371,6 +371,19 @@ def test_report_shows_the_hla_calls_with_t1k_quality(tmp_path, mhc_bam, hla_setu
     assert b["detail"] == "T1K quality 33, 28; IPD-IMGT/HLA 3.56.0"
     assert b["evidence"]["file"] == "NA12878.t1k_genotype.tsv"
 
+    # Review of #482: genotypes that no longer give the recorded call (say, a
+    # later run was interrupted) don't vouch for it.
+    genotypes = out / "NA12878.t1k_genotype.tsv"
+    genotypes.write_text(genotypes.read_text().replace("B*57:01", "B*58:01"))
+    pgx = build_report(out)["sections"]["pharmacogenomics"]
+    found = {f["gene"]: f for f in pgx["findings"]}
+    assert (found["HLA-B"]["confidence"], found["HLA-B"]["confidence_reasons"]) == (
+        "not_assessed",
+        ["evidence_mismatch"],
+    )
+    assert found["HLA-A"]["confidence"] == "low"
+    assert [w["code"] for w in pgx["warnings"]].count("evidence_mismatch") == 1
+
     # Without T1K's genotypes the qualities are unknown.
     (out / "NA12878.t1k_genotype.tsv").unlink()
     found = {

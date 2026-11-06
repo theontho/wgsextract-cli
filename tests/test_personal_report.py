@@ -347,18 +347,26 @@ def test_built_in_lists_match_the_cited_acmg_sf_tables():
     assert (v32["HFE"], v33["HFE"]) == ("miscellaneous", "metabolism")
 
 
-GENOTYPES = {"het": "0/1", "hom": "1/1", "haploid": "1"}
+# Genotype and zygosity column of each kind of call.
+GENOTYPES = {
+    "het": ("0/1", "het"),
+    "hom": ("1/1", "hom"),
+    "haploid": ("1", "haploid"),
+    "partial": ("1/.", "het"),
+}
 
 
 def _clinvar_table(folder: Path, *calls: tuple[Any, ...]) -> None:
     """Replace the sample's ClinVar calls with (chrom, pos, CLNSIG, GENEINFO
-    [, zygosity]); heterozygous unless given."""
+    [, kind of call [, confidence]]); heterozygous and high unless given."""
     table = folder / "clinvar_pathogenic.confidence.tsv"
     rows = []
-    for chrom, pos, sig, info, *zygosity in calls:
-        zyg = zygosity[0] if zygosity else "het"
+    for chrom, pos, sig, info, *more in calls:
+        kind = more[0] if more else "het"
+        label = more[1] if len(more) > 1 else "high"
+        genotype, zygosity = GENOTYPES[kind]
         rows.append(
-            f"{chrom}\t{pos}\tC\tT\t{GENOTYPES[zyg]}\t{zyg}\thigh\t\t30\t99\t0.5\t"
+            f"{chrom}\t{pos}\tC\tT\t{genotype}\t{zygosity}\t{label}\t\t30\t99\t0.5\t"
             f"{sig}\tx\t{info}\n"
         )
     table.write_text(TSV_HEADER.replace("CLNDN\n", "CLNDN\tGENEINFO\n") + "".join(rows))
@@ -442,7 +450,9 @@ def test_geneinfo_names_the_gene_and_spans_are_the_fallback(sample):
         (("het",), "carrier"),
         (("het", "het"), "possible_biallelic"),
         (("hom",), "biallelic"),
-        (("haploid",), "biallelic"),
+        # Review of #482: neither shows the other copy.
+        (("haploid",), "possible_biallelic"),
+        (("partial",), "possible_biallelic"),
     ],
 )
 def test_recessive_genes_count_calls_by_zygosity_for_carrier_status(
@@ -461,23 +471,66 @@ def test_recessive_genes_count_calls_by_zygosity_for_carrier_status(
     genes = {g["gene"]: g for g in clinvar["genes"]}
     assert genes["MUTYH"]["inheritance"] == "AR"
     assert genes["MUTYH"]["status"] == status
-    zygosity = ("heterozygous", "homozygous", "hemizygous")
-    assert [genes["MUTYH"][z] for z in zygosity] == [
-        mutyh.count(z) for z in ("het", "hom", "haploid")
-    ]
+    columns = ("heterozygous", "homozygous", "hemizygous", "partial")
+    counts = [genes["MUTYH"][c] for c in columns]
+    assert counts == [mutyh.count(k) for k in ("het", "hom", "haploid", "partial")]
     # A dominant gene's calls are counted but get no carrier status.
     assert (genes["BRCA2"]["homozygous"], genes["BRCA2"]["status"]) == (1, None)
     shown = status.replace("_", " ")
     assert f"Recessive genes: MUTYH {shown}." in clinvar["summary"]
-    assert ("phase unknown" in genes["MUTYH"]["status_text"]) == (
+    assert ("phase is unknown" in genes["MUTYH"]["status_text"]) == (
         status == "possible_biallelic"
     )
     markdown = pr.render_markdown(report)
-    assert f"| MUTYH | AR | {' | '.join(str(genes['MUTYH'][z]) for z in zygosity)} " \
-        f"| **{shown}**: " in markdown  # fmt: skip
+    assert f"| MUTYH | AR | {' | '.join(map(str, counts))} | high | **{shown}**: " \
+        in markdown  # fmt: skip
     page = _Page()
     page.feed(pr.render_html(report))
     assert shown in page.text
+
+
+def test_a_status_from_weak_calls_says_so(sample):
+    # Review of #482: a gene's status is only as sure as its weakest call.
+    chrom, pos = _mid("MUTYH")
+    _clinvar_table(
+        sample,
+        (chrom, pos, "Pathogenic", "MUTYH:4595", "het", "high"),
+        (chrom, pos + 10, "Pathogenic", "MUTYH:4595", "het", "low"),
+        (*_mid("BRCA2"), "Pathogenic", "BRCA2:675", "het", "moderate"),
+    )
+    clinvar = pr.build_report(sample)["sections"]["clinvar"]
+    genes = {g["gene"]: g["confidence"] for g in clinvar["genes"]}
+    assert genes == {"BRCA2": "moderate", "MUTYH": "low"}
+    assert "MUTYH possible biallelic (low-confidence calls)." in clinvar["summary"]
+
+
+def test_statuses_from_a_truncated_call_list_are_only_the_certain_ones(sample):
+    # Review of #482: without the confidence table the manifest lists only
+    # the first 1,000 calls, so a carrier might have more.
+    def finding(pos: int, zygosity: str) -> dict[str, Any]:
+        genotype = {"het": "0/1", "hom": "1/1"}[zygosity]
+        return {"chrom": "chr1", "pos": pos, "genotype": genotype,
+                "zygosity": zygosity, "confidence": "high", "reasons": [],
+                "CLNSIG": "Pathogenic", "GENEINFO": "MUTYH:4595"}  # fmt: skip
+
+    manifest = sample / "clinvar_pathogenic.vcf.manifest.json"
+    document = json.loads(manifest.read_text())
+    document["outputs"] = [
+        o for o in document["outputs"] if o["role"] != "confidence_table"
+    ]
+    document["details"] = {"confidence": [{"role": "clinvar_pathogenic",
+                                           "findings": [finding(1000, "het")],
+                                           "findings_truncated": True}]}  # fmt: skip
+    manifest.write_text(json.dumps(document))
+    clinvar = pr.build_report(sample)["sections"]["clinvar"]
+    assert [w["code"] for w in clinvar["warnings"]] == ["calls_truncated"]
+    (mutyh,) = clinvar["genes"]
+    assert (mutyh["heterozygous"], mutyh["status"]) == (1, None)
+
+    document["details"]["confidence"][0]["findings"].append(finding(2000, "hom"))
+    manifest.write_text(json.dumps(document))
+    (mutyh,) = pr.build_report(sample)["sections"]["clinvar"]["genes"]
+    assert mutyh["status"] == "biallelic"
 
 
 def test_a_list_without_inheritance_counts_calls_but_gives_no_status(sample, tmp_path):
@@ -493,6 +546,8 @@ def test_a_list_without_inheritance_counts_calls_but_gives_no_status(sample, tmp
             "heterozygous": 0,
             "homozygous": 1,
             "hemizygous": 0,
+            "partial": 0,
+            "confidence": "high",
             "status": None,
             "status_text": "",
         }

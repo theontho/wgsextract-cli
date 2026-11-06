@@ -113,19 +113,26 @@ and LMNA not missense variants never seen with cardiac disease. Those findings
 carry this as a note.
 
 The section also counts each listed gene's P/LP calls by zygosity
-(`heterozygous`, `homozygous`, `hemizygous`). For a gene the list marks as
+(`heterozygous`, `homozygous`, `hemizygous` for a haploid genotype, `partial`
+for a genotype whose other allele was not called, such as `1/.`), with the
+weakest confidence label of those calls. For a gene the list marks as
 autosomal recessive (`inheritance` `AR`; the built-in lists take it from Table
 1) it gives a status:
 
-- **biallelic**: a homozygous or hemizygous call;
-- **possible biallelic**: two or more heterozygous calls. Phase is unknown, so
-  they may be on the same copy (cis) rather than one on each (trans);
+- **biallelic**: a homozygous call;
+- **possible biallelic**: two or more heterozygous calls, whose phase is
+  unknown, so they may be on the same copy (cis) rather than one on each
+  (trans); or a hemizygous or partly called genotype, which doesn't show the
+  other copy;
 - **carrier**: one heterozygous call.
 
 So an HFE p.C282Y homozygote shows as biallelic, and two heterozygous ATP7B
-calls as possible biallelic. The report does not work out phase, variant
+calls as possible biallelic. The summary names each status, with the calls'
+confidence when it is not high. The report does not work out phase, variant
 consequence or which HFE variant a call is, and X-linked genes get counts but
-no status.
+no status. If the run's confidence table is missing, its manifest lists only
+the first 1,000 calls; the section then warns (`calls_truncated`) and gives
+only biallelic statuses, which more calls can't change.
 
 ## Confidence labels
 
@@ -140,8 +147,10 @@ reason codes. The JSON document explains each code in `confidence_reasons`.
   rests on coverage alone) is `not_assessed`.
 - **HLA-A and HLA-B (T1K)**: `low` when `typing hla` made no confident call;
   `high` when T1K's quality is above 0 for each allele (its own threshold) and
-  the names it tied agree; `moderate` when the T1K genotypes file is missing.
-  The detail gives the qualities and the IPD-IMGT/HLA release.
+  the names it tied agree; `moderate` when the T1K genotypes file is missing;
+  `not_assessed` (with an `evidence_mismatch` warning) when the file no longer
+  gives the call the run recorded. The detail gives the qualities and the
+  IPD-IMGT/HLA release.
 - **CYP2D6 (Cyrius)**: `low` when Cyrius made no call or its filter did not
   pass; otherwise the median depth against the `confidence_min_depth` and
   `confidence_high_depth` settings (`low` below the minimum, `moderate`
@@ -220,8 +229,8 @@ same document is the `details` of the report's result manifest
       "counts": {"carried": 4, "in_gene_list": 1, "outside_gene_list": 3,
                  "unplaced": 0, "high": 1, "moderate": 0, "low": 0},
       "genes": [{"gene": "BRCA2", "inheritance": "AD", "heterozygous": 1,
-                 "homozygous": 0, "hemizygous": 0, "status": null,
-                 "status_text": ""}],
+                 "homozygous": 0, "hemizygous": 0, "partial": 0,
+                 "confidence": "high", "status": null, "status_text": ""}],
       "all_calls": "clinvar_pathogenic.confidence.tsv"
     },
     "overview": {"...": "..."}, "lineage": {"...": "..."},

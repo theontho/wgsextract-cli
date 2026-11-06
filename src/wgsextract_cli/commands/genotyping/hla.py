@@ -85,6 +85,16 @@ def two_field(allele: str) -> str:
     return "*" + ":".join(name.rstrip(suffix).split(":")[:2]) + suffix
 
 
+def reported_diplotype(call: HlaCall | None) -> str | None:
+    """The diplotype `typing hla` reports: full resolution where T1K's tied
+    names agree, else two fields as for PharmCAT."""
+    if call is None:
+        return None
+    return call.diplotype(lambda a: "*" + a.split("*", 1)[-1]) or call.diplotype(
+        two_field
+    )
+
+
 def _build_index(directory: str) -> None:
     build = env_tool("t1k-build.pl", "t1k")
     parent = str(Path(directory).parent)
@@ -250,15 +260,8 @@ def cmd_hla(args: argparse.Namespace) -> None:
         result.add_metrics(ipd_imgt_hla_release=release)
     logging.info(f"HLA alleles{f' ({release})' if release else ''}:")
     for gene in REPORTED_GENES:
-        call = calls.get(gene)
-        # Full resolution where T1K's tied names agree, else two fields as for
-        # PharmCAT, so the log and the outside call never disagree.
-        diplotype = (
-            call.diplotype(lambda a: "*" + a.split("*", 1)[-1])
-            or call.diplotype(two_field)
-            if call
-            else None
-        )
+        # So the log and the outside call never disagree.
+        diplotype = reported_diplotype(calls.get(gene))
         logging.info(f"  {gene:<9} {diplotype or 'no confident call'}")
         result.add_metrics(**{gene: diplotype})
 

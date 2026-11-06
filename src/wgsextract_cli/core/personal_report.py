@@ -69,6 +69,7 @@ REASONS = {
     "low_coverage": "the run warned that coverage is too low for reliable calls",
     "caller_filter": "the caller flagged the call (its filter did not pass)",
     "no_call": "the caller made no call",
+    "evidence_mismatch": "the evidence file no longer matches the run's result",
     "no_labelled_calls": "the gene has no labelled variant calls; a reference "
     "(*1) allele rests on coverage alone",
 }
@@ -672,9 +673,12 @@ def _lineage(ctx: _Context) -> dict[str, Any]:
     return section
 
 
-def _labelled_calls(source: Source, role: str, table_role: str) -> list[dict[str, Any]]:
+def _labelled_calls(
+    source: Source, role: str, table_role: str
+) -> tuple[list[dict[str, Any]], bool]:
     """A run's labelled calls: the confidence TSV it wrote (every call), else
-    the findings listed in its manifest (up to 1000)."""
+    the findings listed in its manifest (up to 1000), and whether that is
+    every call."""
     table = source.output(table_role)
     if table is not None:
         try:
@@ -683,13 +687,14 @@ def _labelled_calls(source: Source, role: str, table_role: str) -> list[dict[str
                 rows = list(csv.DictReader(lines, delimiter="\t"))
             for row in rows:
                 row["reasons"] = [r for r in (row.get("reasons") or "").split("|") if r]
-            return rows
+            return rows, True
         except (OSError, csv.Error):
             pass
     for entry in source.details.get("confidence") or []:
         if isinstance(entry, Mapping) and entry.get("role") == role:
-            return [dict(f) for f in entry.get("findings") or []]
-    return []
+            findings = [dict(f) for f in entry.get("findings") or []]
+            return findings, not entry.get("findings_truncated")
+    return [], True
 
 
 def _worst(labels: Iterable[str]) -> str:
@@ -745,7 +750,7 @@ def _pharmcat_findings(section: dict[str, Any], source: Source, ctx: _Context) -
         )
         rows = []
     calls: dict[str, list[dict[str, Any]]] = {}
-    for call in _labelled_calls(source, "pgx_calls", "confidence_table"):
+    for call in _labelled_calls(source, "pgx_calls", "confidence_table")[0]:
         for gene in str(call.get("gene") or "").split(","):
             if gene:
                 calls.setdefault(gene, []).append(call)
@@ -831,12 +836,16 @@ def _cyrius_finding(section: dict[str, Any], source: Source, ctx: _Context) -> N
 def _hla_findings(section: dict[str, Any], source: Source, ctx: _Context) -> None:
     """The HLA-A and HLA-B diplotypes ``typing hla`` called (those PharmCAT
     takes), labelled by T1K's allele qualities."""
-    from wgsextract_cli.commands.genotyping.hla import PHARMCAT_GENES, parse_t1k
+    from wgsextract_cli.commands.genotyping.hla import (
+        PHARMCAT_GENES,
+        parse_t1k,
+        reported_diplotype,
+    )
 
     evidence = source.output("hla_genotypes")
     try:
         calls = {c.gene: c for c in parse_t1k(str(evidence))} if evidence else None
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, IndexError) as e:
         section["warnings"].append(
             {"code": "unreadable_evidence", "message": f"T1K genotypes: {e}"}
         )
@@ -846,9 +855,19 @@ def _hla_findings(section: dict[str, Any], source: Source, ctx: _Context) -> Non
         diplotype = source.metrics.get(gene)
         call = (calls or {}).get(gene)
         qualities = [q for _, q in call.alleles] if call else []
-        if not diplotype:
+        if calls is not None and reported_diplotype(call) != diplotype:
+            # e.g. a later, interrupted run replaced the genotypes
+            label, reasons = NOT_ASSESSED, ["evidence_mismatch"]
+            section["warnings"].append(
+                {
+                    "code": "evidence_mismatch",
+                    "message": f"The T1K genotypes no longer give the {gene} call "
+                    "typing hla recorded; rerun it.",
+                }
+            )
+        elif not diplotype:
             label, reasons = variant_confidence.LOW, ["no_call"]
-        elif not qualities:
+        elif calls is None:
             label, reasons = variant_confidence.MODERATE, ["quality_unknown"]
         else:
             label, reasons = variant_confidence.HIGH, []
@@ -918,9 +937,12 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         (_vcf_build(vcf) if vcf else None)
         or next(filter(None, map(ctx.build_of, vcf_inputs)), None)
     )
+    labelled, complete = _labelled_calls(
+        source, "clinvar_pathogenic", "confidence_table"
+    )
     calls = [
         c
-        for c in _labelled_calls(source, "clinvar_pathogenic", "confidence_table")
+        for c in labelled
         if variant_confidence.is_pathogenic(str(c.get("CLNSIG") or ""))
     ]
     gene_list = gene_lists.GeneList(described["id"], described["name"], ())
@@ -935,7 +957,7 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
             )
     outside = unplaced = 0
     findings = []
-    zygosities: dict[str, tuple[gene_lists.Gene, list[str]]] = {}
+    gene_calls: dict[str, tuple[gene_lists.Gene, list[Mapping[str, Any]]]] = {}
     for call in () if unavailable else calls:
         pos = _int(call.get("pos"))
         chrom = str(call.get("chrom") or "")
@@ -947,9 +969,7 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
             outside += 1
             continue
         for gene in genes:
-            zygosities.setdefault(gene.symbol, (gene, []))[1].append(
-                str(call.get("zygosity") or "")
-            )
+            gene_calls.setdefault(gene.symbol, (gene, []))[1].append(call)
         significance = str(call.get("CLNSIG") or "").replace("_", " ")
         # A variant ClinVar places in several listed genes is one finding.
         symbols = "/".join(g.symbol for g in genes)
@@ -989,8 +1009,19 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
     findings.sort(key=lambda f: (order.get(f["confidence"], 9), f["gene"] or ""))
     section["findings"] = findings
     section["genes"] = sorted(
-        (_gene_calls(g, z) for g, z in zygosities.values()), key=lambda g: g["gene"]
+        (_gene_calls(g, c, complete) for g, c in gene_calls.values()),
+        key=lambda g: g["gene"],
     )
+    if not complete:
+        section["warnings"].append(
+            {
+                "code": "calls_truncated",
+                "message": "The run's confidence table is missing, and its "
+                "manifest lists only some calls: gene counts may be incomplete, "
+                "and only a biallelic status (which more calls can't change) is "
+                "given. Rerun vcf clinvar.",
+            }
+        )
     section["build"] = build
     section["counts"] = {
         "carried": len(calls),
@@ -1030,6 +1061,7 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         )
     flagged = [
         f"{g['gene']} {g['status'].replace('_', ' ')}"
+        + ("" if g["confidence"] == "high" else f" ({_confidence_text(g)})")
         for g in section["genes"]
         if g["status"]
     ]
@@ -1043,40 +1075,65 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
     return section
 
 
-# A recessive gene's P/LP calls, by zygosity: one copy, or (maybe) both.
+# A recessive gene's P/LP calls: one copy affected, (maybe) both.
 GENE_STATUS = {
-    "biallelic": "a homozygous or hemizygous P/LP call: both copies affected",
-    "possible_biallelic": "two or more heterozygous P/LP calls; phase unknown, so "
-    "they may be on the same copy (cis) rather than one on each (trans)",
-    "carrier": "one heterozygous P/LP call: a carrier of one affected copy",
+    "biallelic": "a homozygous P/LP call: both copies affected",
+    "possible_biallelic": "possibly both copies affected: two or more "
+    "heterozygous P/LP calls whose phase is unknown (they may be on the same "
+    "copy), or a call whose other allele was not called",
+    "carrier": "one heterozygous P/LP call: one copy affected",
 }
 
 
-def _gene_calls(gene: gene_lists.Gene, zygosities: Sequence[str]) -> dict[str, Any]:
+def _gene_calls(
+    gene: gene_lists.Gene, calls: Sequence[Mapping[str, Any]], complete: bool = True
+) -> dict[str, Any]:
     """A listed gene's P/LP calls by zygosity, and for a gene the list reports
     only when biallelic (AR) whether this sample is a carrier or (possibly)
-    biallelic. Phase is not known, so two heterozygous calls are only
-    possibly biallelic."""
-    het = zygosities.count("het")
-    hom = zygosities.count("hom")
-    hemi = zygosities.count("haploid")
+    biallelic, with the weakest confidence of those calls. Phase is not
+    known, and a haploid or partly called genotype (``1/.``) doesn't show the
+    other copy, so these make the gene only possibly biallelic."""
+    het = hom = hemi = partial = 0
+    for call in calls:
+        zygosity = str(call.get("zygosity") or "")
+        alleles = re.split(r"[/|]", str(call.get("genotype") or ""))
+        if zygosity == "het" and "." in alleles:
+            partial += 1
+        elif zygosity == "het":
+            het += 1
+        elif zygosity == "hom":
+            hom += 1
+        elif zygosity == "haploid":
+            hemi += 1
     status = None
     if gene.recessive:
-        if hom or hemi:
+        if hom:
             status = "biallelic"
-        elif het >= 2:
+        elif hemi or partial or het >= 2:
             status = "possible_biallelic"
         elif het:
             status = "carrier"
+    if not complete and status != "biallelic":
+        status = None
+    order = {label: i for i, label in enumerate(CONFIDENCE)}
+    labels = [str(c.get("confidence") or NOT_ASSESSED) for c in calls]
     return {
         "gene": gene.symbol,
         "inheritance": gene.inheritance or None,
         "heterozygous": het,
         "homozygous": hom,
         "hemizygous": hemi,
+        "partial": partial,
+        "confidence": max(labels, key=lambda label: order.get(label, len(order))),
         "status": status,
         "status_text": GENE_STATUS.get(status or "", ""),
     }
+
+
+def _confidence_text(gene: Mapping[str, Any]) -> str:
+    if gene["confidence"] == NOT_ASSESSED:
+        return "calls not assessed"
+    return f"{gene['confidence']}-confidence calls"
 
 
 def _call_genes(
@@ -1461,6 +1518,7 @@ def _html_section_body(name: str, section: Mapping[str, Any], base: str) -> list
         if section.get("genes"):
             out.append("<table><tr><th>Gene</th><th>Inheritance</th>"
                        "<th>Heterozygous</th><th>Homozygous</th><th>Hemizygous</th>"
+                       "<th>Partly called</th><th>Confidence</th>"
                        "<th>Recessive gene</th></tr>")  # fmt: skip
             for g in section["genes"]:
                 status = (g["status"] or "").replace("_", " ")
@@ -1468,7 +1526,9 @@ def _html_section_body(name: str, section: Mapping[str, Any], base: str) -> list
                     f"<tr><td>{_h(g['gene'])}</td><td>{_h(g['inheritance'] or '')}</td>"
                     f'<td class="n">{g["heterozygous"]}</td>'
                     f'<td class="n">{g["homozygous"]}</td>'
-                    f'<td class="n">{g["hemizygous"]}</td><td>{_h(status)}'
+                    f'<td class="n">{g["hemizygous"]}</td>'
+                    f'<td class="n">{g["partial"]}</td>'
+                    f"<td>{_h(g['confidence'])}</td><td>{_h(status)}"
                     + (
                         f'<br><span class="muted">{_h(g["status_text"])}</span>'
                         if status
@@ -1618,14 +1678,15 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
                 out += [
                     "",
                     "| Gene | Inheritance | Heterozygous | Homozygous | Hemizygous "
-                    "| Recessive gene |",
-                    "|---|---|---|---|---|---|",
+                    "| Partly called | Confidence | Recessive gene |",
+                    "|---|---|---|---|---|---|---|---|",
                 ]
                 for g in section["genes"]:
                     status = (g["status"] or "").replace("_", " ")
                     out.append(
                         f"| {_md(g['gene'])} | {_md(g['inheritance'])} | "
                         f"{g['heterozygous']} | {g['homozygous']} | {g['hemizygous']} | "
+                        f"{g['partial']} | {_md(g['confidence'])} | "
                         + (
                             f"**{_md(status)}**: {_md(g['status_text'])}"
                             if status

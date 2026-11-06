@@ -81,7 +81,7 @@
               "description": "Each listed gene with P/LP calls, counted by zygosity.",
               "items": {
                 "type": "object",
-                "required": ["gene", "inheritance", "heterozygous", "homozygous", "hemizygous", "status", "status_text"],
+                "required": ["gene", "inheritance", "heterozygous", "homozygous", "hemizygous", "partial", "confidence", "status", "status_text"],
                 "additionalProperties": false,
                 "properties": {
                   "gene": {"type": "string"},
@@ -89,7 +89,9 @@
                   "heterozygous": {"type": "integer", "minimum": 0},
                   "homozygous": {"type": "integer", "minimum": 0},
                   "hemizygous": {"type": "integer", "minimum": 0, "description": "Haploid calls (one allele in the genotype)."},
-                  "status": {"enum": ["biallelic", "possible_biallelic", "carrier", null], "description": "For a gene the list reports only when biallelic (AR): biallelic (a homozygous or hemizygous call), possible_biallelic (two or more heterozygous calls; phase unknown) or carrier (one heterozygous call). Null for other genes."},
+                  "partial": {"type": "integer", "minimum": 0, "description": "Calls whose other allele was not called (1/.)."},
+                  "confidence": {"enum": ["high", "moderate", "low", "not_assessed"], "description": "The weakest confidence label of the gene's calls."},
+                  "status": {"enum": ["biallelic", "possible_biallelic", "carrier", null], "description": "For a gene the list reports only when biallelic (AR): biallelic (a homozygous call), possible_biallelic (two or more heterozygous calls with phase unknown, or a hemizygous or partly called genotype) or carrier (one heterozygous call). Null for other genes, and when the calls are incomplete (calls_truncated) unless biallelic."},
                   "status_text": {"type": "string", "description": "The status explained; empty when status is null."}
                 }
               }
