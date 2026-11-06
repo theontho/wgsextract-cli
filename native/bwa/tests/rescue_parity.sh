@@ -53,11 +53,12 @@ awk 'BEGIN {
         }
         if (p % 8 == 0) right = substr(right, 1, 30) "N" substr(right, 32)
         if (p % 13 == 0) right = substr(right, 1, 40) substr(right, 44)
-        revright = ""
+        revleft = revright = ""
+        for (i = length(left); i >= 1; --i) revleft = revleft complement[substr(left, i, 1)]
         for (i = length(right); i >= 1; --i) revright = revright complement[substr(right, i, 1)]
         orientation = p % 20
         if (orientation < 14) { one = left; two = revright }        # FR
-        else if (orientation < 17) { one = revright; two = left }   # RF
+        else if (orientation < 17) { one = revleft; two = right }   # RF (outward)
         else { one = left; two = right }                            # FF
         q1 = q2 = ""
         for (i = 1; i <= length(one); ++i) q1 = q1 "I"
@@ -90,6 +91,10 @@ run() {
     reference.fa pairs-R1.fq pairs-R2.fq > verify.sam 2> verify.log
 "$aligner" mem -t 4 reference.fa pairs-R1.fq pairs-R2.fq > cpu.sam 2> cpu.log
 same cpu.sam verify.sam
+# Rescue windows cover every orientation BWA infers from the pairs.
+for orientation in FF FR RF; do
+    grep -q "analyzing insert size distribution for orientation $orientation" cpu.log
+done
 cat verify.log | grep '^\[wgse-bwa\] rescue'
 test "$(metric verify.log rescue_batches)" -ge 3
 test "$(metric verify.log rescue_hits)" -gt 1000

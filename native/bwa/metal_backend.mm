@@ -385,7 +385,9 @@ private:
     void prepare(BatchBase &base, long first) override {
         auto &batch = static_cast<SeedBatch &>(base);
         locate(batch, first);
+        // Only the GPU needs the packed reads and their slots.
         batch.input = {};
+        std::vector<long>().swap(batch.slots);
     }
 
     void begin(long pair, BatchBase *batch) override {
