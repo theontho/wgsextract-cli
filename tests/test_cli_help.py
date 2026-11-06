@@ -75,6 +75,14 @@ def test_every_runnable_command_meets_the_help_contract(entries):
     assert set(COMMAND_HELP) - paths == set(), "help catalog has stale commands"
 
 
+def test_every_group_and_command_renders_its_help(root):
+    """#468: 'wgsextract panel --help' crashed on a bare % in a subcommand's
+    summary, which argparse %-formats in its parent's help."""
+    for entry in cli_help.walk_commands(root):
+        text = entry.parser.format_help()
+        assert "%%" not in text, entry.path
+
+
 def test_every_example_parses_to_its_own_command(entries):
     for entry in entries:
         assert entry.help is not None
