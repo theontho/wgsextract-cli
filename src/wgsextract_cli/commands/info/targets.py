@@ -239,7 +239,7 @@ def _depth_sums(
             cursor = end
         if cursor < length and chrom not in MITOCHONDRIA:
             regions.append((chrom, cursor, length, False))
-    bed.write_text("".join(f"{c}\t{s}\t{e}\n" for c, s, e, _ in regions))
+    bed.write_text("".join(f"{c}\t{s}\t{e}\n" for c, s, e, _ in regions), newline="\n")
     output = run_command(
         ["samtools", "bedcov", "-j", str(bed),
          *_cram_reference_opts(input_path, reference), input_path],
@@ -313,7 +313,9 @@ def run_target_coverage(
     )
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".by-") as scratch:
         union = Path(scratch, "targets.bed")
-        union.write_text("".join(f"{c}\t{s}\t{e}\n" for c, s, e in merged))
+        union.write_text(
+            "".join(f"{c}\t{s}\t{e}\n" for c, s, e in merged), newline="\n"
+        )
         _run_depth(input_path, reference, union, targets)
         logging.info("Summing on- and off-target depth (one pass over the file)...")
         on, off, off_bases = _depth_sums(
@@ -360,7 +362,7 @@ def run_target_coverage(
         f"Targets with mean depth below {min_depth}x: {len(low)} of {len(targets)}",
     ]
     summary_path = Path(outdir, f"{stem}_target_summary.txt")
-    summary_path.write_text("\n".join(summary) + "\n", encoding="utf-8")
+    summary_path.write_text("\n".join(summary) + "\n", encoding="utf-8", newline="\n")
 
     result = current_result()
     metrics: dict[str, Scalar] = {
