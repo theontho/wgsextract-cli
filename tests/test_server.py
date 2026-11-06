@@ -326,6 +326,27 @@ def test_a_vep_run_on_a_vcf_in_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_vep_folder_run_refuses_a_link_out_of_the_allowed_folders(tmp_path, work):
+    # Copilot review of #491: the guard checks the folder, not the files
+    # VEP finds in it.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    shutil.copy(FAKE_DIR / "fake.vcf.gz", outside / "secret.vcf.gz")
+    batch = work / "batch"
+    batch.mkdir()
+    shutil.copy(FAKE_DIR / "fake.vcf.gz", batch / "a.vcf.gz")
+    try:
+        (batch / "b.vcf.gz").symlink_to(outside / "secret.vcf.gz")
+    except OSError:
+        pytest.skip("symlinks are not available")
+    request = {"input": str(batch), "outdir": str(work)}
+    with _serve(tmp_path, [work]) as client:
+        status, job = client.request("POST", "/ops/vep/run?wait=120", request)
+    assert (status, job["status"], job["exit_code"]) == (200, "failed", 1), job
+    assert "b.vcf.gz leads outside" in job["error"]["message"]
+    assert not list(work.glob("*_vep*"))
+
+
 def test_a_server_request_cannot_pass_raw_vep_arguments():
     # #478: --vep-args can name files VEP reads or writes (--custom, -o),
     # which the path guard can't see.

@@ -11,6 +11,7 @@ from typing import Any
 
 from wgsextract_cli.api._runtime import checkpoint
 from wgsextract_cli.api.vep import VepRunParams
+from wgsextract_cli.core import read_scope
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -93,6 +94,13 @@ def _vep_input_files(input_path: str) -> list[str]:
     )
     if not input_files:
         raise WGSExtractError(f"No valid genomic files found in {input_path}")
+    # A server job may read only its allowed folders, and a link in the
+    # folder can lead elsewhere.
+    for path in input_files:
+        if not read_scope.may_follow(path):
+            raise WGSExtractError(
+                f"{path} leads outside the folders this run may read."
+            )
     stems: dict[str, str] = {}
     for path in input_files:
         if (other := stems.setdefault(_input_stem(path), path)) != path:

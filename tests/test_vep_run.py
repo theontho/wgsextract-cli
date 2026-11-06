@@ -495,6 +495,26 @@ def test_api_expands_home_in_every_path(tmp_path, fake_vep, monkeypatch):
     assert not (tmp_path / "~").exists()
 
 
+def test_api_reads_a_home_relative_bam(tmp_path, fake_vep, monkeypatch):
+    """Copilot review of #491: the BAM/CRAM preflight saw the literal `~`
+    and refused an input that exists."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    _bam_with_snps(tmp_path)
+
+    api.vep.run(
+        VepRunParams(
+            input=Path("~/s.bam"),
+            ref=Path("~/ref.fa"),
+            region="chr1:250-350",
+            vep_cache=Path("~"),
+        )
+    )
+
+    calls = vcf_calls(tmp_path / "s_vep.vcf.gz")
+    assert [(c[0], c[1]) for c in calls] == [("chr1", "301")]
+
+
 # --- assembly and FASTA choice ---------------------------------------------------
 
 
