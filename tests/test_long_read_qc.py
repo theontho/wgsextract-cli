@@ -120,3 +120,76 @@ def test_short_reads_get_no_long_read_qc(genome, tmp_path):
     result = _info(sam_to_bam(header + records, tmp_path / "sr.bam"), genome, tmp_path)
     assert "read_n50" not in result.metrics
     assert "mapped_read_pct" not in result.metrics
+
+
+@needs_htslib
+def test_qc_failed_reads_count_in_the_n50(genome, tmp_path):
+    """Review of #461: a library of mostly short QC-failed reads got the
+    passing reads' healthy N50, called exact."""
+    rng = random.Random(2)
+    records = [
+        f"{name}{i}\t{flag}\t*\t0\t0\t*\t*\t0\t0\t"
+        f"{''.join(rng.choices('ACGT', k=n))}\t{QUAL * n}\tRG:Z:ont"
+        for name, flag, n, count in (("ok", 4, 4_000, 10), ("qcf", 4 | 512, 1_000, 100))
+        for i in range(count)
+    ]
+    header = ["@HD\tVN:1.6", f"@SQ\tSN:chr1\tLN:{LENGTH}",
+              "@RG\tID:ont\tSM:HG002\tPL:ONT"]  # fmt: skip
+    bam = sam_to_bam(header + records, tmp_path / "qcfail.bam")
+    result = _info(bam, genome, tmp_path, False)
+    assert result.metrics["read_n50"] == 1_000
+    assert _codes(result)["short_read_n50"]["exact"] is True
+
+
+@needs_htslib
+def test_a_short_ont_library_still_gets_long_read_qc(genome, tmp_path):
+    """Review of #461: PL:ONT reads averaging 300 bp fell under the 410 bp
+    long-read cut-off, so a failed library got no N50 or warning."""
+    bam = _ont_bam(tmp_path / "tiny.bam", genome, read_bp=300, aligned=False)
+    result = _info(bam, genome, tmp_path, False)
+    assert result.metrics["read_n50"] == 300
+    assert "short_read_n50" in _codes(result)
+
+
+@needs_htslib
+def test_sampled_primary_share_counts_records_spanning_several_windows(tmp_path):
+    """Review of #461: a primary record that starts in one window and runs
+    over the next window's first base was dropped, so long primaries were
+    undercounted. Here each read is a 15 kb primary record and a 1 kb
+    supplementary one, and a 300 kb contig is sampled by adjacent windows."""
+    from wgsextract_cli.commands.info.metrics import parse_idxstats
+    from wgsextract_cli.commands.info.render import sampled_primary_share
+
+    records = [
+        f"r{i}\t{flag}\tchr1\t{250 + i * 1_000 + offset}\t60\t{cigar}\t*\t0\t0\t*\t*"
+        for i in range(280)
+        for flag, offset, cigar in ((0, 0, "15000M"), (2048, 500, "1000M14000H"))
+    ]
+    header = ["@HD\tVN:1.6\tSO:coordinate", f"@SQ\tSN:chr1\tLN:{LENGTH}"]
+    bam = str(sam_to_bam(header + records, tmp_path / "span.bam"))
+    sampled = sampled_primary_share(bam, None, parse_idxstats(bam)[0], str(tmp_path))
+    assert sampled is not None
+    assert sampled[0] == pytest.approx(0.5, abs=0.02)
+
+
+@needs_htslib
+def test_sampled_primary_share_does_not_overweight_chrm(tmp_path):
+    """Review of #461: chrM's one window samples most of it, a chromosome's a
+    few percent, yet their read starts were pooled unweighted. Here chr1's
+    reads are each a primary and a supplementary record, chrM's 190 reads
+    one primary each: 470 of 750 records (63%) are primary, though chrM
+    holds most of the sampled starts."""
+    from wgsextract_cli.commands.info.metrics import parse_idxstats
+    from wgsextract_cli.commands.info.render import sampled_primary_share
+
+    records = [
+        f"r{i}\t{flag}\tchr1\t{250 + i * 1_000 + offset}\t60\t{cigar}\t*\t0\t0\t*\t*"
+        for i in range(280)
+        for flag, offset, cigar in ((0, 0, "15000M"), (2048, 500, "1000M14000H"))
+    ] + [f"m{i}\t0\tchrM\t{7 + i * 80}\t60\t500M\t*\t0\t0\t*\t*" for i in range(190)]
+    header = ["@HD\tVN:1.6\tSO:coordinate", f"@SQ\tSN:chr1\tLN:{LENGTH}",
+              "@SQ\tSN:chrM\tLN:16569"]  # fmt: skip
+    bam = str(sam_to_bam(header + records, tmp_path / "chrm.bam"))
+    sampled = sampled_primary_share(bam, None, parse_idxstats(bam)[0], str(tmp_path))
+    assert sampled is not None
+    assert sampled[0] == pytest.approx(470 / 750, abs=0.03)

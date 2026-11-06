@@ -43,8 +43,19 @@ def contig_key(name: str) -> str:
 
 # Reads longer than this on average are long reads (ONT, PacBio).
 LONG_READ_MIN_LEN = 410
+LONG_READ_PLATFORMS = frozenset({"ont", "pacbio"})
 DEPTH_COUNTED = "mapped reads x mean read length / effective genome length"
 DEPTH_SAMPLED = "depth of sampled 1 kb windows / effective genome length"
+
+
+def is_long_read_library(avg_len: float, header: str, qname: str | None) -> bool:
+    """Whether long-read QC applies: by the read groups' platform or read
+    names when known, so a failed ONT library of short reads still gets it,
+    else by the mean read length."""
+    platform = platform_from_metadata(header, qname)
+    if platform:
+        return platform in LONG_READ_PLATFORMS
+    return avg_len > LONG_READ_MIN_LEN
 
 
 def is_primary_contig(name: str) -> bool:
@@ -98,7 +109,7 @@ class BodySample(NamedTuple):
     std_tlen: float
     is_paired: bool
     first_qname: str | None
-    # Lengths of the sampled primary reads.
+    # Lengths of the sampled primary reads, QC-failed ones included.
     lengths: tuple[int, ...] = ()
     # The sample reached the end of the file, so it holds every read.
     complete: bool = False
@@ -115,6 +126,7 @@ def run_body_sample(filepath: str, cram_opt: Sequence[str]) -> BodySample:
     total_len = count = paired_count = 0
     tlen_values = []
     len_values = []
+    primary_lengths = []
     first_qname = None
     complete = False
 
@@ -144,6 +156,11 @@ def run_body_sample(filepath: str, cram_opt: Sequence[str]) -> BodySample:
             tlen = int(fields[8])
             seq = fields[9]
 
+            seq_len = len(seq)
+            if not flag & 0x900 and seq_len > 1:
+                # A library's N50 counts every read, the failed ones too.
+                primary_lengths.append(seq_len)
+
             # Skip supplementary, secondary, or fail-QC reads (0xB00)
             if flag & 0xB00:
                 continue
@@ -151,7 +168,6 @@ def run_body_sample(filepath: str, cram_opt: Sequence[str]) -> BodySample:
             if flag & 1:
                 paired_count += 1
 
-            seq_len = len(seq)
             if seq_len > 1:
                 total_len += seq_len
                 len_values.append(seq_len)
@@ -195,7 +211,7 @@ def run_body_sample(filepath: str, cram_opt: Sequence[str]) -> BodySample:
         std_tlen,
         is_paired,
         first_qname,
-        tuple(len_values),
+        tuple(primary_lengths),
         complete,
     )
 

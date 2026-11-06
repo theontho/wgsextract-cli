@@ -123,7 +123,7 @@ ALIGNMENT_COLUMNS = [
     Column(
         "reads_mapped_pct",
         "% Mapped",
-        "Mapped reads as a percentage of all reads",
+        "Mapped records as a percentage of all records (a split long read counts once per record)",
         format="{:,.1f}",
         scale="RdYlGn",
         general=True,
@@ -146,6 +146,7 @@ ALIGNMENT_COLUMNS = [
         "Long reads mapped, counting each read once rather than each record",
         format="{:,.1f}",
         scale="RdYlGn",
+        general=True,
         suffix="%",
         min=0.0,
         max=100.0,

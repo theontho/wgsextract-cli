@@ -316,7 +316,8 @@ def test_body_sample_skips_secondary_supplementary_and_qc_fail(tmp_path):
     sample = metrics.run_body_sample(bam, [])
     assert sample[:7] == (3, 80.0, sample.std_len, 300.0, 0, True, "a")
     assert sample.std_len == pytest.approx((800 / 3) ** 0.5)
-    assert sorted(sample.lengths) == [60, 80, 100]
+    # The N50's lengths count the QC-failed primary read too (#338).
+    assert sorted(sample.lengths) == [60, 80, 100, 100]
 
 
 def test_body_sample_of_unreadable_file_returns_nothing(tmp_path):

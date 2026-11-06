@@ -64,6 +64,7 @@ from .metrics import (
     generate_chrom_table,
     get_file_stats,
     infer_sex_call,
+    is_long_read_library,
     load_n_counts,
     long_read_lengths,
     long_read_mapped_pct,
@@ -72,6 +73,8 @@ from .metrics import (
     run_body_sample,
 )
 from .render import (
+    MAPPING_UNAVAILABLE,
+    exact_mapped_read_pct,
     region_file_tag,
     render_info,
     run_full_coverage,
@@ -173,7 +176,11 @@ QC_TABLE = tuple(
         ("gbases_raw", "REAL", "Gigabases of all reads."),
         ("reads_mapped_m", "REAL", "Mapped reads, in millions."),
         ("reads_raw_m", "REAL", "All reads, in millions."),
-        ("reads_mapped_pct", "REAL", "Mapped reads as a percentage of all reads."),
+        (
+            "reads_mapped_pct",
+            "REAL",
+            "Mapped records as a percentage of all records; a split long read counts once per record (see mapped_read_pct).",
+        ),
         ("read_n50", "REAL", "Long reads' N50 in bp (from the sampled reads)."),
         (
             "mapped_read_pct",
@@ -406,6 +413,12 @@ def _record_long_read_qc(lengths: dict[str, Any] | None) -> None:
             mapped_read_pct=mapped,
             threshold=MIN_LONG_READ_MAPPED_PCT,
         )
+    if lengths.get("mapped_read_method") == MAPPING_UNAVAILABLE:
+        warn(
+            "mapped_read_fraction_unavailable",
+            "The mapped reads could not be estimated: no read starts in the "
+            "sampled windows. samtools flagstat counts them exactly.",
+        )
 
 
 def _guess_ref_model(
@@ -466,7 +479,7 @@ def _fast_metrics(
         "avg_insert_size": sample.avg_tlen,
         "std_insert_size": sample.std_tlen,
         "read_lengths": long_read_lengths(sample)
-        if avg_len > LONG_READ_MIN_LEN
+        if is_long_read_library(avg_len, header, first_qname)
         else None,
         "sequencer": determine_sequencer(first_qname, header),
         "first_qname": first_qname,
@@ -625,25 +638,37 @@ def _warn_depth_needs_index(input_file: str) -> None:
 InfoLikeParams = InfoParams | CalculateCoverageParams | CoverageSampleParams
 
 
+# Up to this many records, the mapped percentage is counted exactly: a
+# whole-file flagstat that takes seconds and needs no sampled read starts.
+EXACT_MAPPING_MAX_RECORDS = 200_000
+
+
 def _mapped_reads(
     input_file: str,
     ref: str | None,
     idx_stats: Sequence[IdxStat],
     temp_parent: str,
-) -> dict[str, Any]:
-    """Long reads' mapped percentage, from idxstats and the primary share of
-    records sampled through the index (#338)."""
+) -> dict[str, Any] | None:
+    """Long reads' mapped percentage (#338): counted when the file is small,
+    else from idxstats and the primary share of records sampled through the
+    index. None when it failed, so the next run tries again."""
+    records = sum(s["mapped"] + s["unmapped"] for s in idx_stats)
     try:
+        if records <= EXACT_MAPPING_MAX_RECORDS:
+            return {
+                "mapped_read_pct": exact_mapped_read_pct(input_file, ref, temp_parent),
+                "mapped_read_method": f"exact, from all {records:,} records",
+            }
         sampled = sampled_primary_share(input_file, ref, idx_stats, temp_parent)
     except (OSError, WGSExtractError) as e:
-        logging.warning(f"Could not sample the mapped reads of {input_file}: {e}")
-        return {}
+        logging.warning(f"Could not measure the mapped reads of {input_file}: {e}")
+        return None
     if sampled is None:
-        return {}
-    share, records = sampled
+        return {"mapped_read_pct": None, "mapped_read_method": MAPPING_UNAVAILABLE}
+    share, starts = sampled
     return {
         "mapped_read_pct": long_read_mapped_pct(idx_stats, share),
-        "mapped_read_method": f"estimate from {records:,} sampled records",
+        "mapped_read_method": f"estimate from {starts:,} sampled records",
     }
 
 
@@ -750,7 +775,11 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         )
         data = {}
     # Long reads' length QC is part of the fast metrics since #338.
-    if data.get("avg_read_len", 0) > LONG_READ_MIN_LEN and not data.get("read_lengths"):
+    if (
+        data.get("avg_read_len")
+        and is_long_read_library(data["avg_read_len"], header, data.get("first_qname"))
+        and not data.get("read_lengths")
+    ):
         logging.debug(f"Ignoring cache {json_cache}: it has no read-length QC")
         data = {}
     # Likewise the sequencer, from the cached first read name and the header.
@@ -776,7 +805,8 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         # Likewise a table from before long reads' depth was measured.
         # Long reads' depth that couldn't be sampled for want of an index is
         # redone only once the index exists: without one, idxstats reads the
-        # whole file again for the same answer.
+        # whole file again for the same answer. A mapped percentage that failed
+        # to be measured is retried.
         if (
             detailed
             and data.get("chrom_table_csv")
@@ -787,6 +817,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
                     and alignment_index(input_file) is None
                 )
             )
+            and not data.get("mapping_failed")
             and data.get("sex_inference_version") == SEX_INFERENCE_VERSION
         ):
             logging.debug("Cache hit for detailed metrics.")
@@ -818,6 +849,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     )
     mapped_bases = None
     long_reads = data.get("avg_read_len", 0) > LONG_READ_MIN_LEN
+    temp_parent = configured_temp_directory() or outdir
     # Sampling fetches windows through the index. Unaligned reads need none:
     # no contig has any, so their depth is measured as zero.
     data["depth_needs_index"] = (
@@ -828,7 +860,6 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     if data["depth_needs_index"]:
         _warn_depth_needs_index(input_file)
     elif long_reads:
-        temp_parent = configured_temp_directory() or outdir
         try:
             mapped_bases = sampled_mapped_bases(
                 input_file, resolved_ref, idx_stats, temp_parent
@@ -838,10 +869,18 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
                 f"Could not sample the depth of {Path(input_file).name}, so long "
                 f"reads' depth is estimated from their records and overstated: {e}"
             )
-        if data.get("read_lengths") and mapped_bases:
-            data["read_lengths"].update(
-                _mapped_reads(input_file, resolved_ref, idx_stats, temp_parent)
-            )
+    # Unaligned or unindexed reads have no mapped percentage to measure.
+    data.pop("mapping_failed", None)
+    if (
+        data.get("read_lengths")
+        and any(s["mapped"] for s in idx_stats)
+        and alignment_index(input_file) is not None
+    ):
+        mapping = _mapped_reads(input_file, resolved_ref, idx_stats, temp_parent)
+        if mapping is None:
+            data["mapping_failed"] = True
+        else:
+            data["read_lengths"].update(mapping)
     data.update(
         _detailed_metrics(
             data,
