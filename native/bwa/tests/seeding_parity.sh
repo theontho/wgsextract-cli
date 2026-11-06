@@ -138,10 +138,12 @@ same cpu-c50.sam metal-capped.sam
 grep -Eq 'unlocated_reads=[1-9][0-9]* located_rows=[1-9][0-9]* locate_misses=0( |$)' metal-capped.log
 
 # Denser suffix-array samples, built after some chunks, serve the GPU's located
-# rows and the capped reads' upstream bwt_sa() lookups alike.
+# rows and the capped reads' upstream bwt_sa() lookups alike. Small build
+# dispatches (19 and 277 here) check entries past the first dispatch.
 for shift in 1 4; do
     "$aligner" --gpu-policy all --gpu-batch 300 --gpu-locate-rows 1000 \
-        --gpu-locate-dense "$shift" --gpu-locate-dense-after 500 --metal mem -t 2 -c 50 \
+        --gpu-locate-dense "$shift" --gpu-locate-dense-after 500 --gpu-locate-dense-slice 1056 \
+        --metal mem -t 2 -c 50 \
         -K 20000 reference.fa reads.fq > "metal-dense$shift.sam" 2> "metal-dense$shift.log"
     same cpu-c50.sam "metal-dense$shift.sam"
     grep -q "locate_dense shift=$shift built=1 " "metal-dense$shift.log"

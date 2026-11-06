@@ -96,6 +96,16 @@ int run(int argc, char **argv) {
             }
             wgse_set_gpu_locate_dense_after(static_cast<size_t>(reads));
             command_index += 2;
+        } else if (strcmp(option, "--gpu-locate-dense-slice") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long long entries = strtoll(value, &end, 10);
+            if (end == value || *end || entries <= 0 || entries % 32 || entries > (1LL << 30)) {
+                fprintf(stderr, "--gpu-locate-dense-slice requires a positive multiple of 32\n");
+                return 2;
+            }
+            wgse_set_gpu_locate_dense_slice(static_cast<size_t>(entries));
+            command_index += 2;
         } else if (strcmp(option, "--gpu-policy") == 0) {
             const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
             if (strcmp(value, "all") && strcmp(value, "hybrid")) {

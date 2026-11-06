@@ -88,6 +88,8 @@ void wgse_inject_gpu_interruptions(size_t every);
 void wgse_set_gpu_locate(bool enable);
 void wgse_set_gpu_locate_dense(unsigned shift);
 void wgse_set_gpu_locate_dense_after(size_t reads);
+// Dense samples built per GPU dispatch (a multiple of 32).
+void wgse_set_gpu_locate_dense_slice(size_t entries);
 // Rows one GPU batch may locate; reads beyond it use upstream bwt_sa().
 void wgse_set_gpu_locate_rows(size_t rows);
 void wgse_set_gpu_rescue(bool enable);

@@ -111,7 +111,9 @@ What runs on the GPU:
   mate rescue and seed extension are faster, and the pairing step of one chunk
   runs while the next chunk is mapped (the GPU is the bottleneck when pairing
   and the CPU threads when mapping), so up to three chunks of reads are in
-  memory at once. Seeding and locate also count bases in the index's
+  memory at once. While two chunks overlap, mapping and pairing each run `-t`
+  threads, so up to twice `-t` alignment threads (plus a few GPU helper
+  threads) can be runnable; lower `-t` to leave cores for other work. Seeding and locate also count bases in the index's
   occurrence blocks with fewer GPU instructions, and once a run has mapped 20M
   reads (on Macs with at least 16 GiB of memory) the GPU derives a suffix-array
   sample for every 16th row from the index's every-32nd-row samples, which

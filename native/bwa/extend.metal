@@ -41,7 +41,7 @@ ExtendCall extend(bool run, int segment, int lane, const device uchar *query, in
     int best = h0, best_i = -1, best_j = -1, gscore = -1, gend = -1, max_off = 0;
     int beg = 0, end = qlen;
     const int oe_del = p.o_del + p.e_del;
-    const short oe_del16 = short(oe_del), e_del = short(p.e_del), e_ins = short(p.e_ins), o_ins = short(p.o_ins);
+    const short e_del = short(p.e_del), e_ins = short(p.e_ins), o_ins = short(p.o_ins);
     bool live = run;
     for (int i = 0;; ++i) {
         live = live && i < tlen;
@@ -97,7 +97,7 @@ ExtendCall extend(bool run, int segment, int lane, const device uchar *query, in
                 if (!on || j < beg || j > end) continue;
                 // eh[j] = { H(i,j-1), E(i+1,j) }; eh[end] = { H(i,end-1), 0 }.
                 const short before = j == beg ? h1_init : k == 0 ? preceding : value[k - 1];
-                const short next_e = j == end ? short(0) : max(short(E[t][k] - e_del), max(short(0), short(match[k] - oe_del16)));
+                const short next_e = j == end ? short(0) : max(short(E[t][k] - e_del), short(max(0, int(match[k]) - oe_del)));
                 H[t][k] = before;
                 E[t][k] = next_e;
                 if (j < end) {

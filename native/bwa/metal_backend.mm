@@ -48,6 +48,8 @@ size_t locate_rows_per_batch = locate_rows_per_dispatch;
 // 16 GiB unless a test option sets the shift.
 uint32_t locate_dense_shift = 4;
 size_t locate_dense_after = 20000000;
+// Short dispatches keep each command buffer well inside the GPU watchdog.
+size_t locate_dense_slice = size_t(1) << 21;
 bool locate_dense_forced = false;
 constexpr uint64_t locate_dense_min_memory = uint64_t(16) << 30;
 // Whether the build was attempted, and whether it succeeded.
@@ -185,7 +187,7 @@ void attach(const bwt_t *bwt, const mem_opt_t *opt, size_t reads_before) {
             || memory < locate_dense_min_memory) return;
     }
     auto start = Clock::now();
-    if (locator->densify(gpu->index, locate_dense_shift, threadgroup_size)) {
+    if (locator->densify(gpu->index, locate_dense_shift, locate_dense_slice, threadgroup_size)) {
         dense_low = static_cast<const uint32_t *>(locator->low.contents);
         dense_high = static_cast<const uint32_t *>(locator->high.contents);
         dense_built = true;
@@ -449,10 +451,12 @@ private:
         {
             std::unique_lock<std::mutex> lock(mutex_);
             // Pairs of outstanding batches are taken before any steal, so
-            // their workers finish them and wake this loop.
+            // their workers finish them and wake this loop. Batches being
+            // packed or prepared count toward the bound.
             drained_.wait(lock, [this] {
                 return gpu_stopping_ || next_ >= back_
-                    || (outstanding_ < max_outstanding_batches && unpublished_ < (overlap_ ? 2 : 1));
+                    || (outstanding_ + unpublished_ < max_outstanding_batches
+                        && unpublished_ < (overlap_ ? 2 : 1));
             });
             if (gpu_stopping_ || next_ >= back_) return false;
             first = next_;
@@ -1525,6 +1529,10 @@ void wgse_set_gpu_locate_dense(unsigned shift) {
 
 void wgse_set_gpu_locate_dense_after(size_t reads) {
     locate_dense_after = reads;
+}
+
+void wgse_set_gpu_locate_dense_slice(size_t entries) {
+    locate_dense_slice = entries;
 }
 
 void wgse_set_gpu_locate(bool enable) {

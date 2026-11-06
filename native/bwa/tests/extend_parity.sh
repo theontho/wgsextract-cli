@@ -114,6 +114,9 @@ run scores -t 4 -A 2 -B 5 -O 7,9 -E 2,1 -L 3,8 -d 60
 # 16-bit F scan, so they stay on upstream ksw_extend2.
 run wide -t 4 -A 100 -B 50 -E 50
 test "$(metric metal-wide.log extend_skipped)" -gt 100
+# Large mismatch and deletion penalties: a cell's deletion score must clamp to 0
+# rather than wrap around 16 bits.
+run deletion -t 4 -B 100 -O 32700,6 -E 1
 # Single-end reads.
 "$aligner" mem -t 4 reference.fa pairs-R1.fq > cpu-single.sam 2> cpu-single.log
 "$aligner" --gpu-extend-verify --metal mem -t 4 reference.fa pairs-R1.fq \

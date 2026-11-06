@@ -284,9 +284,11 @@ public:
     // Samples every (1 << shift)th row the index does not, so LF walks are
     // shorter; positions are unchanged. Returns false (and keeps the index's
     // sampling) if unsupported or out of memory; throws if the GPU fails.
-    bool densify(id<MTLBuffer> index, uint32_t shift, size_t group) {
+    // Each dispatch builds `slice` entries, a multiple of 32.
+    bool densify(id<MTLBuffer> index, uint32_t shift, uint64_t slice, size_t group) {
         auto &p = *static_cast<LocateParameters *>(parameters.contents);
-        if (shift == 0 || (uint64_t(1) << shift) >= p.sa_intv || p.seq_len >> 33) return false;
+        if (shift == 0 || (uint64_t(1) << shift) >= p.sa_intv || p.seq_len >> 33 || slice == 0
+            || slice % 32) return false;
         id<MTLComputePipelineState> build = runtime.compile(wgse_seeding_source,
             "locate_dense_build");
         id<MTLComputePipelineState> dense = runtime.compile(wgse_seeding_source,
@@ -300,9 +302,6 @@ public:
         if (!lo || !hi) return false;
         p.dense_shift = shift;
         p.dense_entries = entries;
-        // Short dispatches keep each command buffer well inside the GPU watchdog.
-        constexpr uint64_t slice = uint64_t(1) << 21;
-        static_assert(slice % 32 == 0);
         for (uint64_t first = 0; first < entries; first += slice) {
             @autoreleasepool {
                 p.dense_offset = static_cast<uint32_t>(first);
