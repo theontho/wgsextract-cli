@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from wgsextract_cli.core.download_progress import redact_urls
 from wgsextract_cli.core.file_lock import build_lock
@@ -70,7 +70,7 @@ class FileRef:
 
     @property
     def remote(self) -> bool:
-        return self.location.startswith(("https://", "http://"))
+        return urlsplit(self.location).scheme in ("https", "http")
 
 
 @dataclass(frozen=True)
@@ -176,8 +176,10 @@ def _file_ref(section: str, value: Any) -> FileRef:
         raise WGSExtractError(_where(section, "sha256 must be 64 hex digits."))
     if "url" in value:
         url = value["url"]
-        if not isinstance(url, str) or urlparse(url).scheme not in ("https", "http"):
+        if not isinstance(url, str) or urlsplit(url).scheme not in ("https", "http"):
             raise WGSExtractError(_where(section, "url must be an http(s) URL."))
+        # urlsplit lowercases the scheme; "HTTPS://" must stay a URL everywhere.
+        url = urlunsplit(urlsplit(url))
         if sha256 is None:
             raise WGSExtractError(
                 _where(
@@ -263,7 +265,7 @@ def cache_name(url: str, sha256: str) -> str:
     """The URL's last path segment if it is a plain file name, else one made
     from the sha256: a name such as ``C:x`` or ``x.json:s`` would escape the
     cache folder or name an alternate data stream on Windows."""
-    name = PurePosixPath(unquote(urlparse(url).path)).name
+    name = PurePosixPath(unquote(urlsplit(url).path)).name
     if SAFE_NAME.fullmatch(name) and name not in (".", ".."):
         return name
     return f"{sha256[:16]}.dat"

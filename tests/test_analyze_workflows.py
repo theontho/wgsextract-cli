@@ -378,6 +378,27 @@ def test_custom_y_tree_resume_keys_on_pins_and_local_files_not_url_tokens(
     assert not [text for text in seen if "SECRET" in text]
 
 
+def test_custom_y_tree_url_with_uppercase_scheme_stays_remote_and_redacted(
+    fake: FakeSteps, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Issue #360 review: "HTTPS://u:pw@..." passed as a URL but was then
+    # treated as a local path, so its credentials reached the journal.
+    markers = tmp_path / "markers.txt"
+    markers.write_text("chrY\tM-X\tX\t100\tA>G\tA\tG\n")
+    fake.settings["y_tree"] = "mine"
+    fake.tables = (
+        "\n[y_trees.mine]\nversion = '1'\n"
+        f"tree = {{url = 'HTTPS://user:SECRET@example.org/t.json', "
+        f"sha256 = '{'a' * 64}'}}\n"
+        f"positions.hg38 = '{markers.as_posix()}'\n"
+    )
+    out = tmp_path / "o"
+    run = fake.run("--input", bam, "--outdir", str(out), "--skip-calling")
+    assert "y-haplogroup" in run.ran
+    seen = [json.dumps(run.document), (out / wf.JOURNAL).read_text()]
+    assert not [text for text in [*seen, *capsys.readouterr()] if "SECRET" in text]
+
+
 @needs_bcftools
 def test_vcf_inputs_replace_calling_and_get_annotations_for_their_type(
     fake: FakeSteps, bam: str, tmp_path: Path
