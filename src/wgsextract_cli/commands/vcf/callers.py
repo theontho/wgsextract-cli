@@ -18,6 +18,7 @@ from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import java_local_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths, reference_dict_path
+from wgsextract_cli.core.region_selection import region_items
 from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
@@ -57,7 +58,7 @@ def _prepare_gatk_input(
     logging.info(f"Preparing regional BAM for GATK from CRAM input ({region})...")
     try:
         samtools = get_tool_path("samtools")
-        regions = [part.strip() for part in region.split(",") if part.strip()]
+        regions = region_items(region, commas=True)
         run_command(
             [
                 samtools,
@@ -68,6 +69,7 @@ def _prepare_gatk_input(
                 ref,
                 "-o",
                 temp_bam,
+                "--",  # a region can't be read as another option
                 input_file,
                 *regions,
             ],
@@ -85,10 +87,14 @@ def _gatk_region_args(region: str | None, outdir: str) -> tuple[list[str], str |
     as a file path and fails on the ':'; a .intervals file reads the same everywhere."""
     if not region:
         return [], None
-    intervals = str(Path(outdir, "gatk_region.intervals"))
+    # A new file, never one a link at a fixed name points to.
+    fd, intervals = tempfile.mkstemp(
+        dir=outdir, prefix=".gatk_region_", suffix=".intervals"
+    )
     # One interval per line: a comma-separated --region is several.
-    lines = "".join(f"{r.strip()}\n" for r in region.split(",") if r.strip())
-    Path(intervals).write_text(lines, encoding="utf-8", newline="\n")
+    lines = "".join(f"{r}\n" for r in region_items(region, commas=True))
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        f.write(lines)
     return ["-L", java_local_path(intervals)], intervals
 
 
@@ -159,9 +165,9 @@ def run_freebayes(params: VcfFreebayesParams) -> None:
             # Decode CRAM with samtools and stream uncompressed BAM to freebayes.
             # It can't seek in a stream, so its calls are cut to the region
             # afterwards: the streamed reads overlap the region's edges.
-            view_cmd = ["samtools", "view", "-u", "-h", "-T", use_ref, input_file]
+            view_cmd = ["samtools", "view", "-u", "-h", "-T", use_ref, "--", input_file]
             if region:
-                view_cmd += [r.strip() for r in region.split(",") if r.strip()]
+                view_cmd += region_items(region, commas=True)
             stages = [view_cmd, ["freebayes", "-f", use_ref, "--stdin"]]
             keep = ["-T", bed] if bed else []
         else:

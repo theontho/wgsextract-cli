@@ -47,7 +47,10 @@ you start yourself:
   setting, and the `genome_library`, `reference_library` and
   `output_directory` settings. Of the settings, only the folders that exist
   are allowed; a missing `--allow` folder stops the server. A symlink inside
-  an allowed folder that points outside it is refused.
+  an allowed folder that points outside it is refused. That holds for the
+  paths a request names; the files a command finds inside a named folder (a
+  reference library's genomes, a model folder's weights, a checkpoint's
+  files) aren't checked one by one.
   The guard limits what a client can name. It is not a sandbox against other
   programs running as you, which can change the allowed folders (for example
   retarget a symlink) whatever the server does.

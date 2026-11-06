@@ -215,6 +215,35 @@ def test_gatk_reads_a_whole_cram_without_converting_it(genome, gatk, tmp_path, c
     assert [run[run.index("-I") + 1] for run in gatk.runs()] == [genome.cram]
 
 
+def test_gatk_region_cant_be_read_as_a_samtools_option(genome, gatk, tmp_path, capsys):
+    # Review of PR #454: a region "-o<file>" made the CRAM cut write <file>.
+    gatk.set(reads_cram=False)
+    ref = _reference_copy(genome, tmp_path / "ref")
+    written = tmp_path / "written.sam"
+    result, _ = _gatk(capsys, genome, genome.cram, ref, tmp_path / "out", None,
+                      f"--region=-o{written}")  # fmt: skip
+    assert result["status"] == "failed"
+    assert not written.exists()
+
+
+def test_gatk_intervals_dont_follow_a_link_in_the_outdir(
+    genome, gatk, tmp_path, capsys
+):
+    # Review of PR #454: the intervals were written to a fixed name in the
+    # outdir, through any link already there.
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    target = tmp_path / "target.txt"
+    target.write_text("keep")
+    (outdir / "gatk_region.intervals").symlink_to(target)
+    ref = _reference_copy(genome, tmp_path / "ref")
+    result, _ = _gatk(capsys, genome, genome.bam, ref, outdir, tmp_path / "scratch",
+                      "-r", f"chr1:{SNP - 100}-{SNP + 100}")  # fmt: skip
+    assert result["status"] == "ok", result["error"]
+    assert vcf_calls(outdir / "gatk.vcf.gz") == [genome.call]
+    assert target.read_text() == "keep"
+
+
 @pytest.mark.parametrize("stage", ["gatk", "conversion"])
 def test_gatk_failure_on_a_cram_hints_at_cram_versions_and_cleans_up(
     genome, gatk, tmp_path, capsys, stage

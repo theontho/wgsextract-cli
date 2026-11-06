@@ -35,7 +35,11 @@ from wgsextract_cli.core.native_support import is_linux_arm64, require_native_to
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths
-from wgsextract_cli.core.region_selection import Intervals, selected_intervals
+from wgsextract_cli.core.region_selection import (
+    Intervals,
+    region_items,
+    selected_intervals,
+)
 from wgsextract_cli.core.resource_estimates import (
     GIB,
     PostprocessPlan,
@@ -249,7 +253,10 @@ def _selected_intervals(region: str, lengths: dict[str, int]) -> Intervals:
 
 def _container_regions(region: str) -> str:
     """``region`` with its BED files at the paths mounted in the container."""
-    return " ".join(host_path(p) if Path(p).is_file() else p for p in region.split())
+    return " ".join(
+        host_path(p) if Path(p).is_file() else p
+        for p in region_items(region, commas=False)
+    )
 
 
 def _transcode_regions(
@@ -585,7 +592,9 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
     work = absolute_path(Path(outdir, WORK_DIRECTORY))
     staged_reads = _needs_staging(input_file)
     reads = str(work / "reads" / "reads.cram") if staged_reads else input_file
-    region_files = [p for p in (region or "").split() if Path(p).is_file()]
+    region_files = [
+        p for p in region_items(region or "", commas=False) if Path(p).is_file()
+    ]
     launcher = _Launcher(
         local_dv,
         arm64_image or image,

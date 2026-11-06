@@ -157,6 +157,19 @@ def _min_score_param(label: str, example: str) -> Any:
     )
 
 
+def _comma_items(params: Any, text: str) -> list[str]:
+    from wgsextract_cli.core.region_selection import region_items
+
+    return region_items(text, commas=True)
+
+
+def _deepvariant_items(params: Any, text: str) -> list[str]:
+    """Parabricks (``gpu``) splits on commas, DeepVariant on whitespace."""
+    from wgsextract_cli.core.region_selection import region_items
+
+    return region_items(text, commas=params.gpu)
+
+
 def _confidence_param(help: str, what: str) -> Any:
     from wgsextract_cli.core.variant_confidence import _non_negative
 
@@ -164,6 +177,7 @@ def _confidence_param(help: str, what: str) -> Any:
         None,
         help=help,
         cli_type=_non_negative,
+        minimum=0,
         metavar=("LOW", "HIGH"),
         doc=f"(LOW, HIGH): {what} below LOW labels a call low confidence, below "
         "HIGH moderate (default: config confidence_min_* and confidence_high_*).",
@@ -192,9 +206,6 @@ class _AnnotatorParams(_VcfFileParams):
 def _check_confidence(params: Any) -> None:
     from wgsextract_cli.core.variant_confidence import thresholds_from
 
-    for name in ("confidence_depth", "confidence_gq"):
-        if any(not v >= 0 for v in getattr(params, name) or ()):
-            raise UsageError(f"{name} must be non-negative numbers.")
     thresholds_from(params)  # LOW <= HIGH, before any work
 
 
@@ -969,7 +980,7 @@ class VcfGatkParams(_CallerParams):
         flags=("-r", "--region"),
         doc="Comma-separated region(s) to call (e.g. chrM); with gpu, an item "
         "may be a BED file of them.",
-        splits=True,
+        splits=_comma_items,
     )
     scatter: bool = param(
         False,
@@ -1005,7 +1016,7 @@ class VcfDeepvariantParams(_CallerParams):
         flags=("-r", "--region"),
         doc="Region(s) to call (e.g. chrM) or BED files of them, separated by "
         "spaces (commas with gpu).",
-        splits=True,
+        splits=_deepvariant_items,
     )
     wes: bool = param(
         False, help="Set model type to WES (default: WGS)", action="store_true"

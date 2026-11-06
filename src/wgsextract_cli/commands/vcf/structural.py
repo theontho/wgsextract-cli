@@ -143,7 +143,7 @@ def _extract_region_bam_with_reference_header(
                 sink.stdin.flush()
                 # Records only (no -h): they follow our header in the same pipe.
                 source = popen(
-                    ["samtools", "view", *cram_args, input_file, region],
+                    ["samtools", "view", *cram_args, "--", input_file, region],
                     stdout=sink.stdin,
                     stderr=source_err,
                 )
