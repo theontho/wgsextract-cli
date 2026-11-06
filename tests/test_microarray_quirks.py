@@ -2,10 +2,9 @@
 revision reported on the reverse strand that way; corrected (the default) never
 changes a call."""
 
-from argparse import Namespace
-
 import pytest
 
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.core import microarray_quirks as quirks
 from wgsextract_cli.core.microarray_utils import convert_to_vendor_format
 from wgsextract_cli.core.utils import WGSExtractError
@@ -88,7 +87,7 @@ def test_default_output_is_unchanged_by_the_table(tmp_path, table):
             "rsP\t1\t2000\tAC",
         ]
     )
-    assert quirks.quirks_mode(Namespace(quirks=None)) == "corrected"
+    assert quirks.quirks_mode(microarray_params(quirks=None)) == "corrected"
 
 
 @pytest.mark.parametrize(
@@ -122,11 +121,11 @@ def test_table_rejects_entries_that_could_misapply(table, row):
 def test_mode_comes_from_config_unless_given(monkeypatch):
     monkeypatch.setitem(quirks.settings, "microarray_quirks", "vendor")
 
-    assert quirks.quirks_mode(Namespace(quirks=None)) == "vendor"
-    assert quirks.quirks_mode(Namespace(quirks="corrected")) == "corrected"
+    assert quirks.quirks_mode(microarray_params(quirks=None)) == "vendor"
+    assert quirks.quirks_mode(microarray_params(quirks="corrected")) == "corrected"
     monkeypatch.setitem(quirks.settings, "microarray_quirks", "raw")
     with pytest.raises(WGSExtractError):
-        quirks.quirks_mode(Namespace(quirks=None))
+        quirks.quirks_mode(microarray_params(quirks=None))
 
 
 def test_packaged_table_loads():

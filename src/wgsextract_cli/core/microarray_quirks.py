@@ -9,13 +9,16 @@ sources are described in ``assets/microarray/revisions/README.md``.
 
 from __future__ import annotations
 
-import argparse
 import functools
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 STRAND_TABLE = (
     Path(__file__).resolve().parents[1] / "assets/microarray/revisions/strand.tsv"
@@ -152,8 +155,8 @@ def vendor_strand_flips(format_name: str) -> frozenset[tuple[str, str, str]]:
     )
 
 
-def quirks_mode(args: argparse.Namespace) -> str:
-    mode = getattr(args, "quirks", None)
+def quirks_mode(params: MicroarrayParams) -> str:
+    mode = params.quirks
     if mode is None:
         mode = settings.get("microarray_quirks", "corrected")
     if not isinstance(mode, str) or mode not in MODES:

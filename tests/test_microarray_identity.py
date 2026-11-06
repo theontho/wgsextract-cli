@@ -1,8 +1,8 @@
 import gzip
-from types import SimpleNamespace
 
 import pytest
 
+from tests.microarray_helpers import microarray_params
 from tests.test_microarray_vendor_formats import _kit, _templates
 from wgsextract_cli.core import microarray_identity as identity
 from wgsextract_cli.core.microarray_utils import convert_to_vendor_format
@@ -29,14 +29,14 @@ def test_identity_configuration_and_explicit_overrides(monkeypatch):
         {"microarray_strand_ambiguous": "no-call", "microarray_resolve_rsids": True},
     )
     policy = identity.identity_policy(
-        SimpleNamespace(strand_ambiguous="keep", resolve_rsids=False)
+        microarray_params(strand_ambiguous="keep", resolve_rsids=False)
     )
     assert policy.rejection("rs10", "A", "T") is None
-    configured = identity.identity_policy(SimpleNamespace())
+    configured = identity.identity_policy(microarray_params())
     assert configured.needs_alleles and configured.resolve_rsids
     monkeypatch.setitem(identity.settings, "microarray_strand_ambiguous", ["keep"])
     with pytest.raises(WGSExtractError, match="keep or no-call"):
-        identity.identity_policy(SimpleNamespace())
+        identity.identity_policy(microarray_params())
 
 
 def test_packaged_map_parser_requires_flat_terminal_identities(tmp_path, monkeypatch):

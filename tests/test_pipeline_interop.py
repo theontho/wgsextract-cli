@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_htslib
+from tests.microarray_helpers import microarray_params
 from tests.smoke_utils import state_directory_setting
 from tests.test_microarray_library import _library
 
@@ -158,7 +159,6 @@ def test_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
 def test_gvcf_no_call_default_yields_to_cli_and_config(
     tmp_path, monkeypatch, cli, configured, expected
 ):
-    import argparse
 
     from wgsextract_cli.commands import microarray
     from wgsextract_cli.core.config import settings
@@ -169,7 +169,8 @@ def test_gvcf_no_call_default_yields_to_cli_and_config(
         ["chr1\t1\t.\tA\t<*>\t0\t.\tEND=10\tGT:GQ\t0/0:50"],
     )
     monkeypatch.setattr(microarray, "settings", {**settings, **configured})
-    args = argparse.Namespace(input=gvcf, sample=None, assume_hom_ref=cli)
-    assert microarray._vcf_input_layout(args) == (None, True)
+    args = microarray_params(input=gvcf, sample=None, assume_hom_ref=cli)
+    sample, gvcf_input, params = microarray._vcf_input_layout(args)
+    assert (sample, gvcf_input) == (None, True)
     # None leaves quality_policy to read the configured value.
-    assert args.assume_hom_ref is expected
+    assert params.assume_hom_ref is expected

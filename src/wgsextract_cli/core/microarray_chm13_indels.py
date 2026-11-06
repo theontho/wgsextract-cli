@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import bisect
 import hashlib
 import json
@@ -11,6 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue
 from wgsextract_cli.core.microarray_chm13_calls import canonical_chromosome
@@ -36,6 +36,9 @@ from wgsextract_cli.core.microarray_utils import (
     vendor_output_profile,
 )
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.microarray import MicroarrayParams
 
 _FLANK = 15
 _MAX_REPEAT_SHIFT = 4096
@@ -373,17 +376,16 @@ def likelihood_gq(gt: str, values: str) -> str:
 def _native_calls(
     vcf: str,
     sites: dict[str, IndelSite],
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     directory: Path,
     marker_ids: dict[str, str],
     ploidies: dict[str, int],
 ) -> dict[str, str]:
     from wgsextract_cli.core.microarray_indels import _calls_from_vcf
 
-    quality = quality_policy(args)
-    query_args = argparse.Namespace(**vars(args))
-    query_args.min_dp, query_args.min_gq = max(4, quality.min_dp), 0
-    result = _calls_from_vcf(vcf, sites, query_args, str(directory), marker_ids)
+    quality = quality_policy(params)
+    query_params = replace(params, min_dp=max(4, quality.min_dp), min_gq=0)
+    result = _calls_from_vcf(vcf, sites, query_params, str(directory), marker_ids)
     policy = replace(
         quality, min_dp=max(4, quality.min_dp), min_gq=max(20, quality.min_gq)
     )
@@ -412,7 +414,7 @@ def call_chm13_indels(
     bindings: dict[str, str],
     roots: list[str],
     *,
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     catalogue: CHM13Catalogue,
     names: Mapping[str, str],
     fasta: str,
@@ -522,7 +524,7 @@ def call_chm13_indels(
                     target,
                     "-R",
                     str(intervals),
-                    args.input,
+                    str(params.input),
                 ],
                 [
                     "bcftools",
@@ -548,7 +550,7 @@ def call_chm13_indels(
         calls = _native_calls(
             vcf,
             sites,
-            args,
+            params,
             directory,
             {key: data[1] for key, data in metadata.items()},
             ploidies,
@@ -575,7 +577,7 @@ def call_chm13_indels(
                     "3844",
                     "-T",
                     fasta,
-                    args.input,
+                    str(params.input),
                 ],
                 str(directory),
             ),
@@ -595,7 +597,7 @@ def call_chm13_indels(
                 if site
                 else "--"
             )
-            if identity_policy(args).rejection(data[1]):
+            if identity_policy(params).rejection(data[1]):
                 call = "--"
             counts["called" if call != "--" else "no_call"] += 1
             format_name, marker, chrom, pos = data
@@ -638,8 +640,8 @@ def call_chm13_indels(
                 "minimum_fragments_per_called_allele": _MIN_SUPPORT,
                 "minimum_mapping_quality": _MAPQ,
                 "minimum_base_quality": _BASEQ,
-                "minimum_dp": max(4, quality_policy(args).min_dp),
-                "minimum_gq": max(20, quality_policy(args).min_gq),
+                "minimum_dp": max(4, quality_policy(params).min_dp),
+                "minimum_gq": max(20, quality_policy(params).min_gq),
                 "reference_filling": False,
                 "sex": sex,
             },

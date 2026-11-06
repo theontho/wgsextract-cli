@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.commands import microarray
 from wgsextract_cli.core.microarray_utils import (
     convert_to_vendor_format,
@@ -255,7 +256,7 @@ def _convert_outputs(tmp_path: Path, formats: str, build: str | None = "hg19"):
     outdir = tmp_path / "out"
     outdir.mkdir()
     microarray._convert_microarray_outputs(
-        args=SimpleNamespace(formats=formats),
+        params=microarray_params(formats=formats),
         outdir=str(outdir),
         base_name="sample",
         lib=SimpleNamespace(root=str(lib_root), build=build, liftover_chain=None),

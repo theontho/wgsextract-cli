@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from tests.htslib_helpers import needs_htslib, needs_tools, run_wgsextract, sam_to_bam
+from tests.microarray_helpers import microarray_params
 from wgsextract_cli.commands import (
     _lineage_ydna,
     _microarray_combined,
@@ -137,7 +138,7 @@ def test_combined_kit_alignment_mode_doubles_haploid_calls(tmp_path):
         "chr1\t7\trsHet\tA\tG\t50\tPASS\t.\tGT\t0/1\n"
     )
     kit = _microarray_combined._write_microarray_combined_kit(
-        args=SimpleNamespace(region=None),
+        params=microarray_params(region=None),
         outdir=str(tmp_path),
         base_name="sample",
         is_vcf=False,
@@ -155,7 +156,7 @@ def test_combined_kit_failure_leaves_no_partial_file(tmp_path):
     outdir.mkdir()
     with pytest.raises(WGSExtractError):
         _microarray_combined._write_microarray_combined_kit(
-            args=SimpleNamespace(region=None),
+            params=microarray_params(region=None),
             outdir=str(outdir),
             base_name="sample",
             is_vcf=False,

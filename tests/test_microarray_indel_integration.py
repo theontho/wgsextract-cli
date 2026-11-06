@@ -1,9 +1,8 @@
-import argparse
-
 import pytest
 
 from tests import test_microarray_indels as indel_fixtures
 from tests.htslib_helpers import needs_tools, run_wgsextract
+from tests.microarray_helpers import microarray_params
 from tests.test_microarray_vendor_formats import _kit, _templates
 from wgsextract_cli.commands import microarray
 from wgsextract_cli.core import microarray_identity as identity
@@ -35,7 +34,7 @@ def test_manifest_bindings_reject_unsupported_or_ambiguous_requests(
 ):
     path = tmp_path / "manifest.csv"
     path.touch()
-    args = argparse.Namespace(
+    args = microarray_params(
         formats=formats, indel_manifest=[entry.format(path=path) for entry in entries]
     )
     with pytest.raises(WGSExtractError, match=message):

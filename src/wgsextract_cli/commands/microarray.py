@@ -8,10 +8,10 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
-from wgsextract_cli.api._params import to_namespace
 from wgsextract_cli.api.microarray import MicroarrayParams
 from wgsextract_cli.core.aadr_resources import AADR_2M_FILENAME, require_aadr_2m
 from wgsextract_cli.core.alignment_health import warn_about_alignment
@@ -206,7 +206,7 @@ def _liftover_chain_for(lib: ReferenceLibrary) -> str | None:
 
 def _convert_microarray_outputs(
     *,
-    args: argparse.Namespace,
+    params: MicroarrayParams,
     outdir: str,
     base_name: str,
     lib: ReferenceLibrary,
@@ -225,8 +225,8 @@ def _convert_microarray_outputs(
         liftover_hg38_to_hg19,
     )
 
-    identity = identity_policy(args)
-    quirks = quirks_mode(args)
+    identity = identity_policy(params)
+    quirks = quirks_mode(params)
     converter: Callable[..., GenotypeTally] = convert_to_vendor_format
     if identity.resolve_rsids:
         converter = functools.partial(converter, identity=identity)
@@ -234,7 +234,7 @@ def _convert_microarray_outputs(
         converter = functools.partial(converter, quirks=quirks)
 
     template_search_roots = _template_search_roots(ref_fasta, lib)
-    requested_formats = args.formats.split(",")
+    requested_formats = params.formats.split(",")
 
     # 3. Liftover if needed (vendor templates use hg19 coordinates)
     final_txt = legacy_combined_kit_txt or combined_kit_txt
@@ -303,8 +303,8 @@ def _convert_microarray_outputs(
                         else legacy_combined_kit_txt or combined_kit_txt
                     ),
                     output_prefix,
-                    sample_id=getattr(args, "aadr_sample_id", "sample"),
-                    sex=getattr(args, "aadr_sex", "U"),
+                    sample_id=params.aadr_sample_id,
+                    sex=params.aadr_sex,
                     lifter=aadr_liftover,
                     vcf_nocalls=vcf_nocalls,
                     reflib_dir=getattr(lib, "root", None),
@@ -355,17 +355,16 @@ def _convert_microarray_outputs(
 
 
 def run_microarray(params: MicroarrayParams) -> None:
-    """``microarray``. The generation helpers still read an argparse-style
-    namespace, so the params are handed to them as one."""
+    """``microarray``."""
     with contextlib.ExitStack() as cleanup:
-        _run(to_namespace(params), cleanup)
+        _run(params, cleanup)
 
 
-def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
-    quality_policy(args)
-    if quirks_mode(args) == "vendor":
+def _run(params: MicroarrayParams, cleanup: contextlib.ExitStack) -> None:
+    quality_policy(params)
+    if quirks_mode(params) == "vendor":
         load_strand_quirks()
-    identity = identity_policy(args)
+    identity = identity_policy(params)
     if identity.resolve_rsids:
         load_rsid_map()
     if identity.needs_alleles:
@@ -374,41 +373,46 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             "Reference-only and absent sites cannot be classified without probe alleles; "
             "no vendor or mitochondrial strand is inferred."
         )
-    if not args.input:
+    if not params.input:
         raise UsageError(LOG_MESSAGES["input_required"])
-    verify_paths_exist({"--input": args.input})
-    indel_bindings = indel_manifest_bindings(args, _resolve_microarray_format)
+    input_path = str(params.input)
+    verify_paths_exist({"--input": input_path})
+    indel_bindings = indel_manifest_bindings(params, _resolve_microarray_format)
 
     verify_dependencies(["bcftools", "tabix", "bgzip", "samtools"])
     log_dependency_info(["bcftools", "tabix", "bgzip", "samtools"])
-    table_format = getattr(args, "table_format", None)
+    table_format = params.table_format
     check_format(table_format)
-    is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
-    if getattr(args, "sample", None) and not is_vcf:
+    is_vcf = input_path.endswith((".vcf", ".vcf.gz", ".bcf"))
+    if params.sample and not is_vcf:
         raise UsageError(
             "--sample picks one sample of a multi-sample VCF; BAM/CRAM input "
             "is called as one sample."
         )
 
-    logging.debug(f"Input file: {str(absolute_path(args.input))}")
+    logging.debug(f"Input file: {str(absolute_path(input_path))}")
 
-    threads, _ = get_resource_defaults(args.threads, None)
-    outdir = args.outdir if args.outdir else str(absolute_path(args.input).parent)
+    threads, _ = get_resource_defaults(params.threads, None)
+    outdir = (
+        str(params.outdir) if params.outdir else str(absolute_path(input_path).parent)
+    )
     calling_outdir = outdir
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
-    md5_sig = calculate_bam_md5(args.input, None)
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=args.input)
+    md5_sig = calculate_bam_md5(input_path, None)
+    lib = ReferenceLibrary(
+        str(params.ref) if params.ref else None, md5_sig, input_path=input_path
+    )
 
     ref_fasta = lib.fasta
-    ref_vcf_tab = args.ref_vcf_tab if args.ref_vcf_tab else lib.ref_vcf_tab
-    ploidy_file = args.ploidy_file if args.ploidy_file else lib.ploidy_file
-    requested = args.formats.split(",")
+    ref_vcf_tab = str(params.ref_vcf_tab) if params.ref_vcf_tab else lib.ref_vcf_tab
+    ploidy_file = str(params.ploidy_file) if params.ploidy_file else lib.ploidy_file
+    requested = params.formats.split(",")
     aadr_panels = [panel for key in requested if (panel := aadr_panel(key))]
     legacy_requested = any(aadr_panel(key) is None for key in requested)
     lifter = None
     if aadr_panels:
-        validate_aadr_sample_id(getattr(args, "aadr_sample_id", "sample"))
+        validate_aadr_sample_id(params.aadr_sample_id)
         if "2m" in aadr_panels:
             if not (is_hg37_build(lib.build or "") or is_hg38_build(lib.build or "")):
                 raise WGSExtractError(
@@ -443,31 +447,35 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             "or supported CHM13 for no-call masking."
         )
 
-    vcf_sample, gvcf = _vcf_input_layout(args) if is_vcf else (None, False)
-    base_name = input_stem(args.input)
+    vcf_sample, gvcf = None, False
+    if is_vcf:
+        vcf_sample, gvcf, params = _vcf_input_layout(params)
+    base_name = input_stem(input_path)
     if vcf_sample:
         base_name += "_" + re.sub(r"[^A-Za-z0-9._-]", "_", vcf_sample)
 
     if not is_vcf:
         warn_low_depth(
-            args.input,
-            region_targets(args.region),
+            input_path,
+            region_targets(params.region),
             outdir=outdir,
             ref=ref_fasta,
-            min_depth=getattr(args, "qc_min_depth", None),
-            region=args.region,
+            min_depth=params.qc_min_depth,
+            region=params.region,
         )
 
     if lib.build and is_t2t_build(lib.build):
         from ._microarray_chm13 import run_chm13
 
         try:
-            chm13_args = args
+            chm13_params = params
             if vcf_sample:
-                chm13_args = argparse.Namespace(**vars(args))
-                chm13_args.input = _sample_vcf(args.input, vcf_sample, outdir, cleanup)
+                chm13_params = replace(
+                    params,
+                    input=Path(_sample_vcf(input_path, vcf_sample, outdir, cleanup)),
+                )
             combined = run_chm13(
-                chm13_args,
+                chm13_params,
                 lib,
                 ref_fasta,
                 outdir,
@@ -485,7 +493,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
                 table_path(Path(outdir, f"{base_name}_genotypes"), table_format),
                 table_format,
                 provenance(
-                    [args.input],
+                    [input_path],
                     reference_build="GRCh37 (projected from CHM13v2.0)",
                     sorted_by="the CHM13 site map's GRCh37 order",
                 ),
@@ -493,7 +501,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
         return
 
     if (
-        not args.ref_vcf_tab
+        not params.ref_vcf_tab
         and (not aadr_panels or legacy_requested)
         and lib.root
         and lib.build
@@ -535,7 +543,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
                         legacy_panels,
                         legacy_workdir,
                         lifter,
-                        ref_vcf_tab if args.ref_vcf_tab or legacy_requested else None,
+                        ref_vcf_tab if params.ref_vcf_tab or legacy_requested else None,
                     )
                     if legacy_panels
                     else ref_vcf_tab
@@ -544,7 +552,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
                 aadr_panels,
                 calling_outdir,
                 lifter,
-                ref_vcf_tab if args.ref_vcf_tab or legacy_requested else None,
+                ref_vcf_tab if params.ref_vcf_tab or legacy_requested else None,
                 reflib_dir=lib.resource_root("aadr/" + AADR_2M_FILENAME),
             )
         except (OSError, ValueError) as e:
@@ -570,24 +578,28 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
     out_vcf = str(Path(calling_outdir, f"{base_name}_combined.vcf.gz"))
     combined_vcf = out_vcf
     if not is_vcf:
-        warn_about_alignment(args.input, ref_fasta)
-    calling_args = args
+        warn_about_alignment(input_path, ref_fasta)
+    calling_params = params
     if indel_bindings and is_vcf:
-        calling_args = argparse.Namespace(**vars(args))
-        calling_args.input = prepare_indel_vcf(
-            _sample_vcf(args.input, vcf_sample, outdir, cleanup)
-            if vcf_sample
-            else args.input,
-            outdir,
+        calling_params = replace(
+            params,
+            input=Path(
+                prepare_indel_vcf(
+                    _sample_vcf(input_path, vcf_sample, outdir, cleanup)
+                    if vcf_sample
+                    else input_path,
+                    outdir,
+                )
+            ),
         )
 
-    region_args = ["-r", args.region] if args.region else []
+    region_args = ["-r", params.region] if params.region else []
     input_chroms = None
-    if args.region and not is_vcf:
+    if params.region and not is_vcf:
         # Custom ploidy rows must be matched against the same chromosome name
         # used for calling, including a chr20 <-> 20 input alias.
         try:
-            input_chroms = _alignment_chromosomes(args.input, ref_fasta)
+            input_chroms = _alignment_chromosomes(input_path, ref_fasta)
             region_args = _normalize_region_args_for_input(region_args, input_chroms)
         except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             raise WGSExtractError(f"Microarray target normalization failed: {e}") from e
@@ -610,13 +622,13 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
     indel_calls = None
 
     with sex_samples_args(
-        args.input,
+        input_path,
         outdir,
         ploidy_args,
         region=region_args[1] if region_args else None,
     ) as sex_args:
         out_vcf, ref_vcf_tab = _prepare_microarray_vcf(
-            args=calling_args,
+            params=calling_params,
             outdir=calling_outdir,
             base_name=base_name,
             is_vcf=is_vcf,
@@ -629,7 +641,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             out_vcf=out_vcf,
             input_chroms=input_chroms,
             # An indel run's calling input is already the selected sample.
-            sample=None if calling_args is not args else vcf_sample,
+            sample=None if calling_params is not params else vcf_sample,
             gvcf=gvcf,
         )
         record_kept(combined_vcf, outdir, "combined_vcf")
@@ -639,14 +651,14 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             indel_calls = call_manifest_indels(
                 indel_bindings,
                 _template_search_roots(ref_fasta, lib),
-                args=calling_args,
+                params=calling_params,
                 lib=lib,
                 outdir=outdir,
                 ploidy_args=ploidy_args + sex_args,
                 threads=threads,
             )
     combined_kit_txt = _write_microarray_combined_kit(
-        args=args,
+        params=params,
         outdir=calling_outdir,
         base_name=base_name,
         is_vcf=is_vcf,
@@ -660,7 +672,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             legacy_target, out_vcf, legacy_workdir
         )
         legacy_combined_kit_txt = _write_microarray_combined_kit(
-            args=args,
+            params=params,
             outdir=legacy_workdir,
             base_name=base_name,
             is_vcf=True,
@@ -670,7 +682,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             restrict_reference_fill=True,
         )
     tallies = _convert_microarray_outputs(
-        args=args,
+        params=params,
         outdir=outdir,
         base_name=base_name,
         lib=lib,
@@ -688,7 +700,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             table_path(Path(outdir, f"{base_name}_genotypes"), table_format),
             table_format,
             provenance(
-                [args.input],
+                [input_path],
                 reference_build=lib.build,
                 sorted_by="the combined target list's order",
             ),
@@ -697,7 +709,9 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
         outdir,
         base_name,
         combined_kit_txt,
-        warn_about_genotypes(combined_kit_txt, tallies, check_no_calls=not args.region),
+        warn_about_genotypes(
+            combined_kit_txt, tallies, check_no_calls=not params.region
+        ),
         sample=vcf_sample,
     )
 
@@ -733,48 +747,52 @@ def _export_genotypes(
     logging.info(f"Genotype table saved to {path}")
 
 
-def _vcf_input_layout(args: argparse.Namespace) -> tuple[str | None, bool]:
-    """The sample to select from the input VCF (None when it has just one) and
-    whether it is a gVCF. A gVCF's reference blocks say which sites were called,
-    so unless --assume-hom-ref (or microarray_assume_hom_ref in config.toml) is
-    given, targets outside them become no-calls."""
+def _vcf_input_layout(
+    params: MicroarrayParams,
+) -> tuple[str | None, bool, MicroarrayParams]:
+    """The sample to select from the input VCF (None when it has just one),
+    whether it is a gVCF, and the params to call it with. A gVCF's reference
+    blocks say which sites were called, so unless --assume-hom-ref (or
+    microarray_assume_hom_ref in config.toml) is given, targets outside them
+    become no-calls."""
     from .vcf.consensus import is_gvcf
 
+    input_path = str(params.input)
     try:
         listed = run_command(
-            ["bcftools", "query", "--list-samples", args.input], capture_output=True
+            ["bcftools", "query", "--list-samples", input_path], capture_output=True
         )
     except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"Could not read the samples of {args.input}: {e}") from e
+        raise WGSExtractError(f"Could not read the samples of {input_path}: {e}") from e
     samples = [name for name in str(listed.stdout).splitlines() if name.strip()]
     if not samples:
         raise WGSExtractError(
-            f"{args.input} has no sample genotype columns, so it can't become a "
+            f"{input_path} has no sample genotype columns, so it can't become a "
             "microarray kit."
         )
-    requested = getattr(args, "sample", None)
+    requested = params.sample
     if requested and requested not in samples:
         raise WGSExtractError(
-            f"Sample '{requested}' is not in {args.input} (samples: "
+            f"Sample '{requested}' is not in {input_path} (samples: "
             f"{', '.join(samples)})."
         )
     if not requested and len(samples) > 1:
         raise UsageError(
-            f"{args.input} has {len(samples)} samples; choose one with --sample "
+            f"{input_path} has {len(samples)} samples; choose one with --sample "
             f"({', '.join(samples)})."
         )
-    gvcf = is_gvcf(args.input)
+    gvcf = is_gvcf(input_path)
     if (
         gvcf
-        and getattr(args, "assume_hom_ref", None) is None
+        and params.assume_hom_ref is None
         and "microarray_assume_hom_ref" not in settings
     ):
         logging.info(
             "gVCF input: targets in reference blocks are read from the blocks, "
             "and targets no record covers are no-calls."
         )
-        args.assume_hom_ref = False
-    return (requested if len(samples) > 1 else None), gvcf
+        params = replace(params, assume_hom_ref=False)
+    return (requested if len(samples) > 1 else None), gvcf, params
 
 
 def _sample_vcf(

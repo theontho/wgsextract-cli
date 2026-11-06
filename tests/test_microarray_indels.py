@@ -1,4 +1,3 @@
-import argparse
 import csv
 import gzip
 import zipfile
@@ -8,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_tools, sam_to_bam, write_fasta
+from tests.microarray_helpers import microarray_params
 from tests.test_vcf_basic import sample
 from wgsextract_cli.core.microarray_indel_probes import (
     IndelProbe,
@@ -174,11 +174,11 @@ def test_force_genotype_known_indel_alleles_with_real_native_caller(
         or ("D" in line.split("\t")[5]) == (kind == "homalt")
     ]
     bam = sam_to_bam(lines, tmp_path / "sample.bam")
-    args = argparse.Namespace(input=bam, region="chr1:650-780", **policy)
+    args = microarray_params(input=bam, region="chr1:650-780", **policy)
     calls = call_manifest_indels(
         {"23andMe_V5_2025": manifest},
         [str(tmp_path)],
-        args=args,
+        params=args,
         lib=lib,
         outdir=str(tmp_path),
         ploidy_args=["--ploidy", "2"],
@@ -220,7 +220,7 @@ def test_vcf_aliases_and_region_limits_never_call_absent_contigs(
     calls = call_manifest_indels(
         {"23andMe_V5_2025": manifest},
         [str(tmp_path)],
-        args=argparse.Namespace(input=prepared, region=region),
+        params=microarray_params(input=prepared, region=region),
         lib=lib,
         outdir=str(tmp_path),
         ploidy_args=["--ploidy", "2"],
@@ -262,7 +262,7 @@ def test_sequence_free_known_indel_ids_are_explicitly_missing(
     calls = call_manifest_indels(
         {"23andMe_V5_2025": manifest},
         [str(tmp_path)],
-        args=argparse.Namespace(input=alignment["bam"], region="chr1:650-780"),
+        params=microarray_params(input=alignment["bam"], region="chr1:650-780"),
         lib=lib,
         outdir=str(tmp_path),
         ploidy_args=["--ploidy", "2"],
@@ -310,7 +310,7 @@ def test_vcf_quality_unsupported_alleles_and_conflicts_cannot_restore_calls(
     result = _calls_from_vcf(
         str(source),
         {"P0": IndelSite("chr1", 700, "CGT", "C", "I")},
-        argparse.Namespace(**policy),
+        microarray_params(**policy),
         str(tmp_path),
     )
     assert result == {"P0": expected}
@@ -340,7 +340,7 @@ def test_identity_rejection_of_probe_or_source_cannot_be_restored(
     calls = _calls_from_vcf(
         str(source),
         {"P0": IndelSite("chr1", 700, "CGT", "C", "I")},
-        argparse.Namespace(resolve_rsids=True),
+        microarray_params(resolve_rsids=True),
         str(tmp_path),
         {"P0": "rs1" if retired_source else "rs20"},
     )
@@ -400,7 +400,7 @@ def test_haploid_indels_follow_each_verified_vendor_ploidy_style(
             ("23andMe_V5_2025", "Ancestry_V2_2024", "MyHeritage_GSA_2025"), manifest
         ),
         [str(tmp_path)],
-        args=argparse.Namespace(input=bgzip_index(source), region=reference_chrom),
+        params=microarray_params(input=bgzip_index(source), region=reference_chrom),
         lib=SimpleNamespace(fasta=str(ref), build=build, root=None),
         outdir=str(tmp_path),
         ploidy_args=["--ploidy", "GRCh37"],
