@@ -2598,7 +2598,7 @@
    }
   },
   "bam merge": {
-   "help": "usage: wgsextract bam merge [-h] [--output OUTPUT] [--cram] [--attach-rg] FILE [FILE ...]\n\npositional arguments:\n  FILE             Coordinate-sorted BAM/CRAM files aligned to the same reference.\n\noptions:\n  -h, --help       show this help message and exit\n  --output OUTPUT  Output file name or path (a bare name goes in --outdir; default: merged.bam, or\n                   merged.cram with --cram).\n  --cram           Write CRAM instead of BAM.\n  --attach-rg      Tag each read with a read group named after its input file, for inputs without\n                   @RG lines (so reads stay traceable to their lane).\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract bam merge lane1.bam lane2.bam --output sample.bam\n\noutputs (in the output directory unless noted):\n  merged.bam or merged.cram (+ index), or the --output path.\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools; hours on a 30x\n  genome.\n",
+   "help": "usage: wgsextract bam merge [-h] [--output OUTPUT] [--cram] [--attach-rg] [--sample SAMPLE]\n                            FILE [FILE ...]\n\npositional arguments:\n  FILE             Coordinate-sorted BAM/CRAM files aligned to the same reference.\n\noptions:\n  -h, --help       show this help message and exit\n  --output OUTPUT  Output file name or path (a bare name goes in --outdir; default: merged.bam, or\n                   merged.cram with --cram).\n  --cram           Write CRAM instead of BAM.\n  --attach-rg      Name every input's read group after its file, even when all have @RG lines\n                   (inputs without them always get one).\n  --sample SAMPLE  Sample name (SM) for every read group; needed when the inputs name different\n                   samples, e.g. one person's runs labelled differently (default: the inputs'\n                   sample name, else the output file name).\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract bam merge lane1.bam lane2.bam --output sample.bam\n  wgsextract bam merge run1.bam run2.bam --sample HG002 --output HG002.bam\n\noutputs (in the output directory unless noted):\n  merged.bam or merged.cram (+ index), or the --output path; each run keeps\n  its own read group under one sample name (SM).\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools; hours on a 30x\n  genome.\n",
    "parser": {
     "actions": [
      {
@@ -2933,11 +2933,27 @@
       "default": false,
       "dest": "attach_rg",
       "exclusive_group": null,
-      "help": "Tag each read with a read group named after its input file, for inputs without @RG lines (so reads stay traceable to their lane).",
+      "help": "Name every input's read group after its file, even when all have @RG lines (inputs without them always get one).",
       "metavar": null,
       "nargs": 0,
       "option_strings": [
        "--attach-rg"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "sample",
+      "exclusive_group": null,
+      "help": "Sample name (SM) for every read group; needed when the inputs name different samples, e.g. one person's runs labelled differently (default: the inputs' sample name, else the output file name).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--sample"
       ],
       "required": false,
       "type": null
@@ -32806,6 +32822,7 @@
    "parent_pid": null,
    "quiet": false,
    "ref": null,
+   "sample": null,
    "threads": null,
    "tmp_dir": null
   },
@@ -32841,6 +32858,7 @@
    "parent_pid": null,
    "quiet": false,
    "ref": null,
+   "sample": null,
    "threads": null,
    "tmp_dir": null
   },

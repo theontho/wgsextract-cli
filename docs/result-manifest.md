@@ -89,6 +89,9 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `contigs_skipped` | `vcf to-fasta` | VCF contigs absent from the reference were left out (`count`). |
 | `annotation_skipped`, `annotation_failed` | `vcf chain-annotate`, `analyze` | One annotation was skipped (`annotation`, `reason`) or failed. |
 | `read_groups_mixed`, `read_group_conflict` | `bam unalign`, `bam merge` | Read groups differ in a way that loses or merges information. |
+| `read_group_renamed` | `bam merge` | Runs with identical `@RG` lines that name no run (`PU`, ONT `runid=`) keep separate read groups; the later ones get suffixed IDs (`read_groups`). |
+| `read_name_collision`, `sample_name_assumed` | `bam merge` | Different reads in two runs share names (`inputs`), so name-based tools may pair them; no input names its sample, so `SM` is the output name (`sample`). |
+| `mod_tags_partial`, `mod_models_differ` | `bam merge` | Only some runs carry MM/ML tags (`inputs` lists those without), or the runs' basecalls name different modified-base models (`models`). |
 | `few_modification_tags`, `opposite_strand_modifications`, `pacbio_5hmc_limited`, `unknown_platform` | `methylation` | The input's MM/ML modification tags are sparse, strand-mixed, or from a platform with limited calls. |
 | `genotype_ambiguous`, `high_copy_number`, `no_call` | `typing` | A star-allele or HLA call is ambiguous, has extra copies, or failed (`gene`). |
 | `repeat_outside_normal_range` | `typing repeats` | A repeat length is outside its normal range (`locus`). |
@@ -180,7 +183,9 @@ Other commands' metrics:
 
 - `bam` subcommands that write a BAM/CRAM record its `records` as `align` does
   (an unsorted or unaligned BAM has no index to count from, so it has none);
-  `bam merge` adds `merged_inputs`, `bam unalign` its `read_groups`.
+  `bam merge` adds `merged_inputs`, `read_groups` and, for indexed inputs,
+  the combined `autosomal_depth` (each run's in `details.runs`); `bam unalign`
+  its `read_groups`.
 - `qc fastp` records read counts before and after filtering, the Q30 rate and
   duplication rate; `qc fastqc` the module pass/warn/fail counts and total
   sequences; `qc vcf` the `bcftools stats` totals (records, SNPs, indels,

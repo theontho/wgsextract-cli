@@ -646,7 +646,8 @@ def _reheader(path: str, edit) -> None:
 
 
 def _split(genome, tmp_path: Path, rg: bool = True) -> tuple[str, str]:
-    """The fixture's chr1 reads in a.bam and its other reads in b.bam."""
+    """The fixture's chr1 reads in a.bam and its other reads in b.bam: one run
+    split by region, so its read group names the run (PU)."""
     paths = []
     for name, region in (("a", ["chr1"]), ("b", ["chr2", "*"])):
         out = str(tmp_path / f"{name}.bam")
@@ -654,7 +655,12 @@ def _split(genome, tmp_path: Path, rg: bool = True) -> tuple[str, str]:
         run_command(
             ["samtools", "view", "-b", *strip, "-o", out, genome["bam"], *region]
         )
-        if not rg:
+        if rg:
+            _reheader(
+                out,
+                lambda h: [x + "\tPU:F1.1" if x.startswith("@RG") else x for x in h],
+            )
+        else:
             _reheader(out, lambda h: [x for x in h if not x.startswith("@RG")])
         paths.append(out)
     return paths[0], paths[1]
@@ -710,7 +716,8 @@ def test_merge_output_name_gets_the_extension(genome, tmp_path):
 
 def test_merge_keeps_conflicting_read_groups_apart(genome, tmp_path, caplog):
     a, b = _split(genome, tmp_path)
-    _reheader(b, lambda h: [x.replace("SM:S1", "SM:S2") for x in h])
+    # Another flow cell of the same sample whose read group reuses the ID.
+    _reheader(b, lambda h: [x + "\tPU:FC2" if x.startswith("@RG") else x for x in h])
     with caplog.at_level(logging.WARNING):
         _bam("merge", a, b, "--outdir", str(tmp_path / "o"))
     assert "defined differently" in caplog.text
@@ -724,7 +731,8 @@ def test_merge_failure_leaves_no_partial_output(genome, tmp_path, large_header):
     if large_header:
         _reheader(b, lambda lines: [*lines, "@CO\t" + "x" * 70_000])
     _truncate_alignment_block(Path(b))
-    with pytest.raises(WGSExtractError, match="Merging failed"):
+    # The pre-merge read check may find the damage before samtools merge does.
+    with pytest.raises(WGSExtractError, match="Merging failed|alignments of .*b.bam"):
         _bam("merge", a, b, "--outdir", str(tmp_path / "o"))
     assert list((tmp_path / "o").iterdir()) == []
 

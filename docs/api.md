@@ -478,16 +478,24 @@ CLI: `wgsextract bam merge`.
 Merge the inputs (output role `merged_alignment`; the
 `merged_inputs` metric counts them).
 
-`BamMergeParams`: Merge coordinate-sorted BAM/CRAM files aligned to the same reference
-into one indexed file. Identical `@RG` lines in several inputs are one
-read group; conflicting ones get distinct IDs, with a warning.
+`BamMergeParams`: Merge coordinate-sorted BAM/CRAM files of one sample aligned to the
+same reference (lanes, or several flow-cell runs) into one indexed file.
+
+Each run keeps its own read group, all with one sample name (SM) and
+platform (PL): an input without `@RG` lines gets one named after its
+file. Identical `@RG` lines in several inputs are one read group;
+conflicting ones get distinct IDs, with a warning. Inputs naming different
+samples or platforms, or repeating each other's reads, are refused.
+Methylation (MM/ML) and other tags are kept. Reports each input's and the
+merged file's autosomal depth.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
 | `inputs` | `tuple[Path, ...]` | required | `FILE` | Two or more coordinate-sorted BAM/CRAM files aligned to the same reference. |
 | `output` | `str \| None` | `None` | `--output` | Output file name or path; a bare name goes in outdir (default: merged.bam, or merged.cram with cram). |
 | `cram` | `bool` | `False` | `--cram` | Write CRAM instead of BAM. |
-| `attach_rg` | `bool` | `False` | `--attach-rg` | Tag each read with a read group named after its input file, for inputs without @RG lines (so reads stay traceable to their lane). |
+| `attach_rg` | `bool` | `False` | `--attach-rg` | Name every input's read group after its file, even when all have @RG lines (inputs without them always get one). |
+| `sample` | `str \| None` | `None` | `--sample` | Sample name (SM) for every read group; needed when the inputs name different samples, e.g. one person's runs labelled differently (default: the inputs' sample name, else the output file name). |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the first input's folder). |
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |

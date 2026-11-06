@@ -33,6 +33,43 @@ signature matches, **before** its read names are probed. A failed CRAM read-name
 is an error, never a silent fallback to paired short-read extraction.
 The usual realignment disk-space preflight also applies to streamed ONT reads.
 
+## Combining flow-cell runs
+
+A sample sequenced on several flow cells, each aligned to the same reference,
+becomes one BAM or CRAM with `bam merge`:
+
+```bash
+wgsextract bam merge run1.bam run2.bam --sample HG002 --output HG002.bam
+```
+
+- **Read groups.** Each run keeps its own read group, so callers can tell the
+  runs apart. If an input has no `@RG` lines or reads without an `RG` tag,
+  or with `--attach-rg`, each input's read group is named after its file
+  (`run1`, `run2`); each input must then hold at most one. Otherwise the inputs' read groups are kept, and
+  IDs that clash get a suffix (warning `read_group_conflict`). Identical
+  `@RG` lines in several inputs (`minimap2 -R '@RG\tID:HG002'` for every
+  flow cell) are one read group only if they name the run (`PU`, or an ONT
+  `DS` `runid=`) or templates span the files (one run split by region);
+  otherwise each run keeps its own, suffixed ID (warning `read_group_renamed`).
+- **Sample.** Every read group gets the same `SM`: `--sample`, else the
+  inputs' own. Inputs naming different samples are refused unless `--sample`
+  is given; inputs naming none take the output's name (`sample_name_assumed`).
+- **Platform.** Missing `PL` fields are filled from the detected platform.
+  Reads from different platforms (ONT and Illumina, say), in one input or
+  across them, are refused.
+- **Reference.** Inputs must share contig names and lengths, and MD5s where
+  both headers list them.
+- **Duplicates.** The first 5,000 reads of each input are compared. A run
+  included twice (the same reads, as sequenced, in two inputs, even if
+  realigned) is refused, as are ONT runs sharing read IDs, which name
+  molecules: a run basecalled twice. Other different reads that share names
+  warn `read_name_collision`.
+- **Modifications.** `MM`/`ML` tags pass through unchanged. If only some runs
+  carry them, or their read groups name different modified-base models, the
+  merge warns (`mod_tags_partial`, `mod_models_differ`).
+- **Coverage.** For indexed inputs, each run's and the combined autosomal
+  depth are printed and recorded in the result.
+
 ## Small variants
 
 `vcf deepvariant` automatically selects `ONT_R104` for detected ONT input.

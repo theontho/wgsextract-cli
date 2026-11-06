@@ -186,9 +186,16 @@ class BamIdentifyParams(_InputParams):
 
 @dataclass(frozen=True, kw_only=True)
 class BamMergeParams(Params):
-    """Merge coordinate-sorted BAM/CRAM files aligned to the same reference
-    into one indexed file. Identical ``@RG`` lines in several inputs are one
-    read group; conflicting ones get distinct IDs, with a warning."""
+    """Merge coordinate-sorted BAM/CRAM files of one sample aligned to the
+    same reference (lanes, or several flow-cell runs) into one indexed file.
+
+    Each run keeps its own read group, all with one sample name (SM) and
+    platform (PL): an input without ``@RG`` lines gets one named after its
+    file. Identical ``@RG`` lines in several inputs are one read group;
+    conflicting ones get distinct IDs, with a warning. Inputs naming different
+    samples or platforms, or repeating each other's reads, are refused.
+    Methylation (MM/ML) and other tags are kept. Reports each input's and the
+    merged file's autosomal depth."""
 
     COMMAND = "bam merge"
 
@@ -212,13 +219,26 @@ class BamMergeParams(Params):
     cram: bool = param(False, help="Write CRAM instead of BAM.", action="store_true")
     attach_rg: bool = param(
         False,
-        help="Tag each read with a read group named after its input file, for "
-        "inputs without @RG lines (so reads stay traceable to their lane).",
+        help="Name every input's read group after its file, even when all "
+        "have @RG lines (inputs without them always get one).",
         action="store_true",
+    )
+    sample: str | None = param(
+        None,
+        help="Sample name (SM) for every read group; needed when the inputs "
+        "name different samples, e.g. one person's runs labelled differently "
+        "(default: the inputs' sample name, else the output file name).",
     )
     ref: Path | None = ref_param()
     outdir: Path | None = outdir_param("the first input's folder")
     threads: int | None = threads_param()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.sample is not None and (
+            not self.sample.strip() or any(c in self.sample for c in "\t\r\n")
+        ):
+            raise UsageError("--sample must be a name without tabs or line breaks.")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -381,7 +401,7 @@ def merge(
 ) -> CommandResult:
     """Merge the inputs (output role ``merged_alignment``; the
     ``merged_inputs`` metric counts them)."""
-    from wgsextract_cli.commands.bam import run_merge
+    from wgsextract_cli.commands._bam_merge import run_merge
 
     return execute(params, run_merge, progress=progress, cancel=cancel, check=check)
 

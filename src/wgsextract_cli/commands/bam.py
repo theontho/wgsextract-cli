@@ -34,9 +34,7 @@ from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
-    UsageError,
     WGSExtractError,
-    get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
     run_command,
@@ -45,7 +43,6 @@ from wgsextract_cli.core.utils import (
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     get_bam_header,
-    is_sorted,
     resolve_reference,
     verify_paths_exist,
 )
@@ -56,6 +53,7 @@ from wgsextract_cli.core.warnings import (
     print_warning,
 )
 
+from ._bam_merge import run_merge
 from ._bam_ubam import cmd_to_ubam
 from ._extract_helpers import (
     BaseArgs,
@@ -63,6 +61,7 @@ from ._extract_helpers import (
     base_args,
     cleanup_files,
     derive_output_path,
+    named_output_path,
     region_or_gene,
 )
 
@@ -395,19 +394,6 @@ def run_to_bam(params: BamToBamParams) -> None:
     current_result().add_metrics(**record_alignment_output(out_file, "alignment"))
 
 
-def _fastq_output_path(path: str, outdir: str) -> str:
-    """A bare file name goes in --outdir; a path with a directory is used as given."""
-    named = Path(path)
-    if named.name == path:
-        return str(Path(outdir, path))
-    if named.drive and not named.root:
-        # Windows D:name is relative to drive D's working folder, not outdir.
-        raise UsageError(
-            f"{path}: name the file alone (it goes in --outdir) or by its full path."
-        )
-    return path
-
-
 def run_unalign(params: BamUnalignParams) -> None:
     input_path, base, region = _setup(params)
     threads, memory, outdir, cram_opt, resolved_ref = base
@@ -429,11 +415,11 @@ def run_unalign(params: BamUnalignParams) -> None:
 
     logging.info(LOG_MESSAGES["unaligning_reads"])
     fastqs = {
-        "fastq_r1": _fastq_output_path(params.r1, outdir),
-        "fastq_r2": _fastq_output_path(params.r2, outdir),
+        "fastq_r1": named_output_path(params.r1, outdir),
+        "fastq_r2": named_output_path(params.r2, outdir),
     }
     if params.se:
-        fastqs["fastq_single"] = _fastq_output_path(params.se, outdir)
+        fastqs["fastq_single"] = named_output_path(params.se, outdir)
     alignments_to_fastq(
         input_path,
         fastqs["fastq_r1"],
@@ -450,29 +436,6 @@ def run_unalign(params: BamUnalignParams) -> None:
     current_result().add_metrics(read_groups=len(read_groups))
 
 
-def _merge_output_path(params: BamMergeParams, outdir: str) -> str:
-    ext = ".cram" if params.cram else ".bam"
-    name = params.output or f"merged{ext}"
-    if not name.lower().endswith((".bam", ".cram")):
-        name += ext
-    elif name.lower().endswith(".cram") != params.cram:
-        raise UsageError(
-            f"--output {name} does not match the output format "
-            f"({'CRAM' if params.cram else 'BAM'}); add or drop --cram."
-        )
-    return _fastq_output_path(name, outdir)
-
-
-def _sequence_dictionary(header: str) -> tuple[tuple[str, str], ...]:
-    """Ordered (SN, LN) pairs from the @SQ lines of a SAM header."""
-    entries = []
-    for line in header.splitlines():
-        if line.startswith("@SQ"):
-            fields = dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
-            entries.append((fields.get("SN", ""), fields.get("LN", "")))
-    return tuple(entries)
-
-
 def _read_groups(header: str) -> dict[str, str]:
     """@RG lines keyed by ID."""
     groups = {}
@@ -482,115 +445,6 @@ def _read_groups(header: str) -> dict[str, str]:
                 if field.startswith("ID:"):
                     groups[field[3:]] = line
     return groups
-
-
-def _is_cram(path: str) -> bool:
-    return path.lower().endswith(".cram")
-
-
-def run_merge(params: BamMergeParams) -> None:
-    verify_dependencies(["samtools"])
-    log_dependency_info(["samtools"])
-    inputs = [fspath(p) for p in params.inputs]
-    if len(inputs) < 2:
-        raise UsageError("bam merge needs at least two input files.")
-    verify_paths_exist({f"input {i}": path for i, path in enumerate(inputs, 1)})
-    for path in inputs:
-        current_result().add_input(path)
-    if len({str(Path(p).resolve()) for p in inputs}) != len(inputs):
-        raise UsageError("The same file is listed more than once.")
-
-    first_header = ""
-    first_dict: tuple[tuple[str, str], ...] = ()
-    read_groups: dict[str, set[str]] = {}
-    for path in inputs:
-        header = get_bam_header(path)
-        if not header:
-            raise WGSExtractError(f"Could not read the header of {path}.")
-        if not is_sorted(path, header=header):
-            raise WGSExtractError(
-                f"{path} is not coordinate-sorted; run 'wgsextract bam sort' first."
-            )
-        for rg_id, line in _read_groups(header).items():
-            read_groups.setdefault(rg_id, set()).add(line)
-        seq_dict = _sequence_dictionary(header)
-        if not first_header:
-            first_header, first_dict = header, seq_dict
-        elif seq_dict != first_dict:
-            raise WGSExtractError(
-                f"{path} has a different sequence dictionary (@SQ lines) than "
-                f"{inputs[0]}; merge only files aligned to the same reference."
-            )
-
-    threads, _ = get_resource_defaults(params.threads, None)
-    outdir = fspath(params.outdir or absolute_path(inputs[0]).parent)
-    Path(outdir).mkdir(parents=True, exist_ok=True)
-    out_file = _merge_output_path(params, outdir)
-    if any(Path(out_file).resolve() == Path(p).resolve() for p in inputs):
-        raise WGSExtractError(f"Output {out_file} would overwrite an input file.")
-
-    ref = None
-    if params.cram or any(_is_cram(p) for p in inputs):
-        ref = resolve_reference(
-            fspath(params.ref) if params.ref else None,
-            calculate_bam_md5(inputs[0], header=first_header),
-            inputs[0],
-        )
-        if not (ref and Path(ref).is_file()):
-            raise WGSExtractError(
-                LOG_MESSAGES["ref_required_for"].format(task="merging CRAM files")
-            )
-
-    # Output is about the size of the inputs; CRAM is roughly half of BAM.
-    out_bytes = 0.0
-    for path in inputs:
-        ratio = 1.0 if _is_cram(path) == params.cram else (0.5 if params.cram else 2.0)
-        out_bytes += Path(path).stat().st_size * ratio
-    needed_gb = int(out_bytes / 1024**3) + 1
-    if not check_free_space(outdir, needed_gb):
-        raise WGSExtractError(
-            f"Insufficient free disk space at {outdir} (needs ~{needed_gb} GB)."
-        )
-
-    # Name the index explicitly: samtools would otherwise write .csi for BAM,
-    # which GATK/htsjdk tools cannot read.
-    index = out_file + (".crai" if params.cram else ".bai")
-    # -f: replace an earlier result like the other commands do. (samtools'
-    # exists check doesn't see through ##idx##, but don't rely on that.)
-    cmd = ["samtools", "merge", "-f", "-@", threads, "--write-index"]
-    cmd += ["-O", "CRAM" if params.cram else "BAM", "-o", f"{out_file}##idx##{index}"]
-    if ref:
-        cmd += ["--reference", ref]
-    if params.attach_rg:
-        cmd.append("-r")
-    conflicting = sorted(i for i, lines in read_groups.items() if len(lines) > 1)
-    if conflicting:
-        warn(
-            "read_group_conflict",
-            f"Read group ID(s) {', '.join(conflicting)} are defined differently in "
-            "different inputs; samtools will give them distinct IDs.",
-            read_groups=", ".join(conflicting),
-        )
-    else:
-        # Identical @RG lines are the same read group split across files.
-        cmd.append("-c")
-    logging.info(f"Merging {len(inputs)} files into {out_file}...")
-    try:
-        with cleanup_files(on_failure=[out_file, index]):
-            run_command(cmd + inputs, capture_output=True)
-    except (OSError, subprocess.SubprocessError) as e:
-        stderr = getattr(e, "stderr", None)
-        raise WGSExtractError(
-            f"Merging failed: {e}" + (f"\n{stderr.strip()}" if stderr else "")
-        ) from e
-    current_result().set_reference(ref)
-    counts = record_alignment_output(out_file, "merged_alignment")
-    current_result().add_metrics(merged_inputs=len(inputs), **counts)
-    logging.info(f"Merged file written to {out_file}")
-    logging.info(
-        "If the inputs are lanes of one library, mark duplicates again on the "
-        "merged file before variant calling."
-    )
 
 
 cmd_sort = cli_handler(BamSortParams, run_sort)
