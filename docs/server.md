@@ -46,11 +46,13 @@ you start yourself:
   allowed folders are those given with `--allow`, the `server_allowed_paths`
   setting, and the `genome_library`, `reference_library` and
   `output_directory` settings. Of the settings, only the folders that exist
-  are allowed; a missing `--allow` folder stops the server. A symlink inside
-  an allowed folder that points outside it is refused. That holds for the
-  paths a request names; the files a command finds inside a named folder (a
-  reference library's genomes, a model folder's weights, a checkpoint's
-  files) aren't checked one by one.
+  are allowed; a missing `--allow` folder stops the server. Folders a
+  command derives from a path are checked too: a `ref` FASTA in a
+  `genomes` folder names the library above it, which must also be allowed.
+  A symlink inside an allowed folder that points outside it is refused. That
+  holds for the paths a request names; the files a command finds inside a
+  named folder (a reference library's genomes, a model folder's weights, a
+  checkpoint's files) aren't checked one by one.
   The guard limits what a client can name. It is not a sandbox against other
   programs running as you, which can change the allowed folders (for example
   retarget a symlink) whatever the server does.
@@ -125,7 +127,8 @@ only with `full=1`, to keep responses short.
   `ref/status`) start at once. Other operations queue: `--max-jobs`
   (setting `server_max_jobs`, default 1) of them run at a time. Jobs that save to
   the same folder run one after another, since commands use fixed file
-  names there.
+  names there. `ref/index`, `ref/count-ns` and `ref/verify` save beside
+  their FASTA, so they need no `outdir`.
 - **Isolation.** Each job runs the API function in its own worker process.
   A crash or a cancel affects only that job. Its log, at the CLI's log level
   (`--debug` for more), is `<state>/server/jobs/<id>.log`.
