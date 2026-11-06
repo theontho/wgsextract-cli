@@ -23,7 +23,7 @@ from wgsextract_cli.api._runtime import checkpoint
 from wgsextract_cli.api.methylation import MethylationPileupParams
 from wgsextract_cli.commands._extract_helpers import cleanup_files
 from wgsextract_cli.commands.vcf.basic import plain_reference
-from wgsextract_cli.core.atomic_output import safe_output
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled, safe_output
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -599,7 +599,9 @@ def run_pileup(params: MethylationPileupParams) -> None:
     parquet = params.table_format == "parquet"
     partial = [out_bed, f"{out_bed}.tbi", out_summary, *([out_table] * parquet)]
     logging.info(f"Tabulating base modifications with modkit to {out_bed}")
-    with cleanup_files(on_failure=partial):
+    # With atomic outputs, a failed rerun keeps the previous complete results.
+    preserve = atomic_outputs_enabled()
+    with cleanup_files(on_failure=partial, preserve_outputs=preserve):
         with (
             plain_reference(ref, outdir) as use_ref,
             tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_modkit_") as work,

@@ -439,3 +439,40 @@ def test_parquet_format_also_writes_the_sites(tmp_path, fake_modkit, tagged):
     sites = pq.read_table(outputs["bedmethyl_table"].path)
     assert sites.column("n_mod").to_pylist() == [9, 1, 8]
     assert outputs["bedmethyl_table"].metrics["rows"] == 3
+
+
+@needs_samtools
+def test_a_cancelled_rerun_keeps_the_previous_results_with_atomic_outputs(
+    tmp_path, fake_modkit, tagged, monkeypatch
+):
+    """#478 review: with atomic_outputs, a failed rerun must not delete the
+    earlier complete bedMethyl, its index and summary."""
+    from wgsextract_cli.core.config import settings
+
+    monkeypatch.setitem(settings, "atomic_outputs", True)
+    bam, ref = tagged
+    out = tmp_path / "out"
+    params = MethylationPileupParams(input=bam, ref=ref, outdir=out)
+    api.methylation.pileup(params)
+    kept = ["reads.cpg.bedmethyl.gz", "reads.cpg.bedmethyl.gz.tbi"]
+    kept.append("reads.cpg.methylation.tsv")
+    before = {name: (out / name).read_bytes() for name in kept}
+    fake_modkit.install(sleep=60)
+    token = api.CancelToken()
+
+    def cancel_once_modkit_writes() -> None:
+        deadline = time.monotonic() + 30
+        while not list(out.glob(".*partial*")):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.05)
+        token.cancel()
+
+    watcher = threading.Thread(target=cancel_once_modkit_writes)
+    watcher.start()
+    result = api.methylation.pileup(params, cancel=token, check=False)
+    watcher.join()
+
+    assert result.status == "cancelled"
+    assert {name: (out / name).read_bytes() for name in kept} == before
+    assert not list(out.glob(".*partial*"))
