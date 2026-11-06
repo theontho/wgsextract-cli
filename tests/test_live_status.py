@@ -224,8 +224,14 @@ def test_finished_contigs_reach_the_line_through_progress_events():
     with _terminal() as tty:
         line = live_status.LiveStatus("vcf snp", tty, delay=0, interval=0.01)
         with line, dispatch._rendering_progress(line):
-            ContigProgress(["chr1", "chr2"], {"chr1": 3, "chr2": 1}).done("chr1")
-            _wait_for(lambda: "chr1 (1/2 contigs)" in tty.getvalue())
+            # Parallel workers' steps overlap; one ending doesn't clear the count.
+            with live_status.step("bcftools call"):
+                with live_status.step("bcftools call"):
+                    ContigProgress(["chr1", "chr2"], {"chr1": 3, "chr2": 1}).done(
+                        "chr1"
+                    )
+                drawn = len(tty.getvalue())
+                _wait_for(lambda: "chr1 (1/2 contigs)" in tty.getvalue()[drawn:])
     assert _screen(tty.getvalue()) == []
 
 

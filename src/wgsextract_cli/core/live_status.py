@@ -13,7 +13,7 @@ terminal clears the line first, and it comes back once that output ends in a
 newline.
 
 Code that runs a step (run_command, run_pipeline) names it with ``step()``;
-progress counts go in ``detail()``. Both do nothing when no display is
+progress counts go in ``detail()``, which a step clears when it ends. Both do nothing when no display is
 active. Dispatch subscribes ``show_progress`` to the run's API progress
 events, so a Heartbeat's counts reach the line as they reach an API caller. A tool writing to the terminal itself would
 overwrite the line, so run_command and popen relay the output of tools that
@@ -97,6 +97,8 @@ class LiveStatus:
         self.lock = threading.RLock()
         self.steps: list[str] = []
         self.detail = ""
+        # The run's overall progress (finished contigs), which outlives steps.
+        self.overall = ""
         self.line_open = False
         self._drawn = 0
         self._started = time.monotonic()
@@ -110,8 +112,7 @@ class LiveStatus:
         if self.steps:
             parts[0] += f": {self.steps[-1]}"
         parts.append(_elapsed(time.monotonic() - self._started))
-        if self.detail:
-            parts.append(self.detail)
+        parts += [text for text in (self.detail, self.overall) if text]
         width = shutil.get_terminal_size((80, 24)).columns - 1
         return f"{frame} {', '.join(parts)}"[:width]
 
@@ -217,7 +218,9 @@ def detail(text: str) -> None:
 
 
 def show_progress(event: "ProgressEvent") -> None:
-    """Render an API progress event: a heartbeat's count or the last finished
-    contig becomes the detail."""
-    if event.stage in ("heartbeat", "contig"):
+    """Render an API progress event: a heartbeat's count becomes the step's
+    detail; the last finished contig stays on the line until the next."""
+    if event.stage == "heartbeat":
         detail(event.message)
+    elif event.stage == "contig" and _active is not None:
+        _active.overall = event.message

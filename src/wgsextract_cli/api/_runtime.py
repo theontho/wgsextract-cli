@@ -36,7 +36,8 @@ class ProgressEvent:
     periodic count from a long tool run, such as ``"1,200/5,000 reads"``, with
     the fraction of that run done when the total is known) and ``contig`` (a
     per-contig worker finished, such as ``"chr2 (3/25 contigs)"``, with the
-    fraction of the contigs' bases called so far). More stages may be added."""
+    fraction of the contigs' bases done so far, or of the contigs when their
+    lengths are not known, as in ``microarray``). More stages may be added."""
 
     stage: str
     message: str = ""
