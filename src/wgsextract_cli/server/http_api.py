@@ -22,6 +22,7 @@ from wgsextract_cli import __version__
 
 from .jobs import Job, JobManager
 from .operations import PathGuard, RequestError, find, operations, params_from_json
+from .queries import QUERIES
 
 MAX_BODY_BYTES = 1 << 20
 MAX_WAIT_SECONDS = 600.0
@@ -186,12 +187,18 @@ class Handler(BaseHTTPRequestHandler):
                 "ops": "/v1/ops",
                 "jobs": "/v1/jobs",
                 "openapi": "/v1/openapi.json",
+                "lookups": [f"/v1/{q.route}" for q in QUERIES.values()],
                 "allowed_paths": [str(p) for p in self.server.guard.roots],
             },
         )
 
     def openapi(self, match: re.Match[str], query: dict[str, list[str]]) -> None:
         self._send_json(200, openapi_document(self.server.url))
+
+    def lookup(self, match: re.Match[str], query: dict[str, list[str]]) -> None:
+        (lookup,) = (q for q in QUERIES.values() if q.route == match["route"])
+        arguments = lookup.from_query_string(query)
+        self._send_json(200, lookup.run(self.server.guard, arguments))
 
     def list_ops(self, match: re.Match[str], query: dict[str, list[str]]) -> None:
         self._send_json(200, {"ops": [op.describe() for op in operations().values()]})
@@ -336,6 +343,7 @@ ROUTES: list[tuple[str, re.Pattern[str], Route]] = [
         ("POST", f"/v1/jobs/{_ID}/rerun", Handler.rerun_job),
         ("GET", f"/v1/jobs/{_ID}/log", Handler.job_log),
         ("GET", f"/v1/jobs/{_ID}/events", Handler.job_events),
+        ("GET", "/v1/(?P<route>manifest|variants|report)", Handler.lookup),
     )
 ]
 
@@ -463,6 +471,27 @@ def openapi_document(server_url: str = "http://127.0.0.1") -> dict[str, Any]:
                     **_errors(400, 401, 403, 404),
                 },
             },
+        }
+    for lookup in QUERIES.values():
+        paths[f"/v1/{lookup.route}"] = {
+            "get": {
+                "operationId": lookup.name,
+                "summary": lookup.summary,
+                "description": "Read-only; array parameters are comma-separated.",
+                "parameters": [
+                    {
+                        "name": name,
+                        "in": "query",
+                        "required": name in lookup.required,
+                        "schema": spec,
+                    }
+                    for name, spec in lookup.properties.items()
+                ],
+                "responses": {
+                    "200": {"description": "The answer"},
+                    **_errors(400, 401, 403, 404),
+                },
+            }
         }
     paths.update(
         {

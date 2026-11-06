@@ -2,7 +2,8 @@
 message per line, as the Model Context Protocol specifies.
 
 Tools are the API's operations (``info``, ``vcf_snp``, ...) with their Params'
-JSON Schema, plus ``read_manifest``, ``list_jobs`` and ``job_status``. Only
+JSON Schema, the lookups (``read_manifest``, ``query_variants``,
+``report_section``), ``list_jobs`` and ``job_status``. Only
 read-only queries are offered unless ``--allow-jobs``; then every operation
 is, and ``cancel_job``. A query tool waits for its result; a job tool returns
 the started job, to follow with ``job_status``.
@@ -14,11 +15,9 @@ import json
 import logging
 import threading
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, TextIO
 
 from wgsextract_cli import __version__
-from wgsextract_cli.core.results import MANIFEST_SUFFIX, SCHEMA_ID
 
 from .http_api import MAX_WAIT_SECONDS
 from .jobs import Job, JobManager
@@ -31,6 +30,7 @@ from .operations import (
     operations,
     params_from_json,
 )
+from .queries import QUERIES
 
 # Newest first; a client asking for another gets the newest.
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
@@ -228,22 +228,10 @@ class McpServer:
             if self._offered(op)
         ]
         tools += [
-            _tool(
-                "read_manifest",
-                "Read a result manifest (*.manifest.json) a WGS Extract command "
-                "wrote: its outputs, metrics, warnings and details.",
-                _object(
-                    {
-                        "path": {"type": "string", "description": "Absolute path."},
-                        "full": {
-                            "type": "boolean",
-                            "description": "Include provenance (tools, params).",
-                        },
-                    },
-                    "path",
-                ),
-                read_only=True,
-            ),
+            _tool(query.name, query.summary, query.schema, read_only=True)
+            for query in QUERIES.values()
+        ]
+        tools += [
             _tool(
                 "list_jobs",
                 "List this server's jobs: id, op, status and times.",
@@ -336,8 +324,8 @@ class McpServer:
                 self._calls[request_id] = job.id
             job = self._follow(job, progress_token)
             return job.view(), job.status != "succeeded"
-        if name == "read_manifest":
-            return self._read_manifest(arguments), False
+        if name in QUERIES:
+            return QUERIES[name].run(self.guard, arguments), False
         if name == "list_jobs":
             status = arguments.get("status")
             return {
@@ -392,23 +380,6 @@ class McpServer:
         if job is None:
             raise RequestError(404, "unknown_job", f"No job {job_id!r}.")
         return job
-
-    def _read_manifest(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        path = Path(str(arguments.get("path") or ""))
-        if not path.name.endswith(MANIFEST_SUFFIX):
-            raise RequestError(
-                400, "usage", f"path must be a result manifest (*{MANIFEST_SUFFIX})."
-            )
-        self.guard.check_path("path", path)
-        try:
-            document = json.loads(path.expanduser().read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
-            raise RequestError(404, "unreadable", f"Can't read {path}: {e}") from None
-        if not isinstance(document, dict) or document.get("schema") != SCHEMA_ID:
-            raise RequestError(400, "usage", f"{path} is not a {SCHEMA_ID} manifest.")
-        if not arguments.get("full"):
-            document.pop("provenance", None)
-        return document
 
 
 class _InvalidParams(Exception):

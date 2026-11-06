@@ -117,6 +117,9 @@ A failed analysis is not an HTTP error. Its job finishes with status
 | `GET /v1/jobs/{id}/log?tail=N` | The last N lines of the job's log (default 200; 0 for all) |
 | `DELETE /v1/jobs/{id}` | Cancel a queued or running job |
 | `POST /v1/jobs/{id}/rerun` | Start a new job with the same parameters |
+| `GET /v1/manifest?path=&full=1` | A result manifest (`*.manifest.json`); `provenance` only with `full=1` |
+| `GET /v1/variants?path=&gene=&rsid=&region=&clinvar=&min_confidence=&columns=&limit=&cursor=` | Rows of a `vcf table` output; see [Lookups](#lookups) |
+| `GET /v1/report?path=&section=` | A sample's personal report; see [Lookups](#lookups) |
 
 Operation names are the CLI command with `/` between words: `info`,
 `info/chip`, `vcf/snp`, `lineage/mt-haplogroup`, `sample/show`. Parameters
@@ -136,6 +139,35 @@ curl -H "Authorization: Bearer $TOKEN" "$URL/jobs/20260105-100425-986af7?wait=60
 `exit_code` and `error`, and the operation's result manifest as `result`.
 The manifest's `provenance` (tool versions and the full parameters) appears
 only with `full=1`, to keep responses short.
+
+### Lookups
+
+The server answers three read-only lookups itself, without a job, over HTTP
+(`GET /v1/manifest`, `/v1/variants`, `/v1/report`) and MCP (tools
+`read_manifest`, `query_variants`, `report_section`). Their paths must be in
+an allowed folder.
+
+- **Variants.** `path` is a [`vcf table`](variant-table.md) output:
+  `*_variants.sqlite`, `.tsv` or `.parquet` (needs pyarrow). The filters
+  combine: `gene` (symbol), `rsid` (one rsID), `region` (`chr1`,
+  `chr1:1000` or `chr1:1000-2000`, named as in the table), `clinvar` (a
+  ClinVar significance term such as `Pathogenic`, case-insensitive) and
+  `min_confidence` (`low`, `moderate` or `high`). `columns` picks columns
+  (comma-separated over HTTP); empty values are left out. An answer has at
+  most `limit` rows (default 50, at most 1000); pass its `next_cursor` as
+  `cursor` for the next page. The SQLite database is fastest: it uses its
+  gene, rsID and position indexes.
+- **Report.** `path` is a sample folder, whose newest
+  `*_personal_report.json` is read, or the report JSON itself (run the
+  `report` operation first). Without `section`, the answer lists each
+  section's `status` and `summary`; with `section` (for example
+  `pharmacogenomics`), it is that section in full, with its findings.
+
+```sh
+curl -H "Authorization: ******" \
+  "$URL/variants?path=/home/me/wgs/HG002/HG002_variants.sqlite&clinvar=Pathogenic&min_confidence=high"
+# 200 {"path": "...", "rows": [{"chrom": "chr17", "pos": 43094464, "gene": "BRCA1", ...}], "next_cursor": null}
+```
 
 ### Jobs
 
@@ -184,10 +216,10 @@ example:
 Tools are named after the operations, with `_` between words: `info`,
 `info_chip`, `sample_show`, and with `--allow-jobs` also `vcf_snp`,
 `lineage_mt_haplogroup` and the others. Each tool's input schema is its
-Params' JSON Schema. Three tools are always offered:
+Params' JSON Schema. These tools are always offered:
 
-- `read_manifest`: read a result manifest (`*.manifest.json`) in an allowed
-  folder.
+- `read_manifest`, `query_variants` and `report_section`: the
+  [lookups](#lookups).
 - `list_jobs`: list the jobs.
 - `job_status`: a job's status and result. `wait_seconds` waits for the job
   to finish.

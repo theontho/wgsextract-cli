@@ -2,6 +2,7 @@
 
 import contextlib
 import http.client
+import importlib.util
 import json
 import ntpath
 import os
@@ -13,6 +14,7 @@ import threading
 import time
 import typing
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -1484,6 +1486,40 @@ def test_mcp_offers_deleting_tools_only_with_allow_destructive(work):
     assert allowed.close() == 0
 
 
+def _pharmcat_run(sample: Path, folder: Path) -> None:
+    """A `vcf pharmcat` manifest in ``sample`` whose phenotypes are in ``folder``."""
+    phenotypes = {
+        "geneReports": {
+            "CYP2C19": {
+                "recommendationDiplotypes": [
+                    {
+                        "allele1": {"name": "*1"},
+                        "allele2": {"name": "*17"},
+                        "phenotypes": ["Rapid Metabolizer"],
+                    }
+                ]
+            }
+        }
+    }
+    evidence = folder / "HG002.phenotype.json"
+    evidence.write_text(json.dumps(phenotypes))
+    manifest = sample / "HG002.phenotype.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "wgsextract.result/1",
+                "command": "vcf pharmcat",
+                "status": "ok",
+                "exit_code": 0,
+                "inputs": [{"path": str(sample / "HG002.vcf.gz"), "role": "input"}],
+                "outputs": [{"path": str(evidence), "role": "pharmcat_phenotypes"}],
+                "manifest": str(manifest),
+                "provenance": {"finished": "2025-01-01T00:00:00+00:00"},
+            }
+        )
+    )
+
+
 @pytest.mark.parametrize("through_link", [False, True])
 def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
     tmp_path, work, through_link
@@ -1503,38 +1539,6 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
     sample.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    phenotypes = {
-        "geneReports": {
-            "CYP2C19": {
-                "recommendationDiplotypes": [
-                    {
-                        "allele1": {"name": "*1"},
-                        "allele2": {"name": "*17"},
-                        "phenotypes": ["Rapid Metabolizer"],
-                    }
-                ]
-            }
-        }
-    }
-
-    def pharmcat_run(folder: Path) -> None:
-        evidence = folder / "HG002.phenotype.json"
-        evidence.write_text(json.dumps(phenotypes))
-        manifest = sample / "HG002.phenotype.manifest.json"
-        manifest.write_text(
-            json.dumps(
-                {
-                    "schema": "wgsextract.result/1",
-                    "command": "vcf pharmcat",
-                    "status": "ok",
-                    "exit_code": 0,
-                    "inputs": [{"path": str(sample / "HG002.vcf.gz"), "role": "input"}],
-                    "outputs": [{"path": str(evidence), "role": "pharmcat_phenotypes"}],
-                    "manifest": str(manifest),
-                    "provenance": {"finished": "2025-01-01T00:00:00+00:00"},
-                }
-            )
-        )
 
     def genes(job: dict[str, Any]) -> set[str]:
         assert job["status"] == "succeeded", job
@@ -1549,9 +1553,9 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
         return genes(client.request("POST", "/ops/report?wait=120", body)[1])
 
     with _serve(tmp_path, [allowed]) as client:
-        pharmcat_run(sample)
+        _pharmcat_run(sample, sample)
         assert over_http(client) == {"CYP2C19"}
-        pharmcat_run(outside)
+        _pharmcat_run(sample, outside)
         assert over_http(client) == set()
     mcp = Mcp("--allow", str(allowed), "--allow-jobs")
 
@@ -1561,7 +1565,7 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
         return genes(job["structuredContent"])
 
     assert over_mcp() == set()
-    pharmcat_run(sample)
+    _pharmcat_run(sample, sample)
     assert over_mcp() == {"CYP2C19"}
     assert mcp.close() == 0
 
@@ -1611,3 +1615,178 @@ def test_a_server_report_never_touches_a_refused_recorded_path(
     report = json.loads((sample / "HG002_personal_report.json").read_text())
     assert report["sections"]["pharmacogenomics"]["findings"] == []
     assert [f["exists"] for f in report["sections"]["microarray"]["files"]] == [False]
+
+
+_TABLE_HEADER = """##fileformat=VCFv4.2
+##contig=<ID=chr1,length=1000>
+##contig=<ID=chr2,length=1000>
+##INFO=<ID=CLNSIG,Number=.,Type=String,Description="ClinVar significance">
+##INFO=<ID=WGSE_CONF,Number=A,Type=String,Description="Confidence">
+##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Allele|Consequence|IMPACT|SYMBOL">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1
+"""
+# (chrom, pos, id, ref, alt, gene, ClinVar, confidence)
+_TABLE_RECORDS = [
+    ("chr1", 100, "rs1", "A", "G", "GENEA", "Pathogenic", "high"),
+    ("chr1", 200, "rs2", "C", "T", "GENEA", "Likely_pathogenic", "moderate"),
+    ("chr1", 300, "rs22", "G", "A", "GENEB", "Benign", "low"),
+    ("chr1", 400, "rs4", "T", "C", "GENEB", "Pathogenic/Likely_pathogenic", "high"),
+    ("chr2", 50, "rs5", "A", "T", "GENEC", None, "high"),
+]
+
+
+@pytest.fixture
+def variant_tables(work: Path) -> dict[str, Path]:
+    from tests.htslib_helpers import bgzip_index, run_wgsextract
+
+    lines = [
+        "\t".join(
+            [
+                chrom,
+                str(pos),
+                rsid,
+                ref,
+                alt,
+                "50",
+                "PASS",
+                ";".join(
+                    ([f"CLNSIG={clnsig}"] if clnsig else [])
+                    + [
+                        f"WGSE_CONF={conf}",
+                        f"CSQ={alt}|missense_variant|MODERATE|{gene}",
+                    ]
+                ),
+                "GT",
+                "0/1",
+            ]
+        )  # fmt: skip
+        for chrom, pos, rsid, ref, alt, gene, clnsig, conf in _TABLE_RECORDS
+    ]
+    plain = work / "sample.vcf"
+    plain.write_text(_TABLE_HEADER + "\n".join(lines) + "\n")
+    vcf = bgzip_index(plain)
+    run_wgsextract("vcf", "table", "--vcf-input", vcf, "--outdir", str(work))
+    tables = {
+        "sqlite": work / "sample_variants.sqlite",
+        "tsv": work / "sample_variants.tsv",
+    }
+    if importlib.util.find_spec("pyarrow"):
+        run_wgsextract(
+            "vcf", "table", "--vcf-input", vcf, "--outdir", str(work),
+            "--no-sqlite", "--format", "parquet",
+        )  # fmt: skip
+        tables["parquet"] = work / "sample_variants.parquet"
+    return tables
+
+
+@pytest.mark.parametrize("kind", ["sqlite", "tsv", "parquet"])
+def test_variant_lookups_filter_and_page_every_table_format(
+    tmp_path, work, variant_tables, kind
+):
+    if kind not in variant_tables:
+        pytest.skip("pyarrow not installed")
+    table = variant_tables[kind]
+
+    def lookup(**query: Any) -> tuple[int, Any]:
+        text = urllib.parse.urlencode({"path": str(table), **query})
+        return client.request("GET", f"/variants?{text}")
+
+    def positions(**query: Any) -> list[tuple[str, int]]:
+        status, answer = lookup(**query)
+        assert status == 200, answer
+        return [(row["chrom"], row["pos"]) for row in answer["rows"]]
+
+    with _serve(tmp_path, [work]) as client:
+        assert positions(gene="GENEA") == [("chr1", 100), ("chr1", 200)]
+        # rs2 is not rs22.
+        assert positions(rsid="rs2") == [("chr1", 200)]
+        assert positions(region="chr1:150-350") == [("chr1", 200), ("chr1", 300)]
+        assert positions(region="chr1:300") == [("chr1", 300)]
+        assert positions(region="chr2") == [("chr2", 50)]
+        assert positions(clinvar="likely_pathogenic") == [("chr1", 200), ("chr1", 400)]
+        assert positions(min_confidence="moderate", gene="GENEB") == [("chr1", 400)]
+        status, answer = lookup(gene="GENEB", columns="pos,clinvar_significance")
+        assert answer["rows"] == [
+            {"pos": 300, "clinvar_significance": "Benign"},
+            {"pos": 400, "clinvar_significance": "Pathogenic/Likely_pathogenic"},
+        ]
+
+        pages: list[list[int]] = []
+        cursor = ""
+        while cursor is not None:
+            status, answer = lookup(limit=2, **({"cursor": cursor} if cursor else {}))
+            pages.append([row["pos"] for row in answer["rows"]])
+            cursor = answer["next_cursor"]
+        assert pages == [[100, 200], [300, 400], [50]]
+        status, answer = lookup(gene="GENEB", limit=1)
+        assert [row["pos"] for row in answer["rows"]] == [300]
+        status, answer = lookup(gene="GENEB", limit=1, cursor=answer["next_cursor"])
+        assert ([row["pos"] for row in answer["rows"]], answer["next_cursor"]) == (
+            [400],
+            None,
+        )
+
+        for bad in ({"limit": 0}, {"rsid": "2"}, {"region": "chr1:9-1"}, {"x": 1}):
+            status, answer = lookup(**bad)
+            assert (status, answer["error"]["code"]) == (400, "usage"), bad
+        outside = tmp_path / table.name
+        shutil.copy(table, outside)
+        status, answer = client.request(
+            "GET", f"/variants?{urllib.parse.urlencode({'path': str(outside)})}"
+        )
+        assert (status, answer["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_report_lookup_reads_a_samples_newest_report(tmp_path, work):
+    from tests.htslib_helpers import run_wgsextract
+
+    sample = work / "HG002"
+    sample.mkdir()
+    _pharmcat_run(sample, sample)
+    run_wgsextract("report", "--workspace", str(sample))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    def lookup(path: Path, **query: Any) -> tuple[int, Any]:
+        text = urllib.parse.urlencode({"path": str(path), **query})
+        return client.request("GET", f"/report?{text}")
+
+    with _serve(tmp_path, [work]) as client:
+        status, answer = lookup(sample)
+        assert status == 200, answer
+        assert answer["sample"]["name"] == "HG002" and answer["disclaimer"]
+        overview = answer["sections"]["pharmacogenomics"]
+        assert overview["summary"] and "findings" not in overview
+        status, answer = lookup(sample, section="pharmacogenomics")
+        assert [f["gene"] for f in answer["findings"]] == ["CYP2C19"]
+        assert lookup(sample, section="nope")[0] == 400
+        assert lookup(work)[1]["error"]["code"] == "no_report"
+        assert lookup(outside)[1]["error"]["code"] == "path_not_allowed"
+
+        # A newer report reached through a link must still be inside.
+        report = sample / "HG002_personal_report.json"
+        elsewhere = outside / "HG003_personal_report.json"
+        shutil.copy(report, elsewhere)
+        try:
+            (sample / elsewhere.name).symlink_to(elsewhere)
+        except OSError:
+            return
+        os.utime(elsewhere, (time.time() + 60, time.time() + 60))
+        status, answer = lookup(sample)
+        assert (status, answer["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_mcp_offers_lookups_without_allow_jobs(work, variant_tables):
+    mcp = Mcp("--allow", str(work))
+    tools = {t["name"]: t for t in mcp.request("tools/list", {})["result"]["tools"]}
+    for name in ("read_manifest", "query_variants", "report_section"):
+        assert tools[name]["annotations"]["readOnlyHint"] is True
+    result = mcp.call("query_variants", path=str(variant_tables["sqlite"]), rsid="rs4")
+    assert result["isError"] is False
+    assert [r["gene"] for r in result["structuredContent"]["rows"]] == ["GENEB"]
+    result = mcp.call("query_variants", path=str(variant_tables["tsv"]), limit="2")
+    assert result["structuredContent"]["error"]["code"] == "usage"
+    result = mcp.call("report_section", path=str(work.parent))
+    assert result["structuredContent"]["error"]["code"] == "path_not_allowed"
+    assert mcp.close() == 0
