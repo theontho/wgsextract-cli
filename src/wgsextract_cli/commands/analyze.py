@@ -7,6 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._params import to_namespace
+from wgsextract_cli.api.analyze import AnalyzeBatchGenParams, AnalyzeComprehensiveParams
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -14,22 +17,13 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.results import current_result
-from wgsextract_cli.core.steps import (
-    Step,
-    StepJournal,
-    add_resume_arguments,
-    resume_policy,
-)
+from wgsextract_cli.core.steps import Step, StepJournal, resume_policy
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
-from wgsextract_cli.core.variant_confidence import (
-    add_confidence_arguments,
-    thresholds_from,
-)
+from wgsextract_cli.core.variant_confidence import thresholds_from
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
 from ._analyze_workflows import (
     JOURNAL,
-    STEPS,
     AnalyzeResult,
     _print,
     _step_params,
@@ -47,12 +41,25 @@ class BatchSample(TypedDict):
     vcfs: list[str]
 
 
+def run_comprehensive(
+    params: AnalyzeComprehensiveParams,
+    debug: bool = False,
+    keep_awake: bool | None = None,
+) -> None:
+    """The ``analyze comprehensive`` operation (``api.analyze.comprehensive``).
+    ``debug`` and ``keep_awake`` are passed on to the steps' subcommands."""
+    args = to_namespace(params)
+    args.debug = debug
+    args.keep_awake = keep_awake
+    cmd_comprehensive(args)
+
+
 def cmd_comprehensive(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.config import settings
 
     verify_dependencies(["bcftools", "samtools", "tabix"])
     log_dependency_info(["bcftools", "samtools", "tabix"])
-    thresholds_from(args)  # reject crossed thresholds before any work
+    thresholds_from(args)  # reject crossed thresholds from config before any work
 
     # The configured batch file and VCFs are defaults for a run given no inputs;
     # never for a batch's own samples, or each would re-run the batch.
@@ -241,9 +248,10 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
             )
 
 
-def cmd_batch_gen(args: argparse.Namespace) -> None:
-    """Generates a batch file by scanning a directory."""
-    scan_dir = args.directory
+def run_batch_gen(params: AnalyzeBatchGenParams) -> None:
+    """The ``analyze batch-gen`` operation (``api.analyze.batch_gen``):
+    writes a batch file by scanning a directory."""
+    scan_dir = str(params.directory)
     if not Path(scan_dir).exists():
         raise WGSExtractError(f"Directory not found: {scan_dir}")
 
@@ -320,11 +328,11 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
         # Writing no batch file and exiting 0 looked like success for a wrong path.
         raise WGSExtractError(f"No BAM, CRAM or VCF files found in {scan_dir}.")
 
-    output_path = args.output
+    output_path = str(params.output)
     _print(f"Writing batch file to: {output_path}")
 
-    with open(output_path, "w", newline="") as f:
-        writer = csv.writer(f)
+    with open(output_path, "w", newline="") as out:
+        writer = csv.writer(out)
         writer.writerow(["name", "input", "vcf"])
         for name, data in sorted(samples.items()):
             vcf_str = ";".join(data["vcfs"])
@@ -339,48 +347,26 @@ def register(
     subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
     base_parser: argparse.ArgumentParser,
 ) -> None:
-    parser = subparsers.add_parser(
-        "analyze", help=CLI_HELP.get("cmd_analyze", "Analyze genomic data.")
-    )
+    parser = subparsers.add_parser("analyze", help=CLI_HELP["cmd_analyze"])
     analyze_subs = parser.add_subparsers(dest="analyze_cmd", required=True)
 
     comp_parser = analyze_subs.add_parser(
-        "comprehensive",
-        parents=[base_parser],
-        help=CLI_HELP.get("cmd_comprehensive", "Full-chain analysis."),
+        "comprehensive", parents=[base_parser], help=CLI_HELP["cmd_comprehensive"]
     )
-    comp_parser.add_argument(
-        "--vcf-inputs",
-        nargs="+",
-        help=CLI_HELP.get("arg_vcf_inputs", "Multiple VCF files."),
+    add_arguments(comp_parser, AnalyzeComprehensiveParams)
+    comp_parser.set_defaults(
+        func=cli_handler(
+            AnalyzeComprehensiveParams,
+            run_comprehensive,
+            debug="debug",
+            keep_awake="keep_awake",
+        )
     )
-    comp_parser.add_argument(
-        "--skip-calling",
-        action="store_true",
-        help="Without --vcf-inputs, don't call variants from --input; run only "
-        "the BAM/CRAM metrics and lineage steps.",
-    )
-    comp_parser.add_argument(
-        "--batch",
-        help=CLI_HELP.get("arg_batch", "Batch file for multiple samples."),
-    )
-    add_confidence_arguments(comp_parser)
-    add_resume_arguments(comp_parser, STEPS)
-    comp_parser.set_defaults(func=cmd_comprehensive)
 
     gen_batch_parser = analyze_subs.add_parser(
-        "batch-gen",
-        parents=[base_parser],
-        help=CLI_HELP.get("cmd_batch_gen", "Generate a batch file from a directory."),
+        "batch-gen", parents=[base_parser], help=CLI_HELP["cmd_batch_gen"]
     )
-    gen_batch_parser.add_argument(
-        "--directory",
-        required=True,
-        help=CLI_HELP.get("arg_directory", "Directory to scan."),
+    add_arguments(gen_batch_parser, AnalyzeBatchGenParams)
+    gen_batch_parser.set_defaults(
+        func=cli_handler(AnalyzeBatchGenParams, run_batch_gen)
     )
-    gen_batch_parser.add_argument(
-        "--output",
-        default="batch.csv",
-        help="Output batch file path.",
-    )
-    gen_batch_parser.set_defaults(func=cmd_batch_gen)

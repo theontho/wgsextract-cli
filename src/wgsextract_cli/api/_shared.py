@@ -135,3 +135,41 @@ def dry_run_param() -> Any:
         action="store_true",
         group=RESUME_GROUP,
     )
+
+
+_CONFIDENCE_DOC = (
+    "(LOW, HIGH): {what} below LOW labels a call low confidence, below HIGH "
+    "moderate (default: config confidence_min_* and confidence_high_*)."
+)
+
+
+def confidence_depth_param() -> Any:
+    from wgsextract_cli.core.variant_confidence import DEPTH_HELP
+
+    return _confidence_param(DEPTH_HELP, "read depth")
+
+
+def confidence_gq_param() -> Any:
+    from wgsextract_cli.core.variant_confidence import GQ_HELP
+
+    return _confidence_param(GQ_HELP, "genotype quality")
+
+
+def _confidence_param(help: str, what: str) -> Any:
+    from wgsextract_cli.core.variant_confidence import _non_negative
+
+    return param(
+        None,
+        help=help,
+        cli_type=_non_negative,
+        minimum=0,
+        metavar=("LOW", "HIGH"),
+        doc=_CONFIDENCE_DOC.format(what=what),
+    )
+
+
+def check_confidence(params: Any) -> None:
+    """Refuse crossed confidence thresholds (LOW above HIGH) before any work."""
+    from wgsextract_cli.core.variant_confidence import thresholds_from
+
+    thresholds_from(params)

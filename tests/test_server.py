@@ -238,6 +238,55 @@ def test_a_home_relative_folder_input_locks_the_folder_it_names(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+@pytest.mark.parametrize(
+    ("op", "into_work"),
+    [
+        (
+            "analyze/comprehensive",
+            lambda work, other: {
+                "vcf_inputs": [str(work / "x.vcf")],
+                "outdir": str(other),
+            },
+        ),
+        (
+            "analyze/batch-gen",
+            lambda work, other: {
+                "directory": str(other),
+                "output": str(work / "b.csv"),
+            },
+        ),
+    ],
+    ids=["vcf-prepared-beside", "batch-file"],
+)
+def test_an_analyze_job_writing_into_a_busy_folder_waits(
+    tmp_path, work, fake_data, slow_coverage, op, into_work
+):
+    # PR #463 review: comprehensive compresses and indexes a plain VCF beside
+    # itself, and batch-gen writes its batch file, yet only outdir was locked.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request("POST", f"/ops/{op}", into_work(work, other))
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_home_relative_paths_reach_the_job_expanded(tmp_path, work, monkeypatch):
+    # PR #463 review: the guard approved ~/x as the home folder's; the job
+    # must write there too, not in a `~` folder in its working folder.
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(work.parent))
+    shutil.copy(FAKE_DIR / "fake.bam", work / "s1.bam")
+    request = {"directory": f"~/{work.name}", "output": f"~/{work.name}/b.csv"}
+    with _serve(tmp_path, [work]) as client:
+        status, job = client.request("POST", "/ops/analyze/batch-gen?wait=120", request)
+    assert (status, job["status"]) == (200, "succeeded"), job
+    assert "s1" in (work / "b.csv").read_text()
+
+
 def test_a_trio_saving_beside_its_proband_waits_for_that_folder(
     tmp_path, work, fake_data, slow_coverage
 ):
@@ -401,6 +450,23 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
         # PR #442 review: with no input or outdir it saved into the server's
         # working folder.
         ("qc/fake-data", {}, 400, "usage"),
+        # #346: comprehensive saves into the working folder without outdir.
+        ("analyze/comprehensive", {"input": "{work}/a.bam"}, 400, "usage"),
+        (
+            "analyze/comprehensive",
+            {"batch": "{work}/b.csv", "outdir": "{work}"},
+            400,
+            "usage",
+        ),
+        ("analyze/batch-gen", {"directory": "{work}"}, 400, "usage"),
+        # PR #463 review: "" became None, which the path guard skips.
+        ("analyze/batch-gen", {"directory": "{work}", "output": ""}, 400, "usage"),
+        (
+            "pet-align",
+            {"r1": "{outside}/r1.fq", "species": "dog", "outdir": "{work}"},
+            403,
+            "path_not_allowed",
+        ),
         ("nope", {}, 404, "unknown_op"),
         # PR #422 review: these were 500 "internal" errors, or jobs with
         # values the schema forbids.
@@ -579,6 +645,22 @@ _REF_PATHS = [
 ]
 
 
+_PET_ANALYZE_REQUESTS = {
+    "pet-align": {"r1": r"C:\data\r1.fq", "species": "dog"},
+    "analyze/comprehensive": {"input": _IN},
+    "analyze/batch-gen": {
+        "directory": r"C:\data",
+        "output": r"C:\data\batch.csv",
+    },
+}
+_PET_ANALYZE_PATHS = [
+    (op, item)
+    for op in _PET_ANALYZE_REQUESTS
+    for item in find(op).fields()
+    if item.spec.path and not item.spec.local_only
+]
+
+
 def test_server_offers_no_ref_command_that_fetches_a_url_or_saves_config():
     # #346: ref download fetches any URL and ref bootstrap saves config.toml.
     ref_ops = {name for name in operations() if name.startswith("ref/")}
@@ -680,6 +762,39 @@ def test_ref_library_requests_must_name_a_genome():
     with pytest.raises(RequestError, match="ref library --list") as refused:
         params_from_json(find("ref/library"), {})
     assert refused.value.code == "usage"
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _PET_ANALYZE_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _PET_ANALYZE_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.fq", r"D:\evil.fq", r"\\host\share\evil.fq", "evil.fq"]
+)
+def test_path_guard_covers_every_pet_and_analyze_path(op, field, value):
+    # #346: pet-align and analyze became server operations; each file they
+    # read or write must be inside an allowed folder, drive-relative included.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {**_PET_ANALYZE_REQUESTS[op], "outdir": r"C:\data"}
+    if "outdir" not in {f.name for f in find(op).fields()}:
+        del allowed["outdir"]
+    guard.check(params_from_json(find(op), allowed))
+    item = next(f for f in find(op).fields() if f.name == field)
+    bad = [value] if typing.get_origin(item.base_type) is tuple else value
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: bad}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_pet_and_analyze_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _PET_ANALYZE_PATHS} == {
+        ("pet-align", "r1"), ("pet-align", "r2"), ("pet-align", "ref"),
+        ("pet-align", "outdir"), ("analyze/comprehensive", "vcf_inputs"),
+        ("analyze/comprehensive", "input"), ("analyze/comprehensive", "ref"),
+        ("analyze/comprehensive", "outdir"), ("analyze/batch-gen", "directory"),
+        ("analyze/batch-gen", "output"),
+    }  # fmt: skip
 
 
 def test_vcf_paths_cover_every_resource():

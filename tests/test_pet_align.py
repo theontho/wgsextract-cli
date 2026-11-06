@@ -1,31 +1,20 @@
 import random
 import shutil
-from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
 from tests.fake_tools import only_tools, python_tool
 from tests.htslib_helpers import needs_tools, write_fasta, write_read_pairs
-from wgsextract_cli.commands import pet
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli import api
+from wgsextract_cli.core.utils import run_command
 
 SNP = 2_500  # 0-based position of the planted SNP
 
 
-def _args(r1, ref, **overrides):
-    values = {
-        "r1": str(r1) if r1 else None,
-        "r2": None,
-        "ref": str(ref) if ref else None,
-        "species": "dog",
-        "format": "BAM",
-        "outdir": None,
-        "threads": "2",
-        "memory": "100M",
-    }
-    values.update(overrides)
-    return Namespace(**values)
+def _align(r1, ref, **overrides):
+    values = {"r1": r1, "ref": ref, "species": "dog", "threads": 2, "memory": "100M"}
+    return api.pet.align(api.PetAlignParams(**(values | overrides)))
 
 
 @needs_tools("bwa", "samtools", "bcftools")
@@ -42,13 +31,17 @@ def test_pet_align_calls_a_planted_snp(tmp_path, paired, fmt):
     write_read_pairs(sample, r1, r2, starts)
     outdir = tmp_path / "out"
 
-    pet.run(
-        _args(r1, ref, r2=str(r2) if paired else None, format=fmt, outdir=str(outdir))
-    )
+    result = _align(r1, ref, r2=r2 if paired else None, format=fmt, outdir=outdir)
 
     # Both mates go into one output, named without the mate marker.
     stem = "reads" if paired else "reads_R1"
     out = outdir / f"{stem}_dog.{fmt.lower()}"
+    vcf = outdir / f"{stem}_dog.vcf.gz"
+    assert {(Path(o.path), o.role) for o in result.outputs} >= {
+        (out, "alignment"),
+        (vcf, "variants"),
+    }
+    assert result.metrics["species"] == "dog"
     assert Path(f"{out}.{'bai' if fmt == 'BAM' else 'crai'}").is_file()
     view = ["samtools", "view", "-T", str(ref)]
     header = run_command([*view, "-H", str(out)], capture_output=True).stdout
@@ -64,7 +57,6 @@ def test_pet_align_calls_a_planted_snp(tmp_path, paired, fmt):
     assert len(dups) == (2 if paired else 1)
     assert set(dups) <= {"p0", f"p{len(starts) - 1}"}
 
-    vcf = outdir / f"{stem}_dog.vcf.gz"
     assert Path(f"{vcf}.csi").is_file()
     calls = run_command(
         ["bcftools", "query", "-f", "%CHROM\t%POS\t%REF\t%ALT\t[%GT]\n", str(vcf)],
@@ -95,15 +87,15 @@ def _programs(bam: Path) -> list[str]:
 def test_species_reference_comes_from_the_library(tmp_path):
     library = tmp_path / "lib"
     _, reads = _dog(tmp_path)
-    with pytest.raises(WGSExtractError, match="cat not found.*ref library --install"):
-        pet.run(_args(reads, library, species="cat"))
+    with pytest.raises(api.CommandFailed, match="cat not found.*ref library --install"):
+        _align(reads, library, species="cat")
 
     plain, _ = _dog(
         library / "genomes", "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna"
     )
     run_command(["bgzip", str(plain)])
     fasta = f"{plain}.gz"
-    pet.run(_args(reads, library, species="cat"))
+    _align(reads, library, species="cat")
 
     bam = tmp_path / "rex_R1_cat.bam"
     rg = "@RG\\tID:rex_R1\\tSM:rex\\tLB:rex\\tPL:ILLUMINA"
@@ -127,7 +119,7 @@ def test_bwa_mem2_aligns_when_the_reference_has_its_index(
         pytest.skip("bwa-mem2 missing")
     run_command(["bwa-mem2", "index", str(ref)])
 
-    pet.run(_args(reads, ref, memory=memory))
+    _align(reads, ref, memory=memory)
 
     programs = _programs(tmp_path / "rex_R1_dog.bam")
     # The Windows launcher re-executes a CPU-specific build, which names CL.
@@ -143,14 +135,14 @@ def test_bwa_mem2_aligns_when_the_reference_has_its_index(
 def test_missing_reads_or_reference_are_reported(tmp_path):
     _, reads = _dog(tmp_path)
     before = sorted(tmp_path.iterdir())
-    with pytest.raises(WGSExtractError, match="--r1 is required"):
-        pet.run(_args(None, tmp_path))
-    with pytest.raises(WGSExtractError, match="--r2"):
-        pet.run(_args(reads, tmp_path, r2=str(tmp_path / "gone.fq")))
-    with pytest.raises(WGSExtractError, match="--ref"):
-        pet.run(_args(reads, None))
-    with pytest.raises(WGSExtractError, match="not found at .*gone\\.fa\\.$"):
-        pet.run(_args(reads, tmp_path / "gone.fa"))
+    with pytest.raises(api.UsageError, match="--r1 is required"):
+        api.PetAlignParams(ref=tmp_path, species="dog")
+    with pytest.raises(api.CommandFailed, match="--r2"):
+        _align(reads, tmp_path, r2=tmp_path / "gone.fq")
+    with pytest.raises(api.CommandFailed, match="--ref"):
+        _align(reads, None)
+    with pytest.raises(api.CommandFailed, match="not found at .*gone\\.fa\\.$"):
+        _align(reads, tmp_path / "gone.fa")
     assert sorted(tmp_path.iterdir()) == before
 
 
@@ -159,8 +151,8 @@ def test_alignment_failure_is_reported(tmp_path):
     ref, reads = _dog(tmp_path)
     for suffix in (".amb", ".ann", ".bwt", ".pac", ".sa"):  # a corrupt index
         Path(f"{ref}{suffix}").write_text("not an index\n")
-    with pytest.raises(WGSExtractError, match="Alignment failed in bwa mem"):
-        pet.run(_args(reads, ref, outdir=str(tmp_path / "out")))
+    with pytest.raises(api.CommandFailed, match="Alignment failed in bwa mem"):
+        _align(reads, ref, outdir=tmp_path / "out")
     assert list((tmp_path / "out").iterdir()) == []
 
 
@@ -180,11 +172,12 @@ def test_failed_vcf_indexing_removes_the_vcf_and_its_partial_index(tmp_path, req
     python_tool(bindir, "bcftools", _FAILING_INDEX.format(real=real))
     ref, reads = _dog(tmp_path)
     out = tmp_path / "out"
-    with pytest.raises(WGSExtractError, match="Variant calling error"):
-        pet.run(_args(reads, ref, outdir=str(out)))
+    with pytest.raises(api.CommandFailed, match="Variant calling error"):
+        _align(reads, ref, outdir=out)
     assert sorted(p.name for p in out.iterdir()) == [
         "rex_R1_dog.bam",
         "rex_R1_dog.bam.bai",
+        "rex_R1_dog.bam.manifest.json",
     ]
 
 
@@ -195,10 +188,11 @@ def test_failed_variant_calling_leaves_no_partial_vcf(tmp_path):
     Path(f"{ref}.fai").write_text("chr1\tnot a length\n")
     out = tmp_path / "out"
     with pytest.raises(
-        WGSExtractError, match="Variant calling failed in bcftools mpileup"
+        api.CommandFailed, match="Variant calling failed in bcftools mpileup"
     ):
-        pet.run(_args(reads, ref, outdir=str(out)))
+        _align(reads, ref, outdir=out)
     assert sorted(p.name for p in out.iterdir()) == [
         "rex_R1_dog.bam",
         "rex_R1_dog.bam.bai",
+        "rex_R1_dog.bam.manifest.json",
     ]

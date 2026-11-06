@@ -32,7 +32,7 @@ from its Params fields, so the API and `--help` cannot drift.
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
 `api.lineage`, `api.microarray`, `api.panel`, `api.ref`, `api.report`,
-`api.sample`, `api.support`) follow
+`api.sample`, `api.support`, `api.pet`, `api.analyze`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -705,6 +705,37 @@ settings and tools are unchanged.
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 | `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
 
+## `api.pet`
+
+`pet-align`: align a dog's or cat's reads and call its variants.
+
+The reads are aligned with bwa-mem2 or bwa (as `align` does) to the
+species' reference, then `bcftools mpileup | call` writes the variants.
+The outputs, `<reads stem>_<species>.bam` (or `.cram`) and
+`<reads stem>_<species>.vcf.gz`, go to `outdir`, else beside the reads.
+
+### `api.pet.align(PetAlignParams)`
+
+CLI: `wgsextract pet-align`.
+
+Align a pet's reads and call its variants (see `PetAlignParams`).
+
+`PetAlignParams`: Align a dog's or cat's FASTQ reads to `ref` and call its variants.
+`ref` is the species' FASTA, or a reference library whose `genomes`
+folder holds the NCBI reference (`ref library --install`). `r1` is
+required; the CLI's `--genome` may fill it in from a sample workspace.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `r1` | `Path \| None` | `None` | `--r1` | Read 1 FASTQ. |
+| `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, for pairs. |
+| `species` | `str` | required | `--species` | Species for analysis. One of: `dog`, `cat` |
+| `format` | `str` | `'BAM'` | `--format` | Output format of the alignment: BAM or CRAM. One of: `BAM`, `CRAM` |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the reads' folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+
 ## `api.vcf`
 
 `vcf`: call variants, and annotate, filter, tabulate and analyse VCFs.
@@ -1222,6 +1253,62 @@ Call with Clair3; output role `variants`.
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chr20:1-1000000) |
 | `model` | `str \| None` | `None` | `--model` | Clair3 model directory, or the name of a bundled model, matching the reads' basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config clair3_model; default: chosen from the basecaller metadata. |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+## `api.analyze`
+
+`analyze`: whole-sample workflows that chain other commands.
+
+`comprehensive` runs a BAM/CRAM's info and lineage steps, calls or takes its
+VCFs, annotates them and keeps the significant variants; a batch file runs
+it for many samples. `batch_gen` writes such a
+batch file from a folder of genomes.
+
+### `api.analyze.comprehensive(AnalyzeComprehensiveParams)`
+
+CLI: `wgsextract analyze comprehensive`.
+
+Run the full-chain analysis (see `AnalyzeComprehensiveParams`).
+
+`AnalyzeComprehensiveParams`: Analyze a sample from end to end into `outdir`: the BAM/CRAM
+`input`'s info, mtDNA and Y haplogroups, and its `vcf_inputs` (else
+SNPs and InDels called from `input`), each annotated and filtered to
+its significant variants (`significant_<type>_<name>.vcf.gz`; the
+result's `significant_variants` outputs). Completed steps are recorded
+in `analyze.steps.json` and skipped on a rerun whose inputs, settings
+and tools are unchanged.
+
+With neither `input` nor `vcf_inputs`, config `batch_file_path`
+or `vcf_input_paths` supply them.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `vcf_inputs` | `tuple[Path, ...] \| None` | `None` | `--vcf-inputs` | VCFs of the sample (SNV/InDel, CNV, SV; the type is read from the file name) to annotate instead of calling variants. |
+| `skip_calling` | `bool` | `False` | `--skip-calling` | Without --vcf-inputs, don't call variants from --input; run only the BAM/CRAM metrics and lineage steps. |
+| `batch` | `Path \| None` | `None` | `--batch` | CSV/TSV of samples (name, input, vcf columns) to analyze, each into its own folder in outdir. |
+| `confidence_depth` | `tuple[float, float] \| None` | `None` | `--confidence-depth` | (LOW, HIGH): read depth below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+| `confidence_gq` | `tuple[float, float] \| None` | `None` | `--confidence-gq` | (LOW, HIGH): genotype quality below LOW labels a call low confidence, below HIGH moderate (default: config confidence_min_* and confidence_high_*). |
+| `restart` | `bool` | `False` | `--force`, `--no-resume` | Rerun every step, ignoring the steps an earlier run completed. |
+| `force_steps` | `tuple[str, ...] \| None` | `None` | `--force-step` | Steps to rerun with the steps that use their outputs; None reruns none. Steps: info, mt-haplogroup, y-haplogroup, snp, indel, annotate, discovery. One of: `info`, `mt-haplogroup`, `y-haplogroup`, `snp`, `indel`, `annotate`, `discovery` |
+| `dry_run` | `bool` | `False` | `--dry-run` | Log which steps would run or be skipped, and why, and run none. |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | The sample's BAM or CRAM. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the current folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.analyze.batch_gen(AnalyzeBatchGenParams)`
+
+CLI: `wgsextract analyze batch-gen`.
+
+Write a batch file from a folder (see `AnalyzeBatchGenParams`).
+
+`AnalyzeBatchGenParams`: Write a batch file for `comprehensive` from the BAMs, CRAMs and
+VCFs under `directory`, grouping files into samples by name
+(`sample1.bam` and `sample1_sv.vcf.gz` are sample `sample1`).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `directory` | `Path` | required | `--directory` | Folder to scan, with its subfolders. |
+| `output` | `Path` | `'batch.csv'` | `--output` | Batch file to write (CSV: name, input, vcf). |
 
 ## `api.lineage`
 

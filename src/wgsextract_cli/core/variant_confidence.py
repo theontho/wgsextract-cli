@@ -142,25 +142,16 @@ def _non_negative(text: str) -> float:
     return value
 
 
-def add_confidence_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--confidence-depth",
-        nargs=2,
-        type=_non_negative,
-        metavar=("LOW", "HIGH"),
-        help="Read depth below LOW labels a call low confidence, below HIGH "
-        "moderate (default: config confidence_min_depth 10, "
-        "confidence_high_depth 20; halved for haploid calls)",
-    )
-    parser.add_argument(
-        "--confidence-gq",
-        nargs=2,
-        type=_non_negative,
-        metavar=("LOW", "HIGH"),
-        help="Genotype quality below LOW labels a call low confidence, below "
-        "HIGH moderate (default: config confidence_min_gq 20, "
-        "confidence_high_gq 30)",
-    )
+DEPTH_HELP = (
+    "Read depth below LOW labels a call low confidence, below HIGH "
+    "moderate (default: config confidence_min_depth 10, "
+    "confidence_high_depth 20; halved for haploid calls)"
+)
+GQ_HELP = (
+    "Genotype quality below LOW labels a call low confidence, below "
+    "HIGH moderate (default: config confidence_min_gq 20, "
+    "confidence_high_gq 30)"
+)
 
 
 _CALLER_MARKERS = (

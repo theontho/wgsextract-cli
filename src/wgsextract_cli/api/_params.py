@@ -49,7 +49,8 @@ class ParamSpec:
     ``expression`` text fields are bcftools expressions, which read the file
     an ``@FILE`` operand names; the server refuses those.
     A ``positional`` field is a positional CLI argument named by ``metavar``;
-    a tuple one takes one or more values. ``group`` (title, description) puts
+    a tuple one takes one or more values, as does an option whose type is a
+    variable-length tuple (``tuple[Path, ...]``). ``group`` (title, description) puts
     the option in that section of the command's help.
     """
 
@@ -203,11 +204,14 @@ class Params:
     operation is not offered by the server: it fetches any URL or changes
     config.toml. ``WRITES_BESIDE`` names the path field an operation writes
     beside when it has no ``outdir`` (config output_directory doesn't apply).
+    ``SAVES_IN_WORKING_FOLDER``: with no ``outdir`` the command saves in the
+    working folder rather than beside its input.
     """
 
     COMMAND: ClassVar[str] = ""
     LOCAL_ONLY: ClassVar[bool] = False
     WRITES_BESIDE: ClassVar[str] = ""
+    SAVES_IN_WORKING_FOLDER: ClassVar[bool] = False
 
     def implied_paths(self) -> Iterator[tuple[str, Path]]:
         """(field, path) for each path the operation derives from its fields,
@@ -234,6 +238,8 @@ class Params:
                 raise UsageError(
                     item.spec.required_message or f"{item.flags[0]} required."
                 )
+            if value is None and type(None) not in typing.get_args(item.type):
+                raise UsageError(f"{item.flags[0]} can't be empty.")
             length = item.tuple_length
             if length is not None and value is not None:
                 if not isinstance(value, (tuple, list)) or len(value) != length:
@@ -365,7 +371,7 @@ def json_schema(cls: type[Params]) -> dict[str, Any]:
             required.append(item.name)
         else:
             default = item.default
-            schema["default"] = list(default) if isinstance(default, tuple) else default
+            schema["default"] = _plain(default)
         properties[item.name] = schema
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

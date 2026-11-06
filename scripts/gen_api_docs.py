@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import os
 import re
 import sys
 import typing
@@ -34,7 +35,9 @@ GROUPS = (
     api.bam,
     api.qc,
     api.align,
+    api.pet,
     api.vcf,
+    api.analyze,
     api.lineage,
     api.microarray,
     api.ref,
@@ -78,6 +81,8 @@ def default_text(item: ParamField) -> str:
     default = item.default
     if isinstance(default, tuple):
         default = list(default)
+    elif isinstance(default, os.PathLike):
+        default = os.fspath(default)
     text = f"`{default!r}`"
     if item.spec.config_key:
         text += f" (config `{item.spec.config_key}`)"

@@ -5,6 +5,9 @@ import logging
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._params import to_namespace
+from wgsextract_cli.api.pet import PetAlignParams
 from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -30,6 +33,7 @@ from wgsextract_cli.core.warnings import warn_alignment_sort_space
 from ._extract_helpers import cleanup_files
 from .align import (
     BWA_BATCH_BASES,
+    add_read_inputs,
     duplicate_marker,
     ensure_bwa_index,
     read_group,
@@ -53,23 +57,20 @@ def register(
     parser = subparsers.add_parser(
         "pet-align", parents=[base_parser], help=CLI_HELP["cmd_pet-align"]
     )
-    parser.add_argument("--r1", help=CLI_HELP["arg_r1"])
-    parser.add_argument("--r2", help=CLI_HELP["arg_r2"])
-    parser.add_argument(
-        "--species", choices=["dog", "cat"], required=True, help="Species for analysis"
-    )
-    parser.add_argument(
-        "--format", choices=["BAM", "CRAM"], default="BAM", help="Output format"
-    )
-    parser.set_defaults(func=run)
+    add_arguments(parser, PetAlignParams)
+    parser.set_defaults(func=cli_handler(PetAlignParams, run_pet))
+
+
+def run_pet(params: PetAlignParams) -> None:
+    """The ``pet-align`` operation (``api.pet.align``)."""
+    add_read_inputs(params.r1, params.r2)
+    run(to_namespace(params))
 
 
 def run(args: argparse.Namespace) -> None:
     verify_dependencies(["bwa", "samtools", "bcftools"])
     log_dependency_info(["bwa", "samtools", "bcftools"])
 
-    if not args.r1:
-        raise UsageError("--r1 is required unless --genome resolves FASTQ inputs.")
     paths_to_check = {"--r1": args.r1}
     if args.r2:
         paths_to_check["--r2"] = args.r2

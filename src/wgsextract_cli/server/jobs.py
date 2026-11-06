@@ -233,18 +233,20 @@ class JobManager:
         )
         names = {f.name for f in op.fields()}
         # With no input to save beside, outputs would go to the working folder.
-        if (
-            op.kind != "query"
-            and "outdir" in names
-            and not names & set(_INPUT_NAMES)
-            and not op.params.WRITES_BESIDE
-            and not self._output_folder(op, job)
-        ):
+        if op.params.SAVES_IN_WORKING_FOLDER:
+            in_working_folder = not (job.params.get("outdir") or self.default_outdir)
+        else:
+            in_working_folder = (
+                not names & set(_INPUT_NAMES)
+                and not op.params.WRITES_BESIDE
+                and not self._output_folder(op, job)
+            )
+        if op.kind != "query" and "outdir" in names and in_working_folder:
             raise RequestError(
                 400,
                 "usage",
-                "'outdir' is required: with no input or configured output "
-                "folder, this job would save into the server's working folder.",
+                "'outdir' is required: with no configured output folder, this "
+                "job would save into the server's working folder.",
             )
         with self._lock:
             if self._stopping:

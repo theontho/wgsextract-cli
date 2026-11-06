@@ -26,7 +26,7 @@ from its Params fields, so the API and ``--help`` cannot drift.
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``, ``api.report``,
-``api.sample``, ``api.support``) follow
+``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -48,12 +48,14 @@ from wgsextract_cli.core.utils import (
 
 from . import (
     align,
+    analyze,
     bam,
     extract,
     info,
     lineage,
     microarray,
     panel,
+    pet,
     qc,
     ref,
     report,
@@ -71,6 +73,7 @@ from ._runtime import (
     use_config,
 )
 from .align import AlignParams, RealignParams
+from .analyze import AnalyzeBatchGenParams, AnalyzeComprehensiveParams
 from .bam import (
     BamIdentifyParams,
     BamIndexParams,
@@ -98,6 +101,7 @@ from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, Inf
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
 from .microarray import MicroarrayParams
 from .panel import PanelBedParams
+from .pet import PetAlignParams
 from .qc import (
     FakeDataParams,
     FastpParams,
@@ -159,6 +163,8 @@ from .vcf import (
 
 __all__ = [
     "AlignParams",
+    "AnalyzeBatchGenParams",
+    "AnalyzeComprehensiveParams",
     "BamIdentifyParams",
     "BamIndexParams",
     "BamMergeParams",
@@ -193,6 +199,7 @@ __all__ = [
     "MultiqcMetricsParams",
     "MultiqcParams",
     "Params",
+    "PetAlignParams",
     "ProgressCallback",
     "ProgressEvent",
     "QcVcfParams",
@@ -256,6 +263,7 @@ __all__ = [
     "YdnaBamParams",
     "YdnaVcfParams",
     "align",
+    "analyze",
     "bam",
     "extract",
     "info",
@@ -263,6 +271,7 @@ __all__ = [
     "lineage",
     "microarray",
     "panel",
+    "pet",
     "qc",
     "ref",
     "report",
