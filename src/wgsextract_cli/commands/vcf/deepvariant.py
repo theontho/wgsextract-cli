@@ -535,9 +535,10 @@ _ULTIMA_GPU_SETUP = (
     "on x86-64 Linux (or WSL2) with an NVIDIA GPU, Docker and the NVIDIA "
     "Container Toolkit: docker pull {image}"
 )
-# Free GPU memory call_variants needs in Google's GPU image (#358): TensorFlow
-# took ~GPU_CALL_VARIANTS_NEEDS on a 24 GiB RTX 3090.
-ULTIMA_GPU_MIN_FREE = 6 * GIB
+# Free GPU memory call_variants needs in Google's GPU image (#358). On a 24 GiB
+# RTX 3090 with another process holding the rest, the ULTIMA model ran with
+# 7.3 GiB free and ran out of memory with 6.3 GiB.
+ULTIMA_GPU_MIN_FREE = round(7.3 * GIB)
 
 
 def _model_chosen(params: VcfDeepvariantParams) -> bool:
@@ -598,7 +599,7 @@ def _check_gpu_free(check: bool) -> None:
     if least >= ULTIMA_GPU_MIN_FREE:
         return
     message = (
-        f"DeepVariant call_variants needs ~{ULTIMA_GPU_MIN_FREE / GIB:.0f} GiB of "
+        f"DeepVariant call_variants needs ~{ULTIMA_GPU_MIN_FREE / GIB:.1f} GiB of "
         f"free memory on each GPU, but one has {least / GIB:.1f} GiB free "
         "(other programs are using it)."
     )

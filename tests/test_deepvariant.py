@@ -1009,12 +1009,14 @@ def test_ultima_gpu_needs_x86_64_linux(ultima_gpu, monkeypatch, system, machine)
 
 
 def test_a_busy_gpu_stops_before_call_variants_and_a_rerun_resumes(ultima_gpu):
-    set_gpus(ultima_gpu.gpus, (24_576, 23_500))
+    # measured (#358, RTX 3090): call_variants ran out of memory with 6,461 MiB
+    # free and finished with 7,485 MiB free.
+    set_gpus(ultima_gpu.gpus, (24_576, 24_576 - 6_461))
     with pytest.raises(WGSExtractError, match="free memory on each GPU"):
         gpu_call(ultima_gpu)
     assert ultima_gpu.deepvariant.stages() == ["make_examples"]
 
-    set_gpus(ultima_gpu.gpus, (24_576, 0))
+    set_gpus(ultima_gpu.gpus, (24_576, 24_576 - 7_485))
     rerun(ultima_gpu, "--gpu", reads=ultima_gpu.ultima.bam)
     assert ultima_gpu.deepvariant.stages() == ["call_variants", "postprocess_variants"]
 
