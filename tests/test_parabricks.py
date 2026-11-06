@@ -441,9 +441,20 @@ def test_a_host_with_too_little_ram_is_refused(tmp_path, gpu, genome, ram):
 
 @posix_only
 @needs_tools("bwa", "samtools")
-def test_ram_held_by_other_programs_warns_and_runs(tmp_path, gpu, genome, ram):
-    # #365: lin-big's 62 GB, most of it in use by other programs.
-    ram(62 * 10**9, available=20 * 1024**3)
+@pytest.mark.parametrize(
+    ("total", "available"),
+    [
+        # #365: lin-big's 62 GB, most of it in use by other programs.
+        (62 * 10**9, 20 * 1024**3),
+        # Enough to align, but a whole 30x genome's sort peaked at 41 GiB.
+        (62 * 10**9, 38 * 1024**3),
+        (40 * 10**9, None),
+    ],
+)
+def test_ram_short_of_a_whole_genome_warns_and_runs(
+    tmp_path, gpu, genome, ram, total, available
+):
+    ram(total, available=available)
     result = _gpu_align(tmp_path, genome)
     assert result.status == "ok"
     assert "parabricks_host_memory" in _codes(result)

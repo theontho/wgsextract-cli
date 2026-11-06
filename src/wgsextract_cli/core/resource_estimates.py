@@ -550,13 +550,15 @@ class ParabricksNeed:
     """Free GPU memory a Parabricks tool needs by default (``full``, or the
     GPU's total less ``headroom`` for tools that size themselves from it) and
     with its low-memory option (``floor``; tools without one need ``full``),
-    and the host RAM it needs either way (``host``)."""
+    and the host RAM a whole genome needs either way (``host``), of which
+    ``host_floor`` is needed for any input."""
 
     full: int
     floor: int
     host: int
     option: str | None = None
     headroom: int | None = None
+    host_floor: int | None = None
 
 
 # Parabricks 4.8 needs a GPU with 16 GB (a T4 reports 15360 MiB). Measured on
@@ -567,18 +569,22 @@ class ParabricksNeed:
 # 10.7 GiB with --htvc-low-memory. minimap2's 18 GB is NVIDIA's figure.
 # Host RAM peaked at 33 GiB for fq2bam (30 GiB in low-memory mode, which a
 # 24 GiB container limit kills either way), 24 GiB for DeepVariant and
-# 17 GiB for HaplotypeCaller; minimap2's is assumed to match fq2bam's.
+# 17 GiB for HaplotypeCaller; minimap2's is assumed to match fq2bam's. A whole
+# 30x genome's fq2bam peaked at 41 GiB, while sorting.
 PB_MIN_GPU_TOTAL = 15 * GIB
 PB_LOW_MEMORY_FLOOR = 14 * GIB
 PB_GPU_NEEDS = {
     "fq2bam": ParabricksNeed(
         PB_LOW_MEMORY_FLOOR,
         PB_LOW_MEMORY_FLOOR,
-        34 * GIB,
+        41 * GIB,
         "--low-memory",
         headroom=2 * GIB,
+        host_floor=34 * GIB,
     ),
-    "minimap2": ParabricksNeed(18 * GIB, PB_LOW_MEMORY_FLOOR, 34 * GIB, "--low-memory"),
+    "minimap2": ParabricksNeed(
+        18 * GIB, PB_LOW_MEMORY_FLOOR, 41 * GIB, "--low-memory", host_floor=34 * GIB
+    ),
     "haplotypecaller": ParabricksNeed(
         18 * GIB, 12 * GIB, 18 * GIB, "--htvc-low-memory"
     ),
@@ -644,6 +650,10 @@ class ParabricksPlan:
         return self.need.host
 
     @property
+    def host_minimum(self) -> int:
+        return self.need.host_floor or self.need.host
+
+    @property
     def host_recommended(self) -> int:
         return max(PB_HOST_RECOMMENDED, PB_HOST_RECOMMENDED_PER_GPU * len(self.gpus))
 
@@ -663,9 +673,9 @@ class ParabricksPlan:
                 f", but only {free / GIB:.1f} GiB is free: close the other "
                 "programs using the GPU (see nvidia-smi)."
             )
-        if self.host_total < self.host_needed:
+        if self.host_total < self.host_minimum:
             problems.append(
-                f"Parabricks {self.tool} needs about {self.host_needed / GIB:.0f} "
+                f"Parabricks {self.tool} needs at least {self.host_minimum / GIB:.0f} "
                 f"GiB of RAM, but this computer has {self.host_total / GIB:.1f} "
                 "GiB, so run it on the CPU instead."
             )
@@ -673,7 +683,10 @@ class ParabricksPlan:
 
     def host_warning(self) -> str | None:
         """Why the host's RAM may fall short this time, though it has enough."""
-        if self.host_available < self.host_needed <= self.host_total:
+        if (
+            self.host_available < self.host_needed
+            and self.host_minimum <= self.host_total
+        ):
             return (
                 f"Parabricks {self.tool} needs about {self.host_needed / GIB:.0f} "
                 f"GiB of RAM, but only {self.host_available / GIB:.1f} GiB is "

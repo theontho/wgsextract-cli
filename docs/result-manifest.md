@@ -78,7 +78,7 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `alignment_memory` | `align`, `realign` | minimap2 is estimated to need more RAM than is available (`aligner`, `estimated_gib`, `available_gib`, and `suggested_threads`/`suggested_memory` that fit, or `null`). The run continues. |
 | `short_read_phasing`, `no_variants_phased` | `vcf phase` | The reads are not Nanopore or PacBio (`platform`), so read-backed phasing links few variants; or no heterozygous variant (`heterozygous_variants`) was phased. |
 | `parabricks_low_memory` | `align`/`realign`/`vcf gatk` with `--gpu` | The GPU had too little free memory for the tool's default mode, so it ran with its low-memory option (`tool`, `option`, `gpu_free_gib`). |
-| `parabricks_host_memory` | `--gpu` commands | Other programs hold RAM the Parabricks tool needs (`tool`, `needed_gib`, `available_gib`); the run continues and may be killed partway. |
+| `parabricks_host_memory` | `--gpu` commands | Less RAM is available than the Parabricks tool needs for a whole genome, though the computer has its minimum (`tool`, `needed_gib`, `available_gib`); the run continues and may be killed partway. |
 | `parabricks_memory` | `--gpu` commands with `--no-gpu-memory-check` | The GPU or host memory is below what the tool needs (`tool`); the run continues and may fail. |
 | `no_variants`, `no_reads`, `nothing_annotated` | variant calling, alignment, extraction, annotation | An output is empty. |
 | `low_confidence_findings` | `vcf clinvar`, `vcf gnomad --max-af`, `vcf pharmcat`, `analyze` | Some reported calls are low confidence (`count`, `total`, `output`, top `reasons`); see [variant-confidence.md](variant-confidence.md). |

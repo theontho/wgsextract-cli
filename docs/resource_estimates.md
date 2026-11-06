@@ -119,11 +119,13 @@ least free memory of any GPU counts.
   holds more than about 2 GiB of the GPU.
 - When even the low-memory mode won't fit, the command stops before running
   anything. DeepVariant has no low-memory mode.
-- Each tool also needs host RAM: about 34 GiB for fq2bam (minimap2 is assumed
-  to match), 25 GiB for DeepVariant and 18 GiB for HaplotypeCaller, whatever
-  the GPU mode. A computer with less RAM than that is refused. When it has
-  enough but other programs hold it, so less is available, the run continues
-  with a `parabricks_host_memory` warning: available memory moves, and the
+- Each tool also needs host RAM, whatever the GPU mode: at least 34 GiB for
+  fq2bam, and 41 GiB for a whole 30x genome, whose sort holds more (minimap2
+  is assumed to match); 25 GiB for DeepVariant; 18 GiB for HaplotypeCaller.
+  A computer with less RAM than the minimum is refused. When it has the
+  minimum but less than the whole-genome need is available, because the
+  computer is smaller or other programs hold it, the run continues with a
+  `parabricks_host_memory` warning: available memory moves, and the
   kernel can often reclaim cache. The log also notes when the host has less
   RAM than NVIDIA recommends (100 GB for one or two GPUs, 49 GB a GPU beyond
   that).
@@ -151,6 +153,15 @@ container's RAM capped (no swap), every run was killed: fq2bam at 24 and
 16 GiB, also with `--low-memory --memory-limit 8`; DeepVariant at 16 GiB;
 HaplotypeCaller at 12 GiB. fq2bam's `--memory-limit 16` left its peak at
 33 GiB. minimap2's 18 GB default need is NVIDIA's figure, not measured here.
+
+The whole genome, `realign --gpu` of HG00096 (30x, 49.6 GB BAM out) on the
+same host with the GPU free, ran fq2bam in its default mode with no warnings:
+
+| Step | Time | GPU peak | Host RAM peak |
+| --- | ---: | ---: | ---: |
+| Extract FASTQs (CPU) | 34 min | | |
+| fq2bam: align, mark duplicates, sort | 53 min | 21.6 GiB | 40.8 GiB, while sorting |
+| Total | 88 min | | |
 
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource

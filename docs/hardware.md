@@ -89,7 +89,8 @@ Requirements, which the CLI checks but doesn't install:
 Before starting Parabricks, the CLI reads the GPU's free memory from
 `nvidia-smi`. When another program holds part of the GPU, it uses the tool's
 low-memory mode. When even that won't fit, or the computer has too little RAM
-(fq2bam needs about 34 GiB), it stops before running;
+(fq2bam needs at least 34 GiB, and 41 GiB for a whole genome), it stops
+before running, or warns when it only falls short of the whole-genome need;
 `--no-gpu-memory-check` overrides this. NVIDIA recommends 100 GB of RAM for
 one or two GPUs, but the 62 GB host measured below works. See [resource estimates](resource_estimates.md#nvidia-gpus-parabricks).
 
