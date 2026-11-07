@@ -3,6 +3,7 @@ with download_file faked by writing small real files to its destination."""
 
 import contextlib
 import gzip
+import hashlib
 import io
 import logging
 import random
@@ -16,11 +17,13 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import needs_htslib, needs_tools
+from tests.http_server import serving
 from wgsextract_cli.commands.ref import library_commands
 from wgsextract_cli.core import reference_processing as rp
 from wgsextract_cli.core.bgzf import ensure_bgzf, is_bgzf
 from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.ref_library import downloads
 from wgsextract_cli.core.ref_library.catalog import get_genome_status
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -46,7 +49,7 @@ def _compress(kind: str, data: bytes) -> bytes:
 def _fake_download(monkeypatch, payloads, calls=None):
     """Make download_file write payloads[url] (bytes, or None to fail) to dest."""
 
-    def download(url, dest, progress_callback=None, cancel_event=None):
+    def download(url, dest, progress_callback=None, cancel_event=None, **pin):
         if calls is not None:
             calls.append((url, Path(dest + ".partial").exists()))
         data = payloads[url]
@@ -360,7 +363,7 @@ def bootstrap_download(monkeypatch):
     """Fake the bootstrap download: each attempt pops the next payload."""
     attempts: list[bytes | None] = []
 
-    def download(url, dest, progress_callback=None, cancel_event=None):
+    def download(url, dest, progress_callback=None, cancel_event=None, **pin):
         assert Path(dest).name == BOOTSTRAP_FILENAME
         data = attempts.pop(0)
         if data is None:
@@ -432,11 +435,45 @@ def test_flattening_keeps_conflicting_duplicates_in_place(tmp_path, caplog):
 def test_bootstrap_assets_are_recognized_anywhere_in_the_library(tmp_path):
     assert not rp.bootstrap_has_support_assets(str(tmp_path / "missing"))
     assert not rp.bootstrap_has_support_assets(str(tmp_path))
-    for name in ["snps_hg38.vcf.gz", "x_ref.tab.gz", "All_SNPs_GRCh38.tab.gz"]:
+    names = ["chm13v2-grch38.chain", "x_ref.tab.gz", "All_SNPs_GRCh38.tab.gz"]
+    for name in names:
         path = tmp_path / "deep" / name
         _touch(path)
         assert rp.bootstrap_has_support_assets(str(tmp_path)), name
         path.unlink()
+
+
+def test_a_leftover_ybrowse_vcf_is_not_a_bootstrap_issue_509(tmp_path):
+    """Bootstrap v0.2.0 dropped the YBrowse VCFs; they no longer signal it."""
+    _touch(tmp_path / "snps_hg38.vcf.gz", tmp_path / "snps_grch38.vcf.gz")
+    assert not rp.bootstrap_has_support_assets(str(tmp_path))
+
+
+def _serve_bootstrap(monkeypatch, server, published: bytes) -> None:
+    from wgsextract_cli.core import constants
+
+    monkeypatch.setattr(constants, "BOOTSTRAP_URL", server.url_for("bootstrap.tgz"))
+    monkeypatch.setattr(
+        constants, "BOOTSTRAP_SHA256", hashlib.sha256(published).hexdigest()
+    )
+    monkeypatch.setattr(downloads.time, "sleep", lambda s: None)
+
+
+def test_bootstrap_is_verified_against_its_pin_issue_509(tmp_path, monkeypatch):
+    published = _tarball({"reference/hg19-chm13v2.chain": b"chain"})
+    tampered = _tarball({"reference/hg19-chm13v2.chain": b"other"})
+    lib = tmp_path / "lib"
+    with serving(None, {"bootstrap.tgz": tampered}) as server:
+        _serve_bootstrap(monkeypatch, server, published)
+        assert not rp.download_bootstrap(str(lib))
+    assert not rp.bootstrap_has_support_assets(str(lib))
+    assert not (lib / "hg19-chm13v2.chain").exists()
+
+    with serving(None, {"bootstrap.tgz": published}) as server:
+        _serve_bootstrap(monkeypatch, server, published)
+        assert rp.download_bootstrap(str(lib))
+    assert (lib / "hg19-chm13v2.chain").read_bytes() == b"chain"
+    assert rp.bootstrap_has_support_assets(str(lib))
 
 
 # --- ploidy files -------------------------------------------------------------

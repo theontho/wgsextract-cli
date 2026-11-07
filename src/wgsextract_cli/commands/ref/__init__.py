@@ -118,5 +118,5 @@ def register(
         "bootstrap",
         RefBootstrapParams,
         cmd_bootstrap,
-        "Download and initialize the reference library bootstrap (VCFs, chains, etc.).",
+        "Download and initialize the reference library bootstrap (liftover chains, chip templates, etc.).",
     )

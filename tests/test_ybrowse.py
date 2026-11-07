@@ -245,3 +245,32 @@ def test_reference_mismatch_is_rejected_before_extracting_reads(
             "--outdir",
             str(tmp_path / "output"),
         )
+
+
+@needs_htslib
+def test_a_bootstrap_ybrowse_vcf_is_not_used_issue_509(
+    tmp_path, synthetic_y, monkeypatch
+):
+    """An old bootstrap's snps_hg38.vcf.gz is ignored; the user is sent to the
+    opt-in install instead."""
+    reference, bam, _ = synthetic_y
+    library = tmp_path / "library"
+    library.mkdir()
+    (library / "snps_hg38.vcf.gz").write_bytes(
+        mini_snapshot(tmp_path / "mini.vcf").read_bytes()
+    )
+    monkeypatch.setitem(settings, "reference_library", str(library))
+    out = tmp_path / "output"
+    with pytest.raises(WGSExtractError, match="ref ybrowse --install"):
+        run_wgsextract(
+            "extract",
+            "ydna-vcf",
+            "--ybrowse",
+            "--input",
+            bam,
+            "--ref",
+            str(reference),
+            "--outdir",
+            str(out),
+        )
+    assert not list(out.glob("*ybrowse*.vcf.gz"))

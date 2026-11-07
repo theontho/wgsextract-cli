@@ -318,7 +318,7 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     # setup: ref, deps, example-genome
     "ref bootstrap": _h(
-        f"{_LIBRARY}: the bootstrap VCFs, liftover chains and other small files.",
+        f"{_LIBRARY}: the bootstrap liftover chains, chip templates and other small files.",
         "wgsextract ref bootstrap",
     ),
     "ref library": _h(

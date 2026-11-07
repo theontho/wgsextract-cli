@@ -84,7 +84,7 @@ The rest of this README writes plain `wgsextract`; substitute the form that matc
 ## Quick start
 
 ```bash
-# Download the reference library bootstrap (VCFs, liftover chains, metadata)
+# Download the reference library bootstrap (liftover chains, chip templates, metadata)
 wgsextract ref bootstrap
 
 # List and install a reference genome
@@ -318,7 +318,10 @@ mutable: a changed hash fails without replacing the installed snapshot. Use
 `--snapshot` for a deliberately selected local replacement; its GRCh38 Y
 length, copyright, annotation header and sorted coordinates are verified and
 its own hash is recorded. Installation retains only SNP sites/annotations, never
-the upstream sample columns. No dataset is bundled or redistributed.
+the upstream sample columns. No dataset is bundled or redistributed: since
+reference bootstrap v0.2.0, `ref bootstrap` installs no YBrowse files either,
+and the `snps_*.vcf.gz` files an older bootstrap left are unused and can be
+deleted.
 
 Data attribution/copyright: **CC-BY-SA Thomas Krahn YSEQ (2022).**
 The exact statement and source attribution are retained in the local manifest
@@ -712,7 +715,7 @@ needs it.
 | `yfull-tree` | `lineage y-haplogroup --tree yfull` (default) | CC-BY-4.0, YFull |
 | `yfull-ybrowse-positions` | the same, unless `--pos-file` is given | CC-BY-SA (version not stated), Thomas Krahn YSEQ (2022) |
 | Yleaf data `v4.1.6` | `lineage y-haplogroup` QC tables and the other trees | GPL-3.0-or-later, Yleaf |
-| YBrowse SNP VCF | `ref ybrowse --install`, `extract ydna-vcf --ybrowse` | CC-BY-SA, Thomas Krahn YSEQ; downloaded from ybrowse.org, not redistributed |
+| YBrowse SNP VCF | `ref ybrowse --install`, `extract ydna-vcf --ybrowse` | CC-BY-SA, Thomas Krahn YSEQ; downloaded from ybrowse.org on request, not redistributed (and not in the reference bootstrap since v0.2.0) |
 
 The YFull modules print a one-line licence notice when first downloaded; see
 the [native Yleaf README](src/wgsextract_cli/ydna/yleaf_native/README.md#trees).

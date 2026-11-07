@@ -1830,8 +1830,8 @@ CLI: `wgsextract ref bootstrap`.
 Install the bootstrap; output role `reference_resource` for each file.
 Not offered by the server.
 
-`RefBootstrapParams`: Download the reference library bootstrap (VCFs, chains, N counts and
-other support files). Saves the library's path as config.toml's
+`RefBootstrapParams`: Download the reference library bootstrap (liftover chains, chip
+templates, N counts and other support files). Saves the library's path as config.toml's
 `reference_library` when that is unset.
 
 | Field | Type | Default | CLI | Description |

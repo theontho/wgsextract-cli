@@ -420,8 +420,10 @@ N_ADJUST = {
 }
 N_ADJUST["19"] = N_ADJUST["37"]
 
-# Reference Library Bootstrap
-BOOTSTRAP_URL = "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-reference-bootstrap.tar.gz"
+# Reference library bootstrap, built by scripts/build_reference_bootstrap.py.
+# Since v0.2.0 it carries no YBrowse data (#509); `ref ybrowse --install` fetches it.
+BOOTSTRAP_URL = "https://github.com/WGSExtract/wgsextract-cli/releases/download/reference-bootstrap-v0.2.0/wgsextract-reference-bootstrap-0.2.0.tar.gz"
+BOOTSTRAP_SHA256 = "03d7f58ba813c12e1efed048466f62959dc51f996d95aace76105c49fefca8e9"
 BOOTSTRAP_FILENAME = "wgsextract-reference-bootstrap.tar.gz"
 
 # Delly mappability map files `ref status` reports (Delly 2 no longer needs them).

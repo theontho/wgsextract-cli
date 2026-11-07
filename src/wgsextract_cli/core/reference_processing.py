@@ -246,7 +246,11 @@ def download_bootstrap(
     progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Downloads and extracts the reference library bootstrap."""
-    from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME, BOOTSTRAP_URL
+    from wgsextract_cli.core.constants import (
+        BOOTSTRAP_FILENAME,
+        BOOTSTRAP_SHA256,
+        BOOTSTRAP_URL,
+    )
 
     if not Path(reflib_dir).exists():
         Path(reflib_dir).mkdir(parents=True, exist_ok=True)
@@ -260,7 +264,14 @@ def download_bootstrap(
     logging.info(f"Downloading bootstrap from {BOOTSTRAP_URL}...")
 
     for attempt in range(1, 4):
-        if download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
+        if download_file(
+            BOOTSTRAP_URL,
+            dest_path,
+            progress_callback,
+            cancel_event,
+            expected_sha256=BOOTSTRAP_SHA256,
+            resolve_release_digest=False,
+        ):
             break
         if attempt == 3:
             return False
@@ -325,13 +336,15 @@ def extract_archive_keep_existing(archive_path: str, dest_dir: str) -> None:
 def bootstrap_has_support_assets(reflib_dir: str) -> bool:
     if not Path(reflib_dir).is_dir():
         return False
+    # The bootstrap's T2T liftover chains; its YBrowse VCFs (before v0.2.0)
+    # are no longer a sign of it (#509).
     names = {
         "All_SNPs.vcf.gz",
         "common_all.vcf.gz",
-        "snps_hg19.vcf.gz",
-        "snps_hg38.vcf.gz",
-        "snps_grch37.vcf.gz",
-        "snps_grch38.vcf.gz",
+        "chm13v2-grch38.chain",
+        "chm13v2-hg19.chain",
+        "grch38-chm13v2.chain",
+        "hg19-chm13v2.chain",
     }
     for _, _, files in os.walk(reflib_dir):
         for file_name in files:
