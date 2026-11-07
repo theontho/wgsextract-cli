@@ -1,6 +1,7 @@
 import argparse
 
-from wgsextract_cli.core.config import settings
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.vep import VepRunParams
 from wgsextract_cli.core.messages import CLI_HELP
 
 from ._vep_resources import (
@@ -8,74 +9,14 @@ from ._vep_resources import (
     cmd_vep_download,
     cmd_vep_verify,
 )
-from ._vep_run import (
-    cmd_vep,
-)
+from ._vep_run import run_vep
+
+cli_vep_run = cli_handler(VepRunParams, run_vep)
 
 
 def _add_run_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--vep-cache",
-        default=settings.get("vep_cache_directory"),
-        help="Path to VEP cache directory (e.g., $HOME/.vep)",
-    )
-    parser.add_argument(
-        "--assembly",
-        dest="vep_assembly",
-        choices=["GRCh37", "GRCh38"],
-        help="Reference assembly for VEP (GRCh37 or GRCh38)",
-    )
-    parser.add_argument(
-        "--vep-assembly",
-        dest="vep_assembly",
-        choices=["GRCh37", "GRCh38"],
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--vep-cache-version", default="116", help="VEP cache version (default: 116)"
-    )
-    parser.add_argument(
-        "--vcf-type",
-        choices=["auto", "snp-indel", "sv", "cnv"],
-        default="auto",
-        help="Type of variants (affects VEP args)",
-    )
-    parser.add_argument(
-        "--add-chr", action="store_true", help="Add 'chr' prefix to chromosomes"
-    )
-    parser.add_argument(
-        "--force", action="store_true", help="Force re-run even if output exists"
-    )
-    parser.add_argument(
-        "--preset",
-        choices=["everything", "fast"],
-        default="everything",
-        help="What VEP annotates: 'everything' (default), or 'fast' (about twice as "
-        "fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no "
-        "population frequencies, for which use 'vcf gnomad', and no HGVS)",
-    )
-    parser.add_argument(
-        "--vep-args",
-        help="Additional raw arguments to pass to VEP (e.g., '--everything --pick')",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["vcf", "tab", "json"],
-        default="vcf",
-        help="Output format (default: vcf)",
-    )
-    # Variant calling options, used when the input is BAM/CRAM.
-    parser.add_argument(
-        "--ploidy-file",
-        help="File defining ploidy per chromosome (auto-resolved if possible)",
-    )
-    parser.add_argument(
-        "--ploidy", help="Predefined ploidy name or value (e.g., 'human')"
-    )
-    parser.add_argument(
-        "-r", "--region", help="Chromosomal region (e.g. chrM, chrY:10000-20000)"
-    )
-    parser.set_defaults(func=cmd_vep)
+    add_arguments(parser, VepRunParams, config_defaults=True)
+    parser.set_defaults(func=cli_vep_run)
 
 
 def _add_cache_args(parser: argparse.ArgumentParser) -> None:

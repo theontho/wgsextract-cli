@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_tools, run_wgsextract
+from wgsextract_cli import api
 from wgsextract_cli.api import VcfFreebayesParams
 from wgsextract_cli.commands.vcf.basic import CallerSetup
 from wgsextract_cli.core.dependencies import get_tool_path
@@ -150,10 +151,8 @@ def test_vep_output_paths():
 
 
 def test_vep_requires_input():
-    from wgsextract_cli.commands._vep_run import cmd_vep
-
-    with pytest.raises(WGSExtractError):
-        cmd_vep(argparse.Namespace(input=None))
+    with pytest.raises(UsageError, match="--input is required"):
+        run_wgsextract("vep", "run")
 
 
 @needs_bcftools
@@ -1082,12 +1081,12 @@ def test_vep_fast_preset_replaces_everything(tmp_path):
     from wgsextract_cli.commands._vep_run import _build_vep_command
 
     def command(preset):
-        args = SimpleNamespace(
-            format="vcf", vep_assembly="GRCh38", vep_cache=str(tmp_path),
-            vep_cache_version="116", vep_args=None, preset=preset,
+        params = api.VepRunParams(
+            input=Path("in.vcf.gz"), vep_assembly="GRCh38", vep_cache=tmp_path,
+            preset=preset,
         )  # fmt: skip
         lib = SimpleNamespace(build="hg38", fasta=None, vep_cache=None)
-        return _build_vep_command(args, "in.vcf.gz", "out.vcf", "snp-indel", lib, "4")
+        return _build_vep_command(params, "in.vcf.gz", "out.vcf", "snp-indel", lib, "4")
 
     assert "--everything" in command("everything")
     fast = command("fast")

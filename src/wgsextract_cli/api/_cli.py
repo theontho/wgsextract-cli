@@ -82,6 +82,10 @@ def add_arguments(
             if spec.metavar is not None:
                 kwargs["metavar"] = spec.metavar
         target.add_argument(*item.flags, **kwargs)
+        if spec.hidden_flags:
+            target.add_argument(
+                *spec.hidden_flags, **{**kwargs, "help": argparse.SUPPRESS}
+            )
 
 
 def _value_type(tp: Any) -> Callable[[str], Any] | None:

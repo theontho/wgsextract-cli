@@ -54,7 +54,8 @@ class ParamSpec:
     A ``positional`` field is a positional CLI argument named by ``metavar``;
     a tuple one takes one or more values, as does an option whose type is a
     variable-length tuple (``tuple[Path, ...]``). ``group`` (title, description) puts
-    the option in that section of the command's help.
+    the option in that section of the command's help. ``hidden_flags`` are
+    old spellings of the option the CLI still accepts but its help leaves out.
     """
 
     help: str | None = None
@@ -80,6 +81,7 @@ class ParamSpec:
     deletes: bool = False
     positional: bool = False
     group: tuple[str, str | None] | None = None
+    hidden_flags: tuple[str, ...] = ()
 
     @property
     def description(self) -> str:
@@ -113,6 +115,7 @@ def param(
     deletes: bool = False,
     positional: bool = False,
     group: tuple[str, str | None] | None = None,
+    hidden_flags: tuple[str, ...] = (),
 ) -> Any:
     """Declare a Params field; omit ``default`` for a required one.
 
@@ -143,6 +146,7 @@ def param(
         deletes=deletes,
         positional=positional,
         group=group,
+        hidden_flags=hidden_flags,
     )
     return dataclasses.field(default=default, metadata={_SPEC: spec})
 
