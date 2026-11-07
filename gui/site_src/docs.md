@@ -43,7 +43,7 @@ Download installers and read the complete GUI and bundled CLI release notes. The
 ::: card
 {{ kicker: WGSExtract }}
 ### Current workflows
-Nanopore handling in existing actions, plus opt-in MultiQC, expanded microarray/AADR exports, targeted Y analysis, and resource requirements. See what is in the app and what is still CLI only.
+Nanopore handling in existing actions, Clair3 and methylation controls, plus opt-in MultiQC, expanded microarray/AADR exports, targeted Y analysis, and resource requirements. See what is in the app and what is still CLI only.
 
 {{ link: WGSExtract workflows|wgsextract.html|inline-link }}
 {{ link: Post-v0.6.3 feature details|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/docs/wgsextract-post-v063.md|inline-link }}

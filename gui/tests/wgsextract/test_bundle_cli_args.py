@@ -220,6 +220,19 @@ class BundleSandbox:
             "multiqc_input": self._file("reports/sample_fastqc.zip"),
             "multiqc_directory": str(data / "reports"),
             "multiqc_force": "--force",
+            "deepvariant_model": "ONT_R104",
+            "sv_read_type": "--long-read",
+            "sv_tandem_repeats": self._file("reference/repeats.bed"),
+            "clair3_model": "r1041_e82_400bps_sup_v500",
+            "methylation_context": "cpg",
+            "methylation_5hmc": "--5hmc",
+            "methylation_combine_strands": "--no-combine-strands",
+            "y_str_panel": "Y-37",
+            "vcf_table_sample": "sample",
+            "vcf_table_all_alleles": "--all-alleles",
+            "vcf_table_no_sqlite": "--no-sqlite",
+            "report_last_failed": "--last-failed",
+            "report_description": "It stopped",
         }
 
     def render(self, value: str) -> str:

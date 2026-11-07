@@ -1,6 +1,6 @@
 import { contextValue } from "./rendering-context.js";
 import { interpolate, placeholdersIn } from "./rendering-placeholders.js";
-import type { ActionSpec, CommandContext, ConditionSpec, LooseRecord } from "./types.js";
+import type { ActionSpec, CommandContext, ConditionSpec, LooseRecord, PageSection } from "./types.js";
 
 export function isPrecheckReady(precheck: LooseRecord | null | undefined, context: CommandContext): boolean {
     if (!precheck?.diskSpaceGB) {
@@ -16,6 +16,9 @@ export function isPrecheckReady(precheck: LooseRecord | null | undefined, contex
 
 export function isActionVisible(action: ActionSpec, context: CommandContext): boolean {
     return (action.visibleWhen ?? []).every((condition) => conditionMatches(condition, context));
+}
+export function isSectionVisible(section: PageSection, context: CommandContext): boolean {
+    return (section.visibleWhen ?? []).every((condition) => conditionMatches(condition, context));
 }
 export function disabledReason(action: ActionSpec, context: CommandContext, fallback = "This action is not available."): string | undefined {
     if (!(action.disabledWhen ?? []).some((condition) => conditionMatches(condition, context))) {

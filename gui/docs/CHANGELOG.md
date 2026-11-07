@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Bundles can declare a local `jobServer`, and actions can carry a `serverOperation`. Those actions then run as jobs on the server, with live progress and clean cancellation, and run their command when the server isn't available ([docs/job-server.md](job-server.md)). The WGSExtract bundle runs its coverage actions on `wgsextract serve` once its bundled CLI supports `serve --ready-json`; until then they run their commands.
+- WGSExtract controls for CLI `v0.6.6`: DeepVariant model selection including `ONT_R104`, SV long-read modes and tandem-repeat BED, Clair3 and methylation pileup (hidden on Windows), Y-STR panels, variant tables, and a redacted bug-report preview. New options start unset, so automatic Nanopore detection and `config.toml` defaults keep applying.
+- Page sections accept `visibleWhen`, and conditions can read the built-in `hostPlatform` placeholder (`windows`, `macos`, `linux`, or `posix`).
 
 ### Changed
 - Bundle WGSExtract CLI `v0.6.6`: Oxford Nanopore reads are detected automatically, keep their methylation tags through alignment, and get Nanopore-tuned calling (DeepVariant ONT model, Sniffles structural variants, optional Clair3), plus CpG methylation pileups. Also adds native Linux ARM64, Y-STR genealogy panels, queryable variant tables (TSV/SQLite/Parquet), depth-aware confidence labels, `report-issue` for redacted bug reports, and easier help; DeepVariant now accepts CRAM 3.1 input and bounds its whole-genome memory use, and whole-genome realignment streams without FASTQ intermediates ([CLI release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.6)).

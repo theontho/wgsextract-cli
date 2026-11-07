@@ -153,6 +153,56 @@
       ],
       "iconName": "precheck",
       "textIcon": "☑️"
+    },
+    {
+      "id": "report-issue",
+      "title": "sections.settings.v066.report-issue.title",
+      "subtitle": "sections.settings.v066.report-issue.subtitle",
+      "controls": [
+        {
+          "id": "report_last_failed",
+          "label": "controls.settings.v066.report-last-failed.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--last-failed",
+              "title": "controls.settings.v066.report-last-failed.label"
+            }
+          ],
+          "tooltip": "controls.settings.v066.report-last-failed.tooltip"
+        },
+        {
+          "id": "report_description",
+          "label": "controls.settings.v066.report-description.label",
+          "kind": "text",
+          "tooltip": "controls.settings.v066.report-description.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "report-issue",
+          "title": "actions.settings.v066.report-issue.title",
+          "tooltip": "actions.settings.v066.report-issue.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "report-issue",
+              "--print"
+            ],
+            "optionalArguments": [
+              [
+                "{{report_last_failed}}"
+              ],
+              [
+                "--description",
+                "{{report_description}}"
+              ]
+            ]
+          }
+        }
+      ],
+      "iconName": "precheck",
+      "textIcon": "🐞"
     }
   ],
   "iconName": "settings",
