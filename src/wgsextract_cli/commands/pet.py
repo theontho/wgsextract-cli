@@ -3,7 +3,7 @@
 import argparse
 import logging
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
@@ -66,7 +66,7 @@ def register(
 class PetJob(AlignJob):
     """A pet alignment: an alignment of one species' reads, then calling."""
 
-    r1: str
+    r1: str = field()  # resets AlignJob.r1's None default
     species: str
 
 
