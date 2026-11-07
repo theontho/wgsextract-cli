@@ -6,11 +6,12 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, TypeVar
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._params import job_values
 from wgsextract_cli.api.align import ALIGNERS as ALIGNERS
 from wgsextract_cli.api.align import PLATFORMS as PLATFORMS
 from wgsextract_cli.api.align import AlignParams
@@ -147,14 +148,7 @@ class AlignJob:
     @classmethod
     def of(cls: type[_Job], params: Params) -> _Job:
         """The job of ``params``' fields that it shares."""
-        values = {}
-        for item in fields(cls):
-            if hasattr(params, item.name):
-                value = getattr(params, item.name)
-                values[item.name] = (
-                    os.fspath(value) if isinstance(value, os.PathLike) else value
-                )
-        return cls(**values)
+        return cls(**job_values(params, cls))
 
     @property
     def read_count(self) -> int | None:
