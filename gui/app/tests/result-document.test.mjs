@@ -80,7 +80,7 @@ test("bundle tests check the result document instead of the printed output", asy
   assert.deepEqual(report.steps.map((entry) => entry.status), ["passed", "failed", "failed", "passed", "failed"]);
   const [ok, missingRole, wrongSize, usage, wrongKind] = report.steps;
   // The command was asked for the document, which is kept in the report and not shown as output.
-  assert.match(ok.command, /cli\.mjs ok --json$/);
+  assert.match(ok.command, /cli\.mjs'? ok --json$/);
   assert.equal(ok.result.metrics.reads, 10);
   assert.match(ok.output, /log: running ok/);
   assert.doesNotMatch(ok.output, /wgsextract\.result/);
@@ -95,7 +95,7 @@ test("a dry run shows the command with the result document arguments", async (t)
 
   const report = await runBundleTest(bundleRoot, { steps: [step("ok")] }, { workspaceURL: workspaceRoot, dryRun: true });
 
-  assert.match(report.steps[0].command, /cli\.mjs ok --json$/);
+  assert.match(report.steps[0].command, /cli\.mjs'? ok --json$/);
 });
 
 test("failed runs map to a usage or missing-tool notice, from the document or the exit code", () => {
