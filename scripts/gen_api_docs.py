@@ -43,11 +43,15 @@ GROUPS = (
     api.microarray,
     api.ref,
     api.repair,
+    api.sign,
     api.genotyping,
     api.report,
     api.sample,
     api.support,
+    api.deps,
+    api.examples,
     api.vep,
+    api.benchmark,
 )
 RUNTIME = (api.ProgressEvent, api.ProgressCallback, api.CancelToken, api.CommandFailed)
 

@@ -1,4 +1,3 @@
-import argparse
 import hashlib
 import json
 import logging
@@ -29,6 +28,7 @@ from .models import (
     BenchmarkDataset,
     BenchmarkDatasetSpec,
     BenchmarkDerivedAlignment,
+    BenchmarkJob,
     BenchmarkRemoteFile,
 )
 
@@ -274,10 +274,9 @@ def _link_cached_dataset_manifest(cache_root: Path, marker_path: Path) -> None:
     marker_path.write_text(str(cache_root) + "\n", encoding="utf-8", newline="\n")
 
 
-def _real_dataset_cache_dir(args: argparse.Namespace, outdir: Path) -> Path:
-    cache_dir = getattr(args, "dataset_cache_dir", None)
-    if cache_dir:
-        return Path(str(cache_dir)).expanduser().resolve()
+def _real_dataset_cache_dir(job: BenchmarkJob, outdir: Path) -> Path:
+    if job.dataset_cache_dir:
+        return job.dataset_cache_dir.expanduser().resolve()
     if dev_download_cache_enabled():
         root = benchmark_dataset_cache_root()
         prune_expired_cache_items(root)
@@ -388,12 +387,12 @@ def _load_real_benchmark_dataset(root: Path) -> BenchmarkDataset:
 
 
 def _prepare_direct_real_benchmark_dataset(
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     dataset_dir: Path,
     outdir: Path,
     spec: BenchmarkDatasetSpec,
 ) -> BenchmarkDataset:
-    cache_root = _real_dataset_cache_dir(args, outdir) / spec.dataset_id
+    cache_root = _real_dataset_cache_dir(job, outdir) / spec.dataset_id
     cache_root.mkdir(parents=True, exist_ok=True)
     cached_files: dict[str, Path] = {}
     for remote in spec.remote_files:
@@ -411,11 +410,10 @@ def _prepare_direct_real_benchmark_dataset(
     return _load_real_benchmark_dataset(cache_root)
 
 
-def _normalized_dataset_sha256(args: argparse.Namespace) -> str | None:
-    value = getattr(args, "dataset_sha256", None)
-    if value is None:
+def _normalized_dataset_sha256(job: BenchmarkJob) -> str | None:
+    if job.dataset_sha256 is None:
         return None
-    normalized = str(value).strip().lower()
+    normalized = job.dataset_sha256.strip().lower()
     return normalized or None
 
 

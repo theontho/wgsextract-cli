@@ -21,7 +21,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
-from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -156,26 +156,39 @@ def run_fastqc(params: FastqcParams) -> None:
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     logging.info(LOG_MESSAGES["running_fastqc"].format(input=input_path))
-    try:
-        run_command(
-            [
-                "fastqc",
-                "-t",
-                threads,
-                "--outdir",
-                java_local_path(outdir),
-                java_local_path(input_path),
-            ]
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"FastQC failed: {e}") from e
-    stem = Path(outdir, fastqc_stem(input_path))
-    report_html = stem.with_name(stem.name + ".html")
-    report_zip = stem.with_name(stem.name + ".zip")
+    stem = fastqc_stem(input_path)
+    names = (stem + ".html", stem + ".zip")
+    # Staged so a run that writes nothing can't pass with a previous run's reports.
+    with tempfile.TemporaryDirectory(prefix=".fastqc_", dir=outdir) as work:
+        try:
+            run_command(
+                [
+                    "fastqc",
+                    "-t",
+                    threads,
+                    "--outdir",
+                    java_local_path(work),
+                    java_local_path(input_path),
+                ]
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"FastQC failed: {e}") from e
+        if not all(Path(work, name).is_file() for name in names):
+            raise WGSExtractError(f"FastQC wrote no report for {input_path}.")
+        for name in names:
+            os.replace(Path(work, name), Path(outdir, name))
+    report_html, report_zip = (Path(outdir, name) for name in names)
     result = current_result()
     result.add_output(report_html, "fastqc_report_html")
     result.add_output(report_zip, "fastqc_report_zip")
-    result.add_metrics(**_fastqc_summary(report_zip))
+    summary = _fastqc_summary(report_zip)
+    result.add_metrics(**summary)
+    if summary.get("total_sequences") == 0:
+        warn(
+            "no_reads",
+            f"{input_path} has no reads, so the FastQC report is empty.",
+            path=input_path,
+        )
 
 
 def fastqc_stem(path: str) -> str:

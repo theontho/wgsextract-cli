@@ -33,8 +33,9 @@ from its Params fields, so the API and `--help` cannot drift.
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
 `api.lineage`, `api.methylation`, `api.microarray`, `api.panel`, `api.ref`,
-`api.repair`, `api.genotyping`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`,
-`api.vep`) follow
+`api.repair`, `api.genotyping`, `api.report`, `api.sample`,
+`api.support`, `api.pet`, `api.analyze`, `api.sign`, `api.deps`,
+`api.examples`, `api.vep`, `api.benchmark`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -1647,8 +1648,8 @@ a missing `.fai`/`.gzi`; `contigs` and `signature` are metrics.
 CLI: `wgsextract ref library`.
 
 Install `params.install`; output roles `reference` (the FASTA) and
-`reference_sidecar`. The CLI's listing and menu aren't offered: use
-`status` for what is installed.
+`reference_sidecar`. The CLI's menu isn't offered: `library_list`
+lists the catalog's genomes and `status` reports what is installed.
 
 `RefLibraryParams`: Install a catalog genome into the library's `genomes` folder, trying
 each mirror that hosts it.
@@ -1657,6 +1658,25 @@ each mirror that hosts it.
 | --- | --- | --- | --- | --- |
 | `install` | `str \| None` | `None` | `--install` | The genome's catalog code (e.g. hs38) or 1-based index (required). |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.library_list(RefLibraryListParams)`
+
+CLI: `wgsextract ref library-list`.
+
+List the library. `details` has `library`, `genomes` (`code`,
+`label`, `file`, `status`, `size`, and whether its `n_counts` and
+a `vep_cache` for its assembly are in the library) and
+`resources` (`gene_maps`, then per build `clinvar`, `revel`,
+`phylop` and `gnomad`, each true when installed); `text` is the
+CLI's table.
+
+`RefLibraryListParams`: List the catalog's genomes with their status in the library (installed,
+unindexed, incomplete or missing), size, N counts and VEP cache, then the
+gene maps and annotation data it holds.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference library folder, or a FASTA in it (default: config reference_fasta's library, else reference_library, else the default library). |
 
 ### `api.ref.status(RefStatusParams)`
 
@@ -1863,6 +1883,57 @@ values hold only the characters VCF allows (`Low Qual;q<10` becomes
 | `input` | `Path` | required | `--input`, `-i` | The FTDNA VCF, .vcf.gz or BCF to repair. |
 | `output` | `Path \| None` | `None` | `--output` | Repaired VCF to write (default: <outdir>/<input stem>_repaired.vcf); not the input itself. |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+
+## `api.sign`
+
+`sign`: SHA-256 checksum manifests, optionally signed with an OpenSSH key,
+so whoever receives a set of output files can check none changed.
+
+`create` hashes files (folders are walked) into a GNU coreutils
+`SHA256SUMS` manifest whose names are relative to its folder, and, given a
+key, signs it to `SHA256SUMS.sig` with `ssh-keygen -Y sign`. `verify`
+checks the signature, if there is one, then every listed file's hash; it
+fails if any is missing or changed. Signing and checking signatures need
+OpenSSH's `ssh-keygen` 8.1 or newer.
+
+The result's metrics: `files` (listed), `signed`, and for `verify`
+`missing_files` and `changed_files`.
+
+### `api.sign.create(SignCreateParams)`
+
+CLI: `wgsextract sign create`.
+
+Write (and sign) a checksum manifest (see `SignCreateParams`).
+
+`SignCreateParams`: Write a checksum manifest of `paths`, signed when a key is given.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `paths` | `tuple[Path, ...]` | required | `PATH` | Files, or folders whose files (recursively) to list. |
+| `output` | `Path \| None` | `None` | `--output` | Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs' common directory. |
+| `key` | `Path \| None` | `None` | `--key` | OpenSSH private key (or public key held by ssh-agent) to sign with (default: config signing_key; with neither, the manifest is not signed). Never taken from a server request. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the inputs' common folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.sign.verify(SignVerifyParams)`
+
+CLI: `wgsextract sign verify`.
+
+Verify a checksum manifest and its signature (see `SignVerifyParams`).
+
+`SignVerifyParams`: Check a checksum manifest's signature and every file it lists. With
+neither `public_key` nor `allowed_signers`, a signature is only
+checked to be intact (a warning says it was not checked against a trusted
+key); with no signature file, only the hashes are checked.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `manifest` | `Path` | required | `manifest` | SHA256SUMS manifest to verify. |
+| `signature` | `Path \| None` | `None` | `--signature` | Signature file. Defaults to <manifest>.sig. |
+| `public_key` | `Path \| None` | `None` | `--public-key` | The signer's OpenSSH public key. |
+| `allowed_signers` | `Path \| None` | `None` | `--allowed-signers` | OpenSSH allowed_signers file (needs --identity). |
+| `identity` | `str \| None` | `None` | `--identity` | Signer identity in --allowed-signers. |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 
 ## `api.genotyping`
 
@@ -2121,6 +2192,82 @@ with `dataclasses.replace` and call `issue_url` for a new link.
 - `body`: The whole issue as Markdown, as saved in the diagnostics file.
 - `save`: Write `body` to `directory/file_name` (readable only by the user).
 
+## `api.deps`
+
+`deps check`: which bioinformatics tools this installation finds, where,
+and in what version.
+
+`check` without `tool` lists every mandatory and optional tool. The
+result's `details` hold `mandatory` and `optional`: one
+`{name, path, runtime, version, alt_env}` per tool (`path` is `None` for
+a missing one). It fails with exit code 3 (error kind
+`missing_dependency`) if a mandatory tool is missing. With `tool`, it
+checks that one tool: its path is `details["path"]` and the result's text,
+and a missing tool fails the same way, naming the command that installs it
+when there is one.
+
+### `api.deps.check(DepsCheckParams)`
+
+CLI: `wgsextract deps check`.
+
+Check the installed tools (see `DepsCheckParams`).
+
+`DepsCheckParams`: Check the installed tools, or one `tool`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `tool` | `str \| None` | `None` | `--tool` | The one tool to check (e.g. samtools); fails if it is missing. |
+
+## `api.examples`
+
+`example-genome`: the curated 1000 Genomes example datasets.
+
+`list_examples` describes the catalog; its result's `details` hold the
+collection folder and each example. `download` fetches the chosen examples
+into `<target_root>/test-1000genomes/<example id>` and writes each one's
+`genome-config.toml`, so `--genome test-1000genomes/<example id>` finds
+them. Completed files are kept and interrupted downloads resume unless
+`force` is set. A `dry_run` downloads nothing; its result's `details`
+hold the plan.
+
+### `api.examples.list_examples(ExampleGenomeListParams)`
+
+CLI: `wgsextract example-genome list`.
+
+Describe the example catalog; the description is the result's
+`details`.
+
+`ExampleGenomeListParams`: List the curated examples: each one's id, label, data type, size,
+tags and file count.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `target_root` | `Path \| None` | `None` | `--target-root` | Genome library folder holding the test-1000genomes collection (default: config genome_library, else the genomes folder of the checkout or user data folder). |
+| `tag` | `tuple[str, ...] \| None` | `None` | `--tag` | Only examples carrying every one of these tags. |
+
+### `api.examples.download(ExampleGenomeDownloadParams)`
+
+CLI: `wgsextract example-genome download`.
+
+Download example genomes (see `ExampleGenomeDownloadParams`); each file
+is an output with its catalog role (`bam`, `vcf`, `fastq_r1` ...),
+plus each example's `genome_config`.
+
+`ExampleGenomeDownloadParams`: Download curated examples into the genome library and write their
+genome configs. With no `example_ids`, `tag` or `all`, the small
+starter set (a chrMT VCF and a chr20 BAM) is downloaded.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `example_ids` | `tuple[str, ...]` | `[]` | `EXAMPLE_ID` | Example ids, as list_examples gives them; not with tag or all. |
+| `tag` | `tuple[str, ...] \| None` | `None` | `--tag` | Download every example carrying all of these tags. |
+| `all` | `bool` | `False` | `--all` | Download every curated example, including large full-genome data. |
+| `method` | `str` | `'auto'` | `--method` | Transfer method. Auto is an alias for HTTPS and does not probe Aspera; use --method aspera explicitly for Aspera. One of: `auto`, `https`, `aspera` |
+| `aspera_key` | `Path \| None` | `None` | `--aspera-key` | Private key for Aspera downloads (default: the Aspera Connect key, if installed). |
+| `target_root` | `Path \| None` | `None` | `--target-root` | Genome library folder holding the test-1000genomes collection (default: config genome_library, else the genomes folder of the checkout or user data folder). |
+| `force` | `bool` | `False` | `--force` | Discard existing and partially downloaded files and download again. Without it, completed files are kept and interrupted downloads resume. |
+| `dry_run` | `bool` | `False` | `--dry-run` | Plan the downloads (the result's details) without creating files. |
+
 ## `api.vep`
 
 `vep`: annotate variants with the Ensembl Variant Effect Predictor (VEP).
@@ -2206,3 +2353,48 @@ missing.
 | `vep_version` | `str` | `'116'` | `--vep-version` | Ensembl release version (default: 116) |
 | `vep_cache` | `Path \| None` | `None` (config `vep_cache_directory`) | `--vep-cache` | VEP cache folder (default: config vep_cache_directory, else the vep folder of the reference library ref names, else ~/.vep). |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference library folder, or a FASTA in one, whose vep folder holds the cache when vep_cache isn't set (default: config reference_fasta's library, else reference_library). |
+
+## `api.benchmark`
+
+`benchmark`: time WGS Extract's operations on one dataset.
+
+It generates a fake BAM (or loads a real dataset), then runs the core suite
+(info, reference index, unalign, subsets, SNP calling, microarray) and, for the
+`heavy` suite, the reference, coverage, extraction, QC and VCF steps, each as
+a CLI child process. Each run gets a timestamped folder under
+`<outdir>/runs` holding the steps' outputs and logs, `benchmark_report.md`
+and `benchmark_results.json`; the result lists the two reports. A failed
+step fails the operation once the report is written; with `keep_going` the
+other steps run first. A cancelled run's folder is removed; downloaded
+datasets stay cached. Local only: it downloads any dataset URL.
+
+### `api.benchmark.benchmark(BenchmarkParams)`
+
+CLI: `wgsextract benchmark`.
+
+Run the benchmark (see `BenchmarkParams`).
+
+`BenchmarkParams`: Benchmark the operations on generated or real data (see the module
+docstring). `coverage`, `full_size`, `region` and `target_count`
+default to the profile's; `threads` overrides the machine's tuned count
+for every step.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `outdir` | `Path \| None` | `None` | `--outdir`, `-o` | Folder for the benchmark runs (default: out/benchmark in the working folder; config output_directory doesn't apply). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `profile` | `str` | `'standard'` | `--profile` | Benchmark size preset. smoke is chrM-only, standard is a scaled human-like genome, 200mb targets a ~200 MiB fake BAM, and full uses real chromosome lengths. One of: `200mb`, `full`, `smoke`, `standard` |
+| `coverage` | `float \| None` | `None` | `--coverage` | Override generated BAM coverage for the selected profile. |
+| `full_size` | `bool` | `False` | `--full-size` | Use real chromosome lengths for the generated benchmark reference. |
+| `build` | `str` | `'hg38'` | `--build` | Generated reference naming/build convention. One of: `grch38`, `hg38`, `hs38`, `hs38d1`, `hs38d1v0`, `hs38dh`, `GRCh38`, `hs38DH`, `grch37`, `hg19`, `hg37`, `hs37`, `hs37d5`, `GRCh37`, `chm13`, `chm13v2`, `chm13v2.0`, `t2t`, `t2tv2`, `t2tv2.0`, `t2tv20`, `T2Tv20`, `T2Tv2`, `T2Tv2.0`, `CHM13`, `CHM13v2.0` |
+| `seed` | `int` | `20260504` | `--seed` | Random seed for deterministic benchmark data generation. |
+| `target_count` | `int \| None` | `None` | `--target-count` | Approximate number of target SNPs for the microarray benchmark. |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Optional region to benchmark for region-aware operations. |
+| `keep_going` | `bool` | `False` | `--keep-going` | Continue independent benchmark steps after a failed step when possible. |
+| `suite` | `str` | `'heavy'` | `--suite` | Benchmark operation coverage. core runs the lighter baseline suite. One of: `core`, `heavy` |
+| `dataset` | `str` | `'fake'` | `--dataset` | Benchmark foundation data. fake generates synthetic data; real uses the release-backed mini genome zip; real-1x and real-30x cache public 1000 Genomes WGS references locally. One of: `fake`, `real`, `real-1x`, `real-30x` |
+| `dataset_zip` | `Path \| None` | `None` | `--dataset-zip` | Local real benchmark dataset zip. Overrides --dataset-url when --dataset real is used. |
+| `dataset_url` | `str` | `'https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip'` | `--dataset-url` | URL for the release-backed real benchmark dataset zip used by --dataset real. |
+| `dataset_sha256` | `str \| None` | `'ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6'` | `--dataset-sha256` | Expected SHA-256 of the dataset zip; empty or None checks none. |
+| `dataset_cache_dir` | `Path \| None` | `None` | `--dataset-cache-dir` | Folder for cached real dataset downloads (default: the dev download cache when enabled, else <outdir>/datasets). |

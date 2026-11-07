@@ -202,58 +202,6 @@ def test_lazy_cache_downloads_selected_build_verifies_and_repairs_corruption(
         data.ensure_data("t2t", tmp_path)
 
 
-def test_tree_pack_downloads_once_verifies_and_repairs_corruption(
-    tmp_path, monkeypatch
-):
-    files = {"tree.json": b"{}", "hg38/new_positions.txt": b"chrY\tM\tR\t1\n"}
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz") as stream:
-        for name, payload in files.items():
-            entry = tarfile.TarInfo(name)
-            entry.size = len(payload)
-            stream.addfile(entry, io.BytesIO(payload))
-    blob = buffer.getvalue()
-    monkeypatch.setitem(
-        trees.MANIFEST["trees"],
-        "yfull",
-        {
-            **trees.MANIFEST["trees"]["yfull"],
-            "version": "1.0",
-            "url": "https://example.invalid/yfull-1.0.tar.gz",
-            "sha256": hashlib.sha256(blob).hexdigest(),
-            "files": {
-                name: {
-                    "size": len(payload),
-                    "sha256": hashlib.sha256(payload).hexdigest(),
-                }
-                for name, payload in files.items()
-            },
-        },
-    )
-    downloads = []
-
-    def download(url, dest, **kwargs):
-        assert kwargs["expected_sha256"] == hashlib.sha256(blob).hexdigest()
-        downloads.append(url)
-        Path(dest).write_bytes(blob)
-        return True
-
-    monkeypatch.setattr(trees, "download_file", download)
-    root = trees.ensure_pack("yfull", tmp_path)
-    assert root == tmp_path / "yleaf/trees/yfull/1.0"
-    assert (root / "tree.json").read_bytes() == b"{}"
-    assert trees.ensure_pack("yfull", tmp_path) == root and len(downloads) == 1
-    (root / "tree.json").write_text("bad!")
-    trees.ensure_pack("yfull", tmp_path)
-    assert len(downloads) == 2 and (root / "tree.json").read_bytes() == b"{}"
-    leftovers = [p.name for p in root.parent.iterdir()]
-    assert not [n for n in leftovers if n.startswith("unpack-") or ".tar" in n]
-    monkeypatch.setattr(trees, "download_file", lambda *a, **k: False)
-    (root / "tree.json").unlink()
-    with pytest.raises(WGSExtractError, match="offline"):
-        trees.ensure_pack("yfull", tmp_path)
-
-
 @pytest.mark.parametrize("tree", ["yfull", "isogg"])
 def test_unsupported_build_is_reported_before_any_download(tmp_path, monkeypatch, tree):
     # PR #451 review: the yfull pack skipped ensure_data's build check and failed
@@ -316,13 +264,13 @@ def test_smoke_cache_gate_needs_only_selected_build_and_shared_tables(
         (root / folder / "table.txt").touch()
     assert yleaf_tables_cached("hg38", "isogg")
     assert not yleaf_tables_cached("hg19", "isogg")
-    # The yfull tree pack replaces the build tables but must itself be cached.
+    # The yfull data modules replace the build tables but must be cached.
     assert not yleaf_tables_cached("hg19")
-    yfull = trees.MANIFEST["trees"]["yfull"]
-    pack = tmp_path / "yleaf/trees/yfull" / yfull["version"]
-    for name in yfull["files"]:
-        (pack / name).parent.mkdir(parents=True, exist_ok=True)
-        (pack / name).touch()
+    for module, spec in trees.MANIFEST["trees"]["yfull"]["modules"].items():
+        for name in spec["files"]:
+            path = trees.module_root("yfull", module, tmp_path) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
     assert yleaf_tables_cached("hg19")
     (root / "hg_prediction_tables/table.txt").unlink()
     assert not yleaf_tables_cached("hg38", "isogg")
@@ -353,7 +301,7 @@ def test_run_provenance_identifies_the_actual_marker_panel(
     metadata = json.loads((output / "run.json").read_text())
     assert metadata["ancient"] is ancient
     assert metadata["marker_panel"] == {
-        "source": "custom" if custom else "tree-pack",
+        "source": "custom" if custom else "data-module",
         "identifier": selected.name
         if custom
         else selected.relative_to(native_tables).as_posix(),

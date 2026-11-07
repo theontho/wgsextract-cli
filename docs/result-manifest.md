@@ -18,8 +18,8 @@ it instead of parsing log text or guessing output file names.
   `<vcf>_<sample>_microarray.manifest.json`, with a `sample` metric, for a
   sample chosen from a multi-sample VCF). `vcf trio` always writes
   `trio.manifest.json`, whichever modes ran.
-  Report-only commands (`info`, `info chip`, `ref status`) write no file,
-  except `info --format`, whose manifest is named after the first table
+  Report-only commands (`info`, `info chip`, `ref status`, `ref library-list`)
+  write no file, except `info --format`, whose manifest is named after the first table
   (`<input>_chromosomes.parquet.manifest.json`).
   A failed run that registered outputs still writes its manifest, with
   `status: "failed"`. A manifest never replaces this run's `--log-file`; when

@@ -11,6 +11,7 @@ import pytest
 from tests.htslib_helpers import bgzip_index, needs_tools, run_wgsextract
 from wgsextract_cli.core import dependency_checks
 from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.main import main
 
 
 def _fastq(path: Path, names: list[str], seed: int) -> str:
@@ -265,6 +266,25 @@ def test_multiqc_zero_exit_without_report_is_not_success(tmp_path, multiqc_stub)
     assert list(tmp_path.iterdir()) == []
 
 
+def test_fastqc_zero_exit_without_report_does_not_reuse_old_reports(
+    tmp_path, multiqc_stub
+):
+    # PR #506 review: a rerun that writes nothing must not pass on the
+    # previous run's reports.
+    reads = _fastq(tmp_path / "sample.fastq", NAMES, 1)
+    old = [tmp_path / "sample_fastqc.html", tmp_path / "sample_fastqc.zip"]
+    for path in old:
+        path.write_text("previous")
+    multiqc_stub(lambda *_args, **_kwargs: None)
+    with pytest.raises(WGSExtractError, match="FastQC wrote no report"):
+        run_wgsextract("qc", "fastqc", "--input", reads)
+    assert [path.read_text() for path in old] == ["previous", "previous"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "sample.fastq",
+        *(p.name for p in old),
+    ]
+
+
 def _vcf(path: Path) -> str:
     path.write_text(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n"
@@ -306,3 +326,14 @@ def test_vcf_qc_failure_leaves_no_partial_report(tmp_path):
     with pytest.raises(WGSExtractError):
         run_wgsextract("qc", "vcf", "--input", str(bad))
     assert not (tmp_path / "bad.vcf.vcfstats.txt").exists()
+
+
+@needs_tools("fastqc")
+def test_fastqc_warns_when_the_input_has_no_reads(tmp_path, capsys):
+    # #352: FastQC exits 0 on an empty FASTQ, which looked like a good report.
+    empty = tmp_path / "empty.fastq"
+    empty.write_text("")
+    main(["--json", "qc", "fastqc", "--input", str(empty), "--outdir", str(tmp_path)])
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "ok"
+    assert [w["code"] for w in result["warnings"]] == ["no_reads"]

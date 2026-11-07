@@ -3,9 +3,11 @@
 and QC rules.
 
 ``trees.json`` lists the built-in trees. Yleaf v4.1.6's data archives carry the
-yfull_v10, ftdna and isogg trees and their marker tables. The yfull tree is a
-separate pack built from YFull's YTree by ``scripts/build_yfull_tree.py``,
-pinned by SHA-256 and verified into the reference library on first use. A
+yfull_v10, ftdna and isogg trees and their marker tables. The yfull tree comes
+as two separately licensed data modules built by ``scripts/build_yfull_tree.py``:
+the YFull YTree (CC-BY-4.0) and its YBrowse-derived marker tables (CC-BY-SA).
+Each is pinned by SHA-256 and verified into its own reference-library folder
+when first needed; the marker module only when a run uses its tables. A
 user's own trees come from config.toml ``[y_trees.<id>]`` tables or
 ``--tree-file`` (see ``custom_trees``).
 """
@@ -55,7 +57,7 @@ class YleafTree:
     """Marker table per build."""
     qc: QcRules
     origin: str
-    """Where the marker tables come from: tree-pack, yleaf-data or custom-tree."""
+    """Where the marker tables come from: data-module, yleaf-data or custom-tree."""
     root: Path | None = None
     """The folder marker table identifiers are relative to (None: file names)."""
     ancient_files: dict[str, Path] = field(default_factory=dict)
@@ -131,32 +133,44 @@ def shared_qc_rules(profile: str, library: Path | None = None) -> QcRules:
     return qc_rules(profile, ensure_data(None, library))
 
 
-def ensure_pack(tree_id: str, library: Path | None = None) -> Path:
-    """The pinned tree pack's folder, downloaded and verified if missing."""
+def module_root(tree_id: str, module: str, library: Path | None = None) -> Path:
+    """Where a built-in tree's data ``module`` lives in the reference library."""
     meta = tree_metadata(tree_id)
-    version = str(meta["version"])
+    folder = str(meta["modules"][module]["folder"])
     base = Path(library or resolve_reference_library())
-    root = base / "yleaf" / "trees" / tree_id / version
-    files: dict[str, Any] = meta["files"]
+    return base / "yleaf" / "modules" / folder / str(meta["version"])
+
+
+def ensure_module(tree_id: str, module: str, library: Path | None = None) -> Path:
+    """A built-in tree's pinned data ``module``, downloaded and verified if missing.
+
+    Each module is a separately licensed download with its own SHA-256 pin and
+    folder; its one-line licence notice is logged when it is downloaded.
+    """
+    meta = tree_metadata(tree_id)
+    spec: dict[str, Any] = meta["modules"][module]
+    version = str(meta["version"])
+    root = module_root(tree_id, module, library)
+    files: dict[str, Any] = spec["files"]
     if verified(root, files):
         return root
     root.parent.mkdir(parents=True, exist_ok=True)
     with build_lock(str(root.parent / f"{version}.lock")):
         if verified(root, files):
             return root
-        logging.info(f"Downloading Yleaf tree {meta['name']} {version}...")
-        archive = root.parent / f"{tree_id}-{version}.tar.gz"
+        logging.info(spec["notice"])
+        archive = root.parent / f"{spec['folder']}-{version}.tar.gz"
         try:
             if not download_file(
-                meta["url"],
+                spec["url"],
                 str(archive),
-                expected_sha256=meta["sha256"],
+                expected_sha256=spec["sha256"],
                 resolve_release_digest=False,
             ):
                 raise WGSExtractError(
-                    f"Cannot download the verified Yleaf tree {meta['name']} "
-                    f"{version}. If offline, connect once to populate the "
-                    "reference library."
+                    f"Cannot download the verified {spec['folder']} {version} data "
+                    "module. If offline, connect once to populate the reference "
+                    "library."
                 )
             staging = Path(tempfile.mkdtemp(prefix="unpack-", dir=root.parent))
             try:
@@ -170,7 +184,7 @@ def ensure_pack(tree_id: str, library: Path | None = None) -> Path:
                 shutil.rmtree(staging, ignore_errors=True)
         except (OSError, tarfile.TarError) as error:
             raise WGSExtractError(
-                f"Unable to prepare Yleaf tree {meta['name']} {version}: {error}"
+                f"Unable to prepare the {spec['folder']} {version} data module: {error}"
             ) from error
         finally:
             archive.unlink(missing_ok=True)
@@ -186,8 +200,9 @@ def ensure_tree(
     """The tree and the ``build`` marker tables it needs, downloaded if missing.
 
     ``tree_id`` is a built-in tree or a config.toml ``[y_trees.<id>]`` entry.
-    A custom tree fetches only ``panel`` (None: no marker table, as with
-    ``--pos-file``); a built-in's data comes as one download.
+    Only the ``panel`` marker table is needed (None: none, as with
+    ``--pos-file``): a custom tree fetches just that table, and a modular
+    built-in tree skips its marker module.
     """
     from .custom_trees import check_tree_id, ensure_custom_tree
 
@@ -197,10 +212,21 @@ def ensure_tree(
     if tree_id not in MANIFEST["trees"]:
         return ensure_custom_tree(tree_id, build, library, panel)
     meta = tree_metadata(tree_id)
-    pack = meta["data"] == "pack"
-    # A pack has its own marker tables; Yleaf's archive supplies QC1's tables.
-    data = ensure_data(None if pack else build, library)
-    root = ensure_pack(tree_id, library) if pack else data
+    modular = meta["data"] == "modules"
+    # Modules carry the tree and marker tables; Yleaf's archive supplies QC1's.
+    data = ensure_data(None if modular else build, library)
+    root: Path | None = data
+    tree_root = data
+    if modular:
+        tree_root = ensure_module(tree_id, "tree", library)
+        # The share-alike marker module is fetched only when a table is used.
+        root = ensure_module(tree_id, "positions", library) if panel else None
+    tables = {
+        key: {b: root / meta[key].format(build=b) for b in meta["builds"]}
+        if root
+        else {}
+        for key in ("positions", "positions_ancient")
+    }
     return YleafTree(
         id=tree_id,
         name=str(meta["name"]),
@@ -208,14 +234,10 @@ def ensure_tree(
         date=str(meta["date"]),
         license=str(meta["license"]),
         source=str(meta["source"]),
-        tree_file=root / meta["tree"],
-        positions_files={
-            b: root / meta["positions"].format(build=b) for b in meta["builds"]
-        },
-        ancient_files={
-            b: root / meta["positions_ancient"].format(build=b) for b in meta["builds"]
-        },
+        tree_file=tree_root / meta["tree"],
+        positions_files=tables["positions"],
+        ancient_files=tables["positions_ancient"],
         qc=qc_rules(meta["qc"], data),
-        origin="tree-pack" if pack else "yleaf-data",
+        origin="data-module" if modular else "yleaf-data",
         root=root,
     )
