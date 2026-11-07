@@ -13,13 +13,19 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.htslib_helpers import bgzip_index, needs_tools, vcf_calls, write_fasta
+from tests.htslib_helpers import (
+    bgzip_index,
+    needs_tools,
+    vcf_calls,
+    write_fasta,
+)
 from tests.http_server import serving
 from wgsextract_cli import api
 from wgsextract_cli.api import (
     RefCountNsParams,
     RefGeneMapParams,
     RefIndexParams,
+    RefLibraryListParams,
     RefLibraryParams,
     RefVerifyParams,
 )
@@ -314,9 +320,9 @@ def _rows(output: str) -> dict[str, list[str]]:
     return rows
 
 
-def test_library_list_reports_genome_status_and_resources(tmp_path, genomes, capsys):
-    gdir, ref_dir = tmp_path / "genomes", tmp_path / "ref"
-    gdir.mkdir()
+def _fake_library(root: Path) -> Path:
+    gdir, ref_dir = root / "genomes", root / "ref"
+    gdir.mkdir(parents=True)
     ref_dir.mkdir()
     (gdir / "hg38.fa.gz").write_bytes(b"x" * 2 * 1024 * 1024)
     (gdir / "hg38.fa.gz.fai").write_text("chr1\t1\n")
@@ -324,12 +330,17 @@ def test_library_list_reports_genome_status_and_resources(tmp_path, genomes, cap
     (gdir / "UU_Cfam_GSD_1.0_ncnt.csv").write_text("")  # bootstrap ships these
     (gdir / "hs37d5.fa.gz.partial").write_bytes(b"x")
     (gdir / "chm13v2.0.fa.gz").write_bytes(b"x")
-    (tmp_path / "vep" / "homo_sapiens" / "113_GRCh38").mkdir(parents=True)
-    (tmp_path / "vep" / "canis_lupus_familiaris").mkdir(parents=True)
+    (root / "vep" / "homo_sapiens" / "113_GRCh38").mkdir(parents=True)
+    (root / "vep" / "canis_lupus_familiaris").mkdir(parents=True)
     for name in ("genes_hg19.tsv", "genes_hg38.tsv", "clinvar_hg38.vcf.gz"):
         (ref_dir / name).write_text("")
     (ref_dir / "phylop_hg19.bw").write_text("")
     (ref_dir / "gnomad_hg38.vcf.bgz").write_text("")
+    return root
+
+
+def test_library_list_reports_genome_status_and_resources(tmp_path, genomes, capsys):
+    _fake_library(tmp_path)
 
     library_commands.cmd_library(Namespace(ref=str(tmp_path), list=True))
 
@@ -348,6 +359,81 @@ def test_library_list_reports_genome_status_and_resources(tmp_path, genomes, cap
     assert rows["gnomAD (hg38)"] == ["INSTALLED"]
     assert rows["gnomAD (hg19)"] == ["MISSING"]
     assert rows["REVEL (hg38)"] == ["MISSING"]
+
+
+def test_api_library_list_gives_the_listing_as_details_and_text(
+    tmp_path, genomes, capsys
+):
+    # #478: the listing is the result's details; a FASTA in the library's
+    # genomes folder names that library.
+    lib = _fake_library(tmp_path / "lib")
+
+    result = api.ref.library_list(
+        RefLibraryListParams(ref=lib / "genomes" / "hg38.fa.gz")
+    )
+
+    assert capsys.readouterr().out == ""
+    details = result.details
+    assert details["library"] == str(lib)
+    by_code = {g["code"]: g for g in details["genomes"]}
+    assert by_code["hg38"] == {
+        "code": "hg38",
+        "label": "hg38 (YSEQ)",
+        "file": "hg38.fa.gz",
+        "status": "installed",
+        "size": "2.0 MiB",
+        "n_counts": True,
+        "vep_cache": True,
+    }
+    assert (by_code["hs37d5"]["status"], by_code["hs37d5"]["vep_cache"]) == (
+        "incomplete",
+        False,
+    )
+    # The dog's N counts don't count while the genome is missing.
+    assert (by_code["Dog"]["n_counts"], by_code["Dog"]["vep_cache"]) == (False, True)
+    assert by_code["Cat"]["vep_cache"] is False
+    assert details["resources"] == {
+        "gene_maps": True,
+        "hg19": {"clinvar": False, "revel": False, "phylop": True, "gnomad": False},
+        "hg38": {"clinvar": True, "revel": False, "phylop": False, "gnomad": True},
+    }
+    rows = _rows(result.text)
+    assert rows["hg38 (YSEQ)"] == ["INSTALLED", "2.0 MiB", "N-counts, VEP-GRCh38"]
+    assert rows["Gene Maps (hg19/hg38)"] == ["INSTALLED"]
+
+
+def test_api_library_list_expands_home(tmp_path, genomes, monkeypatch):
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(tmp_path))
+    _fake_library(tmp_path / "lib")
+
+    result = api.ref.library_list(RefLibraryListParams(ref=Path("~/lib")))
+
+    assert result.details["library"] == str(tmp_path / "lib")
+    assert {g["code"]: g["status"] for g in result.details["genomes"]}["hg38"] == (
+        "installed"
+    )
+
+
+def test_library_list_defaults_to_the_configured_fastas_library(
+    tmp_path, genomes, monkeypatch
+):
+    # As before #478: config reference_fasta's library comes before
+    # reference_library.
+    from wgsextract_cli.core.config import settings
+
+    lib = _fake_library(tmp_path / "lib")
+    other = tmp_path / "other" / "genomes"
+    other.mkdir(parents=True)
+    (other / "hg38.fa.gz").write_bytes(b"x")
+    monkeypatch.setitem(settings, "reference_library", str(lib))
+    monkeypatch.setitem(settings, "reference_fasta", str(other / "hg38.fa.gz"))
+
+    result = api.ref.library_list(RefLibraryListParams())
+
+    assert result.details["library"] == str(other.parent)
+    assert f"REFERENCE LIBRARY: {other.parent}" in result.text
+    assert _rows(result.text)["hg38 (YSEQ)"] == ["UNINDEXED", "1 B"]
 
 
 # --- ref library --install / interactive menu -----------------------------------

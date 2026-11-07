@@ -14,6 +14,7 @@ from wgsextract_cli.api.ref import (
     RefCountNsParams,
     RefDownloadParams,
     RefIndexParams,
+    RefLibraryListParams,
     RefVerifyParams,
 )
 from wgsextract_cli.core import bwa_mem2
@@ -39,8 +40,6 @@ from wgsextract_cli.core.reference_assets import (
     n_count_paths,
     read_fai_lengths,
     reference_dict_path,
-    reference_library_of,
-    resolve_reference_library,
     sequence_signature,
     verify_sequence_signature,
 )
@@ -49,6 +48,7 @@ from wgsextract_cli.core.reference_processing import has_ref_ns
 from wgsextract_cli.core.results import (
     current_result,
     file_snapshot,
+    human_output,
     record_changed_files,
     warn,
 )
@@ -279,102 +279,113 @@ def _catalog_build(genome: dict[str, str]) -> str | None:
     return canonical_build(model[0]) if model else build_from_path(genome["final"])
 
 
-def cmd_library_list(args: argparse.Namespace) -> None:
-    """Non-interactive library status list (CLI only)."""
-    reflib_dir = resolve_reference_library(
-        reference_library_of(args.ref) if args.ref else None
+def _vep_cache(genome: dict[str, str], reflib_dir: str) -> str | None:
+    """The listing's VEP label: ``VEP-GRCh37``/``VEP-GRCh38`` when a human
+    genome's assembly has a cache in the library, ``VEP-Cache`` for a dog or
+    cat one, else None."""
+    bn = genome["final"].upper()
+    # The catalog's signature says the build when the file name doesn't
+    # (human_g1k_v37). VEP caches exist for GRCh37 and GRCh38 only.
+    assembly = {"hg38": "GRCh38", "hg19": "GRCh37"}.get(
+        _catalog_build(genome) or "", ""
     )
-    genomes = get_available_genomes()
+    if assembly:
+        species = "homo_sapiens"
+    elif "GSD" in bn or "DOG" in bn:
+        species = "canis_lupus_familiaris"
+    elif "FCA126" in bn or "CAT" in bn:
+        species = "felis_catus"
+    else:
+        return None
+    vep_path = Path(reflib_dir, "vep", species)
+    if not vep_path.exists():
+        return None
+    if not assembly:
+        return "VEP-Cache"
+    # Any [version]_[assembly] folder.
+    if vep_path.is_dir() and any(assembly in d for d in os.listdir(vep_path)):
+        return f"VEP-{assembly}"
+    return None
 
-    print(f"\nREFERENCE LIBRARY: {reflib_dir}")
-    print("-" * 80)
-    print(f"{'GENOME':<40} {'STATUS':<15} {'SIZE':<10} {'DETAILS'}")
-    print("-" * 80)
 
-    for g in genomes:
-        status = get_genome_status(g["final"], reflib_dir).upper()
-        size = get_genome_size(g["final"], reflib_dir)
+def _annotation_resources(reflib_dir: str) -> dict[str, dict[str, bool]]:
+    ref_dir = Path(reflib_dir, "ref")
 
-        details = []
-        # Bootstrap ships every catalog genome's N-counts; they matter once it's here.
-        if status != "MISSING" and has_ref_ns(g["final"], reflib_dir):
-            details.append("N-counts")
+    def any_of(stem: str, *exts: str) -> bool:
+        return any(Path(ref_dir, f"{stem}{ext}").exists() for ext in exts)
 
-        # Check for VEP cache
-        bn = g["final"].upper()
-        species = ""
-        # The catalog's signature says the build when the file name doesn't
-        # (human_g1k_v37). VEP caches exist for GRCh37 and GRCh38 only.
-        assembly = {"hg38": "GRCh38", "hg19": "GRCh37"}.get(_catalog_build(g) or "", "")
-        if assembly:
-            species = "homo_sapiens"
-        elif "GSD" in bn or "DOG" in bn:
-            species = "canis_lupus_familiaris"
-        elif "FCA126" in bn or "CAT" in bn:
-            species = "felis_catus"
+    return {
+        build: {
+            "clinvar": any_of(f"clinvar_{build}", ".vcf.gz"),
+            "revel": any_of(f"revel_{build}", ".tsv.gz"),
+            "phylop": any_of(f"phylop_{build}", ".bw", ".tsv.gz"),
+            "gnomad": any_of(f"gnomad_{build}", ".vcf.bgz", ".vcf.gz"),
+        }
+        for build in ("hg19", "hg38")
+    }
 
-        if species:
-            vep_path = str(Path(reflib_dir, "vep", species))
-            if Path(vep_path).exists():
-                # If human, check for specific assembly
-                if species == "homo_sapiens" and assembly:
-                    # Look for any directory starting with [version]_[assembly]
-                    found_asm = False
-                    if Path(vep_path).is_dir():
-                        for d in os.listdir(vep_path):
-                            if assembly in d:
-                                found_asm = True
-                                break
-                    if found_asm:
-                        details.append(f"VEP-{assembly}")
-                else:
-                    details.append("VEP-Cache")
 
-        details_str = ", ".join(details)
-        print(f"{g['label']:<40} {status:<15} {size:<10} {details_str}")
-
-    print("-" * 80)
-    gm_installed = "INSTALLED" if are_gene_maps_installed(reflib_dir) else "MISSING"
-    print(f"{'Gene Maps (hg19/hg38)':<40} {gm_installed}")
-
-    # Check for ClinVar, REVEL, gnomAD
-    ref_dir = str(Path(reflib_dir, "ref"))
-    for build in ["hg19", "hg38"]:
-        cv = (
-            "INSTALLED"
-            if Path(ref_dir, f"clinvar_{build}.vcf.gz").exists()
-            else "MISSING"
+def run_library_list(params: RefLibraryListParams) -> None:
+    """The library's genomes and annotation data, as ``details`` and the CLI's
+    table."""
+    reflib_dir = str(params.library())
+    genomes = []
+    vep_labels: list[str | None] = []
+    for g in get_available_genomes():
+        status = get_genome_status(g["final"], reflib_dir)
+        vep_labels.append(_vep_cache(g, reflib_dir))
+        genomes.append(
+            {
+                "code": g["code"],
+                "label": g["label"],
+                "file": g["final"],
+                "status": status,
+                "size": get_genome_size(g["final"], reflib_dir),
+                # Bootstrap ships every catalog genome's N-counts; they matter
+                # once it's here.
+                "n_counts": status != "missing" and has_ref_ns(g["final"], reflib_dir),
+                "vep_cache": vep_labels[-1] is not None,
+            }
         )
-        print(f"{f'ClinVar ({build})':<40} {cv}")
-        rv = (
-            "INSTALLED"
-            if Path(ref_dir, f"revel_{build}.tsv.gz").exists()
-            else "MISSING"
-        )
-        print(f"{f'REVEL ({build})':<40} {rv}")
-        ph = (
-            "INSTALLED"
-            if any(
-                Path(ref_dir, f"phylop_{build}{ext}").exists()
-                for ext in (".bw", ".tsv.gz")
-            )
-            else "MISSING"
-        )
-        print(f"{f'PhyloP ({build})':<40} {ph}")
-        gn = (
-            "INSTALLED"
-            if any(
-                Path(ref_dir, f"gnomad_{build}{ext}").exists()
-                for ext in [".vcf.bgz", ".vcf.gz"]
-            )
-            else "MISSING"
-        )
-        print(f"{f'gnomAD ({build})':<40} {gn}")
+    gene_maps = are_gene_maps_installed(reflib_dir)
+    builds = _annotation_resources(reflib_dir)
+    current_result().set_details(
+        {
+            "library": reflib_dir,
+            "genomes": genomes,
+            "resources": {"gene_maps": gene_maps, **builds},
+        }
+    )
 
-    print("-" * 80)
+    rule = "-" * 80
+    human_output(f"\nREFERENCE LIBRARY: {reflib_dir}")
+    human_output(rule)
+    human_output(f"{'GENOME':<40} {'STATUS':<15} {'SIZE':<10} {'DETAILS'}")
+    human_output(rule)
+    for row, vep in zip(genomes, vep_labels, strict=True):
+        details = ["N-counts"] if row["n_counts"] else []
+        if vep:
+            details.append(vep)
+        human_output(
+            f"{row['label']:<40} {row['status'].upper():<15} {row['size']:<10} "
+            f"{', '.join(details)}"
+        )
+    human_output(rule)
+
+    def installed(flag: bool) -> str:
+        return "INSTALLED" if flag else "MISSING"
+
+    human_output(f"{'Gene Maps (hg19/hg38)':<40} {installed(gene_maps)}")
+    names = {"clinvar": "ClinVar", "revel": "REVEL", "phylop": "PhyloP"}
+    for build, found in builds.items():
+        for key, flag in found.items():
+            name = f"{names.get(key, 'gnomAD')} ({build})"
+            human_output(f"{name:<40} {installed(flag)}")
+    human_output(rule)
 
 
 cmd_download = cli_handler(RefDownloadParams, run_download)
 cmd_index = cli_handler(RefIndexParams, run_index)
 _cli_count_ns = cli_handler(RefCountNsParams, run_count_ns)
 cmd_ref_verify = cli_handler(RefVerifyParams, run_verify)
+cmd_library_list = cli_handler(RefLibraryListParams, run_library_list)
