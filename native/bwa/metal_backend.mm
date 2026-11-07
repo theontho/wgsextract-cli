@@ -1136,7 +1136,10 @@ private:
         int64_t re, const uint8_t *ref, int xtra) {
         auto &cpu = *static_cast<CpuRescue *>(context);
         const int64_t tlen = re - rb;
-        if (cpu.bases.size() + size_t(l_ms) + size_t(tlen) > cpu_rescue_bytes) {
+        // 16-bit windows gain nothing from the batch, so upstream aligns them
+        // only if mem_matesw() still asks.
+        if (!(xtra & KSW_XBYTE)
+            || cpu.bases.size() + size_t(l_ms) + size_t(tlen) > cpu_rescue_bytes) {
             cpu.batch.keys.push_back({ms, rb, re, l_ms, is_rev, xtra, skipped_job});
             ++rescue_tally.cpu_skipped;
             return;

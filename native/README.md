@@ -124,7 +124,7 @@ What runs on the GPU:
   from the GPU, which is the bottleneck: they locate a read's seeds with 16
   suffix-array walks interleaved, align a pair's mate-rescue windows together
   (running upstream's 8-bit kernel on up to four windows of the same length
-  at once), sort the rescued alignments by pointer, and unpack reference bases
+  at once; windows that need the 16-bit kernel are left to upstream), sort the rescued alignments by pointer, and unpack reference bases
   with NEON, all with upstream's exact results. At most two GPU
   command buffers of the process run at once: with more, macOS sometimes
   aborts one to keep the display responsive (`ImpactingInteractivity`). It

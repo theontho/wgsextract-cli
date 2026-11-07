@@ -203,16 +203,21 @@ cpu_batch() {
         mem "$@" reference.fa pairs-R1.fq pairs-R2.fq > "batch-$name.sam" 2> "batch-$name.log"
     same "cpu-$name.sam" "batch-$name.sam"
     grep '^\[wgse-bwa\] rescue_batches' "batch-$name.log"
-    test "$(metric "batch-$name.log" rescue_cpu_hits)" -gt 100
     test "$(metric "batch-$name.log" rescue_mismatches)" -eq 0
 }
 cpu_batch t4 -t 4
+test "$(metric batch-t4.log rescue_cpu_hits)" -gt 100
 cpu_batch gaps -t 4 -O 4,8 -E 2,1 -L 3,7 -U 9
-# 16-bit windows in the batch run upstream ksw_align2.
+test "$(metric batch-gaps.log rescue_cpu_hits)" -gt 100
+# Regression (PR #502 review): 16-bit windows are left to upstream ksw_align2
+# on demand rather than aligned speculatively.
 cpu_batch wide -t 4 -A 4 -B 8
+test "$(metric batch-wide.log rescue_cpu_jobs)" -eq 0
+test "$(metric batch-wide.log rescue_cpu_skipped)" -gt 100
 # Regression (PR #502 review): windows past a thread's byte cap are aligned by
 # upstream ksw_align2 while the rest of the pair's windows stay batched.
 cpu_rescue_bytes=3000
 cp cpu-t4.sam cpu-capped.sam
 cpu_batch capped -t 4
+test "$(metric batch-capped.log rescue_cpu_hits)" -gt 100
 test "$(metric batch-capped.log rescue_cpu_skipped)" -gt 100
