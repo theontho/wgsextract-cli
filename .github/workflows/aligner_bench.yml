@@ -148,6 +148,10 @@ jobs:
       matrix:
         variant: ${{ fromJSON(needs.plan.outputs.variants) }}
     name: build ${{ matrix.variant.label }}
+    env:
+      # The artifact holds a directory named after the variant, so that the bench jobs can
+      # merge every variant's artifact into one directory.
+      BIN: bench-bin/${{ matrix.variant.label }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ !matrix.variant.release }}
@@ -161,12 +165,12 @@ jobs:
           cmake -S native -B out/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DFETCHCONTENT_BASE_DIR="$PWD/out/deps"
           cmake --build out/build -j "$(sysctl -n hw.ncpu)"
           cmake --install out/build --prefix out/prefix
-          mkdir -p bench-bin
+          mkdir -p "$BIN"
           for binary in out/prefix/bin/wgse-*; do
             native/tests/smoke.sh "$PWD/$binary" "$PWD/out/smoke-$(basename "$binary")" metal
-            cp "$binary" bench-bin/
+            cp "$binary" "$BIN/"
           done
-          echo "ref=$REF commit=$(git rev-parse HEAD)" > bench-bin/variant.txt
+          echo "ref=$REF commit=$(git rev-parse HEAD)" > "$BIN/variant.txt"
         env:
           REF: ${{ matrix.variant.ref }}
 
@@ -176,7 +180,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ matrix.variant.ref }}
         run: |
-          mkdir -p bench-bin packages
+          mkdir -p "$BIN" packages
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
             --jq '.assets[] | select(.name | endswith("-macos-arm64.tar.gz")) | [.name, .digest] | @tsv' > assets.tsv
           test -s assets.tsv
@@ -184,14 +188,14 @@ jobs:
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir packages
             [ "sha256:$(shasum -a 256 "packages/$name" | cut -d' ' -f1)" = "$digest" ] || { echo "::error::$name does not match its digest"; exit 1; }
             tar -xzf "packages/$name" -C packages
-            cp packages/"${name%.tar.gz}"/bin/* bench-bin/
+            cp packages/"${name%.tar.gz}"/bin/* "$BIN/"
           done < assets.tsv
-          echo "release=$TAG" > bench-bin/variant.txt
+          echo "release=$TAG" > "$BIN/variant.txt"
 
       - name: Versions
         run: |
-          cat bench-bin/variant.txt
-          for binary in bench-bin/wgse-*; do "$binary" --version; done
+          cat "$BIN/variant.txt"
+          for binary in "$BIN"/wgse-*; do "$binary" --version; done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -224,6 +228,7 @@ jobs:
         with:
           pattern: bench-bin-*
           path: bins
+          merge-multiple: true
 
       - name: Check that Intel Macs refuse the arm64 builds
         if: runner.arch != 'ARM64'
@@ -233,7 +238,10 @@ jobs:
             status=0
             { "$binary" --version; } 2> err.txt || status=$?
             cat err.txt
-            [ "$status" != 0 ] && grep -q 'Bad CPU type' err.txt || { echo "::error::$binary exited $status"; exit 1; }
+            if [ "$status" = 0 ] || ! grep -q 'Bad CPU type' err.txt; then
+              echo "::error::$binary exited $status"
+              exit 1
+            fi
           done
           echo "Intel runner: the arm64 builds refuse to start (as expected); nothing to benchmark." >> "$GITHUB_STEP_SUMMARY"
 
@@ -254,7 +262,7 @@ jobs:
         run: |
           chmod +x bins/*/wgse-*
           bins=()
-          for label in $LABELS; do bins+=(--bin "$label=bins/bench-bin-$label"); done
+          for label in $LABELS; do bins+=(--bin "$label=bins/$label"); done
           status=0
           native/bench/bench.sh run --data "$RUNNER_TEMP/data" --tier "$TIER" --out out/bench "${bins[@]}" \
             --rounds "$ROUNDS" --timeout $((RUN_TIMEOUT * 60)) --balloon "$BALLOON" --name "$RUNNER_LABEL" \
@@ -264,7 +272,7 @@ jobs:
             echo
             echo '```'
             grep -E '^(os|hw.model|hw.ncpu|hw.memsize|vm.swapusage|disk_free_gib|power|metal_device|metal_recommended_max_working_set_bytes|metal_max_buffer_bytes)=' out/bench/hwinfo.txt
-            for label in $LABELS; do echo "$label: $(cat "bins/bench-bin-$label/variant.txt")"; done
+            for label in $LABELS; do echo "$label: $(cat "bins/$label/variant.txt")"; done
             [ ! -s out/bench/balloon.txt ] || echo "balloon: $(cat out/bench/balloon.txt)"
             echo '```'
             echo

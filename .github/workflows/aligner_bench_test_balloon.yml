@@ -15,3 +15,4 @@ jobs:
       configs: "bwa:metal,mem2:metal,mem2:cpu:probe"
       balloon_mib: "3072"
       run_timeout_minutes: "30"
+      rounds: "1"
