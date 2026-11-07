@@ -1,6 +1,18 @@
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from wgsextract_cli.core.results import human_output
+
+
+def _say(text: str = "") -> None:
+    """One line of the benchmark's report, passed on at once (it shows
+    progress)."""
+    human_output(text)
+    if sys.stdout is not None:
+        sys.stdout.flush()
+
 
 PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
     "smoke": {
@@ -107,6 +119,25 @@ class BenchmarkThreadPlan:
     label: str
     default_threads: int | None
     reason: str
+
+
+@dataclass(frozen=True)
+class BenchmarkJob:
+    """What every benchmark step needs: how to run its CLI child (threads,
+    memory, log level, sleep override) and where the real dataset comes from.
+    ``run_benchmark`` builds one from ``BenchmarkParams``."""
+
+    threads: int | None = None
+    memory: str | None = None
+    debug: bool = False
+    quiet: bool = False
+    keep_awake: bool | None = None
+    seed: int = 20260504
+    dataset: str = "fake"
+    dataset_zip: Path | None = None
+    dataset_url: str = DEFAULT_REAL_DATASET_URL
+    dataset_sha256: str | None = DEFAULT_REAL_DATASET_SHA256
+    dataset_cache_dir: Path | None = None
 
 
 @dataclass(frozen=True)

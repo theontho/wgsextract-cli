@@ -1,4 +1,3 @@
-import argparse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from .execution import (
 )
 from .models import (
     BenchmarkDataset,
+    BenchmarkJob,
     BenchmarkResult,
 )
 from .setup import _run_core_benchmark_setup_steps
@@ -17,7 +17,7 @@ from .setup import _run_core_benchmark_setup_steps
 
 def _run_core_benchmark_analysis_steps(
     *,
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     real_dataset: BenchmarkDataset | None,
     steps_dir: Path,
@@ -47,7 +47,7 @@ def _run_core_benchmark_analysis_steps(
         subset_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM subset extraction",
             slug="04a-bam-subset",
             command_args=subset_cmd,
@@ -61,7 +61,7 @@ def _run_core_benchmark_analysis_steps(
     mt_bam = mt_bam_dir / f"{analysis_bam.stem}_mtDNA.bam"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Mitochondrial BAM extraction",
             slug="04b-mt-bam",
             command_args=[
@@ -84,7 +84,7 @@ def _run_core_benchmark_analysis_steps(
     ydna_bam = ydna_bam_dir / f"{analysis_bam.stem}_Y.bam"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Y-DNA BAM extraction",
             slug="04c-ydna-bam",
             command_args=[
@@ -107,7 +107,7 @@ def _run_core_benchmark_analysis_steps(
     sorted_bam = sort_dir / f"{analysis_bam.stem}_sorted.bam"
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM coordinate sort",
             slug="05-bam-sort",
             command_args=[
@@ -130,7 +130,7 @@ def _run_core_benchmark_analysis_steps(
     cram_path = cram_dir / f"{analysis_bam.stem}.cram"
     to_cram = record(
         _run_cli_step(
-            args,
+            job,
             name="BAM to CRAM conversion",
             slug="06-bam-to-cram",
             command_args=[
@@ -154,7 +154,7 @@ def _run_core_benchmark_analysis_steps(
     if to_cram.success:
         record(
             _run_cli_step(
-                args,
+                job,
                 name="CRAM to BAM conversion",
                 slug="07-cram-to-bam",
                 command_args=[
@@ -200,7 +200,7 @@ def _run_core_benchmark_analysis_steps(
         snp_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
-            args,
+            job,
             name="VCF SNP generation",
             slug="08-vcf-snp",
             command_args=snp_cmd,
@@ -227,7 +227,7 @@ def _run_core_benchmark_analysis_steps(
         indel_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
-            args,
+            job,
             name="VCF indel generation",
             slug="09-vcf-indel",
             command_args=indel_cmd,
@@ -259,7 +259,7 @@ def _run_core_benchmark_analysis_steps(
         microarray_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
-            args,
+            job,
             name="Microarray CombinedKit generation",
             slug="10-microarray",
             command_args=microarray_cmd,
@@ -277,7 +277,7 @@ def _run_core_benchmark_analysis_steps(
     )
     record(
         _run_cli_step(
-            args,
+            job,
             name="VCF quality-control statistics",
             slug="11-vcf-qc",
             command_args=[
@@ -298,7 +298,7 @@ def _run_core_benchmark_analysis_steps(
 
 def _run_core_benchmark_steps(
     *,
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     real_dataset: BenchmarkDataset | None,
     dataset_dir: Path,
@@ -315,7 +315,7 @@ def _run_core_benchmark_steps(
     region_allowed: bool,
 ) -> tuple[Path, Path, Path, Path]:
     analysis_bam, unalign_r1, unalign_r2 = _run_core_benchmark_setup_steps(
-        args=args,
+        job=job,
         record=record,
         real_dataset=real_dataset,
         dataset_dir=dataset_dir,
@@ -332,7 +332,7 @@ def _run_core_benchmark_steps(
         region_allowed=region_allowed,
     )
     snp_vcf = _run_core_benchmark_analysis_steps(
-        args=args,
+        job=job,
         record=record,
         real_dataset=real_dataset,
         steps_dir=steps_dir,

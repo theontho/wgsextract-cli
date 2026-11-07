@@ -34,7 +34,7 @@ Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
 `api.lineage`, `api.methylation`, `api.microarray`, `api.panel`, `api.ref`,
 `api.repair`, `api.genotyping`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`,
-`api.vep`) follow
+`api.vep`, `api.benchmark`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -2160,3 +2160,48 @@ Annotate variants with VEP (see `VepRunParams`).
 | `ploidy_file` | `Path \| None` | `None` | `--ploidy-file` | Ploidy file for calling a BAM or CRAM (default: the reference library's); wins over ploidy. |
 | `ploidy` | `str \| None` | `None` | `--ploidy` | bcftools ploidy name or value for calling a BAM or CRAM (default: the build's). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
+
+## `api.benchmark`
+
+`benchmark`: time WGS Extract's operations on one dataset.
+
+It generates a fake BAM (or loads a real dataset), then runs the core suite
+(info, reference index, unalign, subsets, SNP calling, microarray) and, for the
+`heavy` suite, the reference, coverage, extraction, QC and VCF steps, each as
+a CLI child process. Each run gets a timestamped folder under
+`<outdir>/runs` holding the steps' outputs and logs, `benchmark_report.md`
+and `benchmark_results.json`; the result lists the two reports. A failed
+step fails the operation once the report is written; with `keep_going` the
+other steps run first. A cancelled run's folder is removed; downloaded
+datasets stay cached. Local only: it downloads any dataset URL.
+
+### `api.benchmark.benchmark(BenchmarkParams)`
+
+CLI: `wgsextract benchmark`.
+
+Run the benchmark (see `BenchmarkParams`).
+
+`BenchmarkParams`: Benchmark the operations on generated or real data (see the module
+docstring). `coverage`, `full_size`, `region` and `target_count`
+default to the profile's; `threads` overrides the machine's tuned count
+for every step.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `outdir` | `Path \| None` | `None` | `--outdir`, `-o` | Folder for the benchmark runs (default: out/benchmark in the working folder; config output_directory doesn't apply). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `memory` | `str \| None` | `None` (config `memory_limit`) | `--memory`, `-m` | Memory limit per thread, e.g. '2G'; None picks a share of this machine's RAM (default: config memory_limit, else auto). |
+| `profile` | `str` | `'standard'` | `--profile` | Benchmark size preset. smoke is chrM-only, standard is a scaled human-like genome, 200mb targets a ~200 MiB fake BAM, and full uses real chromosome lengths. One of: `200mb`, `full`, `smoke`, `standard` |
+| `coverage` | `float \| None` | `None` | `--coverage` | Override generated BAM coverage for the selected profile. |
+| `full_size` | `bool` | `False` | `--full-size` | Use real chromosome lengths for the generated benchmark reference. |
+| `build` | `str` | `'hg38'` | `--build` | Generated reference naming/build convention. One of: `grch38`, `hg38`, `hs38`, `hs38d1`, `hs38d1v0`, `hs38dh`, `GRCh38`, `hs38DH`, `grch37`, `hg19`, `hg37`, `hs37`, `hs37d5`, `GRCh37`, `chm13`, `chm13v2`, `chm13v2.0`, `t2t`, `t2tv2`, `t2tv2.0`, `t2tv20`, `T2Tv20`, `T2Tv2`, `T2Tv2.0`, `CHM13`, `CHM13v2.0` |
+| `seed` | `int` | `20260504` | `--seed` | Random seed for deterministic benchmark data generation. |
+| `target_count` | `int \| None` | `None` | `--target-count` | Approximate number of target SNPs for the microarray benchmark. |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Optional region to benchmark for region-aware operations. |
+| `keep_going` | `bool` | `False` | `--keep-going` | Continue independent benchmark steps after a failed step when possible. |
+| `suite` | `str` | `'heavy'` | `--suite` | Benchmark operation coverage. core runs the lighter baseline suite. One of: `core`, `heavy` |
+| `dataset` | `str` | `'fake'` | `--dataset` | Benchmark foundation data. fake generates synthetic data; real uses the release-backed mini genome zip; real-1x and real-30x cache public 1000 Genomes WGS references locally. One of: `fake`, `real`, `real-1x`, `real-30x` |
+| `dataset_zip` | `Path \| None` | `None` | `--dataset-zip` | Local real benchmark dataset zip. Overrides --dataset-url when --dataset real is used. |
+| `dataset_url` | `str` | `'https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip'` | `--dataset-url` | URL for the release-backed real benchmark dataset zip used by --dataset real. |
+| `dataset_sha256` | `str \| None` | `'ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6'` | `--dataset-sha256` | Expected SHA-256 of the dataset zip; empty or None checks none. |
+| `dataset_cache_dir` | `Path \| None` | `None` | `--dataset-cache-dir` | Folder for cached real dataset downloads (default: the dev download cache when enabled, else <outdir>/datasets). |

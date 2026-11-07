@@ -1,4 +1,3 @@
-import argparse
 from pathlib import Path
 
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -8,6 +7,7 @@ from .execution import (
     _run_cli_step_with_io,
 )
 from .models import (
+    BenchmarkJob,
     BenchmarkResult,
     _default_heavy_region,
     _read_fai,
@@ -15,7 +15,7 @@ from .models import (
 
 
 def _run_cli_pipe_step(
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     name: str,
     slug: str,
     command_args: list[str],
@@ -27,7 +27,7 @@ def _run_cli_pipe_step(
     command_label: str | None = None,
 ) -> BenchmarkResult:
     return _run_cli_step_with_io(
-        args,
+        job,
         name,
         slug,
         command_args,
