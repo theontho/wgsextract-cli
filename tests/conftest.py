@@ -24,18 +24,18 @@ def _uses_shared_fake_data(module_path: Path) -> bool:
         return False
     return any(
         isinstance(node, ast.ImportFrom)
-        and node.module == "tests.smoke_utils"
+        and (node.module, node.level) in {("tests.smoke_utils", 0), ("smoke_utils", 1)}
         and any(alias.name == "ensure_fake_data" for alias in node.names)
         for node in tree.body
     )
 
 
-@pytest.hookimpl(optionalhook=True)
+@pytest.hookimpl(optionalhook=True, tryfirst=True)
 def pytest_xdist_make_scheduler(config: pytest.Config, log: Any) -> Any:
-    """Serialize each module, and all modules sharing out/fake_30x, under loadgroup.
+    """Under loadgroup, serialize each module, and all ensure_fake_data users together.
 
-    The xdist controller sees only node IDs, so the group is derived from the
-    module path. xdist's own loadgroup stopped working with pytest 9.2 (#515,
+    Those modules share out/fake_30x. The xdist controller sees only node IDs,
+    so the group is derived from the module path. xdist's own loadgroup stopped working with pytest 9.2 (#515,
     pytest-dev/pytest-xdist#1386), which this does not depend on.
     """
     if config.getvalue("dist") != "loadgroup":
