@@ -85,7 +85,8 @@ locally on Windows with
 
 The repository's `.github/workflows/gui-distribution.yml` builds the Tauri app
 on macOS, Linux, and Windows runners. Run it by hand (`gh workflow run
-gui-distribution.yml --ref BRANCH`) for unsigned artifacts; the release workflow
+gui-distribution.yml --ref BRANCH`) for unsigned artifacts (pull requests that
+change packaging build them too); the release workflow
 (`release.yml`) calls it for each `vX.Y.Z` release, which ships the CLI and the
 app together (see `docs/releasing.md` at the repository root).
 
