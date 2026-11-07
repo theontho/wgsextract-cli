@@ -4,6 +4,7 @@ import contextlib
 import gzip
 import hashlib
 import json
+import logging
 import re
 import tempfile
 import urllib.request
@@ -204,6 +205,10 @@ def prepare_snapshot(snapshot: Path, directory: Path) -> dict[str, object]:
 
 
 def _download(path: Path) -> None:
+    logging.info(
+        f"Licence: YBrowse SNP data is {COPYRIGHT} It is downloaded from "
+        "ybrowse.org and is not part of WGS Extract."
+    )
     try:
         with (
             urllib.request.urlopen(SOURCE_URL, timeout=60) as response,

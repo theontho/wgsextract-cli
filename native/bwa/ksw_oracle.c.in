@@ -1,0 +1,261 @@
+/* wgse: ksw_align2() for a pair's mate-rescue windows at once, for CPU threads
+ * of the Metal backend. Every job runs exactly ksw_u8()'s operations on its own
+ * state, so results equal upstream's; only the main column passes of up to four
+ * jobs with the same segment length are interleaved, which hides the latency of
+ * each pass's f->h->f dependency chain. Appended to the generated ksw.c. */
+#include <string.h>
+
+typedef struct {
+	kswq_t *q;
+	const uint8_t *target;
+	int tlen, minsc, endsc, i, gmax, te, n_b, m_b, done;
+	uint64_t *b;
+	__m128i *H0, *H1, *E, *Hmax;
+} wgse_ksw_job_t;
+
+typedef struct {
+	__m128i zero, oe_del, e_del, oe_ins, e_ins, shift;
+} wgse_ksw_consts_t;
+
+static void wgse_ksw_start(wgse_ksw_job_t *J, kswq_t *q, int tlen, const uint8_t *target, int xtra)
+{
+	int i;
+	__m128i zero = _mm_set1_epi32(0);
+	J->q = q; J->target = target; J->tlen = tlen;
+	J->minsc = (xtra&KSW_XSUBO)? xtra&0xffff : 0x10000;
+	J->endsc = (xtra&KSW_XSTOP)? xtra&0xffff : 0x10000;
+	J->m_b = J->n_b = 0; J->b = 0; J->te = -1; J->gmax = 0; J->i = 0;
+	J->H0 = q->H0; J->H1 = q->H1; J->E = q->E; J->Hmax = q->Hmax;
+	for (i = 0; i < q->slen; ++i) {
+		_mm_store_si128(J->E + i, zero);
+		_mm_store_si128(J->H0 + i, zero);
+		_mm_store_si128(J->Hmax + i, zero);
+	}
+	J->done = J->i >= J->tlen;
+}
+
+// Lazy-F loop and per-row bookkeeping, as upstream after its j loop.
+static inline void wgse_ksw_row_end(wgse_ksw_job_t *J, __m128i f, __m128i max, const wgse_ksw_consts_t *c)
+{
+	int j, k, imax, slen = J->q->slen, i = J->i;
+	__m128i h, *H1 = J->H1, zero = c->zero;
+	for (k = 0; LIKELY(k < 16); ++k) {
+		f = _mm_slli_si128(f, 1);
+		for (j = 0; LIKELY(j < slen); ++j) {
+			h = _mm_load_si128(H1 + j);
+			h = _mm_max_epu8(h, f);
+			_mm_store_si128(H1 + j, h);
+			h = _mm_subs_epu8(h, c->oe_ins);
+			f = _mm_subs_epu8(f, c->e_ins);
+			if (UNLIKELY(allzero_16(_mm_subs_epu8(f, h)))) goto end_loop16;
+		}
+	}
+end_loop16:
+	(void)zero;
+	__max_16(imax, max);
+	if (imax >= J->minsc) {
+		if (J->n_b == 0 || (int32_t)J->b[J->n_b-1] + 1 != i) {
+			if (J->n_b == J->m_b) {
+				J->m_b = J->m_b? J->m_b<<1 : 8;
+				J->b = (uint64_t*)realloc(J->b, 8 * J->m_b);
+			}
+			J->b[J->n_b++] = (uint64_t)imax<<32 | i;
+		} else if ((int)(J->b[J->n_b-1]>>32) < imax) J->b[J->n_b-1] = (uint64_t)imax<<32 | i;
+	}
+	if (imax > J->gmax) {
+		J->gmax = imax; J->te = i;
+		for (j = 0; LIKELY(j < slen); ++j)
+			_mm_store_si128(J->Hmax + j, _mm_load_si128(H1 + j));
+		if (J->gmax + J->q->shift >= 255 || J->gmax >= J->endsc) { J->done = 1; return; }
+	}
+	{ __m128i *S = J->H1; J->H1 = J->H0; J->H0 = S; }
+	if (++J->i >= J->tlen) J->done = 1;
+}
+
+#define WGSE_KSW_DECL(k) \
+	__m128i h##k, f##k = c->zero, max##k = c->zero; \
+	const __m128i *S##k = J##k->q->qp + J##k->target[J##k->i] * slen; \
+	__m128i *H0##k = J##k->H0, *H1##k = J##k->H1, *E##k = J##k->E; \
+	h##k = _mm_slli_si128(_mm_load_si128(H0##k + slen - 1), 1);
+#define WGSE_KSW_STEP(k) do { \
+		__m128i e, t; \
+		h##k = _mm_adds_epu8(h##k, _mm_load_si128(S##k + j)); \
+		h##k = _mm_subs_epu8(h##k, c->shift); \
+		e = _mm_load_si128(E##k + j); \
+		h##k = _mm_max_epu8(h##k, e); \
+		h##k = _mm_max_epu8(h##k, f##k); \
+		max##k = _mm_max_epu8(max##k, h##k); \
+		_mm_store_si128(H1##k + j, h##k); \
+		e = _mm_subs_epu8(e, c->e_del); \
+		t = _mm_subs_epu8(h##k, c->oe_del); \
+		e = _mm_max_epu8(e, t); \
+		_mm_store_si128(E##k + j, e); \
+		f##k = _mm_subs_epu8(f##k, c->e_ins); \
+		t = _mm_subs_epu8(h##k, c->oe_ins); \
+		f##k = _mm_max_epu8(f##k, t); \
+		h##k = _mm_load_si128(H0##k + j); \
+	} while (0)
+
+static void wgse_ksw_row1(wgse_ksw_job_t *J0, const wgse_ksw_consts_t *c)
+{
+	int j, slen = J0->q->slen;
+	__m128i zero = c->zero;
+	WGSE_KSW_DECL(0)
+	for (j = 0; LIKELY(j < slen); ++j) WGSE_KSW_STEP(0);
+	wgse_ksw_row_end(J0, f0, max0, c);
+}
+
+static void wgse_ksw_row2(wgse_ksw_job_t *J0, wgse_ksw_job_t *J1, const wgse_ksw_consts_t *c)
+{
+	int j, slen = J0->q->slen;
+	__m128i zero = c->zero;
+	WGSE_KSW_DECL(0) WGSE_KSW_DECL(1)
+	for (j = 0; LIKELY(j < slen); ++j) { WGSE_KSW_STEP(0); WGSE_KSW_STEP(1); }
+	wgse_ksw_row_end(J0, f0, max0, c);
+	wgse_ksw_row_end(J1, f1, max1, c);
+}
+
+static void wgse_ksw_row4(wgse_ksw_job_t *J0, wgse_ksw_job_t *J1, wgse_ksw_job_t *J2, wgse_ksw_job_t *J3, const wgse_ksw_consts_t *c)
+{
+	int j, slen = J0->q->slen;
+	__m128i zero = c->zero;
+	WGSE_KSW_DECL(0) WGSE_KSW_DECL(1) WGSE_KSW_DECL(2) WGSE_KSW_DECL(3)
+	for (j = 0; LIKELY(j < slen); ++j) { WGSE_KSW_STEP(0); WGSE_KSW_STEP(1); WGSE_KSW_STEP(2); WGSE_KSW_STEP(3); }
+	wgse_ksw_row_end(J0, f0, max0, c);
+	wgse_ksw_row_end(J1, f1, max1, c);
+	wgse_ksw_row_end(J2, f2, max2, c);
+	wgse_ksw_row_end(J3, f3, max3, c);
+}
+
+static kswr_t wgse_ksw_finish(wgse_ksw_job_t *J)
+{
+	kswr_t r = g_defr;
+	int i, slen = J->q->slen, te = J->te, gmax = J->gmax;
+	kswq_t *q = J->q;
+	r.score = gmax + q->shift < 255? gmax : 255;
+	r.te = te;
+	if (r.score != 255) {
+		int max = -1, tmp, low, high, qlen = slen * 16;
+		uint8_t *t = (uint8_t*)J->Hmax;
+		for (i = 0; i < qlen; ++i, ++t)
+			if ((int)*t > max) max = *t, r.qe = i / 16 + i % 16 * slen;
+			else if ((int)*t == max && (tmp = i / 16 + i % 16 * slen) < r.qe) r.qe = tmp;
+		if (J->b) {
+			i = (r.score + q->max - 1) / q->max;
+			low = te - i; high = te + i;
+			for (i = 0; i < J->n_b; ++i) {
+				int e = (int32_t)J->b[i];
+				if ((e < low || e > high) && (int)(J->b[i]>>32) > r.score2)
+					r.score2 = J->b[i]>>32, r.te2 = e;
+			}
+		}
+	}
+	free(J->b);
+	J->b = 0;
+	return r;
+}
+
+// ksw_u8(q[i], tlen[i], target[i], ..., xtra[i]) into r[i] for n jobs sharing scoring.
+static void wgse_ksw_u8_many(int n, kswq_t **q, const int *tlen, const uint8_t **target,
+	const int *xtra, kswr_t *r, int o_del, int e_del, int o_ins, int e_ins,
+	int *order, wgse_ksw_job_t *jobs)
+{
+	wgse_ksw_consts_t c;
+	int i, k, begin, end;
+	c.zero = _mm_set1_epi32(0);
+	c.oe_del = _mm_set1_epi8(o_del + e_del); c.e_del = _mm_set1_epi8(e_del);
+	c.oe_ins = _mm_set1_epi8(o_ins + e_ins); c.e_ins = _mm_set1_epi8(e_ins);
+	for (i = 0; i < n; ++i) { // stable insertion sort by segment length; n is small
+		int x = i;
+		for (k = i; k > 0 && q[order[k - 1]]->slen > q[x]->slen; --k) order[k] = order[k - 1];
+		order[k] = x;
+	}
+	for (begin = 0; begin < n; begin = end) {
+		wgse_ksw_job_t *act[4];
+		int next, n_act = 0, slen = q[order[begin]]->slen;
+		for (end = begin + 1; end < n && q[order[end]]->slen == slen; ++end);
+		if (end - begin == 1) {
+			k = order[begin];
+			r[k] = ksw_u8(q[k], tlen[k], target[k], o_del, e_del, o_ins, e_ins, xtra[k]);
+			continue;
+		}
+		c.shift = _mm_set1_epi8(q[order[begin]]->shift);
+		for (i = begin; i < end; ++i)
+			wgse_ksw_start(&jobs[i], q[order[i]], tlen[order[i]], target[order[i]], xtra[order[i]]);
+		for (next = begin;;) {
+			for (k = 0; k < n_act; )
+				if (act[k]->done) act[k] = act[--n_act];
+				else ++k;
+			while (n_act < 4 && next < end) {
+				if (!jobs[next].done) act[n_act++] = &jobs[next];
+				++next;
+			}
+			if (n_act == 0) break;
+			if (n_act == 4) wgse_ksw_row4(act[0], act[1], act[2], act[3], &c);
+			else if (n_act >= 2) {
+				wgse_ksw_row2(act[0], act[1], &c);
+				if (n_act == 3) wgse_ksw_row1(act[2], &c);
+			} else wgse_ksw_row1(act[0], &c);
+		}
+		for (i = begin; i < end; ++i) r[order[i]] = wgse_ksw_finish(&jobs[i]);
+	}
+}
+
+void wgse_ksw_align2_batch(int n, wgse_ksw_task_t *t, int m, const int8_t *mat,
+	int o_del, int e_del, int o_ins, int e_ins)
+{
+	kswq_t **q;
+	const uint8_t **target;
+	int *tlen, *xtra, *order, *index, i, k, n_fwd = 0, n_rev = 0;
+	kswr_t *r;
+	wgse_ksw_job_t *jobs;
+	uint8_t *rev = 0;
+	size_t rev_len = 0, off;
+	if (n <= 0) return;
+	q = (kswq_t**)malloc(n * sizeof(*q));
+	target = (const uint8_t**)malloc(n * sizeof(*target));
+	tlen = (int*)malloc(4 * n * sizeof(int));
+	xtra = tlen + n; order = xtra + n; index = order + n;
+	r = (kswr_t*)malloc(n * sizeof(*r));
+	jobs = (wgse_ksw_job_t*)malloc(n * sizeof(*jobs));
+	for (k = 0; k < n; ++k) {
+		if (!(t[k].xtra & KSW_XBYTE)) {
+			t[k].r = ksw_align2(t[k].qlen, t[k].query, t[k].tlen, t[k].target, m, mat,
+				o_del, e_del, o_ins, e_ins, t[k].xtra, 0);
+			continue;
+		}
+		q[n_fwd] = ksw_qinit(1, t[k].qlen, t[k].query, m, mat);
+		tlen[n_fwd] = t[k].tlen; target[n_fwd] = t[k].target; xtra[n_fwd] = t[k].xtra;
+		index[n_fwd++] = k;
+	}
+	wgse_ksw_u8_many(n_fwd, q, tlen, target, xtra, r, o_del, e_del, o_ins, e_ins, order, jobs);
+	// ksw_align2()'s start search: ksw_u8 again on the reversed query and target prefixes.
+	for (i = 0; i < n_fwd; ++i) {
+		wgse_ksw_task_t *a = &t[index[i]];
+		free(q[i]);
+		a->r = r[i];
+		if ((a->xtra&KSW_XSTART) == 0 || ((a->xtra&KSW_XSUBO) && a->r.score < (a->xtra&0xffff))) continue;
+		rev_len += (size_t)(a->r.qe + 1) + (size_t)a->tlen;
+		index[n_rev++] = index[i];
+	}
+	if (n_rev) rev = (uint8_t*)malloc(rev_len);
+	for (i = 0, off = 0; i < n_rev; ++i) {
+		wgse_ksw_task_t *a = &t[index[i]];
+		int j, ql = a->r.qe + 1, tl = a->r.te + 1;
+		uint8_t *rq = rev + off, *rt = rq + ql;
+		off += (size_t)ql + (size_t)a->tlen;
+		for (j = 0; j < ql; ++j) rq[j] = a->query[ql - 1 - j];
+		for (j = 0; j < tl; ++j) rt[j] = a->target[tl - 1 - j];
+		memcpy(rt + tl, a->target + tl, (size_t)(a->tlen - tl));
+		q[i] = ksw_qinit(1, ql, rq, m, mat);
+		tlen[i] = a->tlen; target[i] = rt; xtra[i] = KSW_XSTOP | a->r.score;
+	}
+	wgse_ksw_u8_many(n_rev, q, tlen, target, xtra, r, o_del, e_del, o_ins, e_ins, order, jobs);
+	for (i = 0; i < n_rev; ++i) {
+		wgse_ksw_task_t *a = &t[index[i]];
+		free(q[i]);
+		if (a->r.score == r[i].score)
+			a->r.tb = a->r.te - r[i].te, a->r.qb = a->r.qe - r[i].qe;
+	}
+	free(rev); free(jobs); free(r); free(tlen); free((void*)target); free(q);
+}

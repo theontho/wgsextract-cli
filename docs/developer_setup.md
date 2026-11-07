@@ -63,9 +63,17 @@ When you add or rename a command:
   summary in `COMMAND_TIERS` in `src/wgsextract_cli/commands/registry.py`.
 - Give every runnable command an example and an outputs line in
   `src/wgsextract_cli/commands/_help_catalog.py`.
-- Run `pixi run gen-command-docs` to regenerate `docs/commands.md`.
+- Run `pixi run gen-command-docs` to regenerate `docs/commands.md` and the
+  command cards on the site's CLI page (`site_src/cli.md`).
 
 `tests/test_cli_help.py` fails until all three are done.
+
+The "Start from what you have" paths in both come from `JOURNEYS` in
+`registry.py`. To retire a command, don't delete it: add it to `DEPRECATIONS`
+there with its replacement and the next minor version as `remove_in`, and add
+it under `## Deprecated` in `docs/release-notes/unreleased.md`. A deprecated
+command keeps working, warns `deprecated_command` when run, and is listed apart
+in the help and docs.
 
 ## Write tests
 

@@ -34,60 +34,82 @@
       "date": "2026-09-22",
       "license": "CC-BY-4.0 tree; CC-BY-SA YBrowse positions",
       "source": "https://github.com/YFullTeam/YTree/blob/bdc9bb4d8db72abc7658362f258dbc2a63e34789/ytree/tree_14.06.0.zip",
-      "positions_source": "YBrowse snps_hg38.csv retrieved 2026-11-05, CC-BY-SA Thomas Krahn YSEQ (2022).",
       "builds": [
         "hg19",
         "hg38",
         "t2t"
       ],
-      "data": "pack",
+      "data": "modules",
       "tree": "tree.json",
       "positions": "{build}/new_positions.txt",
       "positions_ancient": "{build}/new_positions_ancient.txt",
       "qc": "yfull",
-      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-tree-yfull-v14.06.0/yfull-14.06.0.tar.gz",
-      "sha256": "5ecaaae14816d5f659a754b8dd9d6a41490f83cfe6d7c5fa3448a0a345c9e544",
-      "size": 25892806,
-      "files": {
-        "LICENSE-YTree.md": {
-          "sha256": "419896aea50c15d6e40c5b4baf4bd346f78223b9a354c7357ad00262afdc08ec",
-          "size": 14527
+      "modules": {
+        "tree": {
+          "folder": "yfull-tree",
+          "license": "CC-BY-4.0",
+          "source": "https://github.com/YFullTeam/YTree/blob/bdc9bb4d8db72abc7658362f258dbc2a63e34789/ytree/tree_14.06.0.zip",
+          "notice": "Licence: the YFull YTree 14.06.0 data module is CC-BY-4.0, YFull (LICENSE-YTree.md); it is not part of WGS Extract.",
+          "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-yfull-v14.06.0/yfull-tree-14.06.0.tar.gz",
+          "sha256": "ed01831d72564864ad4c64d068937d44fc52f73c762dd22324749e34e45becaa",
+          "size": 328251,
+          "files": {
+            "LICENSE-YTree.md": {
+              "sha256": "419896aea50c15d6e40c5b4baf4bd346f78223b9a354c7357ad00262afdc08ec",
+              "size": 14527
+            },
+            "build_info.json": {
+              "sha256": "5a1b963df59e47b1e64387b560c1f56be20179106824d2bf85d01f1f49fee0d4",
+              "size": 428
+            },
+            "tree.json": {
+              "sha256": "6442fdc544ffa6eee2cb5b8e4f68839adbf0a491379060e6bbaccf4ff3fc72f9",
+              "size": 1132028
+            }
+          }
         },
-        "NOTICE-YBrowse.md": {
-          "sha256": "50ee94a9c6103bfac5fd41b0fb7e870c196fca64b472c65f2404fa47209b566e",
-          "size": 534
-        },
-        "build_info.json": {
-          "sha256": "5d87e556d73b1e6655442aafff1c04661a32d6e54d883792460b3dd3e8da6d1c",
-          "size": 2351
-        },
-        "hg19/new_positions.txt": {
-          "sha256": "1945cb11991d3fa26fffbf159a30365f35a0b65d01ad77a6651cc6e2cc83acab",
-          "size": 16970664
-        },
-        "hg19/new_positions_ancient.txt": {
-          "sha256": "c8a84407096f24cdca74f6a2f5125da04010ea11c52339b440a5dc3416cab6f4",
-          "size": 10774071
-        },
-        "hg38/new_positions.txt": {
-          "sha256": "9f003e50f5128a7b55c719ef6447601c8f7c72ed9df11eaa9130a4ad5c776b4b",
-          "size": 17238192
-        },
-        "hg38/new_positions_ancient.txt": {
-          "sha256": "27e76fbdb1dea8e1e652bd87075ef80453a53735adc0916d731df6f973f0166e",
-          "size": 10926646
-        },
-        "t2t/new_positions.txt": {
-          "sha256": "16a6575860e3ed7851278251bf5f1591426884ee43ae3c137622d042a651ebf1",
-          "size": 16959473
-        },
-        "t2t/new_positions_ancient.txt": {
-          "sha256": "99b13e02ff718446254c3fbd9ac91c4e1f6e7df1b047471ab7dcccdd77419050",
-          "size": 10736285
-        },
-        "tree.json": {
-          "sha256": "6442fdc544ffa6eee2cb5b8e4f68839adbf0a491379060e6bbaccf4ff3fc72f9",
-          "size": 1132028
+        "positions": {
+          "folder": "yfull-ybrowse-positions",
+          "license": "CC-BY-SA (version not stated)",
+          "source": "YBrowse snps_hg38.csv retrieved 2026-11-05, CC-BY-SA Thomas Krahn YSEQ (2022).",
+          "notice": "Licence: the YBrowse-derived Y marker positions for YFull YTree 14.06.0 are CC-BY-SA, Thomas Krahn YSEQ (2022); a separate data module, not part of WGS Extract (NOTICE-YBrowse.md).",
+          "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-yfull-v14.06.0/yfull-ybrowse-positions-14.06.0.tar.gz",
+          "sha256": "a48aeb3aa0040739e3f9870656dca910d494defdb3ff27af0c50a98235f751cf",
+          "size": 25564901,
+          "files": {
+            "NOTICE-YBrowse.md": {
+              "sha256": "b524f5aa980727bc544f9e0129d30c05c05fc69185b2c47139f7ff5ca5928055",
+              "size": 720
+            },
+            "build_info.json": {
+              "sha256": "e76abca05ce5b8ce531225a0cb0744cff882149c69083ad40ae896b4da0ec80b",
+              "size": 2279
+            },
+            "hg19/new_positions.txt": {
+              "sha256": "1945cb11991d3fa26fffbf159a30365f35a0b65d01ad77a6651cc6e2cc83acab",
+              "size": 16970664
+            },
+            "hg19/new_positions_ancient.txt": {
+              "sha256": "c8a84407096f24cdca74f6a2f5125da04010ea11c52339b440a5dc3416cab6f4",
+              "size": 10774071
+            },
+            "hg38/new_positions.txt": {
+              "sha256": "9f003e50f5128a7b55c719ef6447601c8f7c72ed9df11eaa9130a4ad5c776b4b",
+              "size": 17238192
+            },
+            "hg38/new_positions_ancient.txt": {
+              "sha256": "27e76fbdb1dea8e1e652bd87075ef80453a53735adc0916d731df6f973f0166e",
+              "size": 10926646
+            },
+            "t2t/new_positions.txt": {
+              "sha256": "16a6575860e3ed7851278251bf5f1591426884ee43ae3c137622d042a651ebf1",
+              "size": 16959473
+            },
+            "t2t/new_positions_ancient.txt": {
+              "sha256": "99b13e02ff718446254c3fbd9ac91c4e1f6e7df1b047471ab7dcccdd77419050",
+              "size": 10736285
+            }
+          }
         }
       }
     },

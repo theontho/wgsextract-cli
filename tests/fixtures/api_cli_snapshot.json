@@ -1630,7 +1630,7 @@
    }
   },
   "bam": {
-   "help": "usage: wgsextract bam [-h] <command> ...\n\npositional arguments:\n  <command>\n    sort      Sort alignments by genomic coordinates. Required by almost all downstream tools\n              (like variant callers) to function correctly.\n    index     Create a random-access index (.bai/.crai) for your file. This allows tools to jump\n              to specific regions instantly without reading the whole file.\n    unindex   Remove the index file associated with your BAM/CRAM. Use this to force a re-indexing\n              or to clean up workspace.\n    unsort    Mark the file as 'unsorted' in the header. Rarely needed, but useful if a tool\n              requires a specific header state for processing.\n    to-cram   Convert BAM to the modern CRAM format. Highly recommended for long-term storage as\n              it is ~30-50% smaller than BAM without losing data.\n    to-bam    Convert a CRAM file back to the traditional BAM format. Useful if you need to use an\n              older tool that doesn't support CRAM.\n    unalign   Extract raw reads from a BAM/CRAM back into FASTQ format. Use this if you want to\n              re-align your data to a different reference genome.\n    identify  Analyze your BAM header to determine exactly which reference genome was used for the\n              original alignment.\n    merge     Merge several coordinate-sorted BAM/CRAM files (e.g. per-lane files) aligned to the\n              same reference into one indexed file.\n    to-ubam   Convert an aligned BAM/CRAM or FASTQ reads into a queryname-sorted unaligned BAM\n              (uBAM) for GATK pipelines.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "help": "usage: wgsextract bam [-h] <command> ...\n\npositional arguments:\n  <command>\n    sort      Sort alignments by genomic coordinates. Required by almost all downstream tools\n              (like variant callers) to function correctly.\n    index     Create a random-access index (.bai/.crai) for your file. This allows tools to jump\n              to specific regions instantly without reading the whole file.\n    unindex   Remove the index file associated with your BAM/CRAM. Use this to force a re-indexing\n              or to clean up workspace.\n    unsort    Mark the file as 'unsorted' in the header. Rarely needed, but useful if a tool\n              requires a specific header state for processing.\n    to-cram   Convert BAM to the modern CRAM format. Highly recommended for long-term storage as\n              it is ~30-50% smaller than BAM without losing data.\n    to-bam    Convert a CRAM file back to the traditional BAM format. Useful if you need to use an\n              older tool that doesn't support CRAM.\n    unalign   Extract raw reads from a BAM/CRAM back into FASTQ format. Use this if you want to\n              re-align your data to a different reference genome.\n    identify  Analyze your BAM header to determine exactly which reference genome was used for the\n              original alignment. It reads only the header; 'info' shows the same MD5 signature\n              along with its other checks.\n    merge     Merge several coordinate-sorted BAM/CRAM files (e.g. per-lane files) aligned to the\n              same reference into one indexed file.\n    to-ubam   Convert an aligned BAM/CRAM or FASTQ reads into a queryname-sorted unaligned BAM\n              (uBAM) for GATK pipelines.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
    "parser": {
     "actions": [
      {
@@ -1694,7 +1694,7 @@
        ],
        [
         "identify",
-        "Analyze your BAM header to determine exactly which reference genome was used for the original alignment."
+        "Analyze your BAM header to determine exactly which reference genome was used for the original alignment. It reads only the header; 'info' shows the same MD5 signature along with its other checks."
        ],
        [
         "merge",
@@ -6463,6 +6463,652 @@
     "description": null,
     "formatter_class": "RawTextHelpFormatter",
     "prog": "wgsextract benchmark"
+   }
+  },
+  "deps": {
+   "help": "usage: wgsextract deps [-h] <command> ...\n\npositional arguments:\n  <command>\n    check     Verify that all required bioinformatics tools (samtools, bcftools, etc.) are\n              installed and accessible in your system path.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "check"
+      ],
+      "help": [
+       [
+        "check",
+        "Verify that all required bioinformatics tools (samtools, bcftools, etc.) are installed and accessible in your system path."
+       ]
+      ],
+      "required": true,
+      "subparsers": "subcommand"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "deps"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract deps"
+   }
+  },
+  "deps check": {
+   "help": "usage: wgsextract deps check [-h] [--tool TOOL]\n\noptions:\n  -h, --help   show this help message and exit\n  --tool TOOL  Check for a specific tool; exit code 3 if it is missing.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract deps check\n  wgsextract deps check --tool samtools\n\noutputs (in the output directory unless noted):\n  Prints each tool's status; writes no files.\n\nneeds:\n  no external tools; seconds.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "tool",
+      "exclusive_group": null,
+      "help": "Check for a specific tool; exit code 3 if it is missing.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--tool"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "deps check",
+     "func": "run"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract deps check"
    }
   },
   "example-genome": {
@@ -18352,7 +18998,7 @@
    }
   },
   "ref": {
-   "help": "usage: wgsextract ref [-h] <command> ...\n\npositional arguments:\n  <command>\n    aadr           Explicitly fetch the hash-pinned CC0 AADR v66.p1 2M SNP panel.\n    ybrowse        Explicitly install a hash-pinned, sites-only GRCh38 yBrowse snapshot.\n    download       Download a reference FASTA from a URL (--url) to a path (--out). For curated\n                   hg19/hg38/T2T genomes use 'ref library --install'.\n    index          Prepare a FASTA file for use by indexing it. This is required before you can\n                   align reads or call variants against it.\n    count-ns       Calculate the percentage of 'N' (unknown) bases in a genome. Useful for\n                   understanding the 'mappability' of different reference builds.\n    verify         Ensure your reference genome file isn't corrupted and has all the necessary\n                   companion files (indexes, dicts).\n    library        Opens the interactive reference manager to help you organize and download\n                   genomic data.\n    library-list   Deprecated alias for 'ref library --list': list installed and available assets.\n    status         Report reference library asset status.\n    gene-map       Download or delete lightweight gene-to-coordinate mapping files (hg19/hg38),\n                   enabling you to filter VCFs by gene name (e.g. BRCA1).\n    clinvar        Download official ClinVar VCF for hg19 and hg38.\n    revel          Download REVEL pathogenicity scores for hg19 and hg38.\n    phylop         Download UCSC's PhyloP 100-way conservation scores (~10 GB bigWig).\n    gnomad         Download gnomAD population allele frequencies.\n    spliceai       Download SpliceAI scores for hg38 (Ensembl, MANE SNVs); index a manual hg19\n                   download.\n    alphamissense  Download AlphaMissense scores for hg19 and hg38.\n    pharmgkb       Download PharmGKB annotations.\n    cadd           Download CADD v1.7 deleteriousness scores (all possible SNVs plus gnomAD\n                   indels, ~85 GB per build) with their tabix indexes.\n    gerp           Download GERP++ conservation scores as a bigWig (hg38 from Ensembl, ~9.6 GB;\n                   hg19 from UCSC, ~7.6 GB).\n    bootstrap      Download and initialize the reference library bootstrap (VCFs, chains, etc.).\n\noptions:\n  -h, --help       show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "help": "usage: wgsextract ref [-h] <command> ...\n\npositional arguments:\n  <command>\n    aadr           Explicitly fetch the hash-pinned CC0 AADR v66.p1 2M SNP panel.\n    ybrowse        Explicitly install a hash-pinned, sites-only GRCh38 yBrowse snapshot.\n    download       Download a reference FASTA from a URL (--url) to a path (--out). For curated\n                   hg19/hg38/T2T genomes use 'ref library --install'.\n    index          Prepare a FASTA file for use by indexing it. This is required before you can\n                   align reads or call variants against it.\n    count-ns       Calculate the percentage of 'N' (unknown) bases in a genome. Useful for\n                   understanding the 'mappability' of different reference builds.\n    verify         Ensure your reference genome file isn't corrupted and has all the necessary\n                   companion files (indexes, dicts).\n    library        Opens the interactive reference manager to help you organize and download\n                   genomic data.\n    library-list   (deprecated: use 'ref library --list') List installed and available reference\n                   genomes.\n    status         Report reference library asset status.\n    gene-map       Download or delete lightweight gene-to-coordinate mapping files (hg19/hg38),\n                   enabling you to filter VCFs by gene name (e.g. BRCA1).\n    clinvar        Download official ClinVar VCF for hg19 and hg38.\n    revel          Download REVEL pathogenicity scores for hg19 and hg38.\n    phylop         Download UCSC's PhyloP 100-way conservation scores (~10 GB bigWig).\n    gnomad         Download gnomAD population allele frequencies.\n    spliceai       Download SpliceAI scores for hg38 (Ensembl, MANE SNVs); index a manual hg19\n                   download.\n    alphamissense  Download AlphaMissense scores for hg19 and hg38.\n    pharmgkb       Download PharmGKB annotations.\n    cadd           Download CADD v1.7 deleteriousness scores (all possible SNVs plus gnomAD\n                   indels, ~85 GB per build) with their tabix indexes.\n    gerp           Download GERP++ conservation scores as a bigWig (hg38 from Ensembl, ~9.6 GB;\n                   hg19 from UCSC, ~7.6 GB).\n    bootstrap      Download and initialize the reference library bootstrap (VCFs, chains, etc.).\n\noptions:\n  -h, --help       show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
    "parser": {
     "actions": [
      {
@@ -18426,7 +19072,7 @@
        ],
        [
         "library-list",
-        "Deprecated alias for 'ref library --list': list installed and available assets."
+        "(deprecated: use 'ref library --list') List installed and available reference genomes."
        ],
        [
         "status",
@@ -22648,7 +23294,7 @@
    }
   },
   "ref library-list": {
-   "help": "usage: wgsextract ref library-list [-h]\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract ref library-list\n\noutputs (in the output directory unless noted):\n  Prints the installed and available assets; writes no files.\n\nneeds:\n  no external tools; instant.\n",
+   "help": "usage: wgsextract ref library-list [-h]\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\ndeprecated:\n  'wgsextract ref library-list' is deprecated and will be removed in 0.8.0;\n  use 'wgsextract ref library --list'.\n\nexamples:\n  wgsextract ref library-list\n\noutputs (in the output directory unless noted):\n  Prints the installed and available assets; writes no files.\n\nneeds:\n  no external tools; instant.\n",
    "parser": {
     "actions": [
      {
@@ -26570,6 +27216,1074 @@
     "prog": "wgsextract report"
    }
   },
+  "sign": {
+   "help": "usage: wgsextract sign [-h] <command> ...\n\npositional arguments:\n  <command>\n    create    Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed\n              with ssh-keygen when a key is given.\n    verify    Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash\n              every listed file.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "create",
+       "verify"
+      ],
+      "help": [
+       [
+        "create",
+        "Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed with ssh-keygen when a key is given."
+       ],
+       [
+        "verify",
+        "Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash every listed file."
+       ]
+      ],
+      "required": true,
+      "subparsers": "sign_cmd"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "sign"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract sign"
+   }
+  },
+  "sign create": {
+   "help": "usage: wgsextract sign create [-h] [--output OUTPUT] [--key KEY] PATH [PATH ...]\n\npositional arguments:\n  PATH             Files or directories to sign.\n\noptions:\n  -h, --help       show this help message and exit\n  --output OUTPUT  Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs'\n                   common directory.\n  --key KEY        OpenSSH private key (or public key held by ssh-agent) to sign with. Defaults to\n                   the signing_key setting; without either, only the checksum manifest is written.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract sign create results/\n  wgsextract sign create results/ --key ~/.ssh/id_ed25519\n\noutputs (in the output directory unless noted):\n  SHA256SUMS in the inputs' folder (or --output); SHA256SUMS.sig with --key.\n\nneeds:\n  no external tools; depending on options and inputs, also: ssh-keygen;\n  minutes for genome-sized files.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "paths",
+      "exclusive_group": null,
+      "help": "Files or directories to sign.",
+      "metavar": "PATH",
+      "nargs": "+",
+      "option_strings": [],
+      "required": true,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "output",
+      "exclusive_group": null,
+      "help": "Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs' common directory.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "key",
+      "exclusive_group": null,
+      "help": "OpenSSH private key (or public key held by ssh-agent) to sign with. Defaults to the signing_key setting; without either, only the checksum manifest is written.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--key"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "sign create",
+     "func": "cmd_create"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract sign create"
+   }
+  },
+  "sign verify": {
+   "help": "usage: wgsextract sign verify [-h] [--signature SIGNATURE] [--public-key PUBLIC_KEY |\n                              --allowed-signers ALLOWED_SIGNERS] [--identity IDENTITY]\n                              manifest\n\npositional arguments:\n  manifest              SHA256SUMS manifest to verify.\n\noptions:\n  -h, --help            show this help message and exit\n  --signature SIGNATURE\n                        Signature file. Defaults to <manifest>.sig.\n  --public-key PUBLIC_KEY\n                        The signer's OpenSSH public key.\n  --allowed-signers ALLOWED_SIGNERS\n                        OpenSSH allowed_signers file (needs --identity).\n  --identity IDENTITY   Signer identity in --allowed-signers.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract sign verify results/SHA256SUMS --public-key key.pub\n\noutputs (in the output directory unless noted):\n  Prints the verification result; writes no files.\n\nneeds:\n  no external tools; depending on options and inputs, also: ssh-keygen;\n  minutes for genome-sized files.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "manifest",
+      "exclusive_group": null,
+      "help": "SHA256SUMS manifest to verify.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [],
+      "required": true,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "signature",
+      "exclusive_group": null,
+      "help": "Signature file. Defaults to <manifest>.sig.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--signature"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "public_key",
+      "exclusive_group": 0,
+      "help": "The signer's OpenSSH public key.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--public-key"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "allowed_signers",
+      "exclusive_group": 0,
+      "help": "OpenSSH allowed_signers file (needs --identity).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--allowed-signers"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "identity",
+      "exclusive_group": null,
+      "help": "Signer identity in --allowed-signers.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--identity"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "sign verify",
+     "func": "cmd_verify"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract sign verify"
+   }
+  },
   "typing": {
    "help": "usage: wgsextract typing [-h] <command> ...\n\npositional arguments:\n  <command>\n    cyp2d6    Call CYP2D6 star alleles, including copy-number and hybrid alleles, with Cyrius, and\n              write a PharmCAT outside call. Cyrius is for noncommercial use only.\n    hla       Call HLA class I and II alleles with T1K from reads in the MHC, and write a PharmCAT\n              outside call for HLA-A/HLA-B. The first run downloads 45 MB.\n    str       Size the disease-causing repeats of ExpansionHunter's catalog (HTT, FMR1, C9ORF72,\n              ...) and flag those outside STRchive's normal range.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
    "parser": {
@@ -27203,7 +28917,7 @@
     ],
     "defaults": {
      "_command": "typing cyp2d6",
-     "func": "cmd_cyp2d6"
+     "func": "cli_TypingCyp2d6Params"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -27528,7 +29242,7 @@
     ],
     "defaults": {
      "_command": "typing hla",
-     "func": "cmd_hla"
+     "func": "cli_TypingHlaParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -27872,7 +29586,7 @@
     ],
     "defaults": {
      "_command": "typing str",
-     "func": "cmd_str"
+     "func": "cli_TypingStrParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -38022,7 +39736,7 @@
    }
   },
   "vep": {
-   "help": "usage: wgsextract vep [-h] [--vep-cache VEP_CACHE] [--assembly {GRCh37,GRCh38}] [--force]\n                      [--preset {everything,fast}] [--format {vcf,tab,json}] [-r REGION]\n                      [--help-all]\n                      <command> ...\n\npositional arguments:\n  <command>\n    download            Download the VEP cache (standard GRCh37/38) to your local machine for\n                        faster, offline annotation.\n    verify              Check your existing VEP cache for missing files or corruption.\n    run                 Ensembl Variant Effect Predictor. Predicts the functional impact of your\n                        variants (e.g., if a mutation likely breaks a gene or causes a specific\n                        disease).\n\noptions:\n  -h, --help            show this help message and exit\n  --vep-cache VEP_CACHE\n                        Path to VEP cache directory (e.g., $HOME/.vep)\n  --assembly {GRCh37,GRCh38}\n                        Reference assembly for VEP (GRCh37 or GRCh38)\n  --force               Force re-run even if output exists\n  --preset {everything,fast}\n                        What VEP annotates: 'everything' (default), or 'fast' (about twice as\n                        fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no\n                        population frequencies, for which use 'vcf gnomad', and no HGVS)\n  --format {vcf,tab,json}\n                        Output format (default: vcf)\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n6 advanced options not shown; 'wgsextract vep --help-all' lists them.\n\nexamples:\n  wgsextract vep --input sample.vcf.gz\n\noutputs (in the output directory unless noted):\n  Same as 'vep run'.\n\nneeds:\n  bcftools, tabix, vep; depending on options and inputs, also: samtools; hours\n  on a 30x genome.\n",
+   "help": "usage: wgsextract vep [-h] [--vep-cache VEP_CACHE] [--assembly {GRCh37,GRCh38}] [--force]\n                      [--preset {everything,fast}] [--format {vcf,tab,json}] [-r REGION]\n                      [--help-all]\n                      <command> ...\n\npositional arguments:\n  <command>\n    download            Download the VEP cache (standard GRCh37/38) to your local machine for\n                        faster, offline annotation.\n    verify              Check your existing VEP cache for missing files or corruption.\n    run                 Ensembl Variant Effect Predictor. Predicts the functional impact of your\n                        variants (e.g., if a mutation likely breaks a gene or causes a specific\n                        disease).\n\noptions:\n  -h, --help            show this help message and exit\n  --vep-cache VEP_CACHE\n                        Path to VEP cache directory (e.g., $HOME/.vep)\n  --assembly {GRCh37,GRCh38}\n                        Reference assembly for VEP (GRCh37 or GRCh38)\n  --force               Force re-run even if output exists\n  --preset {everything,fast}\n                        What VEP annotates: 'everything' (default), or 'fast' (about twice as\n                        fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no\n                        population frequencies, for which use 'vcf gnomad', and no HGVS)\n  --format {vcf,tab,json}\n                        Output format (default: vcf)\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n6 advanced options not shown; 'wgsextract vep --help-all' lists them.\n\ndeprecated:\n  Running 'wgsextract vep' without a subcommand is deprecated and will be\n  removed in 0.8.0; use 'wgsextract vep run'. Its subcommands are not\n  affected.\n\nexamples:\n  wgsextract vep --input sample.vcf.gz\n\noutputs (in the output directory unless noted):\n  Same as 'vep run'.\n\nneeds:\n  bcftools, tabix, vep; depending on options and inputs, also: samtools; hours\n  on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -40271,6 +41985,57 @@
    "target_count": 5,
    "threads": null,
    "tmp_dir": null
+  },
+  "deps check": {
+   "_command": "deps check",
+   "_explicit_dests": [],
+   "atomic_output": false,
+   "command": "deps",
+   "debug": false,
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "subcommand": "check",
+   "threads": null,
+   "tmp_dir": null,
+   "tool": null
+  },
+  "deps check --tool samtools --debug": {
+   "_command": "deps check",
+   "_explicit_dests": [
+    "debug",
+    "tool"
+   ],
+   "atomic_output": false,
+   "command": "deps",
+   "debug": true,
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "subcommand": "check",
+   "threads": null,
+   "tmp_dir": null,
+   "tool": "samtools"
   },
   "example-genome download --all --dry-run --target-root lib": {
    "_command": "example-genome download",
@@ -42539,6 +44304,164 @@
    "tmp_dir": null,
    "workspace": null
   },
+  "sign create a b/c.txt": {
+   "_command": "sign create",
+   "_explicit_dests": [
+    "paths"
+   ],
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_create",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "key": null,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "output": null,
+   "parent_pid": null,
+   "paths": [
+    "a",
+    "b/c.txt"
+   ],
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "create",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "sign create d --output m/SUMS --key k -t 2": {
+   "_command": "sign create",
+   "_explicit_dests": [
+    "key",
+    "output",
+    "paths",
+    "threads"
+   ],
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_create",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "key": "k",
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "output": "m/SUMS",
+   "parent_pid": null,
+   "paths": [
+    "d"
+   ],
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "create",
+   "threads": 2,
+   "tmp_dir": null
+  },
+  "sign verify S --allowed-signers a --identity me": {
+   "_command": "sign verify",
+   "_explicit_dests": [
+    "allowed_signers",
+    "identity",
+    "manifest"
+   ],
+   "allowed_signers": "a",
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_verify",
+   "genome": null,
+   "identity": "me",
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "manifest": "S",
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "public_key": null,
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "verify",
+   "signature": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "sign verify S --signature s.sig --public-key k.pub": {
+   "_command": "sign verify",
+   "_explicit_dests": [
+    "manifest",
+    "public_key",
+    "signature"
+   ],
+   "allowed_signers": null,
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_verify",
+   "genome": null,
+   "identity": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "manifest": "S",
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "public_key": "k.pub",
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "verify",
+   "signature": "s.sig",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "sign verify SHA256SUMS": {
+   "_command": "sign verify",
+   "_explicit_dests": [
+    "manifest"
+   ],
+   "allowed_signers": null,
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_verify",
+   "genome": null,
+   "identity": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "manifest": "SHA256SUMS",
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "public_key": null,
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "verify",
+   "signature": null,
+   "threads": null,
+   "tmp_dir": null
+  },
   "typing cyp2d6 -i x.bam --ref r.fa -t 4": {
    "_command": "typing cyp2d6",
    "_explicit_dests": [
@@ -42550,7 +44473,7 @@
    "command": "typing",
    "debug": false,
    "full_help": false,
-   "func": "cmd_cyp2d6",
+   "func": "cli_TypingCyp2d6Params",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -42577,7 +44500,7 @@
    "command": "typing",
    "debug": false,
    "full_help": false,
-   "func": "cmd_hla",
+   "func": "cli_TypingHlaParams",
    "genome": null,
    "hla_index": "h.fa",
    "input": "x.cram",
@@ -42606,7 +44529,7 @@
    "command": "typing",
    "debug": false,
    "full_help": false,
-   "func": "cmd_str",
+   "func": "cli_TypingStrParams",
    "genome": null,
    "input": "x.bam",
    "json": false,

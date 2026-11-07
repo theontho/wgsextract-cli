@@ -440,8 +440,9 @@ def test_deps_check_exits_nonzero_when_mandatory_missing(monkeypatch, capsys):
             "optional": [],
         },
     )
-    with pytest.raises(WGSExtractError, match="samtools"):
-        _deps_status.run(Namespace(tool=None, debug=False))
+    with pytest.raises(api.CommandFailed, match="samtools") as failed:
+        api.deps.check(api.DepsCheckParams())
+    assert failed.value.exit_code == 3
 
 
 def _download(root: Path, force: bool) -> None:

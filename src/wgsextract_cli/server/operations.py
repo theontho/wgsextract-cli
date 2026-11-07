@@ -40,6 +40,7 @@ QUERIES = frozenset(
         "ref status",
         "ref library-list",
         "example-genome list",
+        "deps check",
     }
 )
 

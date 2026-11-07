@@ -476,7 +476,7 @@ class E2EBase:
         ensure_vcf_indexed(str(vcf))
         self.run_real(
             "36 vep offline (chrM)",
-            ["vep", "--input", "{input}", "--ref", "{ref}", "--format", "vcf"],
+            ["vep", "run", "--input", "{input}", "--ref", "{ref}", "--format", "vcf"],
             "ButtonBAMStats2",
             input_path=str(vcf),
         )

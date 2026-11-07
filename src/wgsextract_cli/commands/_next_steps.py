@@ -18,7 +18,7 @@ _CHECK_BAM = "wgsextract info --input {bam}"
 _REPORT = "wgsextract report {source}"
 _ANNOTATE = (
     "wgsextract vcf clinvar --vcf-input {vcf}",
-    "wgsextract vep --input {vcf}",
+    "wgsextract vep run --input {vcf}",
 )
 
 NEXT_STEPS: dict[str, tuple[str, ...]] = {

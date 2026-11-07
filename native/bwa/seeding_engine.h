@@ -221,18 +221,23 @@ public:
 // The suffix-array rows mem_chain() passes to bwt_sa() for these intervals, in
 // its order: at most max_occ evenly spaced rows per interval. The casts spell
 // out C's implicit conversions so any wrap-around behaves identically.
-// The number of rows append_rows() adds for these intervals.
-inline size_t row_count(const Intervals &intervals, int max_occ) {
+// At most the number of rows append_rows() adds for these intervals (equal
+// unless an interval's step wraps around in upstream's int).
+inline size_t row_count(const bwtintv_t *begin, const bwtintv_t *end, int max_occ) {
     size_t total = 0;
-    for (const bwtintv_t &interval : intervals)
-        total += interval.x[2] > static_cast<uint64_t>(max_occ) ? static_cast<size_t>(max_occ)
-            : static_cast<size_t>(interval.x[2]);
+    for (const bwtintv_t *p = begin; p != end; ++p)
+        total += p->x[2] > static_cast<uint64_t>(max_occ) ? static_cast<size_t>(max_occ)
+            : static_cast<size_t>(p->x[2]);
     return total;
 }
 
-inline void append_rows(const Intervals &intervals, int max_occ, std::vector<uint64_t> &rows) {
-    for (const bwtintv_t &interval : intervals) {
-        const bwtintv_t *p = &interval;
+inline size_t row_count(const Intervals &intervals, int max_occ) {
+    return row_count(intervals.data(), intervals.data() + intervals.size(), max_occ);
+}
+
+inline void append_rows(const bwtintv_t *begin, const bwtintv_t *end, int max_occ,
+    std::vector<uint64_t> &rows) {
+    for (const bwtintv_t *p = begin; p != end; ++p) {
         int step, count;
         int64_t k;
         const uint64_t limit = static_cast<uint64_t>(max_occ);
@@ -241,6 +246,10 @@ inline void append_rows(const Intervals &intervals, int max_occ, std::vector<uin
             k += step, ++count)
             rows.push_back(p->x[0] + static_cast<uint64_t>(k));
     }
+}
+
+inline void append_rows(const Intervals &intervals, int max_occ, std::vector<uint64_t> &rows) {
+    append_rows(intervals.data(), intervals.data() + intervals.size(), max_occ, rows);
 }
 
 // Resolves suffix-array rows to reference positions (bwt_sa) on the GPU,

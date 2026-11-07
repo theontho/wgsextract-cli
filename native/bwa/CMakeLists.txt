@@ -8,7 +8,7 @@ FetchContent_Declare(bwa
 FetchContent_MakeAvailable(bwa)
 
 # Bump when the wgse-bwa package changes; it is versioned separately from BWA.
-set(WGSE_BWA_VERSION 0.6.0)
+set(WGSE_BWA_VERSION 0.7.0)
 set(generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${generated}")
 include("${CMAKE_CURRENT_SOURCE_DIR}/upstream_seams.cmake")
@@ -76,6 +76,10 @@ if(BUILD_TESTING)
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/seeding_parity.sh"
         $<TARGET_FILE:wgse-bwa> $<TARGET_FILE:seeding_benchmark>
         "${CMAKE_CURRENT_BINARY_DIR}/seeding-parity")
+    add_executable(ksw_batch_check tests/ksw_batch_check.c)
+    target_compile_options(ksw_batch_check PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(ksw_batch_check PRIVATE wgse_bwa_core)
+    add_test(NAME bwa_ksw_batch COMMAND ksw_batch_check)
     add_test(NAME bwa_metal_rescue_parity
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rescue_parity.sh"
         $<TARGET_FILE:wgse-bwa> "${CMAKE_CURRENT_BINARY_DIR}/rescue-parity")

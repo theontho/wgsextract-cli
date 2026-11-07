@@ -83,7 +83,7 @@ CLI_HELP = {
     "cmd_fastqc": "The industry-standard quality check for raw reads. Produces a visual report of base quality, GC content, and adapter contamination.",
     "cmd_fastp": "An ultra-fast all-in-one pre-processor. Automatically trims adapters and filters low-quality reads while generating a QC report.",
     "cmd_check-deps": "Verify that all required bioinformatics tools (samtools, bcftools, etc.) are installed and accessible in your system path.",
-    "cmd_bam-identify": "Analyze your BAM header to determine exactly which reference genome was used for the original alignment.",
+    "cmd_bam-identify": "Analyze your BAM header to determine exactly which reference genome was used for the original alignment. It reads only the header; 'info' shows the same MD5 signature along with its other checks.",
     "cmd_bam-merge": "Merge several coordinate-sorted BAM/CRAM files (e.g. per-lane files) aligned to the same reference into one indexed file.",
     "cmd_bam-to-ubam": "Convert an aligned BAM/CRAM or FASTQ reads into a queryname-sorted unaligned BAM (uBAM) for GATK pipelines.",
     "cmd_sign": "Write SHA-256 checksum manifests for output files, sign them with an OpenSSH key, and verify them later.",

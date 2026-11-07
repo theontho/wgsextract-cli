@@ -1,4 +1,5 @@
-"""scripts/build_yfull_tree.py turns a YTree release into a Yleaf tree pack (#359)."""
+"""scripts/build_yfull_tree.py turns a YTree release into Yleaf data modules: the
+YFull tree and its YBrowse-derived marker tables (#359, #503)."""
 
 import gzip
 import hashlib
@@ -94,7 +95,10 @@ def _inputs(tmp_path: Path) -> list[str]:
     ]  # fmt: skip
 
 
-def _build(args: list[str], output: Path) -> dict[str, bytes]:
+MODULES = {"tree": "yfull-tree", "positions": "yfull-ybrowse-positions"}
+
+
+def _build(args: list[str], output: Path) -> dict[str, dict[str, bytes]]:
     subprocess.run(
         [
             sys.executable,
@@ -106,19 +110,38 @@ def _build(args: list[str], output: Path) -> dict[str, bytes]:
         check=True,
         capture_output=True,
     )
-    with tarfile.open(output / "yfull-1.0.0.tar.gz") as pack:
-        return {
-            member.name: pack.extractfile(member).read()  # type: ignore[union-attr]
-            for member in pack.getmembers()
-        }
+    modules = {}
+    for module, folder in MODULES.items():
+        with tarfile.open(output / f"{folder}-1.0.0.tar.gz") as pack:
+            modules[module] = {
+                member.name: pack.extractfile(member).read()  # type: ignore[union-attr]
+                for member in pack.getmembers()
+            }
+    return modules
 
 
 @pytest.mark.skipif(not shutil.which("samtools"), reason="samtools required")
-def test_pack_holds_tree_and_build_marker_tables_reproducibly(tmp_path: Path) -> None:
+def test_modules_hold_tree_and_build_marker_tables_reproducibly(
+    tmp_path: Path,
+) -> None:
     args = _inputs(tmp_path)
-    files = _build(args, tmp_path / "a")
+    built = _build(args, tmp_path / "a")
+    tree, files = built["tree"], built["positions"]
 
-    assert json.loads(files["tree.json"]) == {
+    # Issue #503: the CC-BY-4.0 tree module holds no YBrowse-derived data.
+    assert sorted(tree) == ["LICENSE-YTree.md", "build_info.json", "tree.json"]
+    assert json.loads(tree["build_info.json"])["license"] == "CC-BY-4.0"
+    assert b"YBrowse" not in tree["tree.json"] + tree["build_info.json"]
+    assert sorted(files) == [
+        "NOTICE-YBrowse.md",
+        "build_info.json",
+        *(
+            f"{b}/new_positions{k}.txt"
+            for b in ("hg19", "hg38", "t2t")
+            for k in ("", "_ancient")
+        ),
+    ]
+    assert json.loads(tree["tree.json"]) == {
         'ROOT (Y-Chromosome "Adam")': ["R"],
         "R": ["R1"],
         "R1": ["R1a"],
@@ -168,18 +191,27 @@ def test_pack_holds_tree_and_build_marker_tables_reproducibly(tmp_path: Path) ->
     )
     assert b"CC-BY-SA Thomas Krahn YSEQ" in files["NOTICE-YBrowse.md"]
 
-    first = (tmp_path / "a/yfull-1.0.0.tar.gz").read_bytes()
     _build(args, tmp_path / "b")
-    assert (tmp_path / "b/yfull-1.0.0.tar.gz").read_bytes() == first
     entry = json.loads((tmp_path / "a/trees_entry.json").read_text())
-    assert entry["sha256"] == hashlib.sha256(first).hexdigest()
-    assert entry["files"]["tree.json"]["sha256"] == (
-        hashlib.sha256(files["tree.json"]).hexdigest()
+    for module, folder in MODULES.items():
+        first = (tmp_path / f"a/{folder}-1.0.0.tar.gz").read_bytes()
+        assert (tmp_path / f"b/{folder}-1.0.0.tar.gz").read_bytes() == first
+        pins = entry["modules"][module]
+        assert pins["folder"] == folder
+        assert pins["sha256"] == hashlib.sha256(first).hexdigest()
+        assert (
+            pins["files"]["build_info.json"]["sha256"]
+            == hashlib.sha256(built[module]["build_info.json"]).hexdigest()
+        )
+    assert entry["modules"]["tree"]["files"]["tree.json"]["sha256"] == (
+        hashlib.sha256(tree["tree.json"]).hexdigest()
     )
     sums = (tmp_path / "a/SHA256SUMS").read_text().splitlines()
     assert [line.split()[1] for line in sums] == [
-        "yfull-1.0.0.tar.gz",
-        "build_info.json",
+        "yfull-tree-1.0.0.tar.gz",
+        "yfull-tree-1.0.0.build_info.json",
+        "yfull-ybrowse-positions-1.0.0.tar.gz",
+        "yfull-ybrowse-positions-1.0.0.build_info.json",
         "LICENSE-YTree.md",
         "NOTICE-YBrowse.md",
         "ybrowse-snps_hg38-2026-11-05.csv.gz",
@@ -229,7 +261,7 @@ def test_unverifiable_inputs_are_rejected(
 def test_tree_is_read_as_committed_not_from_the_working_copy(tmp_path: Path) -> None:
     # PR #451 review: an edited working-copy ZIP must not ship under the commit's URL.
     args = _inputs(tmp_path)
-    committed = _build(args, tmp_path / "a")["tree.json"]
+    committed = _build(args, tmp_path / "a")["tree"]["tree.json"]
     with zipfile.ZipFile(tmp_path / "YTree/ytree/tree_1.0.0.zip", "w") as archive:
         archive.writestr("tree_1.0.0.json", json.dumps({"id": "", "children": []}))
-    assert _build(args, tmp_path / "b")["tree.json"] == committed
+    assert _build(args, tmp_path / "b")["tree"]["tree.json"] == committed
