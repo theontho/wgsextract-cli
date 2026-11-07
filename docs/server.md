@@ -175,7 +175,7 @@ curl -H "Authorization: ******" \
 ### Jobs
 
 - **Queries and jobs.** Quick queries (`info`, `info/chip`, `sample/show`,
-  `ref/status`) start at once. Other operations queue: `--max-jobs`
+  `ref/status`, `ref/library-list`) start at once. Other operations queue: `--max-jobs`
   (setting `server_max_jobs`, default 1) of them run at a time. Jobs that save to
   the same folder run one after another, since commands use fixed file
   names there. `ref/index`, `ref/count-ns` and `ref/verify` save beside

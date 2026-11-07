@@ -10,6 +10,7 @@ from wgsextract_cli.api.ref import (
     RefDownloadParams,
     RefGeneMapParams,
     RefIndexParams,
+    RefLibraryListParams,
     RefLibraryParams,
     RefStatusParams,
     RefVerifyParams,
@@ -94,7 +95,7 @@ def register(
     )
     add(
         "library-list",
-        None,
+        RefLibraryListParams,
         cmd_library_list,
         "Deprecated alias for 'ref library --list': list installed and available "
         "assets.",

@@ -49,7 +49,9 @@ GROUPS = (
     api.sample,
     api.support,
     api.deps,
+    api.examples,
     api.vep,
+    api.benchmark,
 )
 RUNTIME = (api.ProgressEvent, api.ProgressCallback, api.CancelToken, api.CommandFailed)
 

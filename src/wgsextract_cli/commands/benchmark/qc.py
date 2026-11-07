@@ -1,4 +1,3 @@
-import argparse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from .execution import (
     _skipped_result,
     _tool_active_for_benchmark,
 )
-from .models import BenchmarkResult
+from .models import BenchmarkJob, BenchmarkResult
 
 
 def _benchmark_tool_available(tool: str) -> bool:
@@ -33,7 +32,7 @@ def _fastqc_output_stem(input_path: Path) -> str:
 
 def _run_heavy_coverage_extract_and_qc_steps(
     *,
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     ref_path: Path,
@@ -61,7 +60,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
         full_coverage_cmd += ["--region", command_region]
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM full coverage calculation",
             slug="13a-info-calculate-coverage",
             command_args=full_coverage_cmd,
@@ -89,7 +88,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
         sampled_coverage_cmd += ["--region", command_chrom]
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM sampled coverage calculation",
             slug="13b-info-coverage-sample",
             command_args=sampled_coverage_cmd,
@@ -105,7 +104,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
     mito_fasta_dir = steps_dir / "mito-fasta"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Mitochondrial FASTA consensus",
             slug="14a-mito-fasta",
             command_args=[
@@ -127,7 +126,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
     mito_vcf_dir = steps_dir / "mito-vcf"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Mitochondrial VCF extraction",
             slug="14b-mito-vcf",
             command_args=[
@@ -152,7 +151,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
     ydna_vcf_dir = steps_dir / "ydna-vcf"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Y-DNA VCF extraction",
             slug="14c-ydna-vcf",
             command_args=[
@@ -177,7 +176,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
     y_mt_dir = steps_dir / "y-mt-extract"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Y and mitochondrial BAM extraction",
             slug="14d-y-mt-extract",
             command_args=[
@@ -202,7 +201,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
     unmapped_dir = steps_dir / "unmapped"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Unmapped-read BAM extraction",
             slug="14e-unmapped",
             command_args=[
@@ -225,7 +224,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
     if heavy_region:
         record(
             _run_cli_step(
-                args,
+                job,
                 name="Custom region BAM extraction",
                 slug="14f-custom-extract",
                 command_args=[
@@ -265,7 +264,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
         fastp_base = fastp_stem(str(unalign_r1), str(unalign_r2))
         record(
             _run_cli_step(
-                args,
+                job,
                 name="FASTQ trimming and QC with fastp",
                 slug="15a-fastp",
                 command_args=[
@@ -296,7 +295,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
         fastqc_base = _fastqc_output_stem(unalign_r1)
         record(
             _run_cli_step(
-                args,
+                job,
                 name="FASTQ quality reports with FastQC",
                 slug="15b-fastqc",
                 command_args=[

@@ -122,6 +122,9 @@ MIGRATED = (
     ("sign", "verify"),
     ("deps",),
     ("deps", "check"),
+    ("example-genome",),
+    ("example-genome", "list"),
+    ("example-genome", "download"),
     ("typing",),
     ("typing", "cyp2d6"),
     ("typing", "hla"),
@@ -130,6 +133,7 @@ MIGRATED = (
     ("methylation", "pileup"),
     ("vep",),
     ("vep", "run"),
+    ("benchmark",),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -471,6 +475,10 @@ ARGVS = (
     ["sign", "verify", "S", "--allowed-signers", "a", "--identity", "me"],
     ["deps", "check"],
     ["deps", "check", "--tool", "samtools", "--debug"],
+    ["example-genome", "list", "--tag", "pacbio", "--tag", "hifi"],
+    ["example-genome", "download", "a", "b", "--method", "https", "--force"],
+    ["example-genome", "download", "--all", "--dry-run", "--target-root", "lib"],
+    ["example-genome", "download", "--aspera-key", "k", "--", "--debug"],
     ["typing", "cyp2d6", "-i", "x.bam", "--ref", "r.fa", "-t", "4"],
     ["typing", "hla", "-i", "x.cram", "--hla-index", "h.fa", "-o", "out"],
     ["typing", "str", "-i", "x.bam", "--catalog", "c.json", "--sex", "male"],
@@ -502,6 +510,15 @@ ARGVS = (
         "--vep-args",
         "--pick --no_stats",
     ],
+    ["benchmark"],
+    ["benchmark", "--profile", "smoke", "--suite", "core", "-o", "o"],
+    ["benchmark", "-r", "chrM", "--coverage", "2", "--target-count", "5"],
+    ["benchmark", "--seed", "7", "--region", "chr20:1-9"],
+    ["benchmark", "--full-size", "--build", "hg19", "--keep-going", "-t", "2"],
+    ["benchmark", "--dataset", "real", "--dataset-sha256", ""],
+    ["benchmark", "--dataset", "real", "--dataset-zip", "z.zip"],
+    ["benchmark", "--dataset", "real", "--dataset-url", "https://h/x.zip"],
+    ["-o", "o", "--debug", "benchmark", "--dataset-cache-dir", "c", "--quiet"],
 )
 
 

@@ -5891,6 +5891,2332 @@
     "prog": "wgsextract basecall"
    }
   },
+  "benchmark": {
+   "help": "usage: wgsextract benchmark [-h] [--profile {200mb,full,smoke,standard}] [--coverage COVERAGE]\n                            [--full-size]\n                            [--build {grch38,hg38,hs38,hs38d1,hs38d1v0,hs38dh,GRCh38,hs38DH,grch37,hg19,hg37,hs37,hs37d5,GRCh37,chm13,chm13v2,chm13v2.0,t2t,t2tv2,t2tv2.0,t2tv20,T2Tv20,T2Tv2,T2Tv2.0,CHM13,CHM13v2.0}]\n                            [-r REGION] [--keep-going] [--suite {core,heavy}]\n                            [--dataset {fake,real,real-1x,real-30x}] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --profile {200mb,full,smoke,standard}\n                        Benchmark size preset. smoke is chrM-only, standard is a scaled human-like genome, 200mb targets a ~200 MiB fake BAM, and full uses real chromosome lengths.\n  --coverage COVERAGE   Override generated BAM coverage for the selected profile.\n  --full-size           Use real chromosome lengths for the generated benchmark reference.\n  --build {grch38,hg38,hs38,hs38d1,hs38d1v0,hs38dh,GRCh38,hs38DH,grch37,hg19,hg37,hs37,hs37d5,GRCh37,chm13,chm13v2,chm13v2.0,t2t,t2tv2,t2tv2.0,t2tv20,T2Tv20,T2Tv2,T2Tv2.0,CHM13,CHM13v2.0}\n                        Generated reference naming/build convention.\n  -r, --region REGION   Optional region to benchmark for region-aware operations.\n  --keep-going          Continue independent benchmark steps after a failed step when possible.\n  --suite {core,heavy}  Benchmark operation coverage. core runs the lighter baseline suite.\n  --dataset {fake,real,real-1x,real-30x}\n                        Benchmark foundation data. fake generates synthetic data; real uses the release-backed mini genome zip; real-1x and real-30x cache public 1000 Genomes WGS references locally.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json,\n  --quiet, --debug, --config and the other global options are accepted before\n  or after the command; 'wgsextract --help' lists them all.\n\n6 advanced options not shown; 'wgsextract benchmark --help-all' lists them.\n\nexamples:\n  wgsextract benchmark --profile smoke\n\noutputs (in the output directory unless noted):\n  runs/<timestamp>/ under --outdir (default out/benchmark):\n  benchmark_report.md and benchmark_results.json (timings, tool versions) and\n  per-step logs.\n\nneeds:\n  no external tools; depending on options and inputs, also: bcftools, bgzip,\n  curl, samtools, tabix; hours for the full suite.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": [
+       "200mb",
+       "full",
+       "smoke",
+       "standard"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "standard",
+      "dest": "profile",
+      "exclusive_group": null,
+      "help": "Benchmark size preset. smoke is chrM-only, standard is a scaled human-like genome, 200mb targets a ~200 MiB fake BAM, and full uses real chromosome lengths.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--profile"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "coverage",
+      "exclusive_group": null,
+      "help": "Override generated BAM coverage for the selected profile.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--coverage"
+      ],
+      "required": false,
+      "type": "float"
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "full_size",
+      "exclusive_group": null,
+      "help": "Use real chromosome lengths for the generated benchmark reference.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--full-size"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "grch38",
+       "hg38",
+       "hs38",
+       "hs38d1",
+       "hs38d1v0",
+       "hs38dh",
+       "GRCh38",
+       "hs38DH",
+       "grch37",
+       "hg19",
+       "hg37",
+       "hs37",
+       "hs37d5",
+       "GRCh37",
+       "chm13",
+       "chm13v2",
+       "chm13v2.0",
+       "t2t",
+       "t2tv2",
+       "t2tv2.0",
+       "t2tv20",
+       "T2Tv20",
+       "T2Tv2",
+       "T2Tv2.0",
+       "CHM13",
+       "CHM13v2.0"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "hg38",
+      "dest": "build",
+      "exclusive_group": null,
+      "help": "Generated reference naming/build convention.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--build"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": 20260504,
+      "dest": "seed",
+      "exclusive_group": null,
+      "help": "Random seed for deterministic benchmark data generation.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--seed"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "target_count",
+      "exclusive_group": null,
+      "help": "Approximate number of target SNPs for the microarray benchmark.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--target-count"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Optional region to benchmark for region-aware operations.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "keep_going",
+      "exclusive_group": null,
+      "help": "Continue independent benchmark steps after a failed step when possible.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-going"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "core",
+       "heavy"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "heavy",
+      "dest": "suite",
+      "exclusive_group": null,
+      "help": "Benchmark operation coverage. core runs the lighter baseline suite.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--suite"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "fake",
+       "real",
+       "real-1x",
+       "real-30x"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "fake",
+      "dest": "dataset",
+      "exclusive_group": null,
+      "help": "Benchmark foundation data. fake generates synthetic data; real uses the release-backed mini genome zip; real-1x and real-30x cache public 1000 Genomes WGS references locally.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--dataset"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "dataset_zip",
+      "exclusive_group": null,
+      "help": "Local real benchmark dataset zip. Overrides --dataset-url when --dataset real is used.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--dataset-zip"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+      "dest": "dataset_url",
+      "exclusive_group": null,
+      "help": "URL for the release-backed real benchmark dataset zip used by --dataset real.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--dataset-url"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+      "dest": "dataset_sha256",
+      "exclusive_group": null,
+      "help": "Expected SHA-256 for --dataset-url downloads. Empty disables checksum validation.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--dataset-sha256"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "dataset_cache_dir",
+      "exclusive_group": null,
+      "help": "Directory for cached real benchmark dataset downloads.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--dataset-cache-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "benchmark",
+     "func": "run"
+    },
+    "description": null,
+    "formatter_class": "RawTextHelpFormatter",
+    "prog": "wgsextract benchmark"
+   }
+  },
+  "deps": {
+   "help": "usage: wgsextract deps [-h] <command> ...\n\npositional arguments:\n  <command>\n    check     Verify that all required bioinformatics tools (samtools, bcftools, etc.) are\n              installed and accessible in your system path.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "check"
+      ],
+      "help": [
+       [
+        "check",
+        "Verify that all required bioinformatics tools (samtools, bcftools, etc.) are installed and accessible in your system path."
+       ]
+      ],
+      "required": true,
+      "subparsers": "subcommand"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "deps"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract deps"
+   }
+  },
+  "deps check": {
+   "help": "usage: wgsextract deps check [-h] [--tool TOOL]\n\noptions:\n  -h, --help   show this help message and exit\n  --tool TOOL  Check for a specific tool; exit code 3 if it is missing.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract deps check\n  wgsextract deps check --tool samtools\n\noutputs (in the output directory unless noted):\n  Prints each tool's status; writes no files.\n\nneeds:\n  no external tools; seconds.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "tool",
+      "exclusive_group": null,
+      "help": "Check for a specific tool; exit code 3 if it is missing.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--tool"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "deps check",
+     "func": "run"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract deps check"
+   }
+  },
+  "example-genome": {
+   "help": "usage: wgsextract example-genome [-h] <command> ...\n\npositional arguments:\n  <command>\n    list      List curated 1000 Genomes examples.\n    download  Download curated 1000 Genomes examples into the genome library.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "list",
+       "download"
+      ],
+      "help": [
+       [
+        "list",
+        "List curated 1000 Genomes examples."
+       ],
+       [
+        "download",
+        "Download curated 1000 Genomes examples into the genome library."
+       ]
+      ],
+      "required": true,
+      "subparsers": "examples_cmd"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "example-genome"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract example-genome"
+   }
+  },
+  "example-genome download": {
+   "help": "usage: wgsextract example-genome download [-h] [--tag TAG] [--all] [--method {auto,https,aspera}]\n                                          [--force] [--dry-run] [--help-all]\n                                          [EXAMPLE_ID ...]\n\npositional arguments:\n  EXAMPLE_ID            Example IDs to download. Defaults to a small starter set.\n\noptions:\n  -h, --help            show this help message and exit\n  --tag TAG             Download every example with this tag. May be repeated (e.g. --tag pacbio).\n  --all                 Download every curated example, including large full-genome data.\n  --method {auto,https,aspera}\n                        Transfer method. Auto is an alias for HTTPS and does not probe Aspera; use\n                        --method aspera explicitly for Aspera.\n  --force               Discard existing and partially downloaded files and download again.\n                        Without it, completed files are kept and interrupted downloads resume.\n  --dry-run             Print the planned downloads without creating files.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n2 advanced options not shown; 'wgsextract example-genome download --help-all' lists them.\n\nexamples:\n  wgsextract example-genome download na12878-lowcov-bam\n  wgsextract example-genome download na12878-lowcov-bam --dry-run\n\noutputs (in the output directory unless noted):\n  Into <genome_library>/test-1000genomes/<example id>/, with a genome config\n  file.\n\nneeds:\n  no external tools; depending on options and inputs, also: curl; depends on\n  download speed.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "example_ids",
+      "exclusive_group": null,
+      "help": "Example IDs to download. Defaults to a small starter set.",
+      "metavar": "EXAMPLE_ID",
+      "nargs": "*",
+      "option_strings": [],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_AppendAction",
+      "const": null,
+      "default": null,
+      "dest": "tag",
+      "exclusive_group": null,
+      "help": "Download every example with this tag. May be repeated (e.g. --tag pacbio).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--tag"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "all",
+      "exclusive_group": null,
+      "help": "Download every curated example, including large full-genome data.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--all"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "auto",
+       "https",
+       "aspera"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "auto",
+      "dest": "method",
+      "exclusive_group": null,
+      "help": "Transfer method. Auto is an alias for HTTPS and does not probe Aspera; use --method aspera explicitly for Aspera.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--method"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "aspera_key",
+      "exclusive_group": null,
+      "help": "Private key for Aspera ascp downloads. Required with --method aspera.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--aspera-key"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "target_root",
+      "exclusive_group": null,
+      "help": "Genome library root. Defaults to config genome_library, or genomes/ in the source checkout (or user data directory) when unset.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--target-root"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "force",
+      "exclusive_group": null,
+      "help": "Discard existing and partially downloaded files and download again. Without it, completed files are kept and interrupted downloads resume.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--force"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "dry_run",
+      "exclusive_group": null,
+      "help": "Print the planned downloads without creating files.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--dry-run"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "example-genome download",
+     "func": "cmd_download"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract example-genome download"
+   }
+  },
+  "example-genome list": {
+   "help": "usage: wgsextract example-genome list [-h] [--target-root TARGET_ROOT] [--tag TAG]\n\noptions:\n  -h, --help            show this help message and exit\n  --target-root TARGET_ROOT\n                        Genome library root. Defaults to config genome_library, or genomes/ in the\n                        source checkout (or user data directory) when unset.\n  --tag TAG             Only list examples with this tag. May be repeated (e.g. --tag pacbio).\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract example-genome list\n  wgsextract example-genome list --tag pacbio\n\noutputs (in the output directory unless noted):\n  Prints the curated examples; writes no files.\n\nneeds:\n  no external tools; instant.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "target_root",
+      "exclusive_group": null,
+      "help": "Genome library root. Defaults to config genome_library, or genomes/ in the source checkout (or user data directory) when unset.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--target-root"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_AppendAction",
+      "const": null,
+      "default": null,
+      "dest": "tag",
+      "exclusive_group": null,
+      "help": "Only list examples with this tag. May be repeated (e.g. --tag pacbio).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--tag"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "example-genome list",
+     "func": "cmd_list"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract example-genome list"
+   }
+  },
   "extract": {
    "help": "usage: wgsextract extract [-h] <command> ...\n\npositional arguments:\n  <command>\n    mito-fasta    Extract the Mitochondrial DNA (chrM) consensus sequence. Compatible with yFull\n                  (female-only mtDNA upload) and other sequence analysis tools. (Format: .FASTA)\n    mito-vcf      Call variants specifically for the mitochondrial DNA. Used by Mitoverse\n                  (Haplogrep) for haplogroup classification. (Format: .VCF)\n    mt-bam        Isolate all mitochondrial-related reads into a new, smaller BAM file. Used for\n                  high-resolution mtDNA analysis or maternal haplogroup prediction on services\n                  like Mitoverse (Haplogrep). (Format: .BAM)\n    ydna-bam      Extract all Y-chromosome reads into a separate BAM file. Compatible with yDNA\n                  Warehouse, yTree, and specialized paternal lineage tools. (Format: .BAM)\n    ydna-vcf      Call variants specifically for the Y-chromosome. Used by services like\n                  Cladefinder for haplogroup prediction. (Format: .VCF)\n    y-mt-extract  Extract both Y-chromosome and Mitochondrial reads into a single, combined BAM\n                  file. Recommended for yFull (male-only) WGS uploads. (Format: .BAM)\n    unmapped      Extract reads that did not align to the reference. Often used to find viral\n                  contamination or non-human DNA using services like Kaiju and CosmosID.\n    custom        Extract reads from a specific chromosomal region or gene of interest.\n    bam-subset    (advanced) Create a smaller version of your BAM file using a random fraction of\n                  reads (e.g. 0.1 for 10%). Useful for testing pipelines quickly.\n\noptions:\n  -h, --help      show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
    "parser": {
@@ -12655,7 +14981,7 @@
     ],
     "defaults": {
      "_command": "methylation pileup",
-     "func": "cmd_pileup"
+     "func": "cli_MethylationPileupParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -24888,6 +27214,1074 @@
     "description": "Summarise a sample's results (overview, QC, lineage, pharmacogenomics including HLA, ClinVar pathogenic calls in ACMG SF genes with carrier status, microarray files) as a local HTML, Markdown and JSON report with confidence-labelled findings. Reads earlier runs' result manifests and runs no analysis; its only network call downloads a built-in gene list once. Technical results, not diagnosis.",
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract report"
+   }
+  },
+  "sign": {
+   "help": "usage: wgsextract sign [-h] <command> ...\n\npositional arguments:\n  <command>\n    create    Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed\n              with ssh-keygen when a key is given.\n    verify    Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash\n              every listed file.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "create",
+       "verify"
+      ],
+      "help": [
+       [
+        "create",
+        "Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed with ssh-keygen when a key is given."
+       ],
+       [
+        "verify",
+        "Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash every listed file."
+       ]
+      ],
+      "required": true,
+      "subparsers": "sign_cmd"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "sign"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract sign"
+   }
+  },
+  "sign create": {
+   "help": "usage: wgsextract sign create [-h] [--output OUTPUT] [--key KEY] PATH [PATH ...]\n\npositional arguments:\n  PATH             Files or directories to sign.\n\noptions:\n  -h, --help       show this help message and exit\n  --output OUTPUT  Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs'\n                   common directory.\n  --key KEY        OpenSSH private key (or public key held by ssh-agent) to sign with. Defaults to\n                   the signing_key setting; without either, only the checksum manifest is written.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract sign create results/\n  wgsextract sign create results/ --key ~/.ssh/id_ed25519\n\noutputs (in the output directory unless noted):\n  SHA256SUMS in the inputs' folder (or --output); SHA256SUMS.sig with --key.\n\nneeds:\n  no external tools; depending on options and inputs, also: ssh-keygen;\n  minutes for genome-sized files.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "paths",
+      "exclusive_group": null,
+      "help": "Files or directories to sign.",
+      "metavar": "PATH",
+      "nargs": "+",
+      "option_strings": [],
+      "required": true,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "output",
+      "exclusive_group": null,
+      "help": "Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs' common directory.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "key",
+      "exclusive_group": null,
+      "help": "OpenSSH private key (or public key held by ssh-agent) to sign with. Defaults to the signing_key setting; without either, only the checksum manifest is written.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--key"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "sign create",
+     "func": "cmd_create"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract sign create"
+   }
+  },
+  "sign verify": {
+   "help": "usage: wgsextract sign verify [-h] [--signature SIGNATURE] [--public-key PUBLIC_KEY |\n                              --allowed-signers ALLOWED_SIGNERS] [--identity IDENTITY]\n                              manifest\n\npositional arguments:\n  manifest              SHA256SUMS manifest to verify.\n\noptions:\n  -h, --help            show this help message and exit\n  --signature SIGNATURE\n                        Signature file. Defaults to <manifest>.sig.\n  --public-key PUBLIC_KEY\n                        The signer's OpenSSH public key.\n  --allowed-signers ALLOWED_SIGNERS\n                        OpenSSH allowed_signers file (needs --identity).\n  --identity IDENTITY   Signer identity in --allowed-signers.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract sign verify results/SHA256SUMS --public-key key.pub\n\noutputs (in the output directory unless noted):\n  Prints the verification result; writes no files.\n\nneeds:\n  no external tools; depending on options and inputs, also: ssh-keygen;\n  minutes for genome-sized files.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "manifest",
+      "exclusive_group": null,
+      "help": "SHA256SUMS manifest to verify.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [],
+      "required": true,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "signature",
+      "exclusive_group": null,
+      "help": "Signature file. Defaults to <manifest>.sig.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--signature"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "public_key",
+      "exclusive_group": 0,
+      "help": "The signer's OpenSSH public key.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--public-key"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "allowed_signers",
+      "exclusive_group": 0,
+      "help": "OpenSSH allowed_signers file (needs --identity).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--allowed-signers"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "identity",
+      "exclusive_group": null,
+      "help": "Signer identity in --allowed-signers.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--identity"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "sign verify",
+     "func": "cmd_verify"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract sign verify"
    }
   },
   "typing": {
@@ -37435,1723 +40829,50 @@
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract vep run"
    }
-  },
-  "deps": {
-   "help": "usage: wgsextract deps [-h] <command> ...\n\npositional arguments:\n  <command>\n    check     Verify that all required bioinformatics tools (samtools, bcftools, etc.) are\n              installed and accessible in your system path.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
-   "parser": {
-    "actions": [
-     {
-      "choices": null,
-      "class": "_HelpAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help",
-      "exclusive_group": null,
-      "help": "show this help message and exit",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "-h",
-       "--help"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": [
-       "check"
-      ],
-      "help": [
-       [
-        "check",
-        "Verify that all required bioinformatics tools (samtools, bcftools, etc.) are installed and accessible in your system path."
-       ]
-      ],
-      "required": true,
-      "subparsers": "subcommand"
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "input",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--input",
-       "-i"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "outdir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--outdir",
-       "-o"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "genome",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--genome"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "ref",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--ref"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "threads",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "N|auto",
-      "nargs": null,
-      "option_strings": [
-       "--threads",
-       "-t"
-      ],
-      "required": false,
-      "type": "_thread_count_arg"
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "memory",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--memory",
-       "-m"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "tmp_dir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "DIRECTORY",
-      "nargs": null,
-      "option_strings": [
-       "--tmp-dir"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "json",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--json"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "quiet",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--quiet"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "debug",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--debug"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "log_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--log-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "keep_awake",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--keep-awake",
-       "--no-keep-awake"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "atomic_output",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--atomic-output",
-       "--no-atomic-output"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "config_path",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "FILE",
-      "nargs": null,
-      "option_strings": [
-       "--config"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "_result_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--result-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "parent_pid",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--parent-pid"
-      ],
-      "required": false,
-      "type": "int"
-     },
-     {
-      "choices": null,
-      "class": "_HelpAllAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help_all",
-      "exclusive_group": null,
-      "help": "Show this help with the advanced options too, and exit.",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--help-all"
-      ],
-      "required": false,
-      "type": null
-     }
-    ],
-    "defaults": {
-     "_command": "deps"
-    },
-    "description": null,
-    "formatter_class": "HelpFormatter",
-    "prog": "wgsextract deps"
-   }
-  },
-  "deps check": {
-   "help": "usage: wgsextract deps check [-h] [--tool TOOL]\n\noptions:\n  -h, --help   show this help message and exit\n  --tool TOOL  Check for a specific tool; exit code 3 if it is missing.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract deps check\n  wgsextract deps check --tool samtools\n\noutputs (in the output directory unless noted):\n  Prints each tool's status; writes no files.\n\nneeds:\n  no external tools; seconds.\n",
-   "parser": {
-    "actions": [
-     {
-      "choices": null,
-      "class": "_HelpAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help",
-      "exclusive_group": null,
-      "help": "show this help message and exit",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "-h",
-       "--help"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "input",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--input",
-       "-i"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "outdir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--outdir",
-       "-o"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "genome",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--genome"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "ref",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--ref"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "threads",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "N|auto",
-      "nargs": null,
-      "option_strings": [
-       "--threads",
-       "-t"
-      ],
-      "required": false,
-      "type": "_thread_count_arg"
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "memory",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--memory",
-       "-m"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "tmp_dir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "DIRECTORY",
-      "nargs": null,
-      "option_strings": [
-       "--tmp-dir"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "json",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--json"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "quiet",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--quiet"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "debug",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--debug"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "log_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--log-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "keep_awake",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--keep-awake",
-       "--no-keep-awake"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "atomic_output",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--atomic-output",
-       "--no-atomic-output"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "config_path",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "FILE",
-      "nargs": null,
-      "option_strings": [
-       "--config"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "_result_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--result-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "parent_pid",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--parent-pid"
-      ],
-      "required": false,
-      "type": "int"
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "tool",
-      "exclusive_group": null,
-      "help": "Check for a specific tool; exit code 3 if it is missing.",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--tool"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_HelpAllAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help_all",
-      "exclusive_group": null,
-      "help": "Show this help with the advanced options too, and exit.",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--help-all"
-      ],
-      "required": false,
-      "type": null
-     }
-    ],
-    "defaults": {
-     "_command": "deps check",
-     "func": "run"
-    },
-    "description": null,
-    "formatter_class": "HelpFormatter",
-    "prog": "wgsextract deps check"
-   }
-  },
-  "sign": {
-   "help": "usage: wgsextract sign [-h] <command> ...\n\npositional arguments:\n  <command>\n    create    Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed\n              with ssh-keygen when a key is given.\n    verify    Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash\n              every listed file.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
-   "parser": {
-    "actions": [
-     {
-      "choices": null,
-      "class": "_HelpAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help",
-      "exclusive_group": null,
-      "help": "show this help message and exit",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "-h",
-       "--help"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": [
-       "create",
-       "verify"
-      ],
-      "help": [
-       [
-        "create",
-        "Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed with ssh-keygen when a key is given."
-       ],
-       [
-        "verify",
-        "Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash every listed file."
-       ]
-      ],
-      "required": true,
-      "subparsers": "sign_cmd"
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "input",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--input",
-       "-i"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "outdir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--outdir",
-       "-o"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "genome",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--genome"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "ref",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--ref"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "threads",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "N|auto",
-      "nargs": null,
-      "option_strings": [
-       "--threads",
-       "-t"
-      ],
-      "required": false,
-      "type": "_thread_count_arg"
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "memory",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--memory",
-       "-m"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "tmp_dir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "DIRECTORY",
-      "nargs": null,
-      "option_strings": [
-       "--tmp-dir"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "json",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--json"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "quiet",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--quiet"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "debug",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--debug"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "log_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--log-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "keep_awake",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--keep-awake",
-       "--no-keep-awake"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "atomic_output",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--atomic-output",
-       "--no-atomic-output"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "config_path",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "FILE",
-      "nargs": null,
-      "option_strings": [
-       "--config"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "_result_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--result-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "parent_pid",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--parent-pid"
-      ],
-      "required": false,
-      "type": "int"
-     },
-     {
-      "choices": null,
-      "class": "_HelpAllAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help_all",
-      "exclusive_group": null,
-      "help": "Show this help with the advanced options too, and exit.",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--help-all"
-      ],
-      "required": false,
-      "type": null
-     }
-    ],
-    "defaults": {
-     "_command": "sign"
-    },
-    "description": null,
-    "formatter_class": "HelpFormatter",
-    "prog": "wgsextract sign"
-   }
-  },
-  "sign create": {
-   "help": "usage: wgsextract sign create [-h] [--output OUTPUT] [--key KEY] PATH [PATH ...]\n\npositional arguments:\n  PATH             Files or directories to sign.\n\noptions:\n  -h, --help       show this help message and exit\n  --output OUTPUT  Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs'\n                   common directory.\n  --key KEY        OpenSSH private key (or public key held by ssh-agent) to sign with. Defaults to\n                   the signing_key setting; without either, only the checksum manifest is written.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract sign create results/\n  wgsextract sign create results/ --key ~/.ssh/id_ed25519\n\noutputs (in the output directory unless noted):\n  SHA256SUMS in the inputs' folder (or --output); SHA256SUMS.sig with --key.\n\nneeds:\n  no external tools; depending on options and inputs, also: ssh-keygen;\n  minutes for genome-sized files.\n",
-   "parser": {
-    "actions": [
-     {
-      "choices": null,
-      "class": "_HelpAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help",
-      "exclusive_group": null,
-      "help": "show this help message and exit",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "-h",
-       "--help"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "input",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--input",
-       "-i"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "outdir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--outdir",
-       "-o"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "genome",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--genome"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "ref",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--ref"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "threads",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "N|auto",
-      "nargs": null,
-      "option_strings": [
-       "--threads",
-       "-t"
-      ],
-      "required": false,
-      "type": "_thread_count_arg"
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "memory",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--memory",
-       "-m"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "tmp_dir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "DIRECTORY",
-      "nargs": null,
-      "option_strings": [
-       "--tmp-dir"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "json",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--json"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "quiet",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--quiet"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "debug",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--debug"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "log_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--log-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "keep_awake",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--keep-awake",
-       "--no-keep-awake"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "atomic_output",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--atomic-output",
-       "--no-atomic-output"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "config_path",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "FILE",
-      "nargs": null,
-      "option_strings": [
-       "--config"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "_result_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--result-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "parent_pid",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--parent-pid"
-      ],
-      "required": false,
-      "type": "int"
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "paths",
-      "exclusive_group": null,
-      "help": "Files or directories to sign.",
-      "metavar": "PATH",
-      "nargs": "+",
-      "option_strings": [],
-      "required": true,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "output",
-      "exclusive_group": null,
-      "help": "Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs' common directory.",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--output"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "key",
-      "exclusive_group": null,
-      "help": "OpenSSH private key (or public key held by ssh-agent) to sign with. Defaults to the signing_key setting; without either, only the checksum manifest is written.",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--key"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_HelpAllAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help_all",
-      "exclusive_group": null,
-      "help": "Show this help with the advanced options too, and exit.",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--help-all"
-      ],
-      "required": false,
-      "type": null
-     }
-    ],
-    "defaults": {
-     "_command": "sign create",
-     "func": "cmd_create"
-    },
-    "description": null,
-    "formatter_class": "HelpFormatter",
-    "prog": "wgsextract sign create"
-   }
-  },
-  "sign verify": {
-   "help": "usage: wgsextract sign verify [-h] [--signature SIGNATURE] [--public-key PUBLIC_KEY |\n                              --allowed-signers ALLOWED_SIGNERS] [--identity IDENTITY]\n                              manifest\n\npositional arguments:\n  manifest              SHA256SUMS manifest to verify.\n\noptions:\n  -h, --help            show this help message and exit\n  --signature SIGNATURE\n                        Signature file. Defaults to <manifest>.sig.\n  --public-key PUBLIC_KEY\n                        The signer's OpenSSH public key.\n  --allowed-signers ALLOWED_SIGNERS\n                        OpenSSH allowed_signers file (needs --identity).\n  --identity IDENTITY   Signer identity in --allowed-signers.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract sign verify results/SHA256SUMS --public-key key.pub\n\noutputs (in the output directory unless noted):\n  Prints the verification result; writes no files.\n\nneeds:\n  no external tools; depending on options and inputs, also: ssh-keygen;\n  minutes for genome-sized files.\n",
-   "parser": {
-    "actions": [
-     {
-      "choices": null,
-      "class": "_HelpAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help",
-      "exclusive_group": null,
-      "help": "show this help message and exit",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "-h",
-       "--help"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "input",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--input",
-       "-i"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "outdir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--outdir",
-       "-o"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "genome",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--genome"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "ref",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--ref"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "threads",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "N|auto",
-      "nargs": null,
-      "option_strings": [
-       "--threads",
-       "-t"
-      ],
-      "required": false,
-      "type": "_thread_count_arg"
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "memory",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--memory",
-       "-m"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "tmp_dir",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "DIRECTORY",
-      "nargs": null,
-      "option_strings": [
-       "--tmp-dir"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "json",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--json"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "quiet",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--quiet"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStoreTrue",
-      "const": true,
-      "default": "==SUPPRESS==",
-      "dest": "debug",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--debug"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "log_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--log-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "keep_awake",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--keep-awake",
-       "--no-keep-awake"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalBoolean",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "atomic_output",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--atomic-output",
-       "--no-atomic-output"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "config_path",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "FILE",
-      "nargs": null,
-      "option_strings": [
-       "--config"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "_result_file",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": "PATH",
-      "nargs": null,
-      "option_strings": [
-       "--result-file"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_GlobalStore",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "parent_pid",
-      "exclusive_group": null,
-      "help": "==SUPPRESS==",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--parent-pid"
-      ],
-      "required": false,
-      "type": "int"
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "manifest",
-      "exclusive_group": null,
-      "help": "SHA256SUMS manifest to verify.",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [],
-      "required": true,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "signature",
-      "exclusive_group": null,
-      "help": "Signature file. Defaults to <manifest>.sig.",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--signature"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "public_key",
-      "exclusive_group": 0,
-      "help": "The signer's OpenSSH public key.",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--public-key"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "allowed_signers",
-      "exclusive_group": 0,
-      "help": "OpenSSH allowed_signers file (needs --identity).",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--allowed-signers"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_StoreAction",
-      "const": null,
-      "default": null,
-      "dest": "identity",
-      "exclusive_group": null,
-      "help": "Signer identity in --allowed-signers.",
-      "metavar": null,
-      "nargs": null,
-      "option_strings": [
-       "--identity"
-      ],
-      "required": false,
-      "type": null
-     },
-     {
-      "choices": null,
-      "class": "_HelpAllAction",
-      "const": null,
-      "default": "==SUPPRESS==",
-      "dest": "help_all",
-      "exclusive_group": null,
-      "help": "Show this help with the advanced options too, and exit.",
-      "metavar": null,
-      "nargs": 0,
-      "option_strings": [
-       "--help-all"
-      ],
-      "required": false,
-      "type": null
-     }
-    ],
-    "defaults": {
-     "_command": "sign verify",
-     "func": "cmd_verify"
-    },
-    "description": null,
-    "formatter_class": "HelpFormatter",
-    "prog": "wgsextract sign verify"
-   }
   }
  },
  "namespaces": {
+  "-o o --debug benchmark --dataset-cache-dir c --quiet": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "dataset_cache_dir",
+    "debug",
+    "outdir",
+    "quiet"
+   ],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "fake",
+   "dataset_cache_dir": "c",
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": null,
+   "debug": true,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": "o",
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": true,
+   "ref": null,
+   "region": null,
+   "seed": 20260504,
+   "suite": "heavy",
+   "target_count": null,
+   "threads": null,
+   "tmp_dir": null
+  },
   "-t 3 methylation pileup --input x.bam --region chrM": {
    "_command": "methylation pileup",
    "_explicit_dests": [
@@ -39165,7 +40886,7 @@
    "context": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_pileup",
+   "func": "cli_MethylationPileupParams",
    "genome": null,
    "hydroxymethyl": null,
    "input": "x.bam",
@@ -39952,6 +41673,509 @@
    "threads": null,
    "tmp_dir": null
   },
+  "benchmark": {
+   "_command": "benchmark",
+   "_explicit_dests": [],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "fake",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": null,
+   "debug": false,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "seed": 20260504,
+   "suite": "heavy",
+   "target_count": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "benchmark --dataset real --dataset-sha256 ": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "dataset",
+    "dataset_sha256"
+   ],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "real",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": null,
+   "debug": false,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "seed": 20260504,
+   "suite": "heavy",
+   "target_count": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "benchmark --dataset real --dataset-url https://h/x.zip": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "dataset",
+    "dataset_url"
+   ],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "real",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://h/x.zip",
+   "dataset_zip": null,
+   "debug": false,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "seed": 20260504,
+   "suite": "heavy",
+   "target_count": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "benchmark --dataset real --dataset-zip z.zip": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "dataset",
+    "dataset_zip"
+   ],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "real",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": "z.zip",
+   "debug": false,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "seed": 20260504,
+   "suite": "heavy",
+   "target_count": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "benchmark --full-size --build hg19 --keep-going -t 2": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "build",
+    "full_size",
+    "keep_going",
+    "threads"
+   ],
+   "atomic_output": false,
+   "build": "hg19",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "fake",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": null,
+   "debug": false,
+   "full_help": false,
+   "full_size": true,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": true,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "seed": 20260504,
+   "suite": "heavy",
+   "target_count": null,
+   "threads": 2,
+   "tmp_dir": null
+  },
+  "benchmark --profile smoke --suite core -o o": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "outdir",
+    "profile",
+    "suite"
+   ],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "fake",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": null,
+   "debug": false,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": "o",
+   "parent_pid": null,
+   "profile": "smoke",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "seed": 20260504,
+   "suite": "core",
+   "target_count": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "benchmark --seed 7 --region chr20:1-9": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "region",
+    "seed"
+   ],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": null,
+   "dataset": "fake",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": null,
+   "debug": false,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": false,
+   "ref": null,
+   "region": "chr20:1-9",
+   "seed": 7,
+   "suite": "heavy",
+   "target_count": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "benchmark -r chrM --coverage 2 --target-count 5": {
+   "_command": "benchmark",
+   "_explicit_dests": [
+    "coverage",
+    "region",
+    "target_count"
+   ],
+   "atomic_output": false,
+   "build": "hg38",
+   "command": "benchmark",
+   "coverage": 2.0,
+   "dataset": "fake",
+   "dataset_cache_dir": null,
+   "dataset_sha256": "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6",
+   "dataset_url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/wgsextract-benchmark-hg19-mini.zip",
+   "dataset_zip": null,
+   "debug": false,
+   "full_help": false,
+   "full_size": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_going": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "profile": "standard",
+   "quiet": false,
+   "ref": null,
+   "region": "chrM",
+   "seed": 20260504,
+   "suite": "heavy",
+   "target_count": 5,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "deps check": {
+   "_command": "deps check",
+   "_explicit_dests": [],
+   "atomic_output": false,
+   "command": "deps",
+   "debug": false,
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "subcommand": "check",
+   "threads": null,
+   "tmp_dir": null,
+   "tool": null
+  },
+  "deps check --tool samtools --debug": {
+   "_command": "deps check",
+   "_explicit_dests": [
+    "debug",
+    "tool"
+   ],
+   "atomic_output": false,
+   "command": "deps",
+   "debug": true,
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "subcommand": "check",
+   "threads": null,
+   "tmp_dir": null,
+   "tool": "samtools"
+  },
+  "example-genome download --all --dry-run --target-root lib": {
+   "_command": "example-genome download",
+   "_explicit_dests": [
+    "all",
+    "dry_run",
+    "target_root"
+   ],
+   "all": true,
+   "aspera_key": null,
+   "atomic_output": false,
+   "command": "example-genome",
+   "debug": false,
+   "dry_run": true,
+   "example_ids": [],
+   "examples_cmd": "download",
+   "force": false,
+   "full_help": false,
+   "func": "cmd_download",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "method": "auto",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "tag": null,
+   "target_root": "lib",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "example-genome download --aspera-key k -- --debug": {
+   "_command": "example-genome download",
+   "_explicit_dests": [
+    "aspera_key",
+    "example_ids"
+   ],
+   "all": false,
+   "aspera_key": "k",
+   "atomic_output": false,
+   "command": "example-genome",
+   "debug": false,
+   "dry_run": false,
+   "example_ids": [
+    "--debug"
+   ],
+   "examples_cmd": "download",
+   "force": false,
+   "full_help": false,
+   "func": "cmd_download",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "method": "auto",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "tag": null,
+   "target_root": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "example-genome download a b --method https --force": {
+   "_command": "example-genome download",
+   "_explicit_dests": [
+    "example_ids",
+    "force",
+    "method"
+   ],
+   "all": false,
+   "aspera_key": null,
+   "atomic_output": false,
+   "command": "example-genome",
+   "debug": false,
+   "dry_run": false,
+   "example_ids": [
+    "a",
+    "b"
+   ],
+   "examples_cmd": "download",
+   "force": true,
+   "full_help": false,
+   "func": "cmd_download",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "method": "https",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "tag": null,
+   "target_root": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "example-genome list --tag pacbio --tag hifi": {
+   "_command": "example-genome list",
+   "_explicit_dests": [
+    "tag"
+   ],
+   "atomic_output": false,
+   "command": "example-genome",
+   "debug": false,
+   "examples_cmd": "list",
+   "full_help": false,
+   "func": "cmd_list",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "tag": [
+    "pacbio",
+    "hifi"
+   ],
+   "target_root": null,
+   "threads": null,
+   "tmp_dir": null
+  },
   "extract bam-subset -i x.bam --fraction 0.5 --gene BRCA1": {
    "_command": "extract bam-subset",
    "_explicit_dests": [
@@ -40600,7 +42824,7 @@
    "context": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_pileup",
+   "func": "cli_MethylationPileupParams",
    "genome": null,
    "hydroxymethyl": null,
    "input": null,
@@ -40630,7 +42854,7 @@
    "context": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_pileup",
+   "func": "cli_MethylationPileupParams",
    "genome": null,
    "hydroxymethyl": null,
    "input": "x.bam",
@@ -40662,7 +42886,7 @@
    "context": "all",
    "debug": false,
    "full_help": false,
-   "func": "cmd_pileup",
+   "func": "cli_MethylationPileupParams",
    "genome": null,
    "hydroxymethyl": true,
    "input": "x.bam",
@@ -40694,7 +42918,7 @@
    "context": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_pileup",
+   "func": "cli_MethylationPileupParams",
    "genome": null,
    "hydroxymethyl": false,
    "input": "x.bam",
@@ -40726,7 +42950,7 @@
    "context": null,
    "debug": false,
    "full_help": false,
-   "func": "cmd_pileup",
+   "func": "cli_MethylationPileupParams",
    "genome": null,
    "hydroxymethyl": null,
    "input": "x.cram",
@@ -42079,6 +44303,164 @@
    "threads": null,
    "tmp_dir": null,
    "workspace": null
+  },
+  "sign create a b/c.txt": {
+   "_command": "sign create",
+   "_explicit_dests": [
+    "paths"
+   ],
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_create",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "key": null,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "output": null,
+   "parent_pid": null,
+   "paths": [
+    "a",
+    "b/c.txt"
+   ],
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "create",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "sign create d --output m/SUMS --key k -t 2": {
+   "_command": "sign create",
+   "_explicit_dests": [
+    "key",
+    "output",
+    "paths",
+    "threads"
+   ],
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_create",
+   "genome": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "key": "k",
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "output": "m/SUMS",
+   "parent_pid": null,
+   "paths": [
+    "d"
+   ],
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "create",
+   "threads": 2,
+   "tmp_dir": null
+  },
+  "sign verify S --allowed-signers a --identity me": {
+   "_command": "sign verify",
+   "_explicit_dests": [
+    "allowed_signers",
+    "identity",
+    "manifest"
+   ],
+   "allowed_signers": "a",
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_verify",
+   "genome": null,
+   "identity": "me",
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "manifest": "S",
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "public_key": null,
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "verify",
+   "signature": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "sign verify S --signature s.sig --public-key k.pub": {
+   "_command": "sign verify",
+   "_explicit_dests": [
+    "manifest",
+    "public_key",
+    "signature"
+   ],
+   "allowed_signers": null,
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_verify",
+   "genome": null,
+   "identity": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "manifest": "S",
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "public_key": "k.pub",
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "verify",
+   "signature": "s.sig",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "sign verify SHA256SUMS": {
+   "_command": "sign verify",
+   "_explicit_dests": [
+    "manifest"
+   ],
+   "allowed_signers": null,
+   "atomic_output": false,
+   "command": "sign",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_verify",
+   "genome": null,
+   "identity": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "manifest": "SHA256SUMS",
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "public_key": null,
+   "quiet": false,
+   "ref": null,
+   "sign_cmd": "verify",
+   "signature": null,
+   "threads": null,
+   "tmp_dir": null
   },
   "typing cyp2d6 -i x.bam --ref r.fa -t 4": {
    "_command": "typing cyp2d6",
@@ -43805,215 +46187,6 @@
    "vep_cache": null,
    "vep_cache_version": "116",
    "vep_cmd": "run"
-  },
-  "deps check": {
-   "_command": "deps check",
-   "_explicit_dests": [],
-   "atomic_output": false,
-   "command": "deps",
-   "debug": false,
-   "full_help": false,
-   "func": "run",
-   "genome": null,
-   "input": null,
-   "json": false,
-   "keep_awake": false,
-   "log_dir": null,
-   "log_file": null,
-   "memory": null,
-   "outdir": null,
-   "parent_pid": null,
-   "quiet": false,
-   "ref": null,
-   "subcommand": "check",
-   "threads": null,
-   "tmp_dir": null,
-   "tool": null
-  },
-  "deps check --tool samtools --debug": {
-   "_command": "deps check",
-   "_explicit_dests": [
-    "debug",
-    "tool"
-   ],
-   "atomic_output": false,
-   "command": "deps",
-   "debug": true,
-   "full_help": false,
-   "func": "run",
-   "genome": null,
-   "input": null,
-   "json": false,
-   "keep_awake": false,
-   "log_dir": null,
-   "log_file": null,
-   "memory": null,
-   "outdir": null,
-   "parent_pid": null,
-   "quiet": false,
-   "ref": null,
-   "subcommand": "check",
-   "threads": null,
-   "tmp_dir": null,
-   "tool": "samtools"
-  },
-  "sign create a b/c.txt": {
-   "_command": "sign create",
-   "_explicit_dests": [
-    "paths"
-   ],
-   "atomic_output": false,
-   "command": "sign",
-   "debug": false,
-   "full_help": false,
-   "func": "cmd_create",
-   "genome": null,
-   "input": null,
-   "json": false,
-   "keep_awake": false,
-   "key": null,
-   "log_dir": null,
-   "log_file": null,
-   "memory": null,
-   "outdir": null,
-   "output": null,
-   "parent_pid": null,
-   "paths": [
-    "a",
-    "b/c.txt"
-   ],
-   "quiet": false,
-   "ref": null,
-   "sign_cmd": "create",
-   "threads": null,
-   "tmp_dir": null
-  },
-  "sign create d --output m/SUMS --key k -t 2": {
-   "_command": "sign create",
-   "_explicit_dests": [
-    "key",
-    "output",
-    "paths",
-    "threads"
-   ],
-   "atomic_output": false,
-   "command": "sign",
-   "debug": false,
-   "full_help": false,
-   "func": "cmd_create",
-   "genome": null,
-   "input": null,
-   "json": false,
-   "keep_awake": false,
-   "key": "k",
-   "log_dir": null,
-   "log_file": null,
-   "memory": null,
-   "outdir": null,
-   "output": "m/SUMS",
-   "parent_pid": null,
-   "paths": [
-    "d"
-   ],
-   "quiet": false,
-   "ref": null,
-   "sign_cmd": "create",
-   "threads": 2,
-   "tmp_dir": null
-  },
-  "sign verify S --allowed-signers a --identity me": {
-   "_command": "sign verify",
-   "_explicit_dests": [
-    "allowed_signers",
-    "identity",
-    "manifest"
-   ],
-   "allowed_signers": "a",
-   "atomic_output": false,
-   "command": "sign",
-   "debug": false,
-   "full_help": false,
-   "func": "cmd_verify",
-   "genome": null,
-   "identity": "me",
-   "input": null,
-   "json": false,
-   "keep_awake": false,
-   "log_dir": null,
-   "log_file": null,
-   "manifest": "S",
-   "memory": null,
-   "outdir": null,
-   "parent_pid": null,
-   "public_key": null,
-   "quiet": false,
-   "ref": null,
-   "sign_cmd": "verify",
-   "signature": null,
-   "threads": null,
-   "tmp_dir": null
-  },
-  "sign verify S --signature s.sig --public-key k.pub": {
-   "_command": "sign verify",
-   "_explicit_dests": [
-    "manifest",
-    "public_key",
-    "signature"
-   ],
-   "allowed_signers": null,
-   "atomic_output": false,
-   "command": "sign",
-   "debug": false,
-   "full_help": false,
-   "func": "cmd_verify",
-   "genome": null,
-   "identity": null,
-   "input": null,
-   "json": false,
-   "keep_awake": false,
-   "log_dir": null,
-   "log_file": null,
-   "manifest": "S",
-   "memory": null,
-   "outdir": null,
-   "parent_pid": null,
-   "public_key": "k.pub",
-   "quiet": false,
-   "ref": null,
-   "sign_cmd": "verify",
-   "signature": "s.sig",
-   "threads": null,
-   "tmp_dir": null
-  },
-  "sign verify SHA256SUMS": {
-   "_command": "sign verify",
-   "_explicit_dests": [
-    "manifest"
-   ],
-   "allowed_signers": null,
-   "atomic_output": false,
-   "command": "sign",
-   "debug": false,
-   "full_help": false,
-   "func": "cmd_verify",
-   "genome": null,
-   "identity": null,
-   "input": null,
-   "json": false,
-   "keep_awake": false,
-   "log_dir": null,
-   "log_file": null,
-   "manifest": "SHA256SUMS",
-   "memory": null,
-   "outdir": null,
-   "parent_pid": null,
-   "public_key": null,
-   "quiet": false,
-   "ref": null,
-   "sign_cmd": "verify",
-   "signature": null,
-   "threads": null,
-   "tmp_dir": null
   }
  }
 }

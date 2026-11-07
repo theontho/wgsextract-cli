@@ -3,8 +3,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from argparse import Namespace
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -379,9 +378,9 @@ def test_dataset_zip_sha256_is_verified(tmp_path: Path) -> None:
     zip_path = tmp_path / "dataset.zip"
     zip_path.write_bytes(b"zip")
     digest = hashlib.sha256(b"zip").hexdigest()
-    args = Namespace(dataset_zip=str(zip_path), dataset_sha256=digest)
+    args = benchmark.BenchmarkJob(dataset_zip=zip_path, dataset_sha256=digest)
 
     assert benchmark._real_dataset_zip_path(args, tmp_path) == zip_path.resolve()
-    args.dataset_sha256 = "0" * 64
+    args = replace(args, dataset_sha256="0" * 64)
     with pytest.raises(benchmark.WGSExtractError, match="SHA256 mismatch"):
         benchmark._real_dataset_zip_path(args, tmp_path)

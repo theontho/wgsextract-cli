@@ -311,6 +311,26 @@ def test_a_repair_writing_its_output_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_an_example_download_into_a_busy_library_waits(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: example-genome download writes into <target_root>/test-1000genomes,
+    # not an outdir, so that folder is locked.
+    bam, ref = fake_data
+    collection = work / "test-1000genomes"
+    collection.mkdir()
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(collection)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/example-genome/download",
+            {"target_root": str(work), "dry_run": True},
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_hla_typing_building_its_library_index_waits_for_a_busy_library(
     tmp_path, work, fake_data, slow_coverage
 ):
@@ -376,6 +396,69 @@ def test_a_vep_run_on_a_vcf_in_a_busy_folder_waits(
         )
         assert status == 202, second
         assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_an_example_download_waits_for_a_job_in_its_example_folder(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #494 review: a forced download deletes files in the example folder,
+    # and folder locks match exactly, so locking the collection alone let a
+    # job writing in that example folder run alongside it.
+    bam, ref = fake_data
+    example = work / "test-1000genomes" / "phase3-chrmt-vcf"
+    example.mkdir(parents=True)
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(example)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/example-genome/download",
+            {
+                "target_root": str(work),
+                "example_ids": ["phase3-chrmt-vcf"],
+                "dry_run": True,
+            },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+@pytest.mark.parametrize("escape", [None, "test-1000genomes", "phase3-chrmt-vcf"])
+def test_an_example_download_stays_in_the_allowed_folders(
+    client, tmp_path, work, escape
+):
+    # PR #494 review: the guard saw only target_root, so an omitted one (the
+    # configured or built-in library) or a symlinked collection or example
+    # folder inside an allowed one sent the download elsewhere.
+    body: dict = {"example_ids": ["phase3-chrmt-vcf"], "dry_run": True}
+    if escape is not None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        link = work / "test-1000genomes"
+        if escape != link.name:
+            link.mkdir()
+            link = link / escape
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("can't create symlinks here")
+        body["target_root"] = str(work)
+    status, response = client.request("POST", "/ops/example-genome/download", body)
+    assert (status, response["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_example_genome_list_answers_with_the_catalog(tmp_path, work):
+    with _serve(tmp_path, [work]) as client:
+        status, body = client.request(
+            "POST",
+            "/ops/example-genome/list?wait=60",
+            {"target_root": str(work), "tag": ["pacbio"]},
+        )
+    assert (status, body["status"]) == (200, "succeeded"), body
+    details = body["result"]["details"]
+    assert details["collection"] == str(work.resolve() / "test-1000genomes")
+    assert details["examples"]
+    assert all("pacbio" in example["tags"] for example in details["examples"])
 
 
 def test_a_vep_folder_run_refuses_a_link_out_of_the_allowed_folders(tmp_path, work):
@@ -835,6 +918,11 @@ def test_server_offers_no_ref_command_that_fetches_a_url_or_saves_config():
     assert not ref_ops & {"ref/download", "ref/bootstrap"}
 
 
+def test_server_does_not_offer_benchmark():
+    # #478: benchmark downloads any --dataset-url, so it stays local only.
+    assert "benchmark" not in operations()
+
+
 @pytest.mark.parametrize(
     ("op", "field"),
     [(op, item.name) for op, item in _REF_PATHS],
@@ -857,7 +945,9 @@ def test_path_guard_covers_every_ref_path(op, field, value):
     assert refused.value.code in ("usage", "path_not_allowed")
 
 
-@pytest.mark.parametrize("op", ["ref/gene-map", "ref/clinvar", "ref/status"])
+@pytest.mark.parametrize(
+    "op", ["ref/gene-map", "ref/clinvar", "ref/status", "ref/library-list"]
+)
 def test_path_guard_checks_the_library_above_a_genomes_fasta(tmp_path, op):
     # PR #458 review: a FASTA in <library>/genomes names that library, which
     # these commands write into or read, so the library must be allowed too.
@@ -876,7 +966,7 @@ def test_path_guard_checks_the_library_above_a_genomes_fasta(tmp_path, op):
     PathGuard([tmp_path / "library", tmp_path / "genomes"]).check(params)
 
 
-@pytest.mark.parametrize("op", ["ref/clinvar", "ref/status"])
+@pytest.mark.parametrize("op", ["ref/clinvar", "ref/status", "ref/library-list"])
 def test_path_guard_checks_the_library_of_a_home_relative_fasta(
     tmp_path, monkeypatch, op
 ):
@@ -922,6 +1012,85 @@ def test_path_guard_refuses_home_relative_file_names_in_text_fields(
     with pytest.raises(RequestError, match="not ~") as refused:
         PathGuard([tmp_path]).check(params_from_json(find(op), request))
     assert refused.value.code == "usage"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("reference_library", "outside"),
+        ("reference_fasta", "outside/genomes/hg38.fa"),
+    ],
+)
+def test_a_library_list_request_checks_the_library_it_falls_back_to(
+    tmp_path, work, monkeypatch, key, value
+):
+    # #478: with no ref, the configured FASTA's library (else the configured
+    # library) is the one read, so it must be an allowed folder too.
+    from wgsextract_cli.core.config import settings
+
+    fasta = tmp_path / "outside" / "genomes" / "hg38.fa"
+    fasta.parent.mkdir(parents=True)
+    fasta.write_text(">chr1\nA\n")
+    # The FASTA's library comes first, even when reference_library is allowed.
+    monkeypatch.setitem(settings, "reference_library", str(work))
+    monkeypatch.setitem(settings, key, str(tmp_path / value))
+    with _serve(tmp_path, [work]) as client:
+        status, body = client.request("POST", "/ops/ref/library-list", {})
+        assert (status, body["error"]["code"]) == (403, "path_not_allowed"), body
+        status, body = client.request(
+            "POST", "/ops/ref/library-list", {"ref": str(work)}
+        )
+        assert status == 202, body
+
+
+@pytest.mark.parametrize("op", ["ref/clinvar", "ref/status", "ref/library-list"])
+def test_path_guard_checks_the_library_of_a_fasta_named_through_dotdot(tmp_path, op):
+    # PR #499 review: genomes/absent/../x.fa isn't a file as written, so the
+    # guard checked it as a folder inside genomes, while the command
+    # collapsed the `..` and read the library above.
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    (genomes / "x.fa").write_text(">chr1\nA\n")
+    params = params_from_json(find(op), {"ref": f"{genomes}/absent/../x.fa"})
+    with pytest.raises(RequestError, match="outside the folders"):
+        PathGuard([genomes]).check(params)
+
+
+def test_a_library_list_request_checks_a_configured_fasta_link(
+    tmp_path, work, monkeypatch
+):
+    # PR #499 review: with no ref, the configured FASTA is read too; a link
+    # in an allowed library to a FASTA elsewhere must be refused.
+    from wgsextract_cli.core.config import settings
+
+    outside = tmp_path / "outside.fa"
+    outside.write_text(">chr1\nA\n")
+    (work / "genomes").mkdir()
+    link = work / "genomes" / "hg38.fa"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symbolic links need privileges here")
+    monkeypatch.setitem(settings, "reference_fasta", str(link))
+    with pytest.raises(RequestError, match="outside the folders"):
+        PathGuard([work]).check(find("ref/library-list").params())
+    PathGuard([work, outside]).check(find("ref/library-list").params())
+
+
+def test_ref_library_list_is_a_query_with_the_listing_as_details(client, work):
+    (work / "genomes").mkdir()
+    (work / "genomes" / "hs38.fa.gz").write_bytes(b"x")
+    _, ops = client.request("GET", "/ops")
+    assert {op["op"]: op["kind"] for op in ops["ops"]}["ref/library-list"] == "query"
+
+    status, job = client.request("POST", "/ops/ref/library-list", {"ref": str(work)})
+    assert status == 202, job
+    client.events(job["id"])
+    _, job = client.request("GET", f"/jobs/{job['id']}")
+    assert job["status"] == "succeeded", job
+    details = job["result"]["details"]
+    assert details["library"] == str(work)
+    assert {g["code"]: g["status"] for g in details["genomes"]}["hs38"] == ("unindexed")
 
 
 def test_ref_library_requests_must_name_a_genome():
@@ -1171,6 +1340,14 @@ def test_deps_check_answers_with_the_tool_path(tmp_path, work):
     assert Path(body["result"]["details"]["path"]).name.startswith("samtools")
 
 
+_EXAMPLE_PATHS = [
+    (op, item)
+    for op in ("example-genome/list", "example-genome/download")
+    for item in find(op).fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
 _TYPING_PATHS = [
     (op, item)
     for op in ("typing/cyp2d6", "typing/hla", "typing/str")
@@ -1184,6 +1361,35 @@ _VEP_PATHS = [
     for item in find("vep/run").fields()
     if item.spec.path or item.spec.may_name_file
 ]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _EXAMPLE_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _EXAMPLE_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil", r"D:\evil", r"\\host\share\evil", r"sub\evil", "~/evil"]
+)
+def test_path_guard_covers_every_example_genome_path(op, field, value):
+    # #478: example-genome became server operations; the library a download
+    # writes into and the Aspera key it reads must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"target_root": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_example_genome_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _EXAMPLE_PATHS} == {
+        ("example-genome/list", "target_root"),
+        ("example-genome/download", "target_root"),
+        ("example-genome/download", "aspera_key"),
+    }
+    assert find("example-genome/list").kind == "query"
+    assert find("example-genome/download").kind == "job"
 
 
 @pytest.mark.parametrize(
@@ -1710,12 +1916,15 @@ _BASE_REQUESTS: dict[str, dict[str, Any]] = {
     "pet-align": {"r1": _FILE},
     "qc/fastp": {"r1": _FILE},
     "analyze/batch-gen": {"output": _DATA + r"\batch.csv"},
+    # The library defaults to one outside the allowed folders.
+    "example-genome/download": {"target_root": _DATA},
     "bam/to-ubam": {"input": _FILE},
     "extract/custom": {"region": "chrM"},
     "info/chip": {"input": _FILE},
     "panel/bed": {"genes": ["BRCA1"]},
     "qc/vcf": {"input": _FILE},
     "ref/library": {"install": "hs38"},
+    "ref/library-list": {"ref": _DATA},
     "report": {"input": _FILE},
     "sample/show": {"input": _FILE},
     "sample/set": {"input": _FILE, "sex": "female"},
