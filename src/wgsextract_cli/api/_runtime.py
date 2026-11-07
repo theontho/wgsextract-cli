@@ -285,7 +285,8 @@ def _prepare(params: Params, result: CommandResult) -> None:
     the output folder."""
     input_path = getattr(params, "input", None)
     if isinstance(input_path, Path):
-        if input_path.expanduser().exists():
+        input_path = input_path.expanduser()
+        if input_path.exists():
             result.add_input(input_path, "input")
         from wgsextract_cli.cli.dispatch import checks_alignment_input
 

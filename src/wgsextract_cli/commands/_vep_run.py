@@ -1,13 +1,17 @@
-import argparse
 import logging
 import os
 import shlex
 import subprocess
 import tempfile
 import time
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
+from wgsextract_cli.api._runtime import checkpoint
+from wgsextract_cli.api.vep import VepRunParams
+from wgsextract_cli.core import read_scope
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -20,7 +24,6 @@ from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, human_output
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
-    UsageError,
     WGSExtractError,
     get_resource_defaults,
     run_command,
@@ -91,6 +94,13 @@ def _vep_input_files(input_path: str) -> list[str]:
     )
     if not input_files:
         raise WGSExtractError(f"No valid genomic files found in {input_path}")
+    # A server job may read only its allowed folders, and a link in the
+    # folder can lead elsewhere.
+    for path in input_files:
+        if not read_scope.may_follow(path):
+            raise WGSExtractError(
+                f"{path} leads outside the folders this run may read."
+            )
     stems: dict[str, str] = {}
     for path in input_files:
         if (other := stems.setdefault(_input_stem(path), path)) != path:
@@ -123,25 +133,25 @@ def _apply_forced_assembly(lib: ReferenceLibrary, vep_assembly: str | None) -> N
 
 
 def _call_variants_for_vep(
-    args: argparse.Namespace,
+    params: VepRunParams,
     bam_path: str,
     ref: str,
     lib: ReferenceLibrary,
     threads: str,
     out_vcf: str,
 ) -> None:
-    region_args = ["-r", args.region] if args.region else []
-    if args.ploidy_file:
-        ploidy_args = ["--ploidy-file", args.ploidy_file]
-    elif args.ploidy:
-        ploidy_args = ["--ploidy", args.ploidy]
+    region_args = ["-r", params.region] if params.region else []
+    if params.ploidy_file:
+        ploidy_args = ["--ploidy-file", str(params.ploidy_file)]
+    elif params.ploidy:
+        ploidy_args = ["--ploidy", params.ploidy]
     elif lib.ploidy_file:
         ploidy_args = ["--ploidy-file", lib.ploidy_file]
     else:
         ploidy_args = ["--ploidy", "GRCh38" if lib.build == "hg38" else "GRCh37"]
 
     with sex_samples_args(
-        bam_path, str(Path(out_vcf).parent), ploidy_args, region=args.region
+        bam_path, str(Path(out_vcf).parent), ploidy_args, region=params.region
     ) as sex_args:
         run_pipeline(
             [
@@ -157,7 +167,7 @@ def _call_variants_for_vep(
 
 
 def _build_vep_command(
-    args: argparse.Namespace,
+    params: VepRunParams,
     vep_input_vcf: str,
     output_file: str,
     vcf_type: str,
@@ -168,10 +178,10 @@ def _build_vep_command(
     # with spaces whole.
     vep_cmd = [get_tool_path("vep") or "vep"]
     vep_cmd += ["-i", vep_input_vcf, "-o", output_file, "--fork", threads]
-    vep_cmd.append({"vcf": "--vcf", "json": "--json", "tab": "--tab"}[args.format])
+    vep_cmd.append({"vcf": "--vcf", "json": "--json", "tab": "--tab"}[params.format])
 
-    if args.vep_assembly:
-        vep_cmd += ["--assembly", args.vep_assembly]
+    if params.vep_assembly:
+        vep_cmd += ["--assembly", params.vep_assembly]
     elif lib.build and "38" in lib.build:
         vep_cmd += ["--assembly", "GRCh38"]
     elif lib.build and ("37" in lib.build or "19" in lib.build):
@@ -182,32 +192,32 @@ def _build_vep_command(
 
     # The first cache that exists: --vep-cache (or the configured one), the
     # reference library's, then VEP's default.
-    candidates = [args.vep_cache, lib.vep_cache, expand_path("~/.vep")]
+    candidates = [params.vep_cache, lib.vep_cache, expand_path("~/.vep")]
     cache_dir = next(
         (str(c) for c in candidates if c and Path(c).is_dir()),
-        str(args.vep_cache or lib.vep_cache or candidates[-1]),
+        str(params.vep_cache or lib.vep_cache or candidates[-1]),
     )
-    vep_cmd += ["--dir_cache", cache_dir, "--cache_version", args.vep_cache_version]
+    vep_cmd += ["--dir_cache", cache_dir, "--cache_version", params.vep_cache_version]
     if Path(cache_dir).exists():
         vep_cmd.append("--offline")
         logging.info(LOG_MESSAGES["vep_using_cache"].format(path=cache_dir))
-        _warn_if_cache_version_missing(cache_dir, args, vep_cmd)
+        _warn_if_cache_version_missing(cache_dir, params.vep_cache_version, vep_cmd)
     else:
         logging.warning(LOG_MESSAGES["vep_no_cache_warn"].format(path=cache_dir))
         vep_cmd.append("--database")
         if "GRCh37" in vep_cmd:
             vep_cmd += ["--port", "3337"]  # Ensembl serves GRCh37 there
 
-    vep_cmd += VEP_PRESETS[getattr(args, "preset", "everything")]
+    vep_cmd += VEP_PRESETS[params.preset]
     if vcf_type in ("sv", "cnv"):
         vep_cmd += ["--overlaps", "--max_sv_size", "300000000", "--buffer_size", "500"]
-    if args.vep_args:
-        vep_cmd += shlex.split(args.vep_args)
+    if params.vep_args:
+        vep_cmd += shlex.split(params.vep_args)
     return vep_cmd
 
 
 def _warn_if_cache_version_missing(
-    cache_dir: str, args: argparse.Namespace, vep_cmd: list[str]
+    cache_dir: str, version: str, vep_cmd: list[str]
 ) -> None:
     assembly = (
         vep_cmd[vep_cmd.index("--assembly") + 1] if "--assembly" in vep_cmd else None
@@ -215,24 +225,22 @@ def _warn_if_cache_version_missing(
     if not assembly:
         return
     species = "homo_sapiens"
-    version_dir = Path(cache_dir, species, f"{args.vep_cache_version}_{assembly}")
+    version_dir = Path(cache_dir, species, f"{version}_{assembly}")
     if not version_dir.is_dir():
         logging.warning(
             f"{version_dir} is missing, so VEP will find no cache. Download it "
-            f"with 'wgsextract vep download --vep-version {args.vep_cache_version} "
+            f"with 'wgsextract vep download --vep-version {version} "
             f"--assembly {assembly}', or pass the installed release with "
             "--vep-cache-version."
         )
 
 
-def _prepare_vcf_input(
-    args: argparse.Namespace, vcf: str, work: str, threads: str
-) -> str:
+def _prepare_vcf_input(params: VepRunParams, vcf: str, work: str, threads: str) -> str:
     """The VCF VEP reads: BCF converted to VCF, and cut to --region if given."""
-    if not args.region and not vcf.lower().endswith(".bcf"):
+    if not params.region and not vcf.lower().endswith(".bcf"):
         return vcf
     out = str(Path(work, "input.vcf.gz"))
-    region = ["-r", args.region] if args.region else []
+    region = ["-r", params.region] if params.region else []
     run_command(
         ["bcftools", "view", *region, "--threads", threads, "-Oz", "-o", out, vcf]
     )
@@ -240,23 +248,23 @@ def _prepare_vcf_input(
 
 
 def _run_vep_on_input(
-    args: argparse.Namespace, current_input: str, threads: str
+    params: VepRunParams, current_input: str, threads: str
 ) -> tuple[str, str]:
     """Annotate one input; returns a (status, duration) batch summary row."""
     is_bam = current_input.lower().endswith((".bam", ".cram"))
-    outdir = args.outdir or str(absolute_path(current_input).parent)
+    outdir = str(params.outdir or absolute_path(current_input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Input file: {str(absolute_path(current_input))}")
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
-    output_file, final_output = vep_output_paths(current_input, outdir, args.format)
-    if Path(final_output).exists() and not args.force:
+    output_file, final_output = vep_output_paths(current_input, outdir, params.format)
+    if Path(final_output).exists() and not params.force:
         message = LOG_MESSAGES["vep_skipping_exists"].format(
             input=current_input, output=final_output
         )
         logging.info(message)
         current_result().warn("output_exists", message, path=final_output)
-        _record_vep_outputs(output_file, final_output, args.format)
+        _record_vep_outputs(output_file, final_output, params.format)
         return "SKIPPED", "-"
 
     start_time = time.time()
@@ -265,8 +273,9 @@ def _run_vep_on_input(
         if not is_bam:
             ensure_vcf_indexed(current_input)
         md5_sig = calculate_bam_md5(current_input, None) if is_bam else None
-        lib = ReferenceLibrary(args.ref, md5_sig, input_path=current_input)
-        _apply_forced_assembly(lib, args.vep_assembly)
+        ref = str(params.ref) if params.ref else None
+        lib = ReferenceLibrary(ref, md5_sig, input_path=current_input)
+        _apply_forced_assembly(lib, params.vep_assembly)
         logging.debug(f"Resolved reference: {lib.fasta}")
         if is_bam and not lib.fasta:
             raise WGSExtractError(
@@ -278,39 +287,39 @@ def _run_vep_on_input(
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_vep_") as work:
             vep_input_vcf = current_input
             if not is_bam:
-                vep_input_vcf = _prepare_vcf_input(args, current_input, work, threads)
+                vep_input_vcf = _prepare_vcf_input(params, current_input, work, threads)
             if is_bam:
                 assert lib.fasta is not None
                 logging.info(LOG_MESSAGES["vep_calling_pre"])
                 vep_input_vcf = str(Path(work, "variants.vcf.gz"))
                 _call_variants_for_vep(
-                    args, current_input, lib.fasta, lib, threads, vep_input_vcf
+                    params, current_input, lib.fasta, lib, threads, vep_input_vcf
                 )
 
-            if args.add_chr:
+            if params.add_chr:
                 chr_vcf = str(Path(work, "with_chr.vcf"))
                 preprocess_vcf_chr_prefix(vep_input_vcf, chr_vcf)
                 vep_input_vcf = chr_vcf
 
             vcf_type = (
                 detect_vcf_type(current_input)
-                if args.vcf_type == "auto"
-                else args.vcf_type
+                if params.vcf_type == "auto"
+                else params.vcf_type
             )
             # Written in work and moved into place once complete, so a failed
             # run leaves nothing that a rerun would skip as done.
             vep_output = str(Path(work, "vep" + Path(final_output).suffix))
             vep_cmd = _build_vep_command(
-                args, vep_input_vcf, vep_output, vcf_type, lib, threads
+                params, vep_input_vcf, vep_output, vcf_type, lib, threads
             )
-            if args.format == "vcf":
+            if params.format == "vcf":
                 # bgzipped as it's written: a genome's uncompressed VEP VCF is
                 # ~25 GB.
                 vep_cmd += ["--compress_output", "bgzip"]
             logging.info(LOG_MESSAGES["vep_running"].format(command=" ".join(vep_cmd)))
             run_command(vep_cmd)
 
-            if args.format == "vcf":
+            if params.format == "vcf":
                 run_command(["tabix", "-f", "-p", "vcf", vep_output])
                 Path(vep_output + ".tbi").replace(final_output + ".tbi")
             # VEP's report files go beside the output.
@@ -319,6 +328,7 @@ def _run_vep_on_input(
                     Path(vep_output + suffix).replace(output_file + suffix)
             Path(vep_output).replace(final_output)
     except (OSError, subprocess.SubprocessError, WGSExtractError, ValueError) as e:
+        checkpoint()  # a cancelled run stops here, not at the next input
         logging.error(f"VEP failed for {current_input}: {e}")
         current_result().warn(
             "input_failed", f"VEP failed for {current_input}: {e}", path=current_input
@@ -326,7 +336,7 @@ def _run_vep_on_input(
         return "FAILED", "-"
 
     logging.info(LOG_MESSAGES["vep_complete"].format(path=final_output))
-    _record_vep_outputs(output_file, final_output, args.format)
+    _record_vep_outputs(output_file, final_output, params.format)
     return "SUCCESS", str(timedelta(seconds=int(time.time() - start_time)))
 
 
@@ -342,24 +352,32 @@ def _record_vep_outputs(output_file: str, final_output: str, fmt: str) -> None:
             result.add_output(output_file + suffix, role)
 
 
-def cmd_vep(args: argparse.Namespace) -> None:
-    if not args.input:
-        raise UsageError(LOG_MESSAGES["input_required"])
-    input_files = _vep_input_files(args.input)
-    if Path(args.input).is_dir():
-        current_result().set_manifest_stem(Path(args.outdir or args.input, "vep"))
+def _expanded(params: VepRunParams) -> VepRunParams:
+    """``params`` with a leading ``~`` expanded in every path."""
+    paths: dict[str, Any] = {
+        name: Path(expand_path(value))
+        for name in ("input", "ref", "outdir", "vep_cache", "ploidy_file")
+        if (value := getattr(params, name)) is not None
+    }
+    return replace(params, **paths)
+
+
+def run_vep(params: VepRunParams) -> None:
+    params = _expanded(params)
+    input_files = _vep_input_files(str(params.input))
+    if params.input.is_dir():
+        current_result().set_manifest_stem(Path(params.outdir or params.input, "vep"))
         for path in input_files:
             current_result().add_input(path, "batch_input")
 
     verify_dependencies(["vep", "tabix", "bcftools"])
     log_dependency_info(["vep", "tabix", "bcftools"])
-    threads, _ = get_resource_defaults(args.threads, None)
+    threads, _ = get_resource_defaults(params.threads, None)
 
-    batch_stats = [
-        (Path(path).name, *_run_vep_on_input(args, path, threads))
-        for path in input_files
-    ]
-
+    batch_stats = []
+    for path in input_files:
+        checkpoint()
+        batch_stats.append((Path(path).name, *_run_vep_on_input(params, path, threads)))
     statuses = [status for _, status, _ in batch_stats]
     current_result().add_metrics(
         inputs=len(input_files),
