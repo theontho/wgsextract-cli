@@ -307,6 +307,25 @@ def test_a_repair_writing_its_output_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_methylation_run_waits_while_its_reference_folder_is_busy(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #493 review: an unindexed reference is indexed beside itself.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    shutil.copy(ref, work / "ref.fa")
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        request = {"input": str(bam), "ref": str(work / "ref.fa")}
+        status, second = client.request(
+            "POST", "/ops/methylation/pileup", {**request, "outdir": str(other)}
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_home_relative_paths_reach_the_job_expanded(tmp_path, work, monkeypatch):
     # PR #463 review: the guard approved ~/x as the home folder's; the job
     # must write there too, not in a `~` folder in its working folder.

@@ -476,3 +476,85 @@ def test_a_cancelled_rerun_keeps_the_previous_results_with_atomic_outputs(
     assert result.status == "cancelled"
     assert {name: (out / name).read_bytes() for name in kept} == before
     assert not list(out.glob(".*partial*"))
+
+
+@needs_samtools
+def test_a_rerun_failing_before_modkit_keeps_the_previous_results(
+    tmp_path, fake_modkit, tagged
+):
+    """#493 review: a rerun refused in its region check deleted the earlier
+    bedMethyl, index and summary before writing anything."""
+    bam, ref = tagged
+    out = tmp_path / "out"
+    api.methylation.pileup(MethylationPileupParams(input=bam, ref=ref, outdir=out))
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+
+    result = api.methylation.pileup(
+        MethylationPileupParams(input=bam, ref=ref, outdir=out, region="chr20,chrZ"),
+        check=False,
+    )
+
+    assert result.status == "failed" and "chrZ" in result.error.message
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before
+
+
+@needs_samtools
+def test_a_rerun_cancelled_after_modkit_publishes_nothing_with_atomic_outputs(
+    tmp_path, fake_modkit, tagged, monkeypatch
+):
+    """#493 review: the new bedMethyl was published before its index and
+    summary, so a later failure left it beside the old summary."""
+    from wgsextract_cli.core.config import settings
+
+    monkeypatch.setitem(settings, "atomic_outputs", True)
+    bam, ref = tagged
+    out = tmp_path / "out"
+    api.methylation.pileup(MethylationPileupParams(input=bam, ref=ref, outdir=out))
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+    token = api.CancelToken()
+
+    def cancel_at_tabix(event: api.ProgressEvent) -> None:
+        if event.stage == "tool" and "tabix" in event.message:
+            token.cancel()
+
+    result = api.methylation.pileup(
+        MethylationPileupParams(input=bam, ref=ref, outdir=out, hydroxymethyl=True),
+        progress=cancel_at_tabix,
+        cancel=token,
+        check=False,
+    )
+
+    assert result.status == "cancelled"
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before
+
+
+@needs_samtools
+def test_a_server_job_does_not_follow_a_reference_sibling_out_of_scope(
+    tmp_path, fake_modkit, tagged
+):
+    """#493 review: for ref.fa.gz, the uncompressed ref.fa beside it was used
+    even when it links outside the folders a server job may read."""
+    from wgsextract_cli.core import read_scope
+
+    bam, ref = tagged
+    packed = Path(f"{ref}.gz")
+    with open(ref, "rb") as src, gzip.open(packed, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    outside = tmp_path / "outside" / "ref.fa"
+    outside.parent.mkdir()
+    ref.rename(outside)
+    ref.symlink_to(outside)
+    allowed = (tmp_path / "ref", tmp_path / "reads", tmp_path / "out")
+
+    def allows(path: str) -> bool:
+        real = Path(os.path.realpath(path))
+        return any(real.is_relative_to(folder) for folder in allowed)
+
+    with read_scope.limited_to(allows):
+        api.methylation.pileup(
+            MethylationPileupParams(input=bam, ref=packed, outdir=tmp_path / "out")
+        )
+
+    [command] = fake_modkit()
+    used = Path(command[command.index("--ref") + 1])
+    assert allows(str(used)) and not Path(f"{outside}.fai").exists()

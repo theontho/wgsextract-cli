@@ -13,6 +13,7 @@ Windows.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -75,6 +76,12 @@ class MethylationPileupParams(Params):
         choices=FORMATS,
         cli_type=table_format_type(),
     )
+
+    def write_folders(self) -> Iterator[Path]:
+        # An unindexed reference FASTA is indexed beside itself.
+        ref = self.ref.expanduser() if self.ref else None
+        if ref is not None and not ref.is_dir():
+            yield ref.absolute().parent
 
 
 def pileup(

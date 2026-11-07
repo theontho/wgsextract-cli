@@ -8,8 +8,10 @@ checked, never installed.
 """
 
 import argparse
+import contextlib
 import gzip
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -462,7 +464,9 @@ def summarize_bedmethyl(
     tallies: dict[str, _ModTally] = {}
     opener = gzip.open if path.endswith((".gz", ".bgz")) else open
     with opener(path, "rt") as handle:
-        for line in handle:
+        for number, line in enumerate(handle):
+            if not number % 1_000_000:
+                checkpoint()
             fields = line.split("\t")
             if len(fields) < 12:
                 continue
@@ -519,6 +523,7 @@ def bedmethyl_to_parquet(bed: str, path: str, metadata: dict[str, str]) -> int:
     )
     with TableWriter(path, BEDMETHYL_TABLE, "parquet", metadata=metadata) as writer:
         for batch in reader:
+            checkpoint()
             writer.write_arrow(batch)
     return writer.rows
 
@@ -599,34 +604,17 @@ def run_pileup(params: MethylationPileupParams) -> None:
     parquet = params.table_format == "parquet"
     partial = [out_bed, f"{out_bed}.tbi", out_summary, *([out_table] * parquet)]
     logging.info(f"Tabulating base modifications with modkit to {out_bed}")
-    # With atomic outputs, a failed rerun keeps the previous complete results.
-    preserve = atomic_outputs_enabled()
-    with cleanup_files(on_failure=partial, preserve_outputs=preserve):
-        with (
-            plain_reference(ref, outdir) as use_ref,
-            tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_modkit_") as work,
-        ):
-            index_fasta(use_ref)
-            intervals = bed = None
-            if region:
-                intervals = region_intervals(region, read_fai_lengths(use_ref))
-                bed = str(Path(work, "regions.bed"))
-                with open(bed, "w", newline="\n") as f:
-                    f.writelines(f"{c}\t{s}\t{e}\n" for c, s, e in intervals)
-            with safe_output(out_bed) as staged:
-                command = modkit_command(
-                    input_path, staged, use_ref, options, threads, intervals, bed
-                )
-                try:
-                    run_command(command)
-                except (OSError, subprocess.SubprocessError) as e:
-                    raise WGSExtractError(f"modkit pileup failed: {e}") from e
-        checkpoint()
-        run_command(["tabix", "-f", "-p", "bed", out_bed])
-        result = current_result()
-        result.set_reference(ref, lib.build)
-        result.add_output(out_bed, "bedmethyl", kind="bed")
-
+    with (
+        plain_reference(ref, outdir) as use_ref,
+        tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_modkit_") as work,
+    ):
+        index_fasta(use_ref)
+        intervals = bed = None
+        if region:
+            intervals = region_intervals(region, read_fai_lengths(use_ref))
+            bed = str(Path(work, "regions.bed"))
+            with open(bed, "w", newline="\n") as f:
+                f.writelines(f"{c}\t{s}\t{e}\n" for c, s, e in intervals)
         metadata = provenance(
             [input_path],
             reference_build=lib.build,
@@ -634,14 +622,45 @@ def run_pileup(params: MethylationPileupParams) -> None:
             context=options.context,
             region=region or "",
         )
-        summaries = summarize_bedmethyl(out_bed)
-        write_summary(out_summary, summaries, params.table_format, metadata)
-        result.add_output(out_summary, "methylation_summary")
-        if parquet:
+        index = Path(work, "bedmethyl.tbi")
+        # With atomic outputs, the whole set is staged and published together
+        # on success, so a failed rerun keeps the previous complete results.
+        preserve = atomic_outputs_enabled()
+        with (
+            cleanup_files(on_failure=partial, preserve_outputs=preserve),
+            contextlib.ExitStack() as staging,
+        ):
+            staged_bed = staging.enter_context(safe_output(out_bed))
+            staged_summary = staging.enter_context(safe_output(out_summary))
+            staged_table = (
+                staging.enter_context(safe_output(out_table)) if parquet else ""
+            )
+            command = modkit_command(
+                input_path, staged_bed, use_ref, options, threads, intervals, bed
+            )
+            try:
+                run_command(command)
+            except (OSError, subprocess.SubprocessError) as e:
+                raise WGSExtractError(f"modkit pileup failed: {e}") from e
             checkpoint()
-            logging.info(f"Writing the sites as Parquet to {out_table}")
-            sites = bedmethyl_to_parquet(out_bed, out_table, metadata)
-            result.add_output(out_table, "bedmethyl_table", metrics={"rows": sites})
+            run_command(["tabix", "-f", "-p", "bed", staged_bed])
+            if staged_bed != out_bed:
+                os.replace(f"{staged_bed}.tbi", index)
+            summaries = summarize_bedmethyl(staged_bed)
+            write_summary(staged_summary, summaries, params.table_format, metadata)
+            if parquet:
+                checkpoint()
+                logging.info(f"Writing the sites as Parquet to {out_table}")
+                sites = bedmethyl_to_parquet(staged_bed, staged_table, metadata)
+            checkpoint()
+        if index.exists():
+            os.replace(index, f"{out_bed}.tbi")
+    result = current_result()
+    result.set_reference(ref, lib.build)
+    result.add_output(out_bed, "bedmethyl", kind="bed")
+    result.add_output(out_summary, "methylation_summary")
+    if parquet:
+        result.add_output(out_table, "bedmethyl_table", metrics={"rows": sites})
     result.add_metrics(
         platform=platform,
         context=options.context,
