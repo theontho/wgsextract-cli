@@ -539,6 +539,8 @@ _ULTIMA_GPU_SETUP = (
 # RTX 3090 with another process holding the rest, the ULTIMA model ran with
 # 7.3 GiB free and ran out of memory with 6.3 GiB.
 ULTIMA_GPU_MIN_FREE = round(7.3 * GIB)
+# call_variants' default --batch_size, which that measurement used.
+CALL_VARIANTS_BATCH = 1024
 
 
 def _model_chosen(params: VcfDeepvariantParams) -> bool:
@@ -584,7 +586,7 @@ def _verify_ultima_gpu(params: VcfDeepvariantParams) -> None:
         docker_info(setup)
 
 
-def _check_gpu_free(check: bool) -> None:
+def _check_gpu_free(check: bool, batch_size: int | None) -> None:
     """Refuse (unless not ``check``) when a GPU lacks the memory call_variants
     needs; just before it runs, so plans and finished reruns don't need one.
     Every GPU is checked: the container gets them all."""
@@ -595,6 +597,14 @@ def _check_gpu_free(check: bool) -> None:
     if not free:
         logging.warning("GPU memory is unknown; running call_variants anyway.")
         return
+    if check and batch_size not in (None, CALL_VARIANTS_BATCH):
+        warn(
+            "deepvariant_gpu_batch_size",
+            f"--batch-size {batch_size}: the {ULTIMA_GPU_MIN_FREE / GIB:.1f} GiB "
+            "free-GPU-memory check assumes call_variants' default batch of "
+            f"{CALL_VARIANTS_BATCH}, so it may pass a batch that runs out of GPU "
+            "memory or refuse one that fits.",
+        )
     least = min(free)
     if least >= ULTIMA_GPU_MIN_FREE:
         return
@@ -738,7 +748,9 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
         [ref, input_file, out_vcf, str(work), checkpoint, *region_files],
         work,
         gpu_check=(
-            (lambda: _check_gpu_free(not params.no_gpu_memory_check)) if gpu else None
+            (lambda: _check_gpu_free(not params.no_gpu_memory_check, batch_size))
+            if gpu
+            else None
         ),
     )
     inputs: dict[str, str | None] = {
@@ -776,7 +788,7 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
                     reference=ref,
                     threads=threads,
                     region=region,
-                    inference_batch_size=batch_size or 1024,
+                    inference_batch_size=batch_size or CALL_VARIANTS_BATCH,
                     deepvariant_model=model_type,
                     postprocess_plan=postprocess,
                     available_ram=available,
