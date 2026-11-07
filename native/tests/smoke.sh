@@ -87,7 +87,7 @@ else
         else
             # wgse-bwa also locates seeds on the GPU; mem_chain must use every row.
             if grep -q 'locate_misses=' metal.log; then
-                grep -q 'locate_misses=0$' metal.log
+                grep -Eq 'locate_misses=0( |$)' metal.log
                 [ "$mode" != force-gpu ] || grep -Eq 'located_rows=[1-9]' metal.log
             fi
             # ...and prepares mate rescue on the GPU; every prepared window must be used.

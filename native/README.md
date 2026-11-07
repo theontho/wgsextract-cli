@@ -17,9 +17,11 @@ printed by `--version`.
 
 ## Installing
 
-The `macos-aligners-5` prerelease has `wgse-bwa` 0.5.0 and `wgse-bwa-mem2`
+The `macos-aligners-6` prerelease has `wgse-bwa` 0.6.0 and `wgse-bwa-mem2`
 0.1.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
-later. Earlier prereleases: `macos-aligners-4` has `wgse-bwa` 0.4.0, whose
+later. Earlier prereleases: `macos-aligners-5` has `wgse-bwa` 0.5.0, with
+slower GPU kernels and no overlap of mapping and pairing;
+`macos-aligners-4` has `wgse-bwa` 0.4.0, whose
 `--metal` also rescues mates on the GPU but extends seeds on the CPU;
 `macos-aligners-3` has `wgse-bwa` 0.3.0, whose
 `--metal` seeds and locates on the GPU but rescues mates on the CPU;
@@ -33,8 +35,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-5 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-5 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-6 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-6 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -53,7 +55,7 @@ wgse-bwa-mem2 capabilities --json
 
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
-`xattr -dr com.apple.quarantine wgse-bwa-0.5.0-macos-arm64` (and
+`xattr -dr com.apple.quarantine wgse-bwa-0.6.0-macos-arm64` (and
 `wgse-bwa-mem2-0.1.0-macos-arm64`).
 
 ## Usage
@@ -105,7 +107,22 @@ What runs on the GPU:
   other seeds of a chain, upstream's code extends on the CPU). On HG002 the GPU
   extends the seeds of about 87% of the pairs, and 98% of those pairs'
   extension calls use its results. Extensions with queries over 256 bp or scores that
-  need more than 16 bits are done on the CPU.
+  need more than 16 bits are done on the CPU. From 0.6.0 the GPU kernels for
+  mate rescue and seed extension are faster, and the pairing step of one chunk
+  runs while the next chunk is mapped (the GPU is the bottleneck when pairing
+  and the CPU threads when mapping), so up to three chunks of reads are in
+  memory at once. While two chunks overlap, mapping and pairing each run `-t`
+  threads, so up to twice `-t` alignment threads (plus a few GPU helper
+  threads) can be runnable; lower `-t` to leave cores for other work. Seeding and locate also count bases in the index's
+  occurrence blocks with fewer GPU instructions, and once a run has mapped 20M
+  reads (on Macs with at least 16 GiB of memory) the GPU derives a suffix-array
+  sample for every 16th row from the index's every-32nd-row samples, which
+  halves the steps of each locate on the GPU and the CPU. At most two GPU
+  command buffers of the process run at once: with more, macOS sometimes
+  aborts one to keep the display responsive (`ImpactingInteractivity`). It
+  can still do so when other processes load the GPU; 0.6.0 then runs the
+  aborted work again, up to four times, before it finishes on the CPU (and
+  `--metal` exits 1).
 - `wgse-bwa-mem2`: batches seed extension across worker threads, keeping small
   batches on the CPU.
 
@@ -130,6 +147,11 @@ aligned on the CPU.
 Seed extension on the GPU (0.5.0) added about 0.14 GiB on HG002: at most six
 extension batches of 1024 pairs, each with up to 8 MiB of bases and 4 MiB of
 jobs and results; when none is free, threads extend on the CPU.
+0.6.0 pairs one chunk while it maps the next, which added about 0.15 GiB on
+HG002 with `-K 10000000` (the reads and alignments of the extra chunk; more
+with larger `-K`). After 20M reads, on Macs with at least 16 GiB, the denser
+suffix-array sample adds one 33-bit entry for every 32 rows of the suffix
+array, about 0.76 GiB for hs38 (built in about 18 s).
 With `--metal` the GPU uses the whole index
 (4.3 GiB for hs38) in place, so it stays resident while aligning; it has not
 been tested on 8 GB Macs.
@@ -154,6 +176,7 @@ three for 0.3.0 `--metal`):
 | `wgse-bwa --metal` 0.3.0 (seeding and locate) | 9 | 297.0 s | 5.8 GiB | −38.5% |
 | `wgse-bwa --metal` 0.4.0 (also mate rescue) | 9 | 241.2 s | 5.9 GiB | −50.0% |
 | `wgse-bwa --metal` 0.5.0 (also seed extension) | 9 | 213.1 s | 6.1 GiB | −55.9% |
+| `wgse-bwa --metal` 0.6.0 (faster kernels, overlap) | 9 | 147.1 s | 6.2 GiB | −69.5% |
 
 The 0.4.0 row comes from a later session on AC power that interleaved three
 runs each of 0.4.0 `--metal` (243.6, 243.0 and 237.0 s), 0.3.0 `--metal`
@@ -171,6 +194,15 @@ and 480.5 s): 0.5.0 `--metal` took 10.5% less time than 0.4.0 `--metal`, and
 was faster in each round. It moves most of the gain into mapping (about
 115 s, down from about 140 s); the pairing step is unchanged. Its "vs CPU"
 uses 482.7 s like the rows above.
+
+The 0.6.0 row comes from a fourth session on AC power that interleaved two
+runs each of 0.6.0 `--metal` (146.8 and 147.3 s), 0.5.0 `--metal` (215.6 and
+208.9 s; mean 212.3 s) and the 0.6.0 CPU backend (477.7 and 472.0 s), with
+light background load (Spotlight and Photos indexing): 0.6.0 `--metal` took
+30.7% less time than 0.5.0 `--metal` and 69.0% less than the CPU backend of
+the same session. These 10M reads end before the denser suffix-array sample
+is built; in runs that build it at the start, it saved a further 10–12% of
+the time after the build.
 
 An earlier session measured 481.2 s (CPU) and 425.4 s (0.2.0 `--metal`). On
 200k of those pairs 0.3.0 `--metal` saved 33% with 9 threads, 41% with 4 and
@@ -205,9 +237,13 @@ SMEM collection to the GPU, so it could save at most about a fifth of the run;
 (`ksw_extend2`). 0.4.0 aligns the rescue windows of about 45% of the pairs on
 the GPU, which left seed extension (41% of the CPU threads' busy time) and the
 remaining rescue on the CPU threads; 0.5.0 extends the seeds of most pairs on
-the GPU. The GPU is now busy for most of both steps (its seeding, locate and
-extension work in mapping, and mate rescue in pairing), so further offload
-gains less unless the GPU kernels get faster.
+the GPU. The GPU was then busy for most of both steps (its seeding, locate and
+extension work in mapping, and mate rescue in pairing), but mapping was bound
+by the CPU threads and pairing by the GPU. 0.6.0 therefore makes the rescue and
+extension kernels faster and overlaps the two steps of consecutive chunks, and
+borrows two ideas from BWA-MEM2 without its larger index: counting bases in a
+whole occurrence block at once, and (on long runs) a denser suffix-array
+sample.
 
 ## Building
 

@@ -37,8 +37,8 @@ struct SeedParameters {
 };
 
 struct LocateParameters {
-    SeedU64 primary, seq_len, sa_intv, l2[5];
-    SeedU32 count, sa_shift;
+    SeedU64 primary, seq_len, sa_intv, l2[5], dense_entries;
+    SeedU32 count, sa_shift, dense_shift, dense_offset;
 };
 
 enum SeedStatus : SeedU32 {
