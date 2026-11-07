@@ -5,13 +5,8 @@ from pathlib import Path, PureWindowsPath
 
 import pytest
 
-from wgsextract_cli.cli.parser import build_parser
-from wgsextract_cli.commands.sign import (
-    _manifest_name,
-    _read_manifest,
-    cmd_create,
-    cmd_verify,
-)
+from wgsextract_cli import api
+from wgsextract_cli.commands.sign import _manifest_name, _read_manifest
 from wgsextract_cli.core.utils import WGSExtractError
 
 pytestmark = pytest.mark.skipif(
@@ -19,9 +14,14 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _parse(*argv: str):
-    parser, _ = build_parser()
-    return parser.parse_args(list(argv))
+def _create(*paths: Path | str, **options: object) -> api.Result:
+    return api.sign.create(
+        api.SignCreateParams(paths=tuple(map(Path, paths)), **options)
+    )
+
+
+def _verify(manifest: Path, **options: object) -> api.Result:
+    return api.sign.verify(api.SignVerifyParams(manifest=manifest, **options))
 
 
 def _key(path: Path) -> Path:
@@ -42,45 +42,43 @@ def outputs(tmp_path: Path) -> Path:
 
 def test_signed_manifest_verifies_and_detects_tampering(tmp_path, outputs):
     key = _key(tmp_path / "id")
-    cmd_create(_parse("sign", "create", str(outputs), "--key", str(key)))
+    created = _create(outputs, key=key)
     manifest = outputs / "SHA256SUMS"
     assert manifest.with_suffix(".sig").exists()
+    assert created.metrics == {"files": 2, "signed": True}
     # The manifest is GNU coreutils format.
     if shutil.which("sha256sum"):
         subprocess.run(
             ["sha256sum", "--quiet", "-c", "SHA256SUMS"], cwd=outputs, check=True
         )
 
-    verify = ("sign", "verify", str(manifest), "--public-key", f"{key}.pub")
-    cmd_verify(_parse(*verify))
+    public_key = Path(f"{key}.pub")
+    _verify(manifest, public_key=public_key)
 
     (outputs / "sub" / "b name.vcf").write_text("tampered\n")
-    with pytest.raises(WGSExtractError, match=r"changed: sub/b name\.vcf"):
-        cmd_verify(_parse(*verify))
+    with pytest.raises(api.CommandFailed, match=r"changed: sub/b name\.vcf") as failed:
+        _verify(manifest, public_key=public_key)
+    assert failed.value.result.metrics["changed_files"] == 1
 
 
 def test_verify_rejects_other_key_and_edited_manifest(tmp_path, outputs):
     key = _key(tmp_path / "id")
     other = _key(tmp_path / "other")
-    cmd_create(_parse("sign", "create", str(outputs), "--key", str(key)))
+    _create(outputs, key=key)
     manifest = outputs / "SHA256SUMS"
 
-    with pytest.raises(WGSExtractError, match="Signature verification FAILED"):
-        cmd_verify(
-            _parse("sign", "verify", str(manifest), "--public-key", f"{other}.pub")
-        )
+    with pytest.raises(api.CommandFailed, match="Signature verification FAILED"):
+        _verify(manifest, public_key=Path(f"{other}.pub"))
 
     # Any edit to the signed manifest invalidates the signature.
     manifest.write_text(manifest.read_text().replace("a.txt", "a.txt "))
-    with pytest.raises(WGSExtractError, match="Signature verification FAILED"):
-        cmd_verify(
-            _parse("sign", "verify", str(manifest), "--public-key", f"{key}.pub")
-        )
+    with pytest.raises(api.CommandFailed, match="Signature verification FAILED"):
+        _verify(manifest, public_key=Path(f"{key}.pub"))
 
 
 def test_verify_fails_when_ssh_keygen_never_exits(tmp_path, outputs, monkeypatch):
     key = _key(tmp_path / "id")
-    cmd_create(_parse("sign", "create", str(outputs), "--key", str(key)))
+    _create(outputs, key=key)
 
     def hang(cmd, **kwargs):
         raise subprocess.TimeoutExpired(
@@ -88,16 +86,8 @@ def test_verify_fails_when_ssh_keygen_never_exits(tmp_path, outputs, monkeypatch
         )
 
     monkeypatch.setattr(subprocess, "run", hang)
-    with pytest.raises(WGSExtractError, match="FAILED: incorrect signature$"):
-        cmd_verify(
-            _parse(
-                "sign",
-                "verify",
-                str(outputs / "SHA256SUMS"),
-                "--public-key",
-                f"{key}.pub",
-            )
-        )
+    with pytest.raises(api.CommandFailed, match="FAILED: incorrect signature$"):
+        _verify(outputs / "SHA256SUMS", public_key=Path(f"{key}.pub"))
 
 
 def test_manifest_reader_keeps_names_and_accepts_binary_mode(tmp_path):
@@ -114,53 +104,53 @@ def test_manifest_reader_keeps_names_and_accepts_binary_mode(tmp_path):
 
 
 def test_unsigned_manifest_checks_hashes_only(outputs):
-    cmd_create(_parse("sign", "create", str(outputs)))
+    assert _create(outputs).metrics == {"files": 2, "signed": False}
     manifest = outputs / "SHA256SUMS"
     assert not manifest.with_suffix(".sig").exists()
-    cmd_verify(_parse("sign", "verify", str(manifest)))
+    verified = _verify(manifest)
+    assert [w.code for w in verified.warnings] == ["unsigned"]
 
     (outputs / "a.txt").unlink()
-    with pytest.raises(WGSExtractError, match="missing: a.txt"):
-        cmd_verify(_parse("sign", "verify", str(manifest)))
-    with pytest.raises(WGSExtractError, match="Signature not found"):
-        cmd_verify(_parse("sign", "verify", str(manifest), "--public-key", "x.pub"))
+    with pytest.raises(api.CommandFailed, match="missing: a.txt"):
+        _verify(manifest)
+    with pytest.raises(api.CommandFailed, match="Signature not found"):
+        _verify(manifest, public_key=Path("x.pub"))
 
 
 def test_manifest_outside_inputs_keeps_portable_parent_paths(tmp_path, outputs):
     outdir = tmp_path / "manifests"
-    cmd_create(_parse("sign", "create", str(outputs), "--outdir", str(outdir)))
+    _create(outputs, outdir=outdir)
     manifest = outdir / "SHA256SUMS"
     assert [name for _, name in _read_manifest(manifest)] == [
         "../data/a.txt",
         "../data/sub/b name.vcf",
     ]
-    cmd_verify(_parse("sign", "verify", str(manifest)))
+    _verify(manifest)
 
 
 def test_manifest_uses_common_input_parent(tmp_path, outputs):
     other = tmp_path / "other.txt"
     other.write_text("gamma\n")
-    cmd_create(_parse("sign", "create", str(outputs), str(other)))
+    _create(outputs, other)
     manifest = tmp_path / "SHA256SUMS"
     assert [name for _, name in _read_manifest(manifest)] == [
         "data/a.txt",
         "data/sub/b name.vcf",
         "other.txt",
     ]
-    cmd_verify(_parse("sign", "verify", str(manifest)))
+    _verify(manifest)
 
 
 def test_manifest_deduplicates_dot_segment_inputs(tmp_path, outputs):
     alias = outputs / "sub" / ".."
-    argv = ("sign", "create", str(outputs), str(alias))
-    cmd_create(_parse(*argv))
-    cmd_create(_parse(*argv))
+    _create(outputs, alias)
+    _create(outputs, alias)
     manifest = outputs / "SHA256SUMS"
     assert [name for _, name in _read_manifest(manifest)] == [
         "a.txt",
         "sub/b name.vcf",
     ]
-    cmd_verify(_parse("sign", "verify", str(manifest)))
+    _verify(manifest)
 
 
 @pytest.mark.parametrize(
@@ -190,12 +180,12 @@ def test_manifest_creation_accepts_mixed_case_windows_drives(
 ):
     alternate = str(outputs / "sub" / "b name.vcf")
     alternate = alternate[0].swapcase() + alternate[1:]
-    argv = ["sign", "create", str(outputs / "a.txt"), alternate]
     destination = tmp_path / "manifests" if explicit_outdir else outputs
+    outdir = None
     if explicit_outdir:
         outdir = str(destination)
-        argv += ["--outdir", outdir[0].swapcase() + outdir[1:]]
-    cmd_create(_parse(*argv))
+        outdir = Path(outdir[0].swapcase() + outdir[1:])
+    _create(outputs / "a.txt", alternate, outdir=outdir)
     manifest = destination / "SHA256SUMS"
     assert len(_read_manifest(manifest)) == 2
-    cmd_verify(_parse("sign", "verify", str(manifest)))
+    _verify(manifest)

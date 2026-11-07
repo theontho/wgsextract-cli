@@ -27,7 +27,8 @@ from its Params fields, so the API and ``--help`` cannot drift.
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``,
-``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
+``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``,
+``api.analyze``, ``api.sign``, ``api.deps``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -51,6 +52,7 @@ from . import (
     align,
     analyze,
     bam,
+    deps,
     extract,
     info,
     lineage,
@@ -62,6 +64,7 @@ from . import (
     repair,
     report,
     sample,
+    sign,
     support,
     vcf,
 )
@@ -88,6 +91,7 @@ from .bam import (
     BamUnindexParams,
     BamUnsortParams,
 )
+from .deps import DepsCheckParams
 from .extract import (
     BamSubsetParams,
     CustomParams,
@@ -136,6 +140,7 @@ from .ref import (
 from .repair import RepairFtdnaBamParams, RepairFtdnaVcfParams
 from .report import ReportParams
 from .sample import SampleSetParams, SampleShowParams, SampleUnsetParams
+from .sign import SignCreateParams, SignVerifyParams
 from .support import IssueReport, ReportIssueParams
 from .vcf import (
     VcfAlphamissenseParams,
@@ -188,6 +193,7 @@ __all__ = [
     "CommandFailed",
     "CoverageSampleParams",
     "CustomParams",
+    "DepsCheckParams",
     "FakeDataParams",
     "FastpParams",
     "FastqcParams",
@@ -237,6 +243,8 @@ __all__ = [
     "SampleSetParams",
     "SampleShowParams",
     "SampleUnsetParams",
+    "SignCreateParams",
+    "SignVerifyParams",
     "UnmappedParams",
     "UsageError",
     "VcfAlphamissenseParams",
@@ -273,6 +281,7 @@ __all__ = [
     "align",
     "analyze",
     "bam",
+    "deps",
     "extract",
     "info",
     "json_schema",
@@ -285,6 +294,7 @@ __all__ = [
     "repair",
     "report",
     "sample",
+    "sign",
     "support",
     "use_config",
     "vcf",

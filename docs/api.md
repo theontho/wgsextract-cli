@@ -33,7 +33,8 @@ from its Params fields, so the API and `--help` cannot drift.
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
 `api.lineage`, `api.microarray`, `api.panel`, `api.ref`,
-`api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`) follow
+`api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`,
+`api.analyze`, `api.sign`, `api.deps`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -1826,6 +1827,57 @@ values hold only the characters VCF allows (`Low Qual;q<10` becomes
 | `output` | `Path \| None` | `None` | `--output` | Repaired VCF to write (default: <outdir>/<input stem>_repaired.vcf); not the input itself. |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 
+## `api.sign`
+
+`sign`: SHA-256 checksum manifests, optionally signed with an OpenSSH key,
+so whoever receives a set of output files can check none changed.
+
+`create` hashes files (folders are walked) into a GNU coreutils
+`SHA256SUMS` manifest whose names are relative to its folder, and, given a
+key, signs it to `SHA256SUMS.sig` with `ssh-keygen -Y sign`. `verify`
+checks the signature, if there is one, then every listed file's hash; it
+fails if any is missing or changed. Signing and checking signatures need
+OpenSSH's `ssh-keygen` 8.1 or newer.
+
+The result's metrics: `files` (listed), `signed`, and for `verify`
+`missing_files` and `changed_files`.
+
+### `api.sign.create(SignCreateParams)`
+
+CLI: `wgsextract sign create`.
+
+Write (and sign) a checksum manifest (see `SignCreateParams`).
+
+`SignCreateParams`: Write a checksum manifest of `paths`, signed when a key is given.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `paths` | `tuple[Path, ...]` | required | `PATH` | Files, or folders whose files (recursively) to list. |
+| `output` | `Path \| None` | `None` | `--output` | Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs' common directory. |
+| `key` | `Path \| None` | `None` | `--key` | OpenSSH private key (or public key held by ssh-agent) to sign with (default: config signing_key; with neither, the manifest is not signed). Never taken from a server request. |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the inputs' common folder). |
+| `threads` | `str \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.sign.verify(SignVerifyParams)`
+
+CLI: `wgsextract sign verify`.
+
+Verify a checksum manifest and its signature (see `SignVerifyParams`).
+
+`SignVerifyParams`: Check a checksum manifest's signature and every file it lists. With
+neither `public_key` nor `allowed_signers`, a signature is only
+checked to be intact (a warning says it was not checked against a trusted
+key); with no signature file, only the hashes are checked.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `manifest` | `Path` | required | `manifest` | SHA256SUMS manifest to verify. |
+| `signature` | `Path \| None` | `None` | `--signature` | Signature file. Defaults to <manifest>.sig. |
+| `public_key` | `Path \| None` | `None` | `--public-key` | The signer's OpenSSH public key. |
+| `allowed_signers` | `Path \| None` | `None` | `--allowed-signers` | OpenSSH allowed_signers file (needs --identity). |
+| `identity` | `str \| None` | `None` | `--identity` | Signer identity in --allowed-signers. |
+| `threads` | `str \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
 ## `api.report`
 
 `report`: a sample's results as one local HTML, Markdown and JSON report.
@@ -1999,3 +2051,29 @@ with `dataclasses.replace` and call `issue_url` for a new link.
 
 - `body`: The whole issue as Markdown, as saved in the diagnostics file.
 - `save`: Write `body` to `directory/file_name` (readable only by the user).
+
+## `api.deps`
+
+`deps check`: which bioinformatics tools this installation finds, where,
+and in what version.
+
+`check` without `tool` lists every mandatory and optional tool. The
+result's `details` hold `mandatory` and `optional`: one
+`{name, path, runtime, version, alt_env}` per tool (`path` is `None` for
+a missing one). It fails with exit code 3 (error kind
+`missing_dependency`) if a mandatory tool is missing. With `tool`, it
+checks that one tool: its path is `details["path"]` and the result's text,
+and a missing tool fails the same way, naming the command that installs it
+when there is one.
+
+### `api.deps.check(DepsCheckParams)`
+
+CLI: `wgsextract deps check`.
+
+Check the installed tools (see `DepsCheckParams`).
+
+`DepsCheckParams`: Check the installed tools, or one `tool`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `tool` | `str \| None` | `None` | `--tool` | The one tool to check (e.g. samtools); fails if it is missing. |

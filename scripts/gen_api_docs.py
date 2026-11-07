@@ -42,9 +42,11 @@ GROUPS = (
     api.microarray,
     api.ref,
     api.repair,
+    api.sign,
     api.report,
     api.sample,
     api.support,
+    api.deps,
 )
 RUNTIME = (api.ProgressEvent, api.ProgressCallback, api.CancelToken, api.CommandFailed)
 

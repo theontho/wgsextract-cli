@@ -13,6 +13,7 @@ from unittest.mock import Mock
 import pytest
 import tomllib
 
+from wgsextract_cli import api
 from wgsextract_cli.cli import bootstrap, parser
 from wgsextract_cli.commands import _deps_status, examples
 from wgsextract_cli.core import config, process_registry, resource_policy
@@ -439,8 +440,9 @@ def test_deps_check_exits_nonzero_when_mandatory_missing(monkeypatch, capsys):
             "optional": [],
         },
     )
-    with pytest.raises(WGSExtractError, match="samtools"):
-        _deps_status.run(Namespace(tool=None, debug=False))
+    with pytest.raises(api.CommandFailed, match="samtools") as failed:
+        api.deps.check(api.DepsCheckParams())
+    assert failed.value.exit_code == 3
 
 
 def _download_args(root: Path, force: bool) -> Namespace:

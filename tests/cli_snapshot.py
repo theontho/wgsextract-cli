@@ -117,6 +117,11 @@ MIGRATED = (
     ("repair",),
     ("repair", "ftdna-bam"),
     ("repair", "ftdna-vcf"),
+    ("sign",),
+    ("sign", "create"),
+    ("sign", "verify"),
+    ("deps",),
+    ("deps", "check"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -451,6 +456,13 @@ ARGVS = (
     ["repair", "ftdna-bam", "-i", "x.bam", "--output", "y.bam"],
     ["repair", "ftdna-bam", "--ref", "r.fa", "-o", "out"],
     ["repair", "ftdna-vcf", "-i", "x.vcf.gz", "--json"],
+    ["sign", "create", "a", "b/c.txt"],
+    ["sign", "create", "d", "--output", "m/SUMS", "--key", "k", "-t", "2"],
+    ["sign", "verify", "SHA256SUMS"],
+    ["sign", "verify", "S", "--signature", "s.sig", "--public-key", "k.pub"],
+    ["sign", "verify", "S", "--allowed-signers", "a", "--identity", "me"],
+    ["deps", "check"],
+    ["deps", "check", "--tool", "samtools", "--debug"],
 )
 
 

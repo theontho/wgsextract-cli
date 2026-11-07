@@ -8,9 +8,12 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePath
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.sign import MANIFEST_NAME, SignCreateParams, SignVerifyParams
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import PathInput, absolute_path, append_suffix
@@ -21,7 +24,6 @@ from wgsextract_cli.core.utils import (
     get_resource_defaults,
 )
 
-MANIFEST_NAME = "SHA256SUMS"
 # ssh-keygen -Y signature namespace, so a signature made for another purpose
 # (e.g. a git commit) can't be replayed as a wgsextract manifest signature.
 NAMESPACE = "wgsextract"
@@ -38,40 +40,15 @@ def register(
 ) -> None:
     parser = subparsers.add_parser("sign", help=CLI_HELP["cmd_sign"])
     subs = parser.add_subparsers(dest="sign_cmd", required=True)
-
-    create = subs.add_parser(
-        "create", parents=[base_parser], help=CLI_HELP["cmd_sign-create"]
-    )
-    create.add_argument(
-        "paths", nargs="+", metavar="PATH", help="Files or directories to sign."
-    )
-    create.add_argument(
-        "--output",
-        help=f"Manifest path. Defaults to <outdir>/{MANIFEST_NAME}, or "
-        "SHA256SUMS in the inputs' common directory.",
-    )
-    create.add_argument(
-        "--key",
-        help="OpenSSH private key (or public key held by ssh-agent) to sign "
-        "with. Defaults to the signing_key setting; without either, only "
-        "the checksum manifest is written.",
-    )
-    create.set_defaults(func=cmd_create)
-
-    verify = subs.add_parser(
-        "verify", parents=[base_parser], help=CLI_HELP["cmd_sign-verify"]
-    )
-    verify.add_argument("manifest", help=f"{MANIFEST_NAME} manifest to verify.")
-    verify.add_argument(
-        "--signature", help="Signature file. Defaults to <manifest>.sig."
-    )
-    trust = verify.add_mutually_exclusive_group()
-    trust.add_argument("--public-key", help="The signer's OpenSSH public key.")
-    trust.add_argument(
-        "--allowed-signers", help="OpenSSH allowed_signers file (needs --identity)."
-    )
-    verify.add_argument("--identity", help="Signer identity in --allowed-signers.")
-    verify.set_defaults(func=cmd_verify)
+    for name, cls, impl in (
+        ("create", SignCreateParams, create_manifest),
+        ("verify", SignVerifyParams, verify_manifest),
+    ):
+        sub = subs.add_parser(
+            name, parents=[base_parser], help=CLI_HELP[f"cmd_sign-{name}"]
+        )
+        add_arguments(sub, cls)
+        sub.set_defaults(func=cli_handler(cls, impl))
 
 
 def _ssh_keygen() -> str:
@@ -98,7 +75,7 @@ def _hash_files(paths: list[Path], threads: str) -> list[str]:
         return list(pool.map(_sha256, paths))
 
 
-def _collect_files(paths: list[str], exclude: set[Path]) -> list[Path]:
+def _collect_files(paths: Sequence[PathInput], exclude: set[Path]) -> list[Path]:
     files: list[Path] = []
     for value in paths:
         path = Path(value)
@@ -114,13 +91,14 @@ def _collect_files(paths: list[str], exclude: set[Path]) -> list[Path]:
     return [f for f in unique if f not in exclude]
 
 
-def _manifest_path(args: argparse.Namespace) -> Path:
-    if args.output:
-        return absolute_path(args.output)
-    if args.outdir:
-        return absolute_path(Path(args.outdir) / MANIFEST_NAME)
+def manifest_path(params: SignCreateParams) -> Path:
+    """Where ``sign create`` writes its manifest."""
+    if params.output:
+        return absolute_path(params.output)
+    if params.outdir:
+        return absolute_path(Path(params.outdir) / MANIFEST_NAME)
     parents = [
-        absolute_path(p if p.is_dir() else p.parent) for p in map(Path, args.paths)
+        absolute_path(p if p.is_dir() else p.parent) for p in map(Path, params.paths)
     ]
     common = parents[0]
     for parent in parents[1:]:
@@ -144,17 +122,17 @@ def _manifest_name(path: PurePath, base: PurePath) -> str:
     return "/".join([*upward, path.relative_to(common).as_posix()])
 
 
-def cmd_create(args: argparse.Namespace) -> None:
-    manifest = _manifest_path(args)
+def create_manifest(params: SignCreateParams) -> None:
+    manifest = manifest_path(params)
     signature = append_suffix(manifest, ".sig")
-    key = args.key or settings.get("signing_key")
+    key = params.key or settings.get("signing_key")
     if key and not Path(str(key)).is_file():
         raise WGSExtractError(f"Signing key not found: {key}")
     keygen = _ssh_keygen() if key else None
 
     # This run's result manifest is rewritten after hashing; never list it.
     files = _collect_files(
-        args.paths, {manifest, signature, absolute_path(manifest_path_for(manifest))}
+        params.paths, {manifest, signature, absolute_path(manifest_path_for(manifest))}
     )
     if not files:
         raise WGSExtractError("No files to sign.")
@@ -165,7 +143,7 @@ def cmd_create(args: argparse.Namespace) -> None:
             "File names with newlines or backslashes can't be listed."
         )
 
-    threads, _ = get_resource_defaults(args.threads, None)
+    threads, _ = get_resource_defaults(params.threads, None)
     logging.info(f"Hashing {len(files)} file(s)...")
     digests = _hash_files(files, threads)
 
@@ -207,21 +185,27 @@ def _read_manifest(manifest: PathInput) -> list[tuple[str, str]]:
 
 
 def _verify_signature(
-    args: argparse.Namespace, manifest: Path, signature: Path
+    params: SignVerifyParams, manifest: Path, signature: Path
 ) -> None:
     keygen = _ssh_keygen()
     with tempfile.TemporaryDirectory() as tmp:
-        if args.public_key:
-            with open(args.public_key) as f:
+        if params.public_key:
+            with open(params.public_key) as f:
                 key_type, key_data = f.read().split()[:2]
             allowed = Path(tmp) / "allowed_signers"
             with allowed.open("w", newline="\n") as f:
                 f.write(f'{_SIGNER} namespaces="{NAMESPACE}" {key_type} {key_data}\n')
             trust = ["verify", "-f", str(allowed), "-I", _SIGNER]
-        elif args.allowed_signers:
-            if not args.identity:
+        elif params.allowed_signers:
+            if not params.identity:
                 raise UsageError("--allowed-signers needs --identity.")
-            trust = ["verify", "-f", args.allowed_signers, "-I", args.identity]
+            trust = [
+                "verify",
+                "-f",
+                str(params.allowed_signers),
+                "-I",
+                params.identity,
+            ]
         else:
             trust = ["check-novalidate"]
         cmd = [keygen, "-Y", *trust, "-n", NAMESPACE, "-s", str(signature)]
@@ -260,16 +244,16 @@ def _verify_signature(
         logging.info(f"Good signature from {signer}.")
 
 
-def cmd_verify(args: argparse.Namespace) -> None:
-    manifest = absolute_path(args.manifest)
+def verify_manifest(params: SignVerifyParams) -> None:
+    manifest = absolute_path(params.manifest)
     if not manifest.is_file():
-        raise WGSExtractError(f"Manifest not found: {args.manifest}")
+        raise WGSExtractError(f"Manifest not found: {params.manifest}")
     signature = (
-        Path(args.signature) if args.signature else append_suffix(manifest, ".sig")
+        Path(params.signature) if params.signature else append_suffix(manifest, ".sig")
     )
     if signature.is_file():
-        _verify_signature(args, manifest, signature)
-    elif args.signature or args.public_key or args.allowed_signers:
+        _verify_signature(params, manifest, signature)
+    elif params.signature or params.public_key or params.allowed_signers:
         raise WGSExtractError(f"Signature not found: {signature}")
     else:
         warn("unsigned", "The manifest is not signed; checking file hashes only.")
@@ -281,7 +265,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
         name for (_, name), p in zip(entries, paths, strict=True) if not p.is_file()
     ]
     present = [(e, p) for e, p in zip(entries, paths, strict=True) if p.is_file()]
-    threads, _ = get_resource_defaults(args.threads, None)
+    threads, _ = get_resource_defaults(params.threads, None)
     logging.info(f"Checking {len(entries)} file(s)...")
     digests = _hash_files([p for _, p in present], threads)
     changed = [

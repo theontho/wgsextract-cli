@@ -33,7 +33,9 @@ def add_arguments(
         if spec.shared:
             continue
         if spec.positional:
-            positional: dict[str, Any] = {"metavar": spec.metavar, "help": spec.help}
+            # argparse shows a positional by its dest when it has no metavar.
+            metavar = None if spec.metavar == item.dest else spec.metavar
+            positional: dict[str, Any] = {"metavar": metavar, "help": spec.help}
             if typing.get_origin(item.base_type) is tuple:
                 positional["nargs"] = "+" if item.required else "*"
             elif not item.required:
