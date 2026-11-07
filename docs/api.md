@@ -33,8 +33,9 @@ from its Params fields, so the API and `--help` cannot drift.
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
 `api.lineage`, `api.methylation`, `api.microarray`, `api.panel`, `api.ref`,
-`api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`,
-`api.analyze`, `api.sign`, `api.deps`, `api.vep`) follow
+`api.repair`, `api.genotyping`, `api.report`, `api.sample`,
+`api.support`, `api.pet`, `api.analyze`, `api.sign`, `api.deps`,
+`api.vep`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -1914,6 +1915,89 @@ key); with no signature file, only the hashes are checked.
 | `allowed_signers` | `Path \| None` | `None` | `--allowed-signers` | OpenSSH allowed_signers file (needs --identity). |
 | `identity` | `str \| None` | `None` | `--identity` | Signer identity in --allowed-signers. |
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+## `api.genotyping`
+
+`typing`: genes and repeats a VCF can't capture, typed from the reads of
+a GRCh37/hg19 or GRCh38 BAM or CRAM (indexed; a CRAM needs its reference).
+
+Each writes `<input stem>.*` files in `outdir`, else beside the input:
+
+* `cyp2d6`: CYP2D6 star alleles, copy number and hybrids with Cyrius
+  (`.cyrius.tsv`/`.json`), from the optional `cyrius` Pixi environment.
+  Cyrius's PolyForm Strict license allows noncommercial use only.
+* `hla`: HLA class I and II alleles with T1K (`.t1k_genotype.tsv`,
+  `.t1k_allele.tsv`/`.vcf`), from the optional `t1k` environment.
+* `repeats` (`typing str`): disease repeat expansions with ExpansionHunter
+  (`.str.tsv`/`.vcf`/`.json`), from the optional `expansionhunter`
+  environment; needs `ref`.
+
+`cyp2d6` and `hla` also write a PharmCAT outside-call file
+(`.cyp2d6.pharmcat.tsv`, `.hla.pharmcat.tsv`) for `vcf pharmcat
+--outside-call` when they make a confident call. The genotypes are in the
+result's metrics.
+
+### `api.genotyping.cyp2d6(TypingCyp2d6Params)`
+
+CLI: `wgsextract typing cyp2d6`.
+
+Call CYP2D6 star alleles with Cyrius (see `TypingCyp2d6Params`).
+
+`TypingCyp2d6Params`: Call CYP2D6 star alleles, including copy-number and CYP2D6/CYP2D7
+hybrid alleles, with Cyrius; it needs about 30x whole-genome data. On a
+GRCh38 reference with chr22 ALT contigs, the locus's reads are first
+realigned to primary chr22 (needs `ref` and minimap2). Metrics:
+`cyp2d6_genotype`, `cyp2d6_filter`, `cyp2d6_copy_number` and
+`median_depth`.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | Indexed BAM or CRAM aligned to GRCh37/hg19 or GRCh38. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+
+### `api.genotyping.hla(TypingHlaParams)`
+
+CLI: `wgsextract typing hla`.
+
+Type HLA genes with T1K (see `TypingHlaParams`).
+
+`TypingHlaParams`: Type the HLA class I and II genes with T1K from the reads of the MHC,
+the HLA decoys and chromosome 6 ALT contigs. Metrics: the diplotype of
+HLA-A, -B, -C, -DRB1, -DQA1, -DQB1, -DPA1 and -DPB1 (None without a
+confident call) and the IPD-IMGT/HLA release of the index
+(`ipd_imgt_hla_release`). The outside-call file holds HLA-A and HLA-B.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | Indexed BAM or CRAM aligned to GRCh37/hg19 or GRCh38. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `hla_index` | `Path \| None` | `None` | `--hla-index` | T1K allele index (hla_dna_seq.fa); None uses the reference library's ref/t1k_hla one, built from IPD-IMGT/HLA on first use. |
+
+### `api.genotyping.repeats(TypingStrParams)`
+
+CLI: `wgsextract typing str`.
+
+Size disease repeats with ExpansionHunter (`typing str`; see
+`TypingStrParams`).
+
+`TypingStrParams`: Size the disease short tandem repeats (HTT, FMR1, C9ORF72, ...) with
+ExpansionHunter and flag those outside the normal range. Short-read
+sizing is approximate and isn't a diagnosis. Metrics: `sex`,
+`disease_repeats` and `flagged_repeats`; each flagged repeat is also a
+`repeat_outside_normal_range` warning.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | Indexed BAM or CRAM aligned to GRCh37/hg19 or GRCh38. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `catalog` | `Path \| None` | `None` | `--catalog` | ExpansionHunter variant catalog. Default: the one it ships for the input's build. |
+| `sex` | `str \| None` | `None` | `--sex` | Sample sex (the number of chrX alleles). Default: inferred from chrX/chrY coverage. One of: `male`, `female` |
 
 ## `api.report`
 

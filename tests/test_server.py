@@ -31,7 +31,7 @@ from tests.fake_tools import python_tool
 from tests.smoke_utils import ensure_fake_data, get_cli_command
 from wgsextract_cli.api._params import json_schema
 from wgsextract_cli.core import results
-from wgsextract_cli.core.config import get_config_path
+from wgsextract_cli.core.config import get_config_path, settings
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.server.http_api import Server
 from wgsextract_cli.server.jobs import JobManager
@@ -304,6 +304,35 @@ def test_a_repair_writing_its_output_into_a_busy_folder_waits(
             {
                 "input": str(FAKE_DIR / "fake.vcf.gz"),
                 "output": str(work / "r.vcf"),
+                "outdir": str(other),
+            },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_hla_typing_building_its_library_index_waits_for_a_busy_library(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: `typing hla` without --hla-index builds its T1K index in the
+    # reference library, outside its outdir, so that folder is locked too.
+    bam, ref = fake_data
+    library = work / "library"
+    index = library / "ref" / "t1k_hla"
+    index.mkdir(parents=True)
+    (library / "genomes").mkdir()
+    shutil.copy(ref, library / "genomes" / "ref.fa")
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(index)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/typing/hla",
+            {
+                "input": str(bam),
+                "ref": str(library / "genomes" / "ref.fa"),
                 "outdir": str(other),
             },
         )
@@ -1142,11 +1171,101 @@ def test_deps_check_answers_with_the_tool_path(tmp_path, work):
     assert Path(body["result"]["details"]["path"]).name.startswith("samtools")
 
 
+_TYPING_PATHS = [
+    (op, item)
+    for op in ("typing/cyp2d6", "typing/hla", "typing/str")
+    for item in find(op).fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
 _VEP_PATHS = [
     item
     for item in find("vep/run").fields()
     if item.spec.path or item.spec.may_name_file
 ]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _TYPING_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _TYPING_PATHS],
+)
+@pytest.mark.parametrize(
+    "value",
+    ["D:evil.fa", r"D:\evil.fa", r"\\host\share\evil.fa", r"sub\evil.fa", "~/evil.fa"],
+)
+def test_path_guard_covers_every_typing_path(op, field, value):
+    # #478: the typing commands became server operations; each file they read
+    # (an HLA index or STR catalog included) must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_typing_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _TYPING_PATHS} == {
+        *((f"typing/{name}", f) for name in ("cyp2d6", "hla", "str")
+          for f in ("input", "ref", "outdir")),
+        ("typing/hla", "hla_index"), ("typing/str", "catalog"),
+    }  # fmt: skip
+
+
+def test_path_guard_checks_the_library_hla_typing_builds_its_index_in(tmp_path):
+    # #478: without --hla-index, `typing hla` builds its T1K index in the
+    # reference library above a <library>/genomes FASTA, so that library must
+    # be allowed; an explicit index needs no library.
+    genomes = tmp_path / "library" / "genomes"
+    genomes.mkdir(parents=True)
+    fasta = genomes / "hg38.fa"
+    fasta.write_text(">chr1\nA\n")
+    request = {"input": str(genomes / "a.bam"), "ref": str(fasta)}
+    with pytest.raises(RequestError) as refused:
+        PathGuard([genomes]).check(params_from_json(find("typing/hla"), request))
+    assert refused.value.code == "path_not_allowed"
+    PathGuard([genomes]).check(
+        params_from_json(
+            find("typing/hla"), {**request, "hla_index": str(genomes / "i.fa")}
+        )
+    )
+    PathGuard([tmp_path / "library"]).check(
+        params_from_json(find("typing/hla"), request)
+    )
+
+
+def test_path_guard_checks_where_hla_typing_would_build_its_index(
+    tmp_path, monkeypatch
+):
+    # PR #492 review: the guard checked the library, not the index folder
+    # hla_index() picks, so a symlinked <library>/ref sent the build outside;
+    # and a ref filled from config was not checked at all.
+    library = tmp_path / "library"
+    (library / "genomes").mkdir(parents=True)
+    fasta = library / "genomes" / "hg38.fa"
+    fasta.write_text(">chr1\nA\n")
+    request = {"input": str(library / "a.bam"), "ref": str(fasta)}
+    PathGuard([library]).check(params_from_json(find("typing/hla"), request))
+
+    monkeypatch.setitem(settings, "reference_fasta", str(fasta))
+    without_ref = {"input": str(library / "a.bam")}
+    with pytest.raises(RequestError) as refused:
+        PathGuard([library / "genomes"]).check(
+            params_from_json(find("typing/hla"), without_ref)
+        )
+    assert refused.value.code == "path_not_allowed"
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (library / "ref").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("can't create symlinks here")
+    with pytest.raises(RequestError) as refused:
+        PathGuard([library]).check(params_from_json(find("typing/hla"), request))
+    assert refused.value.code == "path_not_allowed"
 
 
 @pytest.mark.parametrize("field", [item.name for item in _VEP_PATHS])
