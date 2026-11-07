@@ -1,0 +1,15 @@
+name: Aligner Bench test aligner_bench_test_5m (temporary)
+on:
+  push:
+    branches: [ issue-364-ci-bench ]
+    paths: [ .github/workflows/aligner_bench_test_5m.yml ]
+permissions:
+  contents: read
+jobs:
+  bench:
+    uses: ./.github/workflows/aligner_bench.yml
+    with:
+      variants: "main"
+      tiers: "full-5m"
+      runners: "macos-15"
+      configs: "bwa:metal,bwa:cpu"

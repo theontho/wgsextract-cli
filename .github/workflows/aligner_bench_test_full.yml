@@ -1,0 +1,16 @@
+name: Aligner Bench test aligner_bench_test_full (temporary)
+on:
+  push:
+    branches: [ issue-364-ci-bench ]
+    paths: [ .github/workflows/aligner_bench_test_full.yml ]
+permissions:
+  contents: read
+jobs:
+  bench:
+    uses: ./.github/workflows/aligner_bench.yml
+    with:
+      variants: "main"
+      tiers: "full"
+      runners: "macos-15,macos-26"
+      configs: "bwa:cpu,bwa:metal,mem2:metal:probe,mem2:cpu:probe"
+      run_timeout_minutes: "45"
