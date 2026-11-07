@@ -4,14 +4,20 @@
   "triggerOnUpdates": true,
   "updateExistingSummaryComment": true,
   "includeBranches": ["main"],
-  "ignorePatterns": ".venv/**\ndist/**\nbuild/**\n**/__pycache__/**\n**/*.egg-info/**\nsite/**\nout/**\ntmp/**\nscratch/**\n**/node_modules/**\npixi.lock\n**/*.lock",
+  "ignorePatterns": ".venv/**\ndist/**\nbuild/**\n**/__pycache__/**\n**/*.egg-info/**\nsite/**\nout/**\ntmp/**\nscratch/**\n**/node_modules/**\npixi.lock\n**/*.lock\n**/target/**\ngui/site/**",
   "summarySection": {"included": true, "collapsible": true, "defaultOpen": false},
   "issuesTableSection": {"included": true, "collapsible": true, "defaultOpen": true},
-  "instructions": "Python project. Skip style/formatting nits (handled by ruff). Focus on correctness, security, and maintainability.",
+  "instructions": "Python CLI (src/, scripts/, tests/) plus the WGS Extract desktop app under gui/: a TypeScript Node backend and browser Web UI packaged with Tauri (Rust) for Windows, macOS and Linux. Skip style/formatting nits (ruff handles Python). Focus on correctness, security, cross-platform behavior and maintainability.",
   "rules": [
     {"id": "no-bare-except", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Avoid bare `except:` and overly broad `except Exception:`. Catch specific exception types.", "severity": "medium", "enabled": true},
     {"id": "redact-secrets", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Configuration display, logs, and error messages must redact keys, tokens, and credentials.", "severity": "low", "enabled": true},
     {"id": "prefer-pathlib", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Use pathlib.Path for filesystem path operations; do not introduce os.path calls. Shared path helpers accept str | os.PathLike[str]. Keep Path values while manipulating paths and convert explicitly at string-based CLI, configuration, subprocess-wrapper, and public return-value boundaries. Preserve known compound genomic extensions with input_stem/fasta_prefix and append index sidecars with append_suffix, not with_suffix. Tool wrapper commands and samtools out##idx##index arguments are strings, not filesystem paths. Use native path strings except for portable checksum-manifest entries.", "severity": "high", "enabled": true},
-    {"id": "type-annotations", "scope": ["src/**/*.py"], "rule": "Public functions and methods should have type annotations on parameters and return values.", "severity": "high", "enabled": true}
+    {"id": "type-annotations", "scope": ["src/**/*.py"], "rule": "Public functions and methods should have type annotations on parameters and return values.", "severity": "high", "enabled": true},
+    {"id": "gui-logic-out-of-shell", "scope": ["gui/app/web/packagers/tauri/**/*.rs"], "rule": "The Tauri shell hosts the window, menus, native pickers, and updater. Bundle loading, setup, and action logic belong in the TypeScript server. Flag misplaced logic.", "severity": "medium", "enabled": true},
+    {"id": "gui-redact-secrets", "scope": ["gui/app/**/*.{ts,mjs,rs}"], "rule": "Configuration display must redact keys, tokens, and secrets. Flag any code path that prints or logs raw credential-shaped values.", "severity": "high", "enabled": true},
+    {"id": "gui-isomorphic-shared", "scope": ["gui/app/shared/**"], "rule": "Code in gui/app/shared must run in both Node and the browser. Disallow Node-only APIs (fs, path, process, child_process, os); those belong in gui/app/web/src/server only.", "severity": "medium", "enabled": true},
+    {"id": "gui-vanilla", "scope": ["gui/app/**/*.{ts,mjs,js,html,css}"], "rule": "The Web UI is TypeScript compiled by tsc to vanilla ES modules with no bundler/framework. Flag introductions of bundlers, frameworks, or heavy runtime dependencies.", "severity": "medium", "enabled": true},
+    {"id": "gui-a11y", "scope": ["gui/app/**/*.{html,ts}"], "rule": "Every interactive control needs an accessible label (label/aria-label/title). Prefer semantic HTML over div soup.", "severity": "medium", "enabled": true},
+    {"id": "gui-cross-platform", "scope": ["gui/app/web/src/server/**", "gui/tools/**", "gui/scripts/**"], "rule": "Code must work on Windows, macOS, and Linux. Flag hard-coded path separators, POSIX-only shell commands, or platform assumptions without a platform branch.", "severity": "medium", "enabled": true}
   ]
 }

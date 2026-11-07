@@ -3,11 +3,18 @@ name: CI Windows
 # Native Windows, as users run it: every tool comes from the Pixi environment
 # (WGS Extract's own Windows builds of the bioinformatics tools). Lint and type
 # checks run on Ubuntu.
+# The desktop app (gui/) has its own CI (gui-*.yml); app-only changes skip this.
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   workflow_dispatch:
 
 permissions:

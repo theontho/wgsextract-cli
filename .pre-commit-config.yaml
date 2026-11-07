@@ -4,7 +4,8 @@ repos:
     hooks:
       - id: trailing-whitespace
         # Vendor headers are copied verbatim, trailing spaces included.
-        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/head/|^packaging/(windows/recipes|arm64)/.*\.patch$
+        # The app's TOML parser test has a trailing space on purpose.
+        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/head/|^packaging/(windows/recipes|arm64)/.*\.patch$|^gui/app/tests/rendering\.test\.mjs$
       - id: end-of-file-fixer
         # Upstream patch context must retain its exact whitespace and line endings.
         exclude: ^packaging/(windows/recipes|arm64)/.*\.patch$
@@ -69,3 +70,11 @@ repos:
         types: [python]
         pass_filenames: false
         files: ^src/wgsextract_cli/.*\.py$
+      # The desktop app's own checks (typecheck, bundles, locales, duplication);
+      # they need its dependencies: `just gui-setup`.
+      - id: gui-lint
+        name: gui lint (gui/tools/tasks.py lint)
+        entry: python gui/tools/tasks.py lint
+        language: system
+        pass_filenames: false
+        files: ^gui/

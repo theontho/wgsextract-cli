@@ -1,10 +1,17 @@
 name: CI macOS
 
+# The desktop app (gui/) has its own CI (gui-*.yml); app-only changes skip this.
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   workflow_dispatch:
 
 permissions:

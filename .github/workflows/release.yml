@@ -13,6 +13,10 @@ name: Release
 # and becomes the latest unless a newer version already is (install.sh
 # installs the latest published release); otherwise it's left as a draft with
 # generated notes to edit and publish.
+#
+# The same release carries the WGS Extract desktop app (gui/): once the release
+# exists, gui-distribution.yml builds the app at the tagged commit and adds its
+# installers and updater feed. The app's bundle must pin this CLI release.
 
 on:
   push:
@@ -120,8 +124,11 @@ jobs:
               pixi = tomllib.load(f)["workspace"]["version"]
           with open("src/wgsextract_cli/__init__.py") as f:
               package = re.search(r'__version__ = "([^"]+)"', f.read())[1]
+          with open("gui/examples/WGSExtract/scripts/wgsextract-release-tag.txt") as f:
+              app_pin = f.read().strip()[1:]
           versions = {"pyproject.toml": pyproject, "pixi.toml": pixi,
-                      "src/wgsextract_cli/__init__.py": package}
+                      "src/wgsextract_cli/__init__.py": package,
+                      "gui/examples/WGSExtract/scripts/wgsextract-release-tag.txt": app_pin}
           wrong = {path: v for path, v in versions.items() if f"v{v}" != tag}
           if wrong:
               sys.exit(f"Tag {tag} doesn't match: {wrong}")
@@ -184,7 +191,7 @@ jobs:
           if [ ! -f "$notes" ]; then
             echo "::notice::No $notes, so $TAG is a draft with generated notes; edit and publish it."
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
-              --draft --generate-notes --title "wgsextract-cli $TAG"
+              --draft --generate-notes --title "WGS Extract $TAG"
             exit 0
           fi
           # Don't move "latest" back to an older version.
@@ -192,4 +199,14 @@ jobs:
           newest=$(printf '%s\n%s\n' "$TAG" "$latest" | sed '/^$/d' | sort -V | tail -1)
           make_latest=$([ "$newest" = "$TAG" ] && echo true || echo false)
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "wgsextract-cli $TAG" --notes-file "$notes" --latest="$make_latest"
+            --title "WGS Extract $TAG" --notes-file "$notes" --latest="$make_latest"
+
+  app:
+    needs: [ resolve, release ]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/gui-distribution.yml
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+      ref: ${{ needs.resolve.outputs.sha }}
+    secrets: inherit

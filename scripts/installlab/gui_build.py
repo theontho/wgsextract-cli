@@ -1,4 +1,4 @@
-"""Build the WGS Extract app the lab tests, from a gui-for-cli checkout: the
+"""Build the WGS Extract app the lab tests, from its source (gui/): the
 macOS DMG (and the bundle-test runner), the Windows installer (cross-built), and
 the Linux .deb (built in a container). Every run builds them anew, so a stale
 build is never what passes.

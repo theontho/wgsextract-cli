@@ -29,6 +29,9 @@ wgsextract = "wgsextract_cli.main:main"
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+# The desktop app (gui/) has its own Python tooling and checks (gui/tools/tasks.py lint).
+extend-exclude = ["gui"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = [

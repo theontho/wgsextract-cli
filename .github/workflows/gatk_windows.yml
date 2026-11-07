@@ -1,10 +1,17 @@
 name: GATK native Windows smoke
 
+# The desktop app (gui/) has its own CI (gui-*.yml); app-only changes skip this.
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   push:
     branches: [main]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   workflow_dispatch:
 
 permissions:

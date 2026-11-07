@@ -17,3 +17,18 @@ updates:
     groups:
       python:
         patterns: ["*"]
+  # The desktop app (gui/): its web UI and Node tooling, and its Tauri shell.
+  - package-ecosystem: npm
+    directory: "/gui/app"
+    schedule:
+      interval: weekly
+    groups:
+      gui-npm:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: "/gui/app/web/packagers/tauri"
+    schedule:
+      interval: weekly
+    groups:
+      gui-cargo:
+        patterns: ["*"]
