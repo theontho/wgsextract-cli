@@ -13,7 +13,7 @@ A bundle can declare such a server in `manifest.json`. Its actions can then run 
 "jobServer": {
   "command": {
     "executable": "{{bundleRoot}}/scripts/run-tool.sh",
-    "arguments": ["serve", "--ready-json"]
+    "arguments": ["--parent-pid", "{{appPid}}", "serve", "--ready-json"]
   },
   "startupTimeoutSeconds": 60
 }
@@ -36,13 +36,13 @@ A bundle can declare such a server in `manifest.json`. Its actions can then run 
 - A string that ends up empty is left out.
 - Numbers, booleans and other values are sent as written.
 
-**`{{bundleRoot}}` and `{{home}}`** are the only placeholders available to `jobServer.command`.
+**`{{bundleRoot}}`, `{{home}}` and `{{appPid}}`** are the only placeholders available to `jobServer.command`. `{{appPid}}` is the app's process ID. Pass it to a server that can watch it, so the server exits when the app dies, even when the app is killed and can't stop it.
 
 ## Lifecycle
 
 **Startup.** The app starts the server the first time an action with a `serverOperation` runs. It runs in the bundle workspace, like actions do.
 
-**Ready line.** Once the server is listening, it must print one line of JSON on stdout with its base URL and a bearer token: `{"url": "http://127.0.0.1:PORT/v1", "token": "..."}`. Other lines before it are ignored.
+**Ready line.** Once the server is listening, it must print one line of JSON on stdout with its base URL and a bearer token: `{"url": "http://127.0.0.1:PORT/v1", "token": "..."}`. Other lines before it are ignored. A server that can't start may print `{"error": {"message": "..."}}` instead; the app logs that it refused to start, with the message, and falls back.
 
 **Restarts.** If the server exits, the next action starts it again. It stops with the app and when another bundle is loaded, like every other process the app started.
 

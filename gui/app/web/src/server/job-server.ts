@@ -26,7 +26,8 @@ export function createJobServer(spec: JobServerSpec, bundleRoot: string, runProc
     async function start(): Promise<JobServerAddress | undefined> {
         const controller = new AbortController();
         stopper = controller;
-        const rendered = renderedCommand(spec.command, { bundleRootPath: bundleRoot, homePath: homedir() });
+        // {{appPid}} lets the server exit when the app dies, even when it is killed.
+        const rendered = renderedCommand(spec.command, { bundleRootPath: bundleRoot, homePath: homedir(), fieldValues: { appPid: String(process.pid) } });
         const executable = isPlatformScriptReference(rendered.executable, bundleRoot)
             ? await resolvePlatformScriptPath(rendered.executable, bundleRoot)
             : rendered.executable;
@@ -51,11 +52,19 @@ export function createJobServer(spec: JobServerSpec, bundleRoot: string, runProc
                 // Wrapper scripts may print other lines first.
                 const lines = (pending + text).split("\n");
                 pending = lines.pop() ?? "";
-                const address = lines.map(readyAddress).find((value) => value != null);
-                if (address) {
-                    announced = true;
-                    clearTimeout(timer);
-                    resolve(address);
+                for (const line of lines) {
+                    const refusal = startupError(line);
+                    if (refusal) {
+                        fail(`refused to start: ${refusal}`);
+                        return;
+                    }
+                    const address = readyAddress(line);
+                    if (address) {
+                        announced = true;
+                        clearTimeout(timer);
+                        resolve(address);
+                        return;
+                    }
                 }
             };
             runProcess(executable, rendered.arguments ?? [], {
@@ -87,6 +96,26 @@ export function createJobServer(spec: JobServerSpec, bundleRoot: string, runProc
             stopper = undefined;
         },
     };
+}
+
+/** The message of an `{"error": {"message": ...}}` line, printed by a server that can't start. */
+function startupError(line: string): string | undefined {
+    try {
+        const value: unknown = JSON.parse(line);
+        if (value && typeof value === "object" && "error" in value) {
+            const { error } = value;
+            if (typeof error === "string") {
+                return error;
+            }
+            if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+                return error.message;
+            }
+        }
+    }
+    catch {
+        // Not JSON.
+    }
+    return undefined;
 }
 
 function readyAddress(line: string): JobServerAddress | undefined {

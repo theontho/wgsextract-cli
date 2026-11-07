@@ -308,3 +308,8 @@ A program that starts the server itself, such as a desktop app, passes
 `{"url": ..., "token": ..., "pid": ...}` as one JSON line on stdout, so the
 program needn't parse the banner or find the state folder. It works for the
 HTTP API and MCP over HTTP, not MCP over stdio, and not with `--json`.
+If the server can't start, for example because another server holds the
+state folder, it prints `{"error": {"message": ...}}` instead and exits.
+Such a program should also pass the global `--parent-pid` with its own
+process ID (`wgsextract --parent-pid PID serve ...`), so the server exits
+when the program dies, even when it is killed.

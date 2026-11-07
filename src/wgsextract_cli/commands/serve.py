@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from wgsextract_cli.core.config import get_config_path, settings
 from wgsextract_cli.core.results import json_mode
-from wgsextract_cli.core.utils import UsageError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 if TYPE_CHECKING:
     from wgsextract_cli.server.jobs import JobManager
@@ -137,6 +137,18 @@ def _setting_int(
 
 
 def run(args: argparse.Namespace) -> None:
+    try:
+        _run(args)
+    except WGSExtractError as e:
+        # The program waiting for the ready line learns why it won't come.
+        if args.ready_json and not json_mode():
+            import json
+
+            print(json.dumps({"error": {"message": str(e)}}), flush=True)
+        raise
+
+
+def _run(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.last_run import state_directory
     from wgsextract_cli.server.jobs import JobManager
 

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,9 +12,22 @@ const { runActionPreferringServer } = await import("../dist/web/src/server/job-s
 
 // A job server speaking the protocol in docs/job-server.md. `slow` runs until cancelled;
 // `quick` finishes at once and logs the parameters it received, `noisy` the same with a 2 MiB log;
-// anything else is refused.
+// anything else is refused. With --parent-pid PID it writes its own PID to server.pid and
+// exits when PID does; with --refuse it prints an error line instead of starting.
 const fakeServer = String.raw`
 import { createServer } from "node:http";
+import { writeFileSync } from "node:fs";
+const parentPid = process.argv.includes("--parent-pid") ? Number(process.argv[process.argv.indexOf("--parent-pid") + 1]) : undefined;
+if (process.argv.includes("--refuse")) {
+  console.log(JSON.stringify({ error: { message: "Another server is using the state folder" } }));
+  process.exit(1);
+}
+if (parentPid !== undefined) {
+  const watch = () => { try { process.kill(parentPid, 0); } catch { process.exit(1); } };
+  watch();
+  writeFileSync("server.pid", String(process.pid));
+  setInterval(watch, 100);
+}
 const token = "secret-" + process.pid;
 const jobs = new Map();
 const watchers = new Map();
@@ -159,6 +174,52 @@ test("an action runs its command when the job server can't start", async (t) => 
   assert.equal(result.exitCode, 0);
   assert.match(output, /ran the command/);
 });
+
+test("a job server refusing to start is reported as such, and the action runs its command", async (t) => {
+  const bundle = await withBundle(t);
+  const warn = t.mock.method(console, "warn", () => { });
+  const { result, output } = await run(bundle, action("quick"), bundle.startServer(["{{bundleRoot}}/server.mjs", "--refuse"]));
+
+  assert.equal(result.exitCode, 0);
+  assert.match(output, /ran the command/);
+  const warnings = warn.mock.calls.map((call) => String(call.arguments[0]));
+  assert.ok(warnings.some((text) => /refused to start: Another server is using the state folder/.test(text)), warnings.join("\n"));
+});
+
+// #523 review: a server outliving a hard-killed app kept its state locked, so later ones couldn't start.
+test("a job server given {{appPid}} exits when the app is killed", async (t) => {
+  const bundle = await withBundle(t);
+  const app = String.raw`
+    const { createProcessManager } = await import(${JSON.stringify(new URL("../dist/web/src/server/process-runner.js", import.meta.url).href)});
+    const { createJobServer } = await import(${JSON.stringify(new URL("../dist/web/src/server/job-server.js", import.meta.url).href)});
+    const { runProcess } = createProcessManager({ maxOutputBytes: 65536, maxErrorBytes: 65536 });
+    const server = createJobServer({ command: { executable: process.execPath, arguments: ["{{bundleRoot}}/server.mjs", "--parent-pid", "{{appPid}}"] } }, process.cwd(), runProcess);
+    console.log((await server.address()) ? "ready" : "unavailable");
+  `;
+  const child = spawn(process.execPath, ["--input-type=module", "-e", app], { cwd: bundle.bundleRoot, stdio: ["ignore", "pipe", "inherit"] });
+  t.after(() => child.kill("SIGKILL"));
+  const [line] = await once(child.stdout, "data");
+  assert.equal(String(line).trim(), "ready");
+  const serverPid = Number(await readFile(path.join(bundle.bundleRoot, "server.pid"), "utf8"));
+  assert.ok(isAlive(serverPid));
+
+  child.kill("SIGKILL");
+  const deadline = Date.now() + 10_000;
+  while (isAlive(serverPid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(isAlive(serverPid), false);
+});
+
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  }
+  catch {
+    return false;
+  }
+}
 
 test("a job server stopped with the other processes starts again on next use", async (t) => {
   const bundle = await withBundle(t);
