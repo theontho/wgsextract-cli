@@ -110,6 +110,14 @@ done
 # Small chunks, each paired separately.
 run chunks -t 4 -K 20000
 test "$(metric metal-chunks.log rescue_hits)" -gt 0
+# With Metal a third pipeline worker maps each chunk while the previous one pairs.
+test "$(metric metal-chunks.log overlap)" -eq 1
+test "$(metric metal-chunks.log overlapped_chunks)" -gt 0
+test "$(metric cpu-chunks.log overlap)" = ""
+"$aligner" --metal --gpu-overlap off --gpu-policy all mem -t 4 -K 20000 reference.fa \
+    pairs-R1.fq pairs-R2.fq > serial-chunks.sam 2> serial-chunks.log
+same cpu-chunks.sam serial-chunks.sam
+test "$(metric serial-chunks.log overlap)" -eq 0
 # macOS aborts command buffers that delay the display (ImpactingInteractivity),
 # for example while another process uses the GPU; that work is committed again.
 # Report every second piece of rescue and extension work as interrupted, so its

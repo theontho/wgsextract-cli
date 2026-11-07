@@ -29,6 +29,12 @@ void wgse_set_force_gpu(bool force);
 void wgse_set_gpu8(bool enabled, int32_t target, int32_t minimum_pairs = 1,
     bool paired = true);
 void wgse_set_pipelining(bool enabled);
+// Whether the pipeline should map each chunk while the previous one pairs:
+// with GPU mate rescue, pairing is mostly GPU work.
+bool wgse_metal_overlap();
+void wgse_set_overlap(bool enable);
+// A chunk finished mapping while the previous one was pairing.
+void wgse_note_overlapped_chunk();
 // GPU mate rescue (enabled with Metal) and its test hooks.
 void wgse_set_gpu_rescue(bool enable);
 void wgse_set_gpu_rescue_batch(size_t pairs);

@@ -56,7 +56,9 @@ endfunction()
 # mem_matesw() and ksw_align2() are BWA 0.7.19's.
 set(bwa_dir "${CMAKE_CURRENT_SOURCE_DIR}/../bwa")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${bwa_dir}/rescue_oracle.c.in" "${bwa_dir}/rescue_types.h" "${bwa_dir}/rescue.metal")
+    "${bwa_dir}/rescue_oracle.c.in" "${bwa_dir}/rescue_types.h" "${bwa_dir}/rescue.metal"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mem_stages.cpp.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fastmap_stages.cpp.in")
 file(READ "${mem2_SOURCE_DIR}/src/bwamem.cpp" bwamem_source)
 include(extension_pipeline.cmake)
 mem2_seam(bwamem_source "    kt_for(worker_sam, &w,  n_);   // SAM"
@@ -73,6 +75,11 @@ void wgse_worker_sam_pair(void *data, long pair, int)
     free(w->regs[i+1].a);
 }
 ")
+# mem_process_seqs() in two halves, so that with Metal the pipeline maps chunk
+# i + 1 while chunk i pairs (mostly GPU mate rescue). Each half is upstream's
+# code on the chunk's own alignments, so its output does not depend on overlap.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/mem_stages.cpp.in" mem_stages)
+string(APPEND bwamem_source "${mem_stages}")
 file(WRITE "${mem2_src}/bwamem.cpp"
     "#include \"metal_backend.h\"\n#include \"rescue_backend.h\"\n${bwamem_source}")
 file(READ "${mem2_SOURCE_DIR}/src/bwamem_pair.cpp" pair_source)
@@ -100,7 +107,30 @@ string(REPLACE "${output_close}"
     fastmap_source "${fastmap_source}")
 string(REPLACE "${final_return}" "    display_stats(nt);\n\n    return wgse_output_status;\n}"
     fastmap_source "${fastmap_source}")
-file(WRITE "${mem2_src}/fastmap.cpp" "${fastmap_source}")
+set(process_call "            mem_process_seqs(opt,
+                             aux->n_processed,
+                             ret->n_seqs,
+                             ret->seqs,
+                             aux->pes0,
+                             w);")
+mem2_seam(fastmap_source "${process_call}" "            if (wgse_overlap)
+                wgse_mapped = wgse_mem_map(opt, aux->n_processed, ret->n_seqs, ret->seqs,
+                                           aux->pes0, w);
+            else
+${process_call}")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/fastmap_stages.cpp.in" fastmap_stages)
+mem2_seam(fastmap_source "static void *ktp_worker(void *data)"
+    "${fastmap_stages}\nstatic void *ktp_worker(void *data)")
+mem2_seam(fastmap_source "        w->data = kt_pipeline(p->shared,"
+    "        w->data = wgse_kt_pipeline(p->shared,")
+mem2_seam(fastmap_source "    int n_steps = 3;\n"
+    "    int n_steps = 3;\n    wgse_overlap = p_nt == 2 && (opt->flag & MEM_F_PE)\n        && !(opt->flag & MEM_F_SMARTPE) && wgse_metal_overlap();\n    if (wgse_overlap) n_steps = 4, p_nt = 3;\n")
+# wgse_mapped: step 1's wgse_mem_map() result, taken by the same worker right after it.
+file(WRITE "${mem2_src}/fastmap.cpp" "#include \"metal_backend.h\"
+#include \"rescue_backend.h\"
+static bool wgse_overlap = false;
+static void *wgse_mapped = 0;
+${fastmap_source}")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/extension.metal" kernel_source)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/extension_tiled.metal" tiled_source)
 string(APPEND kernel_source "\n${tiled_source}")

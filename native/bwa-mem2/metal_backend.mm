@@ -762,6 +762,9 @@ RescueKernel &rescue_kernel() {
 }
 
 std::atomic<bool> rescue_enabled{true}, rescue_usable{true}, all_on_gpu{false};
+bool overlap_enabled = true;
+std::atomic<bool> overlap_active{false};
+std::atomic<size_t> overlapped_chunks{0};
 bool inject_rescue_failure = false, verify_rescue = false;
 size_t rescue_batch_pairs = 4096;
 // Prepared batches waiting for the CPU threads; bounds their memory.
@@ -1013,6 +1016,14 @@ int wgse_metal_matesw(const mem_opt_t *opt, const uint8_t *ms, uint8_t *seq, int
     return 0;
 }
 
+bool wgse_metal_overlap() {
+    std::string unavailable;
+    overlap_active = overlap_enabled && selected_backend != Backend::cpu && rescue_enabled
+        && wgse_metal_available(unavailable);
+    return overlap_active;
+}
+void wgse_set_overlap(bool enable) { overlap_enabled = enable; }
+void wgse_note_overlapped_chunk() { ++overlapped_chunks; }
 void wgse_set_gpu_rescue(bool enable) { rescue_enabled = enable; }
 void wgse_set_gpu_rescue_batch(size_t pairs) { rescue_batch_pairs = std::max<size_t>(1, pairs); }
 void wgse_inject_rescue_failure() { inject_rescue_failure = true; }
@@ -1232,10 +1243,11 @@ void wgse_print_backend_metrics() {
     std::lock_guard<std::mutex> lock(rescue_mutex);
     fprintf(stderr, "[wgse-bwa-mem2] rescue_batches=%zu rescue_gpu_pairs=%zu rescue_cpu_pairs=%zu "
         "rescue_wasted_pairs=%zu rescue_jobs=%zu rescue_declined=%zu rescue_skipped=%zu "
-        "rescue_hits=%zu rescue_misses=%zu rescue_mismatches=%zu interruptions=%zu\n",
+        "rescue_hits=%zu rescue_misses=%zu rescue_mismatches=%zu interruptions=%zu "
+        "overlap=%d overlapped_chunks=%zu\n",
         rescue_batches, rescue_gpu_pairs, rescue_cpu_pairs, rescue_wasted_pairs, rescue_jobs,
         rescue_declined, rescue_skipped, rescue_hits, rescue_misses, rescue_mismatches,
-        wgse::metal::Runtime::interruptions());
+        wgse::metal::Runtime::interruptions(), int(overlap_active.load()), overlapped_chunks.load());
     fprintf(stderr, "[wgse-bwa-mem2] rescue seconds gpu=%.3f kernel=%.3f pair=%.3f cpu_wait=%.3f\n",
         rescue_gpu_seconds, rescue_kernel_seconds, rescue_seconds, rescue_wait_seconds);
 }

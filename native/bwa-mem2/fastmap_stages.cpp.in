@@ -1,0 +1,27 @@
+/* wgse: with Metal, the pipeline runs mem_process_seqs() as two steps (see
+ * wgse_mem_map()), so a third worker maps the next chunk while this one pairs.
+ * ktp_worker() still runs each step in chunk order. */
+struct wgse_chunk_t {
+    ktp_data_t *data;
+    void *mapped;
+};
+
+static ktp_data_t *wgse_kt_pipeline(void *shared, int step, void *data, mem_opt_t *opt,
+                                    worker_t &w)
+{
+    if (!wgse_overlap) return kt_pipeline(shared, step, data, opt, w);
+    if (step == 1) {
+        ktp_data_t *ret = kt_pipeline(shared, step, data, opt, w);
+        wgse_chunk_t *chunk = new wgse_chunk_t{ret, wgse_mapped};
+        wgse_mapped = 0;
+        return (ktp_data_t *) chunk;
+    }
+    if (step == 2) {
+        wgse_chunk_t *chunk = (wgse_chunk_t *) data;
+        ktp_data_t *ret = chunk->data;
+        wgse_mem_pair(chunk->mapped);
+        delete chunk;
+        return ret;
+    }
+    return kt_pipeline(shared, step == 3 ? 2 : step, data, opt, w);
+}

@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
     bool gpu8_paired = true;
     while (argc > command_index && (strcmp(argv[command_index], "--capture-batches") == 0
         || strcmp(argv[command_index], "--gpu-rescue") == 0
+        || strcmp(argv[command_index], "--gpu-overlap") == 0
         || strcmp(argv[command_index], "--gpu-rescue-batch") == 0
         || strcmp(argv[command_index], "--gpu-rescue-verify") == 0
         || strcmp(argv[command_index], "--gpu-inject-rescue-failure") == 0
@@ -84,10 +85,12 @@ int main(int argc, char **argv) {
             continue;
         }
         if (argc <= command_index + 2) return 2;
-        if (strcmp(argv[command_index], "--gpu-rescue") == 0) {
+        if (strcmp(argv[command_index], "--gpu-rescue") == 0
+            || strcmp(argv[command_index], "--gpu-overlap") == 0) {
             std::string value = argv[command_index + 1];
             if (value != "on" && value != "off") return 2;
-            wgse_set_gpu_rescue(value == "on");
+            if (strcmp(argv[command_index], "--gpu-rescue") == 0) wgse_set_gpu_rescue(value == "on");
+            else wgse_set_overlap(value == "on");
         } else if (strcmp(argv[command_index], "--gpu-rescue-batch") == 0
             || strcmp(argv[command_index], "--gpu-inject-interruptions") == 0) {
             char *end = nullptr;

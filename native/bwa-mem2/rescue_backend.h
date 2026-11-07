@@ -1,7 +1,13 @@
 #pragma once
 
-// Seams for GPU mate rescue in the generated bwamem.cpp and bwamem_pair.cpp.
+// Seams for GPU mate rescue and for mapping one chunk while the previous one
+// pairs, in the generated bwamem.cpp, bwamem_pair.cpp and fastmap.cpp.
 #include "bwamem.h"
+
+// mem_process_seqs() in two halves (mem_stages.cpp.in).
+void *wgse_mem_map(mem_opt_t *opt, int64_t n_processed, int n, bseq1_t *seqs,
+    const mem_pestat_t *pes0, worker_t &w);
+void wgse_mem_pair(void *mapped);
 
 // Replaces worker_sam's kt_for for paired-end chunks: mate rescue on the GPU
 // too. worker(data, pair, tid) finishes one pair; returns 0 to leave the chunk
