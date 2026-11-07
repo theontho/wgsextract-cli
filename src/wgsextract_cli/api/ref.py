@@ -12,6 +12,7 @@ into the library and record what they wrote as the result's outputs::
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,11 +46,13 @@ def _build_param(help: str) -> Any:
 
 
 def _library_named(ref: Path) -> Path:
-    """The library ``ref`` names, ``~`` expanded: the one above a FASTA's
-    ``genomes`` folder, else ``ref`` itself."""
+    """The library ``ref`` names, ``~`` expanded and ``..`` collapsed as the
+    command does: the one above a FASTA's ``genomes`` folder, else ``ref``
+    itself."""
     from wgsextract_cli.core.reference_assets import reference_library_of
 
-    ref = ref.expanduser()
+    # Lexically, without absolutising, so a Windows request is checked as such.
+    ref = Path(os.path.normpath(ref.expanduser()))
     return Path(reference_library_of(ref)) if ref.is_file() else ref
 
 
@@ -222,6 +225,8 @@ class RefLibraryListParams(_InLibrary, Params):
         # Unset, ref is the configured FASTA's library, else reference_library.
         filled = with_config_defaults(self)
         if filled.ref is not None:
+            if self.ref is None:
+                yield "ref", filled.ref.expanduser()
             yield "ref", _library_named(filled.ref)
         else:
             yield "ref", self.library()

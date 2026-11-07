@@ -926,6 +926,40 @@ def test_a_library_list_request_checks_the_library_it_falls_back_to(
         assert status == 202, body
 
 
+@pytest.mark.parametrize("op", ["ref/clinvar", "ref/status", "ref/library-list"])
+def test_path_guard_checks_the_library_of_a_fasta_named_through_dotdot(tmp_path, op):
+    # PR #499 review: genomes/absent/../x.fa isn't a file as written, so the
+    # guard checked it as a folder inside genomes, while the command
+    # collapsed the `..` and read the library above.
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    (genomes / "x.fa").write_text(">chr1\nA\n")
+    params = params_from_json(find(op), {"ref": f"{genomes}/absent/../x.fa"})
+    with pytest.raises(RequestError, match="outside the folders"):
+        PathGuard([genomes]).check(params)
+
+
+def test_a_library_list_request_checks_a_configured_fasta_link(
+    tmp_path, work, monkeypatch
+):
+    # PR #499 review: with no ref, the configured FASTA is read too; a link
+    # in an allowed library to a FASTA elsewhere must be refused.
+    from wgsextract_cli.core.config import settings
+
+    outside = tmp_path / "outside.fa"
+    outside.write_text(">chr1\nA\n")
+    (work / "genomes").mkdir()
+    link = work / "genomes" / "hg38.fa"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symbolic links need privileges here")
+    monkeypatch.setitem(settings, "reference_fasta", str(link))
+    with pytest.raises(RequestError, match="outside the folders"):
+        PathGuard([work]).check(find("ref/library-list").params())
+    PathGuard([work, outside]).check(find("ref/library-list").params())
+
+
 def test_ref_library_list_is_a_query_with_the_listing_as_details(client, work):
     (work / "genomes").mkdir()
     (work / "genomes" / "hs38.fa.gz").write_bytes(b"x")
