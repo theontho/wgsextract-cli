@@ -1057,6 +1057,24 @@ def test_no_gpu_memory_check_runs_on_a_busy_gpu_with_a_warning(ultima_gpu):
     assert (ultima_gpu.out / "deepvariant.vcf.gz").is_file()
 
 
+@pytest.mark.parametrize(("batch_size", "warned"), [("2048", True), ("1024", False)])
+def test_ultima_gpu_warns_that_the_memory_check_assumes_the_default_batch(
+    ultima_gpu, batch_size, warned
+):
+    # #496: the 7.3 GiB check was measured at call_variants' default batch.
+    result = api.vcf.deepvariant(
+        api.VcfDeepvariantParams(
+            input=Path(ultima_gpu.ultima.bam), ref=Path(ultima_gpu.sample.ref),
+            outdir=ultima_gpu.out, gpu=True, batch_size=int(batch_size),
+        )
+    )  # fmt: skip
+    codes = [w.code for w in result.warnings]
+    assert ("deepvariant_gpu_batch_size" in codes) is warned
+    assert ultima_gpu.deepvariant.stages() == [
+        "make_examples", "call_variants", "postprocess_variants",
+    ]  # fmt: skip
+
+
 def test_a_gpu_plan_needs_no_gpu_driver(ultima_gpu, monkeypatch, capsys):
     without_gpu_driver(ultima_gpu, monkeypatch)
     gpu_call(ultima_gpu, "--dry-run")

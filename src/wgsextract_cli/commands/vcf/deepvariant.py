@@ -539,6 +539,8 @@ _ULTIMA_GPU_SETUP = (
 # RTX 3090 with another process holding the rest, the ULTIMA model ran with
 # 7.3 GiB free and ran out of memory with 6.3 GiB.
 ULTIMA_GPU_MIN_FREE = round(7.3 * GIB)
+# call_variants' default --batch_size, which that measurement used.
+CALL_VARIANTS_BATCH = 1024
 
 
 def _model_chosen(params: VcfDeepvariantParams) -> bool:
@@ -680,6 +682,15 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
             "experimental GPU image (Parabricks has no ULTIMA model)."
         )
         _verify_ultima_gpu(params)
+        if batch_size is not None and batch_size != CALL_VARIANTS_BATCH:
+            warn(
+                "deepvariant_gpu_batch_size",
+                f"--batch-size {batch_size}: the GPU's "
+                f"{ULTIMA_GPU_MIN_FREE / GIB:.1f} GiB free-memory check assumes "
+                f"call_variants' default batch of {CALL_VARIANTS_BATCH}, so it "
+                "may pass a batch that runs out of GPU memory or refuse one "
+                "that fits.",
+            )
         if params.region:
             # --gpu's regions are comma-separated; DeepVariant's, spaced.
             params = replace(
@@ -776,7 +787,7 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
                     reference=ref,
                     threads=threads,
                     region=region,
-                    inference_batch_size=batch_size or 1024,
+                    inference_batch_size=batch_size or CALL_VARIANTS_BATCH,
                     deepvariant_model=model_type,
                     postprocess_plan=postprocess,
                     available_ram=available,
