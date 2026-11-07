@@ -53,8 +53,9 @@ prerequisites are missing, after preparing the Web UI.
 
 ## Several worktrees on one machine
 
-Each branch can have its own worktree (`make worktree-setup BRANCH=my-change`), so
-work in progress on one branch never spills into another. Setup in a new worktree
+Each branch can have its own worktree of the repository (`git worktree add
+../wgsextract-cli-my-change -b my-change`, then `just gui-setup` in it), so work
+in progress on one branch never spills into another. Setup in a new worktree
 reuses the per-user toolchains and does not reinstall them. What each worktree does
 repeat:
 
