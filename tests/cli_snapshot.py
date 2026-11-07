@@ -133,6 +133,8 @@ MIGRATED = (
     ("methylation", "pileup"),
     ("vep",),
     ("vep", "run"),
+    ("vep", "download"),
+    ("vep", "verify"),
     ("benchmark",),
 )
 
@@ -510,6 +512,11 @@ ARGVS = (
         "--vep-args",
         "--pick --no_stats",
     ],
+    ["vep", "download"],
+    ["vep", "download", "--mirror", "ebi", "--assembly", "GRCh37", "--vep-cache", "c"],
+    ["vep", "download", "--species", "mus_musculus", "--vep-version", "110"],
+    ["vep", "verify", "--ref", "lib", "--vep-version", "115"],
+    ["vep", "verify", "--vep-cache", "c", "--assembly", "GRCh37"],
     ["benchmark"],
     ["benchmark", "--profile", "smoke", "--suite", "core", "-o", "o"],
     ["benchmark", "-r", "chrM", "--coverage", "2", "--target-count", "5"],

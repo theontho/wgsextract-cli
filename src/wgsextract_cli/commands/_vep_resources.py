@@ -1,13 +1,19 @@
-import argparse
+from __future__ import annotations
+
 import logging
+import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from wgsextract_cli.api._runtime import cancel_event, checkpoint
+from wgsextract_cli.core import read_scope
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.paths import expand_path
+from wgsextract_cli.core.paths import PathInput, expand_path
 from wgsextract_cli.core.ref_library import download_file
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, warn
@@ -15,6 +21,9 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
 )
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api.vep import VepDownloadParams, VepVerifyParams
 
 # Ensembl's useast/asia web mirrors do not serve /pub (HTTP 403).
 VEP_MIRRORS = {
@@ -27,6 +36,7 @@ def _python_bsd_sum(file_path: str) -> int:
     checksum = 0
     with open(file_path, "rb") as f:
         while chunk := f.read(1 << 20):
+            checkpoint()
             for byte in chunk:
                 checksum = (((checksum >> 1) | ((checksum & 1) << 15)) + byte) & 0xFFFF
     return checksum
@@ -57,6 +67,7 @@ def calculate_bsd_sum(file_path: str) -> tuple[int, int]:
     native = _native_bsd_sum(file_path)
     if native is not None:
         return native
+    checkpoint()  # a cancelled sum fails as a missing one
     size = Path(file_path).stat().st_size
     if size > 512 * 1024 * 1024:
         logging.warning(
@@ -76,13 +87,13 @@ def _expected_bsd_sum(checksums_path: str, filename: str) -> tuple[int, int] | N
     return None
 
 
-def _resolve_vep_cache_root(args: argparse.Namespace) -> str:
-    # The same order as vep run: an explicit cache, the configured one, then
-    # the reference library's, then VEP's default.
-    cache_root = getattr(args, "vep_cache", None) or settings.get("vep_cache_directory")
+def vep_cache_root(vep_cache: PathInput | None, ref: PathInput | None) -> str:
+    """The cache folder, ``~`` expanded: an explicit one, the configured one,
+    the reference library's, then VEP's default (the same order as vep run)."""
+    cache_root = vep_cache or settings.get("vep_cache_directory")
     if cache_root:
-        return str(cache_root)
-    lib = ReferenceLibrary(getattr(args, "ref", None))
+        return expand_path(cache_root)
+    lib = ReferenceLibrary(ref, skip_full_search=True)
     if lib.root and Path(lib.root).is_dir():
         return str(Path(lib.root, "vep"))
     return expand_path("~/.vep")
@@ -125,52 +136,117 @@ def _verify_vep_tarball(base_url: str, target_path: str, filename: str) -> None:
     )
 
 
-def cmd_vep_download(args: argparse.Namespace) -> None:
+def run_vep_download(params: VepDownloadParams) -> None:
     verify_dependencies(["curl", "tar"])
 
-    species = args.species
-    vep_version = args.vep_version
+    species, vep_version = params.species, params.vep_version
     base_url = (
-        f"{VEP_MIRRORS[args.mirror]}/release-{vep_version}/variation/indexed_vep_cache"
+        f"{VEP_MIRRORS[params.mirror]}/release-{vep_version}/variation/"
+        "indexed_vep_cache"
     )
-    cache_root = _resolve_vep_cache_root(args)
-    Path(cache_root).mkdir(parents=True, exist_ok=True)
+    cache_root = params.cache_root()
+    cache_root.mkdir(parents=True, exist_ok=True)
 
-    filename = f"{species}_vep_{vep_version}_{args.assembly}.tar.gz"
-    target_path = str(Path(cache_root, filename))
-    cancel_event = getattr(args, "cancel_event", None)
+    filename = f"{species}_vep_{vep_version}_{params.assembly}.tar.gz"
+    target_path = str(cache_root / filename)
+    cancel = cancel_event()
 
-    def cancelled() -> bool:
-        return bool(cancel_event and cancel_event.is_set())
+    for path in (target_path, target_path + ".partial", target_path + ".CHECKSUMS"):
+        _require_in_scope(path)
 
     logging.info(LOG_MESSAGES["vep_downloading"].format(host=base_url))
-    if not download_file(
-        f"{base_url}/{filename}",
-        target_path,
-        getattr(args, "progress_callback", None),
-        cancel_event,
-    ):
-        raise WGSExtractError(
-            "VEP cache download cancelled."
-            if cancelled()
-            else f"VEP cache download failed: {base_url}/{filename}"
-        )
-
-    _verify_vep_tarball(base_url, target_path, filename)
-    if cancelled():
-        raise WGSExtractError("VEP cache download cancelled before extraction.")
-
-    logging.info(LOG_MESSAGES["vep_extracting"].format(filename=filename))
     try:
-        run_command(["tar", "-xzf", target_path, "-C", cache_root])
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"Failed to extract {target_path}: {e}") from e
+        if not download_file(f"{base_url}/{filename}", target_path, None, cancel):
+            checkpoint()
+            raise WGSExtractError(f"VEP cache download failed: {base_url}/{filename}")
+        _verify_vep_tarball(base_url, target_path, filename)
+        checkpoint()
+        logging.info(LOG_MESSAGES["vep_extracting"].format(filename=filename))
+        _extract_cache(target_path, cache_root)
+    except BaseException:
+        # A cancelled tool fails as any other; the token tells them apart. An
+        # unfinished download's .partial stays, so the next run resumes it.
+        if cancel is not None and cancel.is_set():
+            Path(target_path).unlink(missing_ok=True)
+        raise
     logging.info(LOG_MESSAGES["vep_extraction_complete"])
     logging.info(LOG_MESSAGES["vep_ready"].format(path=f"{cache_root}/{species}"))
     Path(target_path).unlink()
-    version_dir = Path(cache_root, species, f"{vep_version}_{args.assembly}")
+    version_dir = params.version_dir()
     current_result().add_output(version_dir, "vep_cache", kind="directory")
     current_result().set_manifest_stem(version_dir)
+
+
+def _require_in_scope(path: PathInput) -> None:
+    """Refuse a cache path a server job may not use: a link inside the cache
+    to a folder elsewhere. On the command line every path may be used."""
+    if not read_scope.may_follow(path):
+        raise WGSExtractError(
+            f"{path} leads outside the folders this server may use; not writing there."
+        )
+
+
+def _extract_cache(tarball: str, cache_root: Path) -> None:
+    """Unpack ``tarball`` (``<species>/<release>_<assembly>/...``) into
+    ``cache_root``. It is unpacked beside, then each release folder replaces
+    the old one, which is kept aside until all are in place and put back if
+    any fails, so a failed or cancelled run leaves the cache as it was."""
+    staging = Path(tempfile.mkdtemp(prefix=".vep-unpack-", dir=cache_root))
+    backup = Path(tempfile.mkdtemp(prefix=".vep-old-", dir=cache_root))
+    saved: list[tuple[Path, Path]] = []
+    placed: list[Path] = []
+    restored = True
+
+    def place(item: Path, dest: Path) -> None:
+        _require_in_scope(dest)
+        if dest.exists() or dest.is_symlink():
+            aside = backup / str(len(saved))
+            os.replace(dest, aside)
+            saved.append((dest, aside))
+        os.replace(item, dest)
+        placed.append(dest)
+
+    try:
+        try:
+            run_command(["tar", "-xzf", tarball, "-C", str(staging)])
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"Failed to extract {tarball}: {e}") from e
+        checkpoint()
+        for top in sorted(staging.iterdir()):
+            dest_top = cache_root / top.name
+            if not top.is_dir() or top.is_symlink():
+                place(top, dest_top)
+                continue
+            _require_in_scope(dest_top)
+            dest_top.mkdir(exist_ok=True)
+            for item in sorted(top.iterdir()):
+                place(item, dest_top / item.name)
+    except BaseException:
+        restored = _restore(placed, saved)
+        raise
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+        if restored:
+            shutil.rmtree(backup, ignore_errors=True)
+        else:
+            logging.error(f"The previous VEP cache folders are kept in {backup}.")
+
+
+def _restore(placed: list[Path], saved: list[tuple[Path, Path]]) -> bool:
+    """Remove what was put in place and move the old folders back; whether
+    every one went back."""
+    try:
+        for dest in reversed(placed):
+            if dest.is_dir() and not dest.is_symlink():
+                shutil.rmtree(dest)
+            else:
+                dest.unlink()
+        for dest, aside in reversed(saved):
+            os.replace(aside, dest)
+    except OSError as e:
+        logging.error(f"Could not restore the previous VEP cache: {e}")
+        return False
+    return True
 
 
 def _chr_prefixed_standard_chrom(chrom: str) -> str | None:
@@ -200,14 +276,13 @@ def _prefix_contig_header_line(line: str) -> str:
     return line
 
 
-def cmd_vep_verify(args: argparse.Namespace) -> None:
-    vep_version = args.vep_version
-    species = args.species
-    assembly = args.assembly
-
-    cache_root = _resolve_vep_cache_root(args)
-    species_dir = str(Path(cache_root, species))
-    version_dir = str(Path(species_dir, f"{vep_version}_{assembly}"))
+def run_vep_verify(params: VepVerifyParams) -> None:
+    vep_version, species, assembly = (
+        params.vep_version,
+        params.species,
+        params.assembly,
+    )
+    version_dir = str(params.version_dir())
 
     logging.info(
         LOG_MESSAGES["vep_verifying"].format(

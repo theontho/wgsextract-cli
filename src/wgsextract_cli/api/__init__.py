@@ -180,7 +180,7 @@ from .vcf import (
     VcfToFastaParams,
     VcfTrioParams,
 )
-from .vep import VepRunParams
+from .vep import VepDownloadParams, VepRunParams, VepVerifyParams
 
 __all__ = [
     "AlignParams",
@@ -292,7 +292,9 @@ __all__ = [
     "VcfTableParams",
     "VcfToFastaParams",
     "VcfTrioParams",
+    "VepDownloadParams",
     "VepRunParams",
+    "VepVerifyParams",
     "WGSExtractError",
     "YHaplogroupParams",
     "YMtExtractParams",

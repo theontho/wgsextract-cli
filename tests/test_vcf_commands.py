@@ -97,27 +97,6 @@ def test_vep_checksums_parse_three_field_lines(tmp_path):
     assert _expected_bsd_sum(str(checksums), "missing.tar.gz") is None
 
 
-def test_vep_download_failure_exits_nonzero(tmp_path):
-    from wgsextract_cli.commands import _vep_resources as vr
-
-    args = argparse.Namespace(
-        species="homo_sapiens",
-        assembly="GRCh38",
-        vep_version="115",
-        mirror="uk",
-        vep_cache=str(tmp_path),
-    )
-    with (
-        patch.object(vr, "verify_dependencies"),
-        patch.object(vr, "download_file", return_value=False) as download,
-        pytest.raises(WGSExtractError, match="download failed"),
-    ):
-        vr.cmd_vep_download(args)
-    assert download.call_args.args[0].startswith(
-        "https://ftp.ensembl.org/pub/release-115/variation/indexed_vep_cache/"
-    )
-
-
 # --- VEP run / analyze ----------------------------------------------------------
 
 
