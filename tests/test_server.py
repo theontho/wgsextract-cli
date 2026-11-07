@@ -1879,6 +1879,49 @@ def test_serve_command_publishes_its_address_and_cleans_up(tmp_path, work):
         assert not discovery.exists()
 
 
+def test_serve_exits_with_its_parent_and_frees_the_state_folder(work):
+    # #523 review: a server orphaned by a hard-killed GUI kept the jobs folder's
+    # lock, so every later server refused to start.
+    def serve() -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            [*get_cli_command(), "--parent-pid", str(parent.pid), "serve"]
+            + ["--allow", str(work), "--ready-json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+
+    def ready_line(proc: subprocess.Popen[str]) -> dict[str, Any]:
+        assert proc.stdout is not None
+        return json.loads(proc.stdout.readline())
+
+    parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+    first = serve()
+    try:
+        assert "url" in ready_line(first)
+        second = serve()
+        refused = ready_line(second)
+        assert "Another wgsextract server" in refused["error"]["message"]
+        assert second.wait(60) != 0
+
+        parent.kill()
+        parent.wait(10)
+        first.wait(30)
+        parent = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(600)"]
+        )
+        third = serve()
+        try:
+            assert "url" in ready_line(third)
+        finally:
+            third.kill()
+            third.wait(30)
+    finally:
+        for proc in (first, parent):
+            proc.kill()
+            proc.wait(30)
+
+
 class Mcp:
     """A `wgsextract serve --mcp` subprocess, spoken to line by line."""
 

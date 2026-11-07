@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+- Bundles can declare a local `jobServer`, and actions can carry a `serverOperation`. Those actions then run as jobs on the server, with live progress and clean cancellation, and run their command when the server isn't available ([docs/job-server.md](job-server.md)). The WGSExtract bundle runs its coverage actions on `wgsextract serve` once its bundled CLI supports `serve --ready-json`; until then they run their commands.
+
 ### Changed
 - Bundle WGSExtract CLI `v0.6.6`: Oxford Nanopore reads are detected automatically, keep their methylation tags through alignment, and get Nanopore-tuned calling (DeepVariant ONT model, Sniffles structural variants, optional Clair3), plus CpG methylation pileups. Also adds native Linux ARM64, Y-STR genealogy panels, queryable variant tables (TSV/SQLite/Parquet), depth-aware confidence labels, `report-issue` for redacted bug reports, and easier help; DeepVariant now accepts CRAM 3.1 input and bounds its whole-genome memory use, and whole-genome realignment streams without FASTQ intermediates ([CLI release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.6)).
 - Bundle WGSExtract CLI `v0.6.5`: fresh Windows installs work again and invalid configuration values produce clear warnings. Includes the v0.6.4 opt-in MultiQC, expanded microarray/AADR exports and targeted Y analysis, streamed eligible small paired realignment, and safer downloads, outputs and Windows cancellation ([v0.6.5 release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.5), [v0.6.4 features](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.4)).

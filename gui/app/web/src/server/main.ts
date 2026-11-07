@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { RequestHandlerContext } from "./routes.js";
 import { createOneShotBundlePreload, loadLocalizedBundle, loadManifestFromRoot, resolveBundleSourceRoot } from "./bundle-loader.js";
 import { createDevReload } from "./dev-reload.js";
+import { createJobServer } from "./job-server.js";
 import { createShutdownController } from "./lifecycle.js";
 import { parseArgs } from "./paths.js";
 import { takeNativePickerEndpoint } from "./path-picker.js";
@@ -106,10 +107,12 @@ async function loadBundleRuntime(requestedSource: string, preload: boolean) {
     const resolvedSourceBundleRoot = await resolveBundleSourceRoot(requestedSource);
     const sourceManifest = await loadManifestFromRoot(resolvedSourceBundleRoot);
     const resolvedBundleRoot = await prepareBundleWorkspace(sourceManifest, resolvedSourceBundleRoot);
+    const manifest = await loadManifestFromRoot(resolvedBundleRoot);
     return {
         sourceBundleRoot: resolvedSourceBundleRoot,
         bundleRoot: resolvedBundleRoot,
-        manifest: await loadManifestFromRoot(resolvedBundleRoot),
+        manifest,
+        jobServer: manifest.jobServer ? createJobServer(manifest.jobServer, resolvedBundleRoot, runProcess) : undefined,
         dynamicActions: new Map(),
         localizedBundleLoader: createOneShotBundlePreload(
             (locale, preferredLocales = []) => loadLocalizedBundle(locale, repoRoot, resolvedBundleRoot, resolvedSourceBundleRoot, preferredLocales),

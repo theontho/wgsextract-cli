@@ -219,7 +219,23 @@ export interface ActionSpec {
     visibleWhen?: ConditionSpec[];
     disabledWhen?: ConditionSpec[];
     disabledTooltip?: string;
+    /** Runs the action as a job on the bundle's job server when it is available; `command` is the fallback. */
+    serverOperation?: ServerOperationSpec;
     [key: string]: unknown;
+}
+
+/** An operation on the bundle's job server: `POST {url}/ops/{operation}` with `parameters` as the JSON body. */
+export interface ServerOperationSpec {
+    operation: string;
+    /** String values are interpolated; those that end up empty are left out. Other JSON values are sent as written. */
+    parameters?: LooseRecord;
+}
+
+/** A long-running local server, started on first use, that runs actions as cancellable jobs (docs/job-server.md). */
+export interface JobServerSpec {
+    /** Prints `{"url": ..., "token": ...}` as a line of JSON on stdout once it is listening. */
+    command: CommandSpec;
+    startupTimeoutSeconds?: number;
 }
 
 export interface PageSection {
@@ -266,6 +282,7 @@ export interface BundleManifest {
     uninstall?: SetupSpec;
     defaultLocalizationCode?: string;
     exitCodeReference?: ExitCodeReference[];
+    jobServer?: JobServerSpec;
     [key: string]: unknown;
 }
 

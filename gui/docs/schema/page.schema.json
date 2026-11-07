@@ -309,7 +309,26 @@
         "disabledTooltip": { "type": "string" },
         "precheck": { "$ref": "#/$defs/actionPrecheck" },
         "confirm": { "$ref": "#/$defs/actionConfirmation" },
-        "command": { "$ref": "#/$defs/command" }
+        "command": { "$ref": "#/$defs/command" },
+        "serverOperation": { "$ref": "#/$defs/serverOperation" }
+      }
+    },
+    "serverOperation": {
+      "description": "Runs the action as a job on the manifest's jobServer when it can be started; otherwise the action's command runs.",
+      "type": "object",
+      "required": ["operation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "description": "Job server operation, posted to {url}/ops/{operation}.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$"
+        },
+        "parameters": {
+          "description": "JSON request body. String values are interpolated like command arguments and left out when empty; other values are sent as written.",
+          "type": "object",
+          "default": {}
+        }
       }
     },
     "actionPrecheck": {
