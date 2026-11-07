@@ -43,6 +43,7 @@ GROUPS = (
     api.microarray,
     api.ref,
     api.repair,
+    api.genotyping,
     api.report,
     api.sample,
     api.support,

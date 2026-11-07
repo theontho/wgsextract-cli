@@ -9,7 +9,7 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
 def validate_alignment_input(path: PathInput) -> None:
-    file = Path(path)
+    file = Path(path).expanduser()
     if not file.is_file():
         raise WGSExtractError(f"Input file not found: {file}")
     try:
