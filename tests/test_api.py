@@ -16,7 +16,7 @@ from jsonschema import Draft202012Validator
 from tests.htslib_helpers import needs_tools, write_fasta, write_read_pairs
 from tests.smoke_utils import ensure_fake_data, run_cli
 from wgsextract_cli import api
-from wgsextract_cli.api._params import from_namespace, to_namespace
+from wgsextract_cli.api._params import from_namespace
 from wgsextract_cli.core import results
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.process_registry import proc_registry
@@ -58,17 +58,13 @@ def test_params_coerce_paths_and_validate():
         params.detailed = True  # type: ignore[misc]
 
 
-def test_namespace_round_trip():
-    params = api.MicroarrayParams(
-        input=Path("a.cram"),
-        formats="23andme_v5",
-        indel_manifest=("m1.tsv", "m2.tsv"),
-        parallel=False,
+def test_from_namespace_reads_cli_values_and_defaults_the_rest():
+    namespace = argparse.Namespace(
+        input="a.cram", formats="23andme_v5", indel_manifest=["m1.tsv", "m2.tsv"]
     )
-    namespace = to_namespace(params)
-    assert namespace.indel_manifest == ["m1.tsv", "m2.tsv"]
-    assert namespace.input == "a.cram"
-    assert from_namespace(api.MicroarrayParams, namespace) == params
+    assert from_namespace(api.MicroarrayParams, namespace) == api.MicroarrayParams(
+        input=Path("a.cram"), formats="23andme_v5", indel_manifest=("m1.tsv", "m2.tsv")
+    )
     # Attributes the namespace lacks take the field defaults.
     assert from_namespace(
         api.InfoParams, argparse.Namespace(input="a.bam")

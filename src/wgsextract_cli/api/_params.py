@@ -388,13 +388,23 @@ def from_namespace(cls: type[P], args: argparse.Namespace | Any) -> P:
     return cls(**values)
 
 
-def to_namespace(params: Params) -> argparse.Namespace:
-    """A Namespace view (string paths, list appends) for code not yet typed."""
-    values = {
-        item.dest: _plain(getattr(params, item.name))
+def job_values(params: Params, job: type) -> dict[str, Any]:
+    """The values of ``params``' fields that the dataclass ``job`` also has,
+    with paths as strings, to build a command's typed job."""
+    names = {item.name for item in dataclasses.fields(job)}
+    return {
+        item.name: _strings(getattr(params, item.name))
         for item in param_fields(type(params))
+        if item.name in names
     }
-    return argparse.Namespace(**values)
+
+
+def _strings(value: Any) -> Any:
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    if isinstance(value, tuple):
+        return tuple(_strings(v) for v in value)
+    return value
 
 
 def json_schema(cls: type[Params]) -> dict[str, Any]:
