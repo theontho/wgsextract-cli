@@ -128,6 +128,8 @@ jobs:
             while read -r tier; do
               [[ $tier =~ ^[a-z0-9-]+$ ]] || { echo "::error::bad tier $tier"; exit 1; }
               jobs=$(jq -c --arg runner "$runner" --arg tier "$tier" '. + [{runner: $runner, tier: $tier}]' <<< "$jobs")
+              # Intel runners only check that the arm64 builds refuse to start, which needs one job.
+              [[ $runner != *intel* && $runner != macos-13* ]] || break
             done < <(list "$TIERS")
           done < <(list "$RUNNERS")
           [ "$variants" != '[]' ] && [ "$jobs" != '[]' ] || { echo "::error::nothing to run"; exit 1; }

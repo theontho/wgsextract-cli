@@ -1,0 +1,17 @@
+name: Aligner Bench test aligner_bench_test_balloon (temporary)
+on:
+  push:
+    branches: [ issue-364-ci-bench ]
+    paths: [ .github/workflows/aligner_bench_test_balloon.yml ]
+permissions:
+  contents: read
+jobs:
+  bench:
+    uses: ./.github/workflows/aligner_bench.yml
+    with:
+      variants: "main"
+      tiers: "medium"
+      runners: "macos-15"
+      configs: "bwa:metal,mem2:metal,mem2:cpu:probe"
+      balloon_mib: "3072"
+      run_timeout_minutes: "30"
