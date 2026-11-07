@@ -8,14 +8,16 @@ STRchive's normal, intermediate or pathogenic range for its disease.
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.genotyping import TypingStrParams
 from wgsextract_cli.commands.info.metrics import sample_sex
+from wgsextract_cli.core.paths import expand_path
 from wgsextract_cli.core.pixi_tools import pixi_env_prefix
 from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -143,11 +145,12 @@ def classify(call: RepeatCall, threshold: Threshold | None) -> str:
     return status
 
 
-def _catalog(aln: Alignment, catalog: str | None) -> str:
+def _catalog(aln: Alignment, catalog: Path | None) -> str:
     if catalog:
-        if not Path(catalog).is_file():
-            raise WGSExtractError(f"Variant catalog not found: {catalog}")
-        return catalog
+        catalog_path = expand_path(catalog)
+        if not Path(catalog_path).is_file():
+            raise WGSExtractError(f"Variant catalog not found: {catalog_path}")
+        return catalog_path
     prefix = pixi_env_prefix("expansionhunter")
     name = {
         ("hg38", True): "hg38",
@@ -236,12 +239,12 @@ def write_summary(path: str, calls: list[RepeatCall]) -> list[tuple[str, str]]:
     return flagged
 
 
-def cmd_str(args: argparse.Namespace) -> None:
-    aln = open_alignment(args)
+def run_str(params: TypingStrParams, *, debug: bool = False) -> None:
+    aln = open_alignment(params)
     reference = aln.require_reference()
     expansion_hunter = env_tool("ExpansionHunter", "expansionhunter")
-    catalog = _catalog(aln, args.catalog)
-    sex = _sex(aln, args.sex)
+    catalog = _catalog(aln, params.catalog)
+    sex = _sex(aln, params.sex)
 
     prefix = str(Path(aln.outdir, f"{aln.stem}.str"))
     logging.info("Sizing repeat expansions with ExpansionHunter...")
@@ -250,7 +253,7 @@ def cmd_str(args: argparse.Namespace) -> None:
             [*expansion_hunter, "--reads", aln.path, "--reference", reference,
              "--variant-catalog", catalog, "--output-prefix", prefix,
              "--sex", sex, "--threads", aln.threads],
-            capture_output=not getattr(args, "debug", False),
+            capture_output=not debug,
         )  # fmt: skip
     except subprocess.CalledProcessError as e:
         detail = (e.stderr or "").strip().splitlines()[-1:] if e.stderr else []
@@ -286,3 +289,6 @@ def cmd_str(args: argparse.Namespace) -> None:
     logging.info(
         f"Repeat calls: {summary} (ExpansionHunter: {prefix}.vcf, {prefix}.json)"
     )
+
+
+cmd_str = cli_handler(TypingStrParams, run_str, debug="debug")
