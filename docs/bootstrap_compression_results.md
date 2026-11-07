@@ -49,8 +49,8 @@ compression measurements are not extraction, alignment, or variant-calling bench
 | `wgsextract-reference-bootstrap.tar.gz` | bgzipped files | 167 MB |
 | `wgsextract-reference-raw.7z` | uncompressed files | 92 MB |
 
-The bootstrap bundle nevertheless ships as `wgsextract-reference-bootstrap.tar.gz` (see `BOOTSTRAP_URL` in `src/wgsextract_cli/core/constants.py`):
+These sizes are for the v0.1.0 bundle. Since v0.2.0 it has no YBrowse SNP VCFs (#509), is built by `scripts/build_reference_bootstrap.py`, and is about 135 MB. The bootstrap bundle nevertheless ships as a `.tar.gz` (see `BOOTSTRAP_URL` and `BOOTSTRAP_SHA256` in `src/wgsextract_cli/core/constants.py`):
 
-- VCFs, liftover chains, and other genomic files are already in the bgzipped `.gz` form the tools expect, so nothing needs recompressing after extraction.
+- Liftover chains and other genomic files are already in the bgzipped `.gz` form the tools expect, so nothing needs recompressing after extraction.
 - `tar` and `gzip` are available everywhere the CLI runs; 7z would be an extra dependency.
 - The bundle changes rarely, so the larger download is a one-time cost.

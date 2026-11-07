@@ -230,7 +230,7 @@ Most genome operations need a reference genome and companion files. The referenc
 ::: grid two
 ::: card
 ### Bootstrap data
-`ref bootstrap` initializes the library scaffolding and common metadata. Then use the library commands to list and install supported builds such as hs38.
+`ref bootstrap` initializes the library scaffolding and common metadata. Its archive is checked against a SHA-256 pinned in the program. A finished install leaves a `.bootstrap-<version>` marker in the library. If a run is interrupted, the archive stays in the library and the next run re-extracts it. Then use the library commands to list and install supported builds such as hs38.
 
 ```
 wgsextract ref bootstrap
@@ -270,7 +270,7 @@ Since v0.6.6, the catalog also recognizes and resolves hs38d1c (GRCh38 with addi
 Reference bundles are GitHub release assets, versioned separately from app releases so routine releases do not re-upload multi-gigabyte files.
 :::
 
-When `ref bootstrap`, `ref library --install`, or `ref download` fetches a GitHub release asset, WGS Extract asks the GitHub Releases API for that asset's `sha256:<digest>` metadata and verifies the file before extracting or processing it. No neighboring `.sha256` files are needed. The native Windows tool packages are pinned by SHA-256 in `pixi.toml`, which Pixi checks.
+When `ref library --install` or `ref download` fetches a GitHub release asset, WGS Extract asks the GitHub Releases API for that asset's `sha256:<digest>` metadata and verifies the file before extracting or processing it. No neighboring `.sha256` files are needed. The native Windows tool packages are pinned by SHA-256 in `pixi.toml`, which Pixi checks.
 
 - If the digest lookup is unavailable (for example, the API is unreachable or rate-limited), WGS Extract logs a warning and continues. Set `GITHUB_TOKEN` to authenticate the lookup in automation.
 - If GitHub metadata is fetched but has no valid SHA-256 digest, or the downloaded file does not match it, the download fails.

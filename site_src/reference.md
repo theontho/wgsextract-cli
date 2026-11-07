@@ -211,7 +211,7 @@ Data modules are not part of the program, and their licences don't apply to it. 
 | `yfull-tree` | `lineage y-haplogroup --tree yfull` (the default tree) | CC-BY-4.0, YFull |
 | `yfull-ybrowse-positions` | The same, unless `--pos-file` is given | CC-BY-SA (version not stated), Thomas Krahn YSEQ (2022) |
 | Yleaf data `v4.1.6` | `lineage y-haplogroup` QC tables and the other trees | GPL-3.0-or-later, Yleaf |
-| YBrowse SNP VCF | `ref ybrowse --install`, `extract ydna-vcf --ybrowse` | CC-BY-SA, Thomas Krahn YSEQ; downloaded from ybrowse.org, not redistributed |
+| YBrowse SNP VCF | `ref ybrowse --install`, `extract ydna-vcf --ybrowse` | CC-BY-SA, Thomas Krahn YSEQ; downloaded from ybrowse.org on request, not redistributed (and not in the reference bootstrap since v0.2.0) |
 :::
 :::
 :::

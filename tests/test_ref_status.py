@@ -22,6 +22,7 @@ def test_ref_status_reports_gui_library_values(tmp_path):
     (ref_dir / "genes_hg19.tsv").write_text("gene\n", encoding="utf-8")
     (ref_dir / "genes_hg38.tsv").write_text("gene\n", encoding="utf-8")
     (ref_dir / "All_SNPs_hg19_ref.tab.gz").write_text("snps\n", encoding="utf-8")
+    (reflib / ".bootstrap-0.2.0").write_text("sha\n", encoding="utf-8")  # finished
     (ref_dir / "spliceai_hg19.vcf.gz").write_text("spliceai\n", encoding="utf-8")
     (ref_dir / "alphamissense_hg19.tsv.gz").write_text("am\n", encoding="utf-8")
     (ref_dir / "pharmgkb_hg19.vcf.gz").write_text("pgkb\n", encoding="utf-8")

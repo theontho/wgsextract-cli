@@ -32,7 +32,7 @@ from .annotation_resources import (
     ProgressCallback,
 )
 from .ref_library.catalog import get_genome_status
-from .ref_library.downloads import download_file
+from .ref_library.downloads import download_file, verify_download_sha256
 
 
 def _ploidy_template(x_par: tuple[int, int, int], y_len: int) -> str:
@@ -246,7 +246,12 @@ def download_bootstrap(
     progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Downloads and extracts the reference library bootstrap."""
-    from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME, BOOTSTRAP_URL
+    from wgsextract_cli.core.constants import (
+        BOOTSTRAP_FILENAME,
+        BOOTSTRAP_SHA256,
+        BOOTSTRAP_URL,
+        BOOTSTRAP_VERSION,
+    )
 
     if not Path(reflib_dir).exists():
         Path(reflib_dir).mkdir(parents=True, exist_ok=True)
@@ -257,27 +262,55 @@ def download_bootstrap(
         return install_bootstrap_support_files(reflib_dir)
 
     dest_path = str(Path(reflib_dir, BOOTSTRAP_FILENAME))
-    logging.info(f"Downloading bootstrap from {BOOTSTRAP_URL}...")
-
-    for attempt in range(1, 4):
-        if download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
-            break
-        if attempt == 3:
-            return False
-        logging.warning("Bootstrap download failed; retrying (%s/3)...", attempt + 1)
+    # An archive left by an interrupted run is re-extracted if it still verifies.
+    reuse = Path(dest_path).is_file() and verify_download_sha256(
+        dest_path, BOOTSTRAP_SHA256
+    )
+    if not reuse and not _download_bootstrap_archive(
+        BOOTSTRAP_URL, dest_path, BOOTSTRAP_SHA256, progress_callback, cancel_event
+    ):
+        return False
 
     logging.info(f"Extracting bootstrap to {reflib_dir}...")
     try:
         extract_archive_keep_existing(dest_path, reflib_dir)
-        Path(dest_path).unlink()
         normalize_bootstrap_layout(reflib_dir)
         if not install_bootstrap_support_files(reflib_dir):
             return False
+        Path(reflib_dir, BOOTSTRAP_MARKER_PREFIX + BOOTSTRAP_VERSION).write_text(
+            BOOTSTRAP_SHA256 + "\n", encoding="utf-8", newline="\n"
+        )
+        Path(dest_path).unlink()
         logging.info("Bootstrap extraction complete.")
         return True
     except (OSError, tarfile.TarError, WGSExtractError) as e:
         logging.error(f"Failed to extract bootstrap: {e}")
         return False
+
+
+def _download_bootstrap_archive(
+    url: str,
+    dest_path: str,
+    sha256: str,
+    progress_callback: ProgressCallback | None,
+    cancel_event: CancelEvent | None,
+) -> bool:
+    logging.info(f"Downloading bootstrap from {url}...")
+    for attempt in range(1, 4):
+        if download_file(
+            url,
+            dest_path,
+            progress_callback,
+            cancel_event,
+            expected_sha256=sha256,
+            resolve_release_digest=False,
+        ):
+            return True
+        if attempt < 3:
+            logging.warning(
+                "Bootstrap download failed; retrying (%s/3)...", attempt + 1
+            )
+    return False
 
 
 def extract_archive_keep_existing(archive_path: str, dest_dir: str) -> None:
@@ -317,31 +350,43 @@ def extract_archive_keep_existing(archive_path: str, dest_dir: str) -> None:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             partial = target.with_name(target.name + ".partial")
-            with source, open(partial, "wb") as out:
-                shutil.copyfileobj(source, out, 1024 * 1024)
-            Path(partial).replace(target)
+            try:
+                with source, open(partial, "wb") as out:
+                    shutil.copyfileobj(source, out, 1024 * 1024)
+                partial.replace(target)
+            finally:
+                partial.unlink(missing_ok=True)
+
+
+# Written once a bootstrap is fully extracted, e.g. ``.bootstrap-0.2.0``.
+BOOTSTRAP_MARKER_PREFIX = ".bootstrap-"
+# Libraries extracted before the marker existed: files spread across the
+# archive, so an interrupted extraction is not taken for a finished one, and
+# that no command deletes (unlike genomes/*_ncnt.csv, removed with a genome).
+_LEGACY_BOOTSTRAP_SENTINELS = (
+    "chm13v2-grch38.chain",
+    "hg19-chm13v2.chain",
+    "microarray/raw_file_templates/head/MyHeritage_V2.csv",
+    "xgen_plus_spikein.GRCh38num.bed",
+)
 
 
 def bootstrap_has_support_assets(reflib_dir: str) -> bool:
-    if not Path(reflib_dir).is_dir():
+    """Whether the bootstrap is completely installed in ``reflib_dir``."""
+    from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME
+
+    root = Path(reflib_dir)
+    if not root.is_dir():
         return False
-    names = {
-        "All_SNPs.vcf.gz",
-        "common_all.vcf.gz",
-        "snps_hg19.vcf.gz",
-        "snps_hg38.vcf.gz",
-        "snps_grch37.vcf.gz",
-        "snps_grch38.vcf.gz",
-    }
-    for _, _, files in os.walk(reflib_dir):
-        for file_name in files:
-            if file_name in names:
-                return True
-            if file_name.endswith("_ref.tab.gz"):
-                return True
-            if file_name.startswith("All_SNPs") and file_name.endswith(".tab.gz"):
-                return True
-    return False
+    # The archive (or partial download) download_bootstrap leaves in the
+    # library means a run was interrupted before extraction finished.
+    archive = root / BOOTSTRAP_FILENAME
+    leftovers = ("", ".partial", ".partial.segments", ".partial.source")
+    if any(Path(f"{archive}{suffix}").exists() for suffix in leftovers):
+        return False
+    if any(root.glob(BOOTSTRAP_MARKER_PREFIX + "*")):
+        return True
+    return all((root / name).is_file() for name in _LEGACY_BOOTSTRAP_SENTINELS)
 
 
 def normalize_bootstrap_layout(reflib_dir: str) -> None:

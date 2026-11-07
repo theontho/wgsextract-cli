@@ -2,10 +2,13 @@
 with download_file faked by writing small real files to its destination."""
 
 import contextlib
+import errno
 import gzip
+import hashlib
 import io
 import logging
 import random
+import shutil
 import struct
 import subprocess
 import tarfile
@@ -16,11 +19,13 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import needs_htslib, needs_tools
+from tests.http_server import serving
 from wgsextract_cli.commands.ref import library_commands
 from wgsextract_cli.core import reference_processing as rp
 from wgsextract_cli.core.bgzf import ensure_bgzf, is_bgzf
 from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.ref_library import downloads
 from wgsextract_cli.core.ref_library.catalog import get_genome_status
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -46,7 +51,7 @@ def _compress(kind: str, data: bytes) -> bytes:
 def _fake_download(monkeypatch, payloads, calls=None):
     """Make download_file write payloads[url] (bytes, or None to fail) to dest."""
 
-    def download(url, dest, progress_callback=None, cancel_event=None):
+    def download(url, dest, progress_callback=None, cancel_event=None, **pin):
         if calls is not None:
             calls.append((url, Path(dest + ".partial").exists()))
         data = payloads[url]
@@ -360,7 +365,7 @@ def bootstrap_download(monkeypatch):
     """Fake the bootstrap download: each attempt pops the next payload."""
     attempts: list[bytes | None] = []
 
-    def download(url, dest, progress_callback=None, cancel_event=None):
+    def download(url, dest, progress_callback=None, cancel_event=None, **pin):
         assert Path(dest).name == BOOTSTRAP_FILENAME
         data = attempts.pop(0)
         if data is None:
@@ -429,14 +434,81 @@ def test_flattening_keeps_conflicting_duplicates_in_place(tmp_path, caplog):
     assert "Leaving duplicate bootstrap file in place" in caplog.text
 
 
-def test_bootstrap_assets_are_recognized_anywhere_in_the_library(tmp_path):
+# Library paths of files spread across the bootstrap (in archive order, the
+# chains come first).
+_BOOTSTRAP = {
+    "chm13v2-grch38.chain": b"chain",
+    "hg19-chm13v2.chain": b"chain",
+    "microarray/raw_file_templates/head/MyHeritage_V2.csv": b"template",
+    "xgen_plus_spikein.GRCh38num.bed": b"bed",
+}
+
+
+def test_an_old_bootstrap_is_recognized_only_when_complete(tmp_path):
     assert not rp.bootstrap_has_support_assets(str(tmp_path / "missing"))
     assert not rp.bootstrap_has_support_assets(str(tmp_path))
-    for name in ["snps_hg38.vcf.gz", "x_ref.tab.gz", "All_SNPs_GRCh38.tab.gz"]:
-        path = tmp_path / "deep" / name
-        _touch(path)
-        assert rp.bootstrap_has_support_assets(str(tmp_path)), name
-        path.unlink()
+    for name in _BOOTSTRAP:
+        _touch(tmp_path / name)
+    assert rp.bootstrap_has_support_assets(str(tmp_path))
+    for name in _BOOTSTRAP:
+        (tmp_path / name).rename(tmp_path / "aside")
+        assert not rp.bootstrap_has_support_assets(str(tmp_path)), name
+        (tmp_path / "aside").rename(tmp_path / name)
+    for leftover in ("", ".partial", ".partial.segments", ".partial.source"):
+        _touch(tmp_path / f"{BOOTSTRAP_FILENAME}{leftover}")  # interrupted run
+        assert not rp.bootstrap_has_support_assets(str(tmp_path)), leftover
+        (tmp_path / f"{BOOTSTRAP_FILENAME}{leftover}").unlink()
+
+
+def test_deleting_a_genome_keeps_an_old_bootstrap_installed_review_514(tmp_path):
+    """Deleting hs38 removes genomes/hs38_ncnt.csv, which a v0.1.0 bootstrap
+    also shipped; the library must stay bootstrapped."""
+    for name in [*_BOOTSTRAP, "genomes/hs38_ncnt.csv", "genomes/hs38.fa.gz"]:
+        _touch(tmp_path / name)
+    assert rp.delete_genome("hs38.fa.gz", str(tmp_path))
+    assert not (tmp_path / "genomes" / "hs38_ncnt.csv").exists()
+    assert rp.bootstrap_has_support_assets(str(tmp_path))
+
+
+def test_a_hand_downloaded_bootstrap_asset_is_not_a_leftover_review_514(tmp_path):
+    """Only the file ref bootstrap writes marks an unfinished run, not the
+    release asset a user saved into the library."""
+    _touch(tmp_path / ".bootstrap-0.2.0")
+    _touch(tmp_path / "wgsextract-reference-bootstrap-0.2.0.tar.gz")
+    assert rp.bootstrap_has_support_assets(str(tmp_path))
+
+
+def test_a_leftover_ybrowse_vcf_is_not_a_bootstrap_issue_509(tmp_path):
+    """Bootstrap v0.2.0 dropped the YBrowse VCFs; they no longer signal it."""
+    _touch(tmp_path / "snps_hg38.vcf.gz", tmp_path / "snps_grch38.vcf.gz")
+    assert not rp.bootstrap_has_support_assets(str(tmp_path))
+
+
+def _serve_bootstrap(monkeypatch, server, published: bytes) -> None:
+    from wgsextract_cli.core import constants
+
+    monkeypatch.setattr(constants, "BOOTSTRAP_URL", server.url_for("bootstrap.tgz"))
+    monkeypatch.setattr(
+        constants, "BOOTSTRAP_SHA256", hashlib.sha256(published).hexdigest()
+    )
+    monkeypatch.setattr(downloads.time, "sleep", lambda s: None)
+
+
+def test_bootstrap_is_verified_against_its_pin_issue_509(tmp_path, monkeypatch):
+    published = _tarball({"reference/hg19-chm13v2.chain": b"chain"})
+    tampered = _tarball({"reference/hg19-chm13v2.chain": b"other"})
+    lib = tmp_path / "lib"
+    with serving(None, {"bootstrap.tgz": tampered}) as server:
+        _serve_bootstrap(monkeypatch, server, published)
+        assert not rp.download_bootstrap(str(lib))
+    assert not rp.bootstrap_has_support_assets(str(lib))
+    assert not (lib / "hg19-chm13v2.chain").exists()
+
+    with serving(None, {"bootstrap.tgz": published}) as server:
+        _serve_bootstrap(monkeypatch, server, published)
+        assert rp.download_bootstrap(str(lib))
+    assert (lib / "hg19-chm13v2.chain").read_bytes() == b"chain"
+    assert rp.bootstrap_has_support_assets(str(lib))
 
 
 # --- ploidy files -------------------------------------------------------------
@@ -566,3 +638,42 @@ def test_bgzf_decoder_failure_preserves_the_archive(tmp_path, encrypted, filenam
     assert not Path(str(path) + ".tmp.gz").exists()
     if not filename.endswith(".gz"):
         assert not Path(str(path) + ".gz").exists()
+
+
+def test_an_interrupted_bootstrap_extraction_is_resumed_review_514(
+    tmp_path, monkeypatch
+):
+    """A disk that fills up after the chains are extracted must not leave the
+    library reported as bootstrapped."""
+    from wgsextract_cli import api
+
+    published = _tarball({f"reference/{k}": v for k, v in _BOOTSTRAP.items()})
+    lib = tmp_path / "lib"
+    copy = shutil.copyfileobj
+
+    def disk_fills_after_the_chains(source, target, *args):
+        name = Path(target.name)
+        if "reference" in name.parts and ".chain" not in name.name:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        copy(source, target, *args)
+
+    def installed() -> bool:
+        status = api.ref.status(api.RefStatusParams(ref=lib))
+        return status.details["bootstrap"]["installed"]
+
+    with serving(None, {"bootstrap.tgz": published}) as server:
+        _serve_bootstrap(monkeypatch, server, published)
+        monkeypatch.setattr(shutil, "copyfileobj", disk_fills_after_the_chains)
+        failed = api.ref.bootstrap(api.RefBootstrapParams(ref=lib), check=False)
+        assert failed.exit_code != 0
+        assert (lib / "reference" / "chm13v2-grch38.chain").is_file()
+        assert not installed()
+
+        monkeypatch.setattr(shutil, "copyfileobj", copy)
+        api.ref.bootstrap(api.RefBootstrapParams(ref=lib))
+        assert len(server.gets()) == 1  # the verified leftover archive was reused
+    assert installed()
+    for name, data in _BOOTSTRAP.items():
+        assert (lib / name).read_bytes() == data
+    assert not (lib / BOOTSTRAP_FILENAME).exists()
+    assert not list(lib.rglob("*.partial"))

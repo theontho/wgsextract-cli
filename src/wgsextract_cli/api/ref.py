@@ -391,8 +391,8 @@ class RefGerpParams(_Resource):
 
 @dataclass(frozen=True, kw_only=True)
 class RefBootstrapParams(_InLibrary, Params):
-    """Download the reference library bootstrap (VCFs, chains, N counts and
-    other support files). Saves the library's path as config.toml's
+    """Download the reference library bootstrap (liftover chains, chip
+    templates, N counts and other support files). Saves the library's path as config.toml's
     ``reference_library`` when that is unset."""
 
     COMMAND = "ref bootstrap"
