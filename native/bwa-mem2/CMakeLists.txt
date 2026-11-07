@@ -69,6 +69,14 @@ file(WRITE "${mem2_src}/FMI_search.h" "${fmi_header}")
 file(READ "${mem2_SOURCE_DIR}/src/FMI_search.cpp" fmi_source)
 mem2_seam(fmi_source "(CP_OCC *)_mm_malloc(cp_occ_size * sizeof(CP_OCC), 64)) == NULL"
     "(CP_OCC *)wgse_metal_index_alloc(cp_occ_size * sizeof(CP_OCC))) == NULL")
+# Suffix-array locate: an SMEM yields min(s, max_occ) rows, but upstream sizes
+# its row buffers by the sum of s (megabytes for repeats, faulted in on every
+# read), and its precedence slip `pos & SA_COMPX_MASK == 0` means sampled rows
+# are never prefetched. Same rows, same results.
+mem2_seam(fmi_source "        mem_lim += smem.s;"
+    "        mem_lim += smem.s < max_occ ? smem.s : max_occ;")
+mem2_seam(fmi_source "if (pos & SA_COMPX_MASK == 0) {" "if ((pos & SA_COMPX_MASK) == 0) {")
+mem2_seam(fmi_source "if (sp & SA_COMPX_MASK == 0) {" "if ((sp & SA_COMPX_MASK) == 0) {")
 file(WRITE "${mem2_src}/FMI_search.cpp" "#include \"metal_backend.h\"\n${fmi_source}")
 file(READ "${mem2_SOURCE_DIR}/src/bwamem.cpp" bwamem_source)
 include(extension_pipeline.cmake)
