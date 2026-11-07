@@ -2,7 +2,8 @@
  * Usage: balloon <MiB>
  * Allocates and mlock()s <MiB> in 64 MiB pieces, prints "wired <n> MiB" (or
  * how far it got and why it stopped), then holds the memory until it receives
- * SIGTERM or SIGINT. Exits 1 if it could not wire everything. */
+ * SIGTERM or SIGINT. If it cannot wire everything it says so and exits 1 at
+ * once, releasing what it wired. */
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -46,6 +47,7 @@ int main(int argc, char **argv) {
     }
     printf("wired %zu MiB\n", wired >> 20);
     fflush(stdout);
+    if (wired < wanted) return 1;
     while (!stop) pause();
-    return wired == wanted ? 0 : 1;
+    return 0;
 }

@@ -1,0 +1,1 @@
+# tier	tool	K	hash of the SAM without @PG lines (shasum -a 256, first 16)

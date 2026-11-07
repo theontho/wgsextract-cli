@@ -1,0 +1,15 @@
+name: Aligner Bench test (temporary)
+on:
+  push:
+    branches: [ issue-364-ci-bench ]
+    paths: [ .github/workflows/aligner_bench_test.yml ]
+permissions:
+  contents: read
+jobs:
+  bench:
+    uses: ./.github/workflows/aligner_bench.yml
+    with:
+      variants: main,macos-aligners-9
+      tiers: small
+      runners: macos-15,macos-15-intel
+      rounds: "1"

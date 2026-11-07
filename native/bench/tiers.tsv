@@ -1,0 +1,5 @@
+# tier	reference	reads	default configs	what it is
+small	chr20	chr20-hg002	bwa:cpu,bwa:metal,mem2:cpu,mem2:metal	chr20 (64 Mbp); the HG002 pairs of the first 5M whose mates both map to chr20
+medium	chr1-3	chr1-3-hg002	bwa:cpu,bwa:metal,mem2:cpu,mem2:metal	chr1-3 (689 Mbp); the first 500k of those pairs that map to chr1-3, both mates
+full	hs38	hg002-200k	bwa:cpu,bwa:metal	hs38 (3.1 Gbp, with alts and decoys); the first 200k HG002 pairs
+full-5m	hs38	hg002-5m	bwa:metal	hs38; the first 5M HG002 pairs (30x NovaSeq)

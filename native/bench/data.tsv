@@ -1,0 +1,2 @@
+# tag aligner-bench-data-1
+# path	bytes	sha256	assets (concatenated, then zstd -d if .zst)
