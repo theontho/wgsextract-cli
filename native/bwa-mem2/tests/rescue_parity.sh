@@ -95,7 +95,7 @@ same cpu.sam verify.sam
 for orientation in FF FR RF; do
     grep -q "analyzing insert size distribution for orientation $orientation" cpu.log
 done
-cat verify.log | grep '^\[wgse-bwa-mem2\] rescue'
+grep '^\[wgse-bwa-mem2\] rescue' verify.log
 test "$(metric verify.log rescue_batches)" -ge 3
 test "$(metric verify.log rescue_hits)" -gt 1000
 test "$(metric verify.log rescue_misses)" -eq 0
