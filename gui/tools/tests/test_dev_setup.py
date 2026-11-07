@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -172,6 +173,131 @@ class DesktopPrerequisiteTests(unittest.TestCase):
                 setup.desktop_prerequisites(),
                 ["macOS: xcode-select --install (accept the installer dialog)."],
             )
+
+
+class CompileCacheAdviceTests(unittest.TestCase):
+    """New worktrees rebuild every Tauri crate unless sccache can share them."""
+
+    ROOT = Path("/work/src/wgsextract-cli-feature")
+    SCCACHE = '[build]\nrustc-wrapper = "sccache"\n'
+
+    def advice(
+        self,
+        cargo: dict[str, str],
+        *,
+        sccache: bool = True,
+        sccache_config: str | None = None,
+        env_basedirs: str | None = None,
+        root: Path | None = None,
+    ) -> str | None:
+        (setup.ROOT / "tmp").mkdir(exist_ok=True)
+        with (
+            tempfile.TemporaryDirectory(dir=setup.ROOT / "tmp") as directory,
+            patch.dict(setup.os.environ, clear=False) as environ,
+            patch.object(
+                setup.shutil, "which", return_value="/bin/sccache" if sccache else None
+            ),
+        ):
+            for name in ("RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER", "SCCACHE_BASEDIRS"):
+                environ.pop(name, None)
+            if env_basedirs is not None:
+                environ["SCCACHE_BASEDIRS"] = env_basedirs
+            home = Path(directory)
+            for name, text in cargo.items():
+                (home / name).write_text(text, encoding="utf-8")
+            config = home / "sccache-config"
+            if sccache_config is not None:
+                config.write_text(sccache_config, encoding="utf-8")
+            return setup.compile_cache_advice(home, root or self.ROOT, config)
+
+    def basedirs(self, *dirs: Path) -> str:
+        """A basedirs line as a user types it, Windows backslashes and all."""
+        return "basedirs = [" + ", ".join(f"'{d}'" for d in dirs) + "]\n"
+
+    def test_no_advice_once_sccache_strips_this_worktree_root(self) -> None:
+        self.assertIsNone(
+            self.advice({"config.toml": self.SCCACHE}, sccache_config=self.basedirs(self.ROOT))
+        )
+
+    def test_a_parent_folder_in_basedirs_covers_the_worktree(self) -> None:
+        self.assertIsNone(
+            self.advice(
+                {"config.toml": self.SCCACHE},
+                sccache_config=self.basedirs(Path("/elsewhere"), self.ROOT.parent),
+            )
+        )
+
+    def test_a_wrapper_without_this_worktree_in_basedirs_is_not_enough(self) -> None:
+        sibling = self.ROOT.parent / "wgsextract-cli"
+        for config in (None, self.basedirs(sibling)):
+            with self.subTest(config=config):
+                advice = self.advice({"config.toml": self.SCCACHE}, sccache_config=config)
+                assert advice is not None
+                self.assertIn(f"basedirs = ['{self.ROOT}']", advice)
+
+    def test_the_advised_basedirs_line_can_be_pasted_as_is(self) -> None:
+        # Issue: a Windows path printed bare, pasted inside double quotes, is invalid TOML.
+        # POSIX allows backslashes in a folder name, so this runs everywhere.
+        windows_style = "C:\\Users\\me\\src"
+        root = Path(windows_style) if setup.os.name == "nt" else Path("/work", windows_style)
+        advice = self.advice({"config.toml": self.SCCACHE}, root=root)
+        assert advice is not None
+        line = re.search(r"basedirs = \[.*\]", advice)
+        assert line is not None
+        self.assertIsNone(
+            self.advice({"config.toml": self.SCCACHE}, sccache_config=line.group() + "\n", root=root)
+        )
+
+    def test_reports_an_sccache_config_that_does_not_parse(self) -> None:
+        advice = self.advice(
+            {"config.toml": self.SCCACHE}, sccache_config='basedirs = ["C:\\Users\\me"]\n'
+        )
+        assert advice is not None
+        self.assertIn("not valid TOML", advice)
+
+    def test_sccache_basedirs_from_the_environment_replace_the_file(self) -> None:
+        cargo = {"config.toml": self.SCCACHE}
+        file_has_root = self.basedirs(self.ROOT)
+        self.assertIsNotNone(
+            self.advice(cargo, sccache_config=file_has_root, env_basedirs="/elsewhere")
+        )
+        self.assertIsNone(
+            self.advice(
+                cargo,
+                sccache_config=None,
+                env_basedirs=setup.os.pathsep.join(["/elsewhere", str(self.ROOT.parent)]),
+            )
+        )
+
+    def test_advises_the_config_file_cargo_actually_reads(self) -> None:
+        # Cargo ignores config.toml when the legacy `config` file exists.
+        advice = self.advice(
+            {"config.toml": self.SCCACHE, "config": "[net]\nretry = 3\n"},
+            sccache_config=self.basedirs(self.ROOT),
+        )
+        assert advice is not None
+        self.assertIn('rustc-wrapper = "sccache"', advice)
+        self.assertRegex(advice, r"[/\\]config,")
+
+    def test_no_advice_for_another_rustc_wrapper(self) -> None:
+        self.assertIsNone(
+            self.advice({"config.toml": '[build]\nrustc-wrapper = "/usr/bin/ccache"\n'})
+        )
+
+    def test_advises_installing_sccache_when_missing(self) -> None:
+        advice = self.advice({}, sccache=False)
+        assert advice is not None
+        self.assertIn("cargo install sccache", advice)
+        self.assertIn("config.toml", advice)
+        self.assertIn("basedirs", advice)
+
+    def test_advises_only_configuring_when_sccache_is_installed(self) -> None:
+        for cargo in ({}, {"config.toml": "[net]\nretry = 3\n"}, {"config.toml": "not = [valid toml"}):
+            with self.subTest(cargo=cargo):
+                advice = self.advice(cargo)
+                assert advice is not None
+                self.assertIn('rustc-wrapper = "sccache"', advice)
+                self.assertNotIn("cargo install", advice)
 
 
 if __name__ == "__main__":

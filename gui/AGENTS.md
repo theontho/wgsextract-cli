@@ -42,8 +42,14 @@ benchmarks) live on the `old-experimental` branch; do not reintroduce them here.
 ## Test Your Work
 
 - Run `make lint` and `make test` (`powershell -ExecutionPolicy Bypass -File .\make.ps1 lint` / `powershell -ExecutionPolicy Bypass -File .\make.ps1 test` on Windows) after changing TypeScript or tooling.
-- Run `make build-tauri` after changing the Tauri shell or packaging scripts.
+- Run `make build-tauri` only after changing the Tauri shell (`app/web/packagers/tauri`) or packaging scripts. It compiles the Rust shell, which takes a long time in a fresh worktree; TypeScript, bundle, and localization changes are covered by `make lint`, `make test`, and `make run`.
 - Use `make run BUNDLE=<path>` to check UI changes in a browser and `make tauri` to check the desktop app.
+
+## Toolchains and Worktrees
+
+- Node, Rust/Cargo, uv, and the platform build tools (Visual Studio Build Tools on Windows) are installed per user, once per machine, and every checkout and worktree shares them. In a new worktree, run `make precheck` before installing anything; only install what it reports missing.
+- Per-worktree state is `app/node_modules` (`make setup`) and the Cargo `target/` directory. The bundled Tauri Node runtime download is cached per user and shared.
+- If `make setup` advises a Rust compile cache, tell the user rather than editing their `~/.cargo/config.toml` yourself.
 - Verify both interactive and non-interactive behavior for scripts and CLIs.
 
 ## TypeScript Standards

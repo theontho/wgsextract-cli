@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import re
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -34,6 +36,126 @@ def succeeds(*args: str) -> bool:
             [executable, *args[1:]], capture_output=True, check=False
         ).returncode
         == 0
+    )
+
+
+def cargo_home() -> Path:
+    configured = os.environ.get("CARGO_HOME")
+    return Path(configured).expanduser() if configured else Path.home() / ".cargo"
+
+
+def cargo_config(home: Path) -> Path:
+    """The user's Cargo config file Cargo reads: `config` wins over `config.toml`."""
+    legacy = home / "config"
+    return legacy if legacy.is_file() else home / "config.toml"
+
+
+def read_toml(path: Path) -> dict[str, object]:
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def rustc_wrapper(home: Path) -> str:
+    """The wrapper Cargo runs rustc through (such as sccache), or ""."""
+    for name in ("RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER"):
+        if os.environ.get(name):
+            return os.environ[name]
+    build = read_toml(cargo_config(home)).get("build")
+    wrapper = build.get("rustc-wrapper") if isinstance(build, dict) else None
+    return wrapper if isinstance(wrapper, str) else ""
+
+
+def sccache_config() -> Path:
+    """sccache's config file (its SCCACHE_CONF, or the platform default)."""
+    if os.environ.get("SCCACHE_CONF"):
+        return Path(os.environ["SCCACHE_CONF"]).expanduser()
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(appdata) / "Mozilla" / "sccache" / "config" / "config"
+    if sys.platform == "darwin":
+        return (
+            Path.home() / "Library" / "Application Support" / "Mozilla.sccache" / "config"
+        )
+    xdg = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(xdg) / "sccache" / "config"
+
+
+def sccache_basedirs(config: Path) -> list[Path]:
+    """The roots sccache strips from paths in its cache keys.
+
+    SCCACHE_BASEDIRS, when set, replaces the config file's list. Raises
+    ValueError if the config file exists but isn't valid TOML.
+    """
+    if os.environ.get("SCCACHE_BASEDIRS"):
+        dirs = os.environ["SCCACHE_BASEDIRS"].split(os.pathsep)
+    else:
+        try:
+            text = config.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        try:
+            configured = tomllib.loads(text).get("basedirs")
+        except tomllib.TOMLDecodeError as error:
+            raise ValueError(f"{config} is not valid TOML ({error})") from error
+        dirs = configured if isinstance(configured, list) else []
+    return [Path(d) for d in dirs if isinstance(d, str) and d]
+
+
+def comparable(path: Path) -> Path:
+    return Path(os.path.normcase(path.expanduser().resolve()))
+
+
+def covers(basedirs: list[Path], root: Path) -> bool:
+    """Whether a basedirs entry is root or a parent of it (sccache strips prefixes)."""
+    return any(comparable(root).is_relative_to(comparable(d)) for d in basedirs)
+
+
+def toml_string(value: str) -> str:
+    """A TOML string for value; literal quotes keep Windows backslashes as typed."""
+    return f"'{value}'" if "'" not in value and "\n" not in value else json.dumps(value)
+
+
+def compile_cache_advice(home: Path, root: Path, config: Path) -> str | None:
+    """Advice for sharing compiled Rust crates across worktrees at root, or None.
+
+    sccache keys Rust compilations on absolute paths, so a cache hit in another
+    worktree also needs the worktree's root, or a parent of it, in sccache's
+    basedirs.
+    """
+    wrapper = rustc_wrapper(home)
+    if wrapper and "sccache" not in Path(wrapper).name:
+        return None
+    try:
+        basedirs = sccache_basedirs(config)
+    except ValueError as error:
+        return (
+            f"Advisory: sccache's config {error}; fix it, or sccache may fail every "
+            "Cargo build. Quote Windows paths with single quotes, e.g. "
+            "basedirs = ['C:\\Users\\me\\src'], or double each backslash."
+        )
+    basedir = (
+        f"add this worktree's root (or a folder above it) to sccache's {config}: "
+        f"basedirs = [{toml_string(str(root))}]"
+    )
+    if wrapper:
+        if covers(basedirs, root):
+            return None
+        return f"Advisory: {basedir}, so this worktree reuses other worktrees' compiled Tauri crates."
+    enable = (
+        f"add 'rustc-wrapper = \"sccache\"' under [build] in {cargo_config(home)}, "
+        f"and {basedir}"
+    )
+    if shutil.which("sccache"):
+        return (
+            f"Advisory: {enable}, so every worktree reuses compiled Tauri crates "
+            "instead of rebuilding them."
+        )
+    return (
+        "Advisory: each worktree rebuilds the Tauri shell from scratch. To share "
+        "compiled crates, install sccache ('cargo install sccache --locked'), "
+        f"{enable}."
     )
 
 
@@ -242,6 +364,9 @@ def main() -> int:
     )
     if not args.skip_smoke:
         smoke()
+    advice = compile_cache_advice(cargo_home(), ROOT.parent, sccache_config())
+    if advice:
+        print(advice)
     if not succeeds("gh", "auth", "status"):
         print("Advisory: install GitHub CLI and run 'gh auth login' to open PRs.")
     if not any(shutil.which(tool) for tool in ("copilot", "claude", "codex")):

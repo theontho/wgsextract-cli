@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { chmod, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { developerCacheDir } from "./developer-cache.mjs";
 
 const nodeVersion = "24.22.0";
 // `--target <platform>-<arch>` (e.g. win32-x64) prepares another OS's runtime, for cross-building
@@ -23,7 +24,8 @@ if (!nodePlatformArch) {
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const webuiRoot = path.resolve(scriptDir, "..");
 const resourcesRoot = path.join(webuiRoot, "web", "packagers", "tauri", "resources", "node");
-const cacheRoot = path.join(webuiRoot, ".cache", "tauri-node");
+// Shared by every checkout and worktree of this repository on the machine.
+const cacheRoot = developerCacheDir("tauri-node");
 const nodeDistName = `node-v${nodeVersion}-${nodePlatformArch}`;
 const archiveExtension =
   platform === "win32" ? "zip" : platform === "linux" ? "tar.xz" : "tar.gz";
@@ -31,7 +33,6 @@ const archiveName = `${nodeDistName}.${archiveExtension}`;
 const archiveURL = `https://nodejs.org/dist/v${nodeVersion}/${archiveName}`;
 const shasumsURL = `https://nodejs.org/dist/v${nodeVersion}/SHASUMS256.txt`;
 const archivePath = path.join(cacheRoot, archiveName);
-const extractRoot = path.join(cacheRoot, "extract");
 const nodeExecutableRelativePath = platform === "win32" ? "node.exe" : path.join("bin", "node");
 const nodeOutputPath = path.join(resourcesRoot, nodeExecutableRelativePath);
 const versionPath = path.join(resourcesRoot, "VERSION");
@@ -52,30 +53,35 @@ if (existingVersion?.trim() === `v${nodeVersion} ${nodePlatformArch}`) {
 }
 
 console.log(`Preparing Tauri Node runtime ${nodeDistName}`);
-if (!(await exists(archivePath))) {
-  console.log(`Downloading ${archiveURL}`);
-  await download(archiveURL, archivePath);
-}
-
 const expectedHash = await expectedSha256();
-const actualHash = await sha256File(archivePath);
-if (actualHash !== expectedHash) {
-  await rm(archivePath, { force: true });
-  throw new Error(`SHA256 mismatch for ${archiveName}: expected ${expectedHash}, got ${actualHash}`);
+if (await exists(archivePath) && (await sha256File(archivePath)) === expectedHash) {
+  console.log(`Using cached ${archivePath}`);
+} else {
+  console.log(`Downloading ${archiveURL}`);
+  await downloadAtomically(archiveURL, archivePath, async (partialPath) => {
+    const actualHash = await sha256File(partialPath);
+    if (actualHash !== expectedHash) {
+      throw new Error(`SHA256 mismatch for ${archiveName}: expected ${expectedHash}, got ${actualHash}`);
+    }
+  });
 }
 
-await rm(extractRoot, { recursive: true, force: true });
-await mkdir(extractRoot, { recursive: true });
-// GNU tar (Linux, or first on PATH in a Pixi or Homebrew environment) can't
-// read the Windows .zip; Windows' own tar can, and unzip is everywhere else.
-if (archiveExtension === "zip" && process.platform !== "win32") {
-  await run("unzip", ["-q", archivePath, "-d", extractRoot]);
-} else {
-  await run("tar", ["-xf", archivePath, "-C", extractRoot]);
+// A private extract directory, so worktrees preparing the runtime at once don't collide.
+const extractRoot = await mkdtemp(path.join(cacheRoot, "extract-"));
+try {
+  // GNU tar (Linux, or first on PATH in a Pixi or Homebrew environment) can't
+  // read the Windows .zip; Windows' own tar can, and unzip is everywhere else.
+  if (archiveExtension === "zip" && process.platform !== "win32") {
+    await run("unzip", ["-q", archivePath, "-d", extractRoot]);
+  } else {
+    await run("tar", ["-xf", archivePath, "-C", extractRoot]);
+  }
+  await rm(resourcesRoot, { recursive: true, force: true });
+  await mkdir(path.dirname(nodeOutputPath), { recursive: true });
+  await cp(path.join(extractRoot, nodeDistName, nodeExecutableRelativePath), nodeOutputPath);
+} finally {
+  await rm(extractRoot, { recursive: true, force: true });
 }
-await rm(resourcesRoot, { recursive: true, force: true });
-await mkdir(path.dirname(nodeOutputPath), { recursive: true });
-await cp(path.join(extractRoot, nodeDistName, nodeExecutableRelativePath), nodeOutputPath);
 await chmod(nodeOutputPath, 0o755);
 await writeFile(versionPath, `v${nodeVersion} ${nodePlatformArch}\n`, "utf8");
 console.log(`Prepared Tauri Node runtime: ${nodeOutputPath}`);
@@ -109,7 +115,7 @@ async function expectedSha256() {
   const shasumsPath = path.join(cacheRoot, `SHASUMS256-v${nodeVersion}.txt`);
   if (!(await exists(shasumsPath))) {
     console.log(`Downloading ${shasumsURL}`);
-    await download(shasumsURL, shasumsPath);
+    await downloadAtomically(shasumsURL, shasumsPath);
   }
   const shasums = await readFile(shasumsPath, "utf8");
   for (const line of shasums.split(/\r?\n/)) {
@@ -119,6 +125,28 @@ async function expectedSha256() {
     }
   }
   throw new Error(`Could not find ${archiveName} in SHASUMS256.txt`);
+}
+
+// Download to a private partial file and rename it into place only once complete (and, if
+// given, verified), so a concurrent or interrupted run never sees a truncated cache entry.
+async function downloadAtomically(url, destination, verify = async () => {}) {
+  const partialPath = `${destination}.${process.pid}-${randomUUID()}.partial`;
+  try {
+    await download(url, partialPath);
+    await verify(partialPath);
+    try {
+      await rename(partialPath, destination);
+    } catch (error) {
+      // Windows refuses to replace a file another process has open; keep that run's copy
+      // if it is complete.
+      if (!(await exists(destination))) {
+        throw error;
+      }
+      await verify(destination);
+    }
+  } finally {
+    await rm(partialPath, { force: true });
+  }
 }
 
 function download(url, destination, redirectsLeft = maxRedirects) {
@@ -160,7 +188,7 @@ function run(command, args) {
 
 async function exists(filePath) {
   try {
-    await readFile(filePath);
+    await stat(filePath);
     return true;
   } catch {
     return false;

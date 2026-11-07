@@ -51,6 +51,70 @@ For browser-only work, add `--web-only` / `-WebOnly` to waive desktop prerequisi
 checks (Rust is still installed). Default setup exits nonzero if desktop system
 prerequisites are missing, after preparing the Web UI.
 
+## Several worktrees on one machine
+
+Each branch can have its own worktree of the repository, so work in progress on
+one branch never spills into another. From the repository root (not `gui/`), run
+`git worktree add ../wgsextract-cli-my-change -b my-change`, then run
+`just gui-setup` from the new worktree's root. Setup in a new worktree
+reuses the per-user toolchains and does not reinstall them. What each worktree does
+repeat:
+
+- `npm ci` into its own `app/node_modules`, from npm's shared download cache.
+- The first `make build-tauri` or `make tauri`, which compiles the Rust shell and
+  its several hundred crates into that worktree's `target/` directory.
+
+The bundled Node runtime the desktop build ships is downloaded once per user, to
+`~/Library/Caches/gui-for-cli-dev` (macOS), `%LOCALAPPDATA%\gui-for-cli-dev\Cache`
+(Windows), or `$XDG_CACHE_HOME/gui-for-cli-dev` (Linux, default `~/.cache`).
+
+To avoid recompiling the same crates in every worktree, set up
+[sccache](https://github.com/mozilla/sccache) once. It caches compiled crates per
+user, so a new worktree's first desktop build reuses them:
+
+```sh
+cargo install sccache --locked
+```
+
+Then add this to Cargo's user config, `~/.cargo/config.toml`
+(`%USERPROFILE%\.cargo\config.toml` on Windows; if a file named just `config`
+exists there, Cargo reads that one instead, so edit it):
+
+```toml
+[build]
+rustc-wrapper = "sccache"
+```
+
+sccache's cache keys include absolute paths, so a crate compiled in one worktree
+only matches in another once each worktree's root, or a folder above them all, is
+listed in `basedirs` in
+sccache's config file (`~/.config/sccache/config` on Linux,
+`~/Library/Application Support/Mozilla.sccache/config` on macOS,
+`%APPDATA%\Mozilla\sccache\config\config` on Windows; see
+[sccache's configuration](https://github.com/mozilla/sccache/blob/main/docs/Configuration.md)):
+
+```toml
+basedirs = ['/home/me/src']
+```
+
+On Windows, write the path in single quotes, which TOML takes literally; in double
+quotes each backslash must be doubled:
+
+```toml
+basedirs = ['C:\Users\me\src']
+```
+
+`SCCACHE_BASEDIRS`, if set, replaces this list. Setup prints an advisory with the
+line to add until both are configured, and says so if sccache's config isn't
+valid TOML. Pointing every worktree at one
+shared `target-dir` instead is not recommended: Cargo locks the directory, so
+builds in different worktrees wait on each other, and alternating branches with
+different dependencies rebuilds them anyway.
+
+Most changes don't need a desktop build at all. Changes to TypeScript, bundles, and
+localized strings are checked with `make lint`, `make test`, and `make dev`; build the
+desktop app only after changing the Tauri shell or packaging.
+
 ## Manual prerequisites
 
 Setup never runs sudo, elevates, or installs system packages.
