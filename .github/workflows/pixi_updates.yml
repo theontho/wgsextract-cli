@@ -192,7 +192,13 @@ jobs:
         run: |
           sha=$(git rev-parse HEAD)
           echo "## CI dispatched on \`$BRANCH\` at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+          failed=0
           for workflow in $CI_WORKFLOWS; do
-            gh workflow run "$workflow" -R "$GITHUB_REPOSITORY" --ref "$BRANCH"
-            echo "- $workflow" >> "$GITHUB_STEP_SUMMARY"
+            if gh workflow run "$workflow" -R "$GITHUB_REPOSITORY" --ref "$BRANCH"; then
+              echo "- $workflow" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- $workflow: **dispatch failed**" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
           done
+          exit "$failed"
