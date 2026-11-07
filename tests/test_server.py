@@ -1222,6 +1222,124 @@ def test_repair_paths_cover_every_file():
     }  # fmt: skip
 
 
+_SIGN_PATHS = [
+    (op, item)
+    for op in ("sign/create", "sign/verify")
+    for item in find(op).fields()
+    if item.spec.path or item.spec.may_name_file
+]
+_SIGN_REQUESTS = {
+    "sign/create": {"paths": [r"C:\data\a.bam"], "outdir": r"C:\data"},
+    "sign/verify": {"manifest": r"C:\data\SHA256SUMS"},
+}
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _SIGN_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _SIGN_PATHS],
+)
+@pytest.mark.parametrize(
+    "value",
+    [
+        "D:evil.pub",
+        r"D:\evil.pub",
+        r"\\host\share\evil.pub",
+        r"sub\evil.pub",
+        "~/evil.pub",
+    ],
+)
+def test_path_guard_covers_every_sign_path(op, field, value):
+    # #478: sign create/verify became server operations; every file they hash,
+    # read a key or signature from, or write a manifest to must be inside an
+    # allowed folder, and the signing key is never taken from a request.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = _SIGN_REQUESTS[op]
+    guard.check(params_from_json(find(op), allowed))
+    if field == "paths":
+        value = [r"C:\data\a.bam", value]
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_sign_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _SIGN_PATHS} == {
+        ("sign/create", "paths"), ("sign/create", "output"),
+        ("sign/create", "outdir"),
+        ("sign/verify", "manifest"), ("sign/verify", "signature"),
+        ("sign/verify", "public_key"), ("sign/verify", "allowed_signers"),
+    }  # fmt: skip
+    # The server never signs with a key a request names.
+    with pytest.raises(RequestError) as refused:
+        params_from_json(
+            find("sign/create"), {**_SIGN_REQUESTS["sign/create"], "key": r"C:\data\id"}
+        )
+    assert refused.value.code == "usage"
+
+
+def test_a_manifest_written_into_a_busy_folder_waits(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: sign create --output writes outside its outdir, so the output's
+    # folder is locked too.
+    bam, ref = fake_data
+    busy, outdir = work / "busy", work / "manifests"
+    busy.mkdir()
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        request = {"input": str(bam), "ref": str(ref), "outdir": str(busy)}
+        first = client.request("POST", "/ops/info/calculate-coverage", request)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/sign/create",
+            {
+                "paths": [str(bam)],
+                "output": str(busy / "SHA256SUMS"),
+                "outdir": str(outdir),
+            },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_sign_requests_are_checked_before_a_job_is_queued():
+    # PR #495 review: threads is an integer as elsewhere; conflicting trust
+    # options and an empty path list are usage errors, not a dropped option
+    # or a server error from a queued job.
+    request = {"manifest": r"C:\data\SHA256SUMS", "threads": 4}
+    assert params_from_json(find("sign/verify"), request).threads == 4
+    for op, bad in (
+        ("sign/verify", {**request, "public_key": "/k.pub", "allowed_signers": "/a"}),
+        ("sign/create", {"paths": [], "outdir": r"C:\data"}),
+    ):
+        with pytest.raises(RequestError) as refused:
+            params_from_json(find(op), bad)
+        assert refused.value.code == "usage"
+
+
+@pytest.mark.parametrize(
+    "tool", ["D:evil", r"D:\evil", r"\\host\share\evil", r"sub\evil", "~/evil"]
+)
+def test_path_guard_covers_the_deps_check_tool(tool):
+    # PR #495 review: shutil.which() probes a path-shaped tool name, which
+    # could reach outside the allowed folders or a network share.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    guard.check(params_from_json(find("deps/check"), {"tool": "samtools"}))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find("deps/check"), {"tool": tool}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_deps_check_answers_with_the_tool_path(tmp_path, work):
+    with _serve(tmp_path, [work]) as client:
+        status, body = client.request(
+            "POST", "/ops/deps/check?wait=60", {"tool": "samtools"}
+        )
+    assert (status, body["status"]) == (200, "succeeded"), body
+    assert body["kind"] == "query"
+    assert Path(body["result"]["details"]["path"]).name.startswith("samtools")
+
+
 _EXAMPLE_PATHS = [
     (op, item)
     for op in ("example-genome/list", "example-genome/download")

@@ -1,11 +1,12 @@
-import argparse
 import logging
 import sys
 from typing import Any
 
+from wgsextract_cli.api.deps import DepsCheckParams
 from wgsextract_cli.core.dependency_checks import check_all_dependencies
 from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.pixi_tools import pixi_install_command
+from wgsextract_cli.core.results import current_result, human_output
 from wgsextract_cli.core.utils import MissingDependencyError
 
 
@@ -43,45 +44,58 @@ def _tool_source(tool: dict[str, Any]) -> str:
     return f" [{tool['runtime']}]" if tool.get("runtime") else ""
 
 
-def run(args: argparse.Namespace) -> None:
-    if args.tool:
-        require_native_tool(args.tool)
+def _row(tool: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: tool.get(key) for key in ("name", "path", "runtime", "version", "alt_env")
+    }
+
+
+def run(params: DepsCheckParams, *, debug: bool = False) -> None:
+    """``deps check``. ``debug`` (the CLI's --debug) logs one tool's path
+    instead of printing it."""
+    result = current_result()
+    if params.tool:
+        require_native_tool(params.tool)
         from wgsextract_cli.core.dependencies import get_tool_path
 
-        path = get_tool_path(args.tool)
+        path = get_tool_path(params.tool)
+        result.set_details({"tool": params.tool, "path": path})
         if path:
-            if not args.debug:
-                print(path)
+            if not debug:
+                human_output(path)
             else:
-                logging.debug(f"Found {args.tool} at {path}")
+                logging.debug(f"Found {params.tool} at {path}")
             return
         else:
-            command = pixi_install_command(args.tool)
+            command = pixi_install_command(params.tool)
             hint = f". Run: {command}" if command else ""
-            raise MissingDependencyError(f"Tool not found: {args.tool}{hint}")
+            raise MissingDependencyError(f"Tool not found: {params.tool}{hint}")
 
     logging.info("Verifying bioinformatics tool installations...")
     results = check_all_dependencies()
+    result.set_details(
+        {group: [_row(tool) for tool in results[group]] for group in results}
+    )
 
-    print("\nMandatory Tools:")
-    print("-" * 60)
+    human_output("\nMandatory Tools:")
+    human_output("-" * 60)
     for tool in results["mandatory"]:
         status = _status_text(tool["path"], alt_env=bool(tool.get("alt_env")))
         source = _tool_source(tool)
         version = f" ({tool['version']})" if tool["version"] else ""
-        print(f"{status} {tool['name']:<20} {source}{version}")
+        human_output(f"{status} {tool['name']:<20} {source}{version}")
 
-    print("\nOptional Tools:")
-    print("-" * 60)
+    human_output("\nOptional Tools:")
+    human_output("-" * 60)
     for tool in results["optional"]:
         status = _status_text(
             tool["path"], optional=True, alt_env=bool(tool.get("alt_env"))
         )
         source = _tool_source(tool)
         version = f" ({tool['version']})" if tool["version"] else ""
-        print(f"{status} {tool['name']:<20} {source}{version}")
+        human_output(f"{status} {tool['name']:<20} {source}{version}")
 
-    print("\n" + "=" * 60)
+    human_output("\n" + "=" * 60)
     missing = [tool["name"] for tool in results["mandatory"] if not tool["path"]]
     if missing:
         raise MissingDependencyError(

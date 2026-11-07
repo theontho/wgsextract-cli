@@ -1,5 +1,7 @@
 import argparse
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.deps import DepsCheckParams
 from wgsextract_cli.core.messages import CLI_HELP
 
 from ._deps_status import run
@@ -15,8 +17,5 @@ def register(
     check_parser = deps_subparsers.add_parser(
         "check", parents=[base_parser], help=CLI_HELP["cmd_check-deps"]
     )
-    check_parser.add_argument(
-        "--tool",
-        help="Check for a specific tool; exit code 3 if it is missing.",
-    )
-    check_parser.set_defaults(func=run)
+    add_arguments(check_parser, DepsCheckParams)
+    check_parser.set_defaults(func=cli_handler(DepsCheckParams, run, debug="debug"))

@@ -6,13 +6,12 @@ import os
 import shlex
 import subprocess
 import sys
-from argparse import Namespace
 from types import SimpleNamespace
 
 import pytest
 
 from tests.fake_tools import python_tool
-from wgsextract_cli.commands import _deps_status
+from wgsextract_cli import api
 from wgsextract_cli.core import dependency_checks, windows_arm64
 from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.dependency_checks import (
@@ -88,13 +87,13 @@ def test_python_runtime_is_attributed_to_pixi_inside_a_pixi_env(tmp_path, monkey
 
 @posix_pixi
 def test_the_install_command_deps_check_offers_makes_the_tool_available(
-    host, fake_pixi, capsys
+    host, fake_pixi
 ):
     prefix = fake_pixi.env("vep", locked=("ensembl-vep",), installed=False)
     python_tool(prefix / "bin", "vep", "")
 
-    with pytest.raises(MissingDependencyError) as error:
-        _deps_status.run(Namespace(tool="vep", debug=False))
+    with pytest.raises(api.CommandFailed) as error:
+        api.deps.check(api.DepsCheckParams(tool="vep"))
     message = str(error.value)
     assert message.startswith("Tool not found: vep. Run: ")
     elsewhere = host.parent / "elsewhere"
@@ -102,8 +101,7 @@ def test_the_install_command_deps_check_offers_makes_the_tool_available(
     subprocess.run(shlex.split(message.split("Run: ", 1)[1]), cwd=elsewhere, check=True)
     clear_tool_caches()  # as a new CLI process would start
 
-    _deps_status.run(Namespace(tool="vep", debug=False))
-    assert capsys.readouterr().out.strip()
+    assert api.deps.check(api.DepsCheckParams(tool="vep")).text.strip()
 
 
 @posix_pixi
@@ -112,8 +110,8 @@ def test_no_install_command_for_a_tool_this_platforms_lockfile_lacks(host, fake_
     Linux only)."""
     fake_pixi.env("pacbio", locked=("sniffles",), installed=False)
 
-    with pytest.raises(MissingDependencyError) as error:
-        _deps_status.run(Namespace(tool="pbmm2", debug=False))
+    with pytest.raises(api.CommandFailed) as error:
+        api.deps.check(api.DepsCheckParams(tool="pbmm2"))
 
     assert str(error.value) == "Tool not found: pbmm2"
 
