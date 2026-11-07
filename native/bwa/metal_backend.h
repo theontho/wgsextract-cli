@@ -116,6 +116,8 @@ void wgse_inject_rescue_failure();
 void wgse_verify_gpu_rescue();
 // Whether CPU threads align a taken pair's rescue windows in one batch (default on).
 void wgse_set_cpu_rescue_batching(bool enable);
+// Bases a CPU thread aligns together for one pair (default 4 MiB).
+void wgse_set_cpu_rescue_bytes(size_t bytes);
 void wgse_set_gpu_extend(bool enable);
 // Pairs per GPU extension batch.
 void wgse_set_gpu_extend_pairs(size_t pairs);

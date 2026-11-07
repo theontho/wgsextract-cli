@@ -221,7 +221,8 @@ public:
 // The suffix-array rows mem_chain() passes to bwt_sa() for these intervals, in
 // its order: at most max_occ evenly spaced rows per interval. The casts spell
 // out C's implicit conversions so any wrap-around behaves identically.
-// The number of rows append_rows() adds for these intervals.
+// At most the number of rows append_rows() adds for these intervals (equal
+// unless an interval's step wraps around in upstream's int).
 inline size_t row_count(const bwtintv_t *begin, const bwtintv_t *end, int max_occ) {
     size_t total = 0;
     for (const bwtintv_t *p = begin; p != end; ++p)

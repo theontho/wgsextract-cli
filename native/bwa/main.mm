@@ -150,6 +150,16 @@ int run(int argc, char **argv) {
             }
             wgse_set_cpu_rescue_batching(strcmp(value, "on") == 0);
             command_index += 2;
+        } else if (strcmp(option, "--cpu-rescue-bytes") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            char *end = nullptr;
+            long bytes = strtol(value, &end, 10);
+            if (end == value || *end || bytes < 1 || bytes > (1L << 26)) {
+                fprintf(stderr, "--cpu-rescue-bytes requires 1..67108864 bytes\n");
+                return 2;
+            }
+            wgse_set_cpu_rescue_bytes(static_cast<size_t>(bytes));
+            command_index += 2;
         } else if (strcmp(option, "--gpu-rescue-batch") == 0) {
             const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
             char *end = nullptr;

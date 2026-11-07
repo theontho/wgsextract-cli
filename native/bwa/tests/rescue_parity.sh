@@ -194,12 +194,13 @@ same cpu-chunks.sam failed-chunks.sam
 # CPU threads align the rescue windows of a pair they take in one interleaved
 # batch (ksw_oracle.c.in). After a GPU rescue failure they take every remaining
 # pair; verification compares each batched result with upstream ksw_align2.
+cpu_rescue_bytes=4194304
 cpu_batch() {
     name=$1
     shift
-    "$aligner" --gpu-inject-rescue-failure --gpu-rescue-verify --gpu-policy all \
-        --gpu-rescue-batch 7 --backend auto mem "$@" reference.fa pairs-R1.fq pairs-R2.fq \
-        > "batch-$name.sam" 2> "batch-$name.log"
+    "$aligner" --cpu-rescue-bytes "$cpu_rescue_bytes" --gpu-inject-rescue-failure \
+        --gpu-rescue-verify --gpu-policy all --gpu-rescue-batch 7 --backend auto \
+        mem "$@" reference.fa pairs-R1.fq pairs-R2.fq > "batch-$name.sam" 2> "batch-$name.log"
     same "cpu-$name.sam" "batch-$name.sam"
     grep '^\[wgse-bwa\] rescue_batches' "batch-$name.log"
     test "$(metric "batch-$name.log" rescue_cpu_hits)" -gt 100
@@ -209,3 +210,9 @@ cpu_batch t4 -t 4
 cpu_batch gaps -t 4 -O 4,8 -E 2,1 -L 3,7 -U 9
 # 16-bit windows in the batch run upstream ksw_align2.
 cpu_batch wide -t 4 -A 4 -B 8
+# Regression (PR #502 review): windows past a thread's byte cap are aligned by
+# upstream ksw_align2 while the rest of the pair's windows stay batched.
+cpu_rescue_bytes=3000
+cp cpu-t4.sam cpu-capped.sam
+cpu_batch capped -t 4
+test "$(metric batch-capped.log rescue_cpu_skipped)" -gt 100

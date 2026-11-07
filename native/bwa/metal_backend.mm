@@ -62,6 +62,9 @@ const uint32_t *dense_low = nullptr, *dense_high = nullptr;
 // Mate rescue (mem_matesw's ksw_align2) on the GPU too.
 bool rescue_enabled = true, inject_rescue_failure = false, verify_rescue = false;
 bool cpu_rescue_batching = true;
+// Bounds the mate and reference bases a CPU thread aligns together for one
+// pair (the batch also copies reversed prefixes); further windows use upstream.
+size_t cpu_rescue_bytes = size_t(4) << 20;
 size_t rescue_batch_pairs = 4096;
 // Bounds one rescue batch's reads and reference windows (and its row scratch).
 constexpr size_t rescue_batch_bytes = size_t(64) << 20;
@@ -123,7 +126,7 @@ double gpu_seconds = 0, locate_seconds = 0, map_seconds = 0, cpu_wait_seconds = 
 size_t rescue_batches = 0, rescue_gpu_pairs = 0, rescue_cpu_pairs = 0, rescue_wasted_pairs = 0;
 size_t rescue_jobs = 0, rescue_declined = 0, rescue_skipped = 0;
 size_t rescue_hits = 0, rescue_misses = 0, rescue_mismatches = 0;
-size_t rescue_cpu_jobs = 0, rescue_cpu_hits = 0;
+size_t rescue_cpu_jobs = 0, rescue_cpu_hits = 0, rescue_cpu_skipped = 0;
 double rescue_gpu_seconds = 0, rescue_kernel_seconds = 0, rescue_seconds = 0,
     rescue_wait_seconds = 0;
 size_t extend_batches = 0, extend_jobs = 0, extend_skipped = 0, extend_gpu_pairs = 0,
@@ -1059,7 +1062,7 @@ struct RescueCurrent {
 };
 thread_local RescueCurrent rescue_current;
 struct RescueTally {
-    size_t hits = 0, misses = 0, mismatches = 0, cpu_jobs = 0, cpu_hits = 0;
+    size_t hits = 0, misses = 0, mismatches = 0, cpu_jobs = 0, cpu_hits = 0, cpu_skipped = 0;
 };
 thread_local RescueTally rescue_tally;
 
@@ -1133,6 +1136,11 @@ private:
         int64_t re, const uint8_t *ref, int xtra) {
         auto &cpu = *static_cast<CpuRescue *>(context);
         const int64_t tlen = re - rb;
+        if (cpu.bases.size() + size_t(l_ms) + size_t(tlen) > cpu_rescue_bytes) {
+            cpu.batch.keys.push_back({ms, rb, re, l_ms, is_rev, xtra, skipped_job});
+            ++rescue_tally.cpu_skipped;
+            return;
+        }
         const size_t query = cpu.bases.size(), target = query + size_t(l_ms);
         cpu.bases.resize(target + size_t(tlen));
         uint8_t *bases = cpu.bases.data();
@@ -1239,6 +1247,7 @@ private:
         rescue_mismatches += rescue_tally.mismatches;
         rescue_cpu_jobs += rescue_tally.cpu_jobs;
         rescue_cpu_hits += rescue_tally.cpu_hits;
+        rescue_cpu_skipped += rescue_tally.cpu_skipped;
         rescue_tally = {};
     }
 };
@@ -1542,10 +1551,12 @@ constexpr size_t cpu_locate_max_rows = size_t(1) << 20;
 void locate_on_cpu(const bwt_t *bwt, const mem_opt_t *opt, const bwtintv_t *begin,
     const bwtintv_t *end) {
     if (opt->max_occ <= 0) return;
-    const size_t count = row_count(begin, end, opt->max_occ);
-    if (count < 2 || count > cpu_locate_max_rows) return;
+    // row_count() bounds the rows; upstream's int step can stop an interval early.
+    const size_t bound = row_count(begin, end, opt->max_occ);
+    if (bound < 2 || bound > cpu_locate_max_rows) return;
     cpu_rows.clear();
     append_rows(begin, end, opt->max_occ, cpu_rows);
+    const size_t count = cpu_rows.size();
     cpu_positions.resize(count);
     locate_rows(bwt, cpu_rows.data(), cpu_positions.data(), count);
     cpu_located_rows.fetch_add(count, std::memory_order_relaxed);
@@ -1627,9 +1638,10 @@ void wgse_finish_backend() {
     fprintf(stderr, "[wgse-bwa] rescue_batches=%zu rescue_gpu_pairs=%zu rescue_cpu_pairs=%zu "
         "rescue_wasted_pairs=%zu rescue_jobs=%zu rescue_declined=%zu rescue_skipped=%zu "
         "rescue_hits=%zu rescue_misses=%zu rescue_mismatches=%zu rescue_cpu_jobs=%zu "
-        "rescue_cpu_hits=%zu\n", rescue_batches, rescue_gpu_pairs, rescue_cpu_pairs,
-        rescue_wasted_pairs, rescue_jobs, rescue_declined, rescue_skipped, rescue_hits,
-        rescue_misses, rescue_mismatches, rescue_cpu_jobs, rescue_cpu_hits);
+        "rescue_cpu_hits=%zu rescue_cpu_skipped=%zu\n", rescue_batches, rescue_gpu_pairs,
+        rescue_cpu_pairs, rescue_wasted_pairs, rescue_jobs, rescue_declined, rescue_skipped,
+        rescue_hits, rescue_misses, rescue_mismatches, rescue_cpu_jobs, rescue_cpu_hits,
+        rescue_cpu_skipped);
     fprintf(stderr, "[wgse-bwa] rescue seconds gpu=%.3f kernel=%.3f pair=%.3f cpu_wait=%.3f\n",
         rescue_gpu_seconds, rescue_kernel_seconds, rescue_seconds, rescue_wait_seconds);
     fprintf(stderr, "[wgse-bwa] extend_batches=%zu extend_jobs=%zu extend_skipped=%zu "
@@ -1697,6 +1709,10 @@ void wgse_set_gpu_rescue_batch(size_t pairs) {
 
 void wgse_set_cpu_rescue_batching(bool enable) {
     cpu_rescue_batching = enable;
+}
+
+void wgse_set_cpu_rescue_bytes(size_t bytes) {
+    cpu_rescue_bytes = bytes;
 }
 
 void wgse_inject_rescue_failure() {
