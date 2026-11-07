@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 45
     outputs:
       changed: ${{ steps.refresh.outputs.changed }}
+      patch_sha256: ${{ steps.refresh.outputs.patch_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,11 +64,20 @@ jobs:
           fi
           git diff --binary -- pixi.lock > out/pixi-update/pixi-lock.patch
           git diff --stat -- pixi.lock | tee out/pixi-update/summary.txt
+          # Fixed before any candidate code runs; the write job checks it.
+          sha=$(sha256sum out/pixi-update/pixi-lock.patch | cut -d' ' -f1)
+          echo "patch_sha256=$sha" >> "$GITHUB_OUTPUT"
           if [ -s out/pixi-update/pixi-lock.patch ]; then
             echo changed=true >> "$GITHUB_OUTPUT"
           else
             echo changed=false >> "$GITHUB_OUTPUT"
           fi
+      # Upload before validation installs and runs the candidate's packages.
+      - name: Publish candidate for a reviewed dependency PR
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pixi-update-candidate
+          path: out/pixi-update
       - name: Validate the candidate resolution
         id: validate
         if: steps.refresh.outputs.changed == 'true'
@@ -77,12 +87,6 @@ jobs:
           pixi run lint
           pixi run typecheck
           pixi run test-ci
-      - name: Publish candidate for a reviewed dependency PR
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: pixi-update-candidate
-          path: out/pixi-update
       - name: Summarise the candidate
         if: always()
         env:
@@ -140,11 +144,25 @@ jobs:
         id: push
         if: needs.refresh.outputs.changed == 'true'
         env:
-          PATCH_DIR: ${{ runner.temp }}/pixi-update
+          PATCH: ${{ runner.temp }}/pixi-update/pixi-lock.patch
+          PATCH_SHA256: ${{ needs.refresh.outputs.patch_sha256 }}
         run: |
+          # The artifact must be the patch made before candidate code ran, and
+          # may change pixi.lock only.
+          echo "$PATCH_SHA256  $PATCH" | sha256sum --check --strict -
+          touched=$(git apply --numstat "$PATCH" | cut -f3 | sort -u)
+          if [ "$touched" != pixi.lock ]; then
+            echo "::error::Refresh patch touches more than pixi.lock: $touched"
+            exit 1
+          fi
+          git apply --index --include=pixi.lock "$PATCH"
+          staged=$(git diff --cached --name-only)
+          if [ "$staged" != pixi.lock ]; then
+            echo "::error::Staged files are not exactly pixi.lock: $staged"
+            exit 1
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
-          git apply --index "$PATCH_DIR/pixi-lock.patch"
           git commit --quiet -m 'chore(deps): refresh pixi.lock within the declared pins' \
             -m "Resolved and validated by $RUN_URL"
           # The branch already holds this content (ignoring the purl ?source=
@@ -161,7 +179,6 @@ jobs:
       - name: Open or update the refresh PR
         if: needs.refresh.outputs.changed == 'true'
         env:
-          PATCH_DIR: ${{ runner.temp }}/pixi-update
           HEAD_SHA: ${{ steps.push.outputs.head }}
         run: |
           body="$RUNNER_TEMP/pr-body.md"
@@ -190,7 +207,7 @@ jobs:
 
           ```
           NOTE
-            cat "$PATCH_DIR/summary.txt"
+            git diff --stat HEAD~1 HEAD
             echo '```'
           } > "$body"
           pr=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$BRANCH" --base "$BASE" \
