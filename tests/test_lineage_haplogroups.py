@@ -100,7 +100,7 @@ _KIT_BODY = (
     "chr1\t1000\t.\tA\tG\t50\tPASS\t.\tGT\t0/1\n"
     "chrX\t5000\t.\tC\tT\t50\tPASS\t.\tGT\t1\n"
     "chrY\t2781480\t.\tC\tT\t50\tPASS\t.\tGT\t1\n"
-    "chrY\t22739367\t.\tG\tA\t50\tPASS\t.\tGT\t1\n"
+    "chrY\t15000000\t.\tG\tA\t50\tPASS\t.\tGT\t1\n"
     "chrM\t73\t.\tA\tG\t50\tPASS\t.\tGT\t1\n"
     "chrM\t263\t.\tA\tG\t50\tPASS\t.\tGT\t1\n"
 )
@@ -193,7 +193,7 @@ def test_y_haplogroup_uses_the_vcf_build(tmp_path, monkeypatch):
 
     monkeypatch.setattr(analysis, "analyze", stop)
     hg19 = {"chr1": 249_250_621, "chrY": 59_373_566}
-    body = "chrY\t2655180\t.\tG\tA\t50\tPASS\t.\tGT\t1\n"
+    body = "chrY\t7000000\t.\tG\tA\t50\tPASS\t.\tGT\t1\n"
     vcf = _vcf(tmp_path / "kit.vcf.gz", hg19, body, "##reference=hg19.fa\n")
     with pytest.raises(WGSExtractError, match="stop"):
         run_wgsextract("lineage", "y-haplogroup", "--input", vcf)
