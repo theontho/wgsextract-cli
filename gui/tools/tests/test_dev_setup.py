@@ -175,9 +175,18 @@ class DesktopPrerequisiteTests(unittest.TestCase):
 
 
 class CompileCacheAdviceTests(unittest.TestCase):
-    """New worktrees rebuild every Tauri crate unless Cargo has a shared compile cache."""
+    """New worktrees rebuild every Tauri crate unless sccache can share them."""
 
-    def advice(self, config: str | None, *, sccache: bool) -> str | None:
+    ROOT = Path("/work/wgsextract-cli-feature")
+    SCCACHE = '[build]\nrustc-wrapper = "sccache"\n'
+
+    def advice(
+        self,
+        cargo: dict[str, str],
+        *,
+        sccache: bool = True,
+        basedirs: list[str] | None = None,
+    ) -> str | None:
         (setup.ROOT / "tmp").mkdir(exist_ok=True)
         with (
             tempfile.TemporaryDirectory(dir=setup.ROOT / "tmp") as directory,
@@ -186,28 +195,56 @@ class CompileCacheAdviceTests(unittest.TestCase):
                 setup.shutil, "which", return_value="/bin/sccache" if sccache else None
             ),
         ):
-            environ.pop("RUSTC_WRAPPER", None)
-            environ.pop("CARGO_BUILD_RUSTC_WRAPPER", None)
+            for name in ("RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER", "SCCACHE_BASEDIRS"):
+                environ.pop(name, None)
             home = Path(directory)
-            if config is not None:
-                (home / "config.toml").write_text(config, encoding="utf-8")
-            return setup.compile_cache_advice(home)
+            for name, text in cargo.items():
+                (home / name).write_text(text, encoding="utf-8")
+            config = home / "sccache-config"
+            if basedirs is not None:
+                quoted = ", ".join(f"{d!r}" for d in basedirs)
+                config.write_text(f"basedirs = [{quoted}]\n", encoding="utf-8")
+            return setup.compile_cache_advice(home, self.ROOT, config)
 
-    def test_no_advice_once_cargo_uses_a_rustc_wrapper(self) -> None:
+    def test_no_advice_once_sccache_strips_this_worktree_root(self) -> None:
         self.assertIsNone(
-            self.advice('[build]\nrustc-wrapper = "sccache"\n', sccache=True)
+            self.advice({"config.toml": self.SCCACHE}, basedirs=[str(self.ROOT)])
+        )
+
+    def test_a_wrapper_without_this_worktree_in_basedirs_is_not_enough(self) -> None:
+        for basedirs in (None, ["/work/wgsextract-cli"]):
+            with self.subTest(basedirs=basedirs):
+                advice = self.advice({"config.toml": self.SCCACHE}, basedirs=basedirs)
+                assert advice is not None
+                self.assertIn(str(self.ROOT), advice)
+                self.assertIn("basedirs", advice)
+
+    def test_advises_the_config_file_cargo_actually_reads(self) -> None:
+        # Cargo ignores config.toml when the legacy `config` file exists.
+        advice = self.advice(
+            {"config.toml": self.SCCACHE, "config": "[net]\nretry = 3\n"},
+            basedirs=[str(self.ROOT)],
+        )
+        assert advice is not None
+        self.assertIn('rustc-wrapper = "sccache"', advice)
+        self.assertRegex(advice, r"[/\\]config,")
+
+    def test_no_advice_for_another_rustc_wrapper(self) -> None:
+        self.assertIsNone(
+            self.advice({"config.toml": '[build]\nrustc-wrapper = "/usr/bin/ccache"\n'})
         )
 
     def test_advises_installing_sccache_when_missing(self) -> None:
-        advice = self.advice(None, sccache=False)
+        advice = self.advice({}, sccache=False)
         assert advice is not None
         self.assertIn("cargo install sccache", advice)
         self.assertIn("config.toml", advice)
+        self.assertIn("basedirs", advice)
 
     def test_advises_only_configuring_when_sccache_is_installed(self) -> None:
-        for config in (None, "[net]\nretry = 3\n", "not = [valid toml"):
-            with self.subTest(config=config):
-                advice = self.advice(config, sccache=True)
+        for cargo in ({}, {"config.toml": "[net]\nretry = 3\n"}, {"config.toml": "not = [valid toml"}):
+            with self.subTest(cargo=cargo):
+                advice = self.advice(cargo)
                 assert advice is not None
                 self.assertIn('rustc-wrapper = "sccache"', advice)
                 self.assertNotIn("cargo install", advice)

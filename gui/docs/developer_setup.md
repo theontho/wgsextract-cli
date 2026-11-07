@@ -53,9 +53,10 @@ prerequisites are missing, after preparing the Web UI.
 
 ## Several worktrees on one machine
 
-Each branch can have its own worktree of the repository (`git worktree add
-../wgsextract-cli-my-change -b my-change`, then `just gui-setup` in it), so work
-in progress on one branch never spills into another. Setup in a new worktree
+Each branch can have its own worktree of the repository, so work in progress on
+one branch never spills into another. From the repository root (not `gui/`), run
+`git worktree add ../wgsextract-cli-my-change -b my-change`, then run
+`just gui-setup` from the new worktree's root. Setup in a new worktree
 reuses the per-user toolchains and does not reinstall them. What each worktree does
 repeat:
 
@@ -75,14 +76,28 @@ user, so a new worktree's first desktop build reuses them:
 cargo install sccache --locked
 ```
 
-Then add this to `~/.cargo/config.toml` (`%USERPROFILE%\.cargo\config.toml` on Windows):
+Then add this to Cargo's user config, `~/.cargo/config.toml`
+(`%USERPROFILE%\.cargo\config.toml` on Windows; if a file named just `config`
+exists there, Cargo reads that one instead, so edit it):
 
 ```toml
 [build]
 rustc-wrapper = "sccache"
 ```
 
-Setup prints an advisory until this is configured. Pointing every worktree at one
+sccache's cache keys include absolute paths, so a crate compiled in one worktree
+only matches in another once each worktree's root is listed in `basedirs` in
+sccache's config file (`~/.config/sccache/config` on Linux,
+`~/Library/Application Support/Mozilla.sccache/config` on macOS,
+`%APPDATA%\Mozilla\sccache\config\config` on Windows; see
+[sccache's configuration](https://github.com/mozilla/sccache/blob/main/docs/Configuration.md)):
+
+```toml
+basedirs = ["/home/me/src/wgsextract-cli", "/home/me/src/wgsextract-cli-my-change"]
+```
+
+Setup prints an advisory naming the file and the worktree root until both are
+configured. Pointing every worktree at one
 shared `target-dir` instead is not recommended: Cargo locks the directory, so
 builds in different worktrees wait on each other, and alternating branches with
 different dependencies rebuilds them anyway.
