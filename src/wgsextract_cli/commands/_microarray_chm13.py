@@ -57,6 +57,7 @@ from wgsextract_cli.core.microarray_utils import (
     GenotypeTally,
     convert_to_vendor_format,
     get_template_format,
+    resolve_format_key,
 )
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -254,7 +255,7 @@ def run_chm13(
 ) -> Path:
     """Genotype a CHM13 input and project it onto GRCh37 kits; returns the
     combined kit (GRCh37 coordinates)."""
-    from .microarray import _resolve_microarray_format, _template_search_roots
+    from .microarray import _template_search_roots
 
     if params.ref_vcf_tab or params.ploidy_file:
         raise WGSExtractError(
@@ -494,7 +495,7 @@ def run_chm13(
             )
             record_aadr(outdir, base, panel)
             continue
-        real_format = _resolve_microarray_format(fmt_key)
+        real_format = resolve_format_key(fmt_key)
         if real_format is None:
             continue
         info = get_template_format(real_format)

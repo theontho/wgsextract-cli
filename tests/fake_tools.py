@@ -733,7 +733,8 @@ elif args[0] == "run":
     name = opts.get("--name", "anonymous")
     log({"cmd": "run", "image": image, "name": name, "label": opts.get("--label"),
          "entrypoint": opts.get("--entrypoint"), "pull": opts.get("--pull"),
-         "env": env, "mounts": mounts, "command": command})
+         "gpus": opts.get("--gpus"), "env": env, "mounts": mounts,
+         "command": command})
     if image not in st["images"]:
         sys.exit(f"docker: Error response from daemon: No such image: {image}")
     if "--gpus" in opts and not st["gpus"]:
@@ -966,14 +967,32 @@ import json, sys
 
 if any(a.startswith("--query-gpu=") for a in sys.argv):
     with open(GPUS) as source:
-        for i, g in enumerate(json.load(source)):
-            if g is None:
-                print(f"{i}, NVIDIA GB10, [N/A], [N/A]")
-            else:
-                print(f"{i}, NVIDIA GeForce RTX 3090, {g['total']}, {g['total'] - g['used']}")
+        gpus = json.load(source)
+    if isinstance(gpus, str):
+        sys.exit(gpus)
+    for i, g in enumerate(gpus):
+        if g is None:
+            print(f"{i}, NVIDIA GB10, [N/A], [N/A]")
+        else:
+            print(f"{i}, NVIDIA GeForce RTX 3090, {g['total']}, {g['total'] - g['used']}")
 else:
     print("NVIDIA-SMI (fake)")
 """
+
+
+def fake_nvidia_smi(bindir: Path, gpus: Path) -> None:
+    """An ``nvidia-smi`` in ``bindir`` that reports the GPUs ``set_gpus``
+    wrote to ``gpus``."""
+    python_tool(bindir, "nvidia-smi", f"GPUS = {str(gpus)!r}\n" + _FAKE_NVIDIA_SMI)
+
+
+def set_gpus(path: Path, *gpus: tuple[int, int] | None, error: str = "") -> None:
+    """GPUs as (total, used) MiB, or None for one that reports its memory
+    as [N/A]; an RTX 3090 with nothing else on it. With ``error``,
+    nvidia-smi fails with that message, as with a broken driver."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    gpu_list = [None if g is None else {"total": g[0], "used": g[1]} for g in gpus]
+    path.write_text(json.dumps(error or gpu_list))
 
 
 class FakeParabricks:
@@ -995,9 +1014,7 @@ class FakeParabricks:
         self.log = root / "pbrun.jsonl"
         self.gpus = root / "gpus.json"
         self.set_gpus((24_576, 0))
-        python_tool(
-            self.bin, "nvidia-smi", f"GPUS = {str(self.gpus)!r}\n" + _FAKE_NVIDIA_SMI
-        )
+        fake_nvidia_smi(self.bin, self.gpus)
         header = (
             f"LOG = {str(self.log)!r}\nTOOLS = {tools!r}\nGPUS = {str(self.gpus)!r}\n"
         )
@@ -1007,14 +1024,7 @@ class FakeParabricks:
         self.docker.add_image(image)
 
     def set_gpus(self, *gpus: tuple[int, int] | None) -> None:
-        """GPUs as (total, used) MiB, or None for one that reports its memory
-        as [N/A]; an RTX 3090 with nothing else on it."""
-        self.gpus.parent.mkdir(parents=True, exist_ok=True)
-        self.gpus.write_text(
-            json.dumps(
-                [None if g is None else {"total": g[0], "used": g[1]} for g in gpus]
-            )
-        )
+        set_gpus(self.gpus, *gpus)
 
     def runs(self) -> list[tuple[str, list[str]]]:
         if not self.log.exists():

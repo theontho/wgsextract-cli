@@ -275,6 +275,63 @@ def test_minimap2_preflight_suggests_settings_that_fit_a_14g_cgroup(
     assert "Even one thread exceeds" in warning.message
 
 
+# #475: whole-genome HG002 ONT, PAO83395.pass.cram (103.7 GB, 20 kb mean).
+ONT_CRAM_BYTES = 103_693_962_633
+
+
+@pytest.mark.parametrize(
+    ("threads", "memory", "measured"),
+    # Peak RSS summed over the pipeline's processes, in a full 15.5 GiB cgroup:
+    # minimap2 12.6, samtools sort 2.1 / 1.3, samtools fastq 0.5 / 1.0 GiB.
+    [("5", "256M", 15.46), ("4", "192M", 15.26)],
+)
+def test_whole_genome_ont_estimate_covers_the_measured_peaks(
+    tmp_path, monkeypatch, threads, memory, measured
+):
+    """#475: -t 5 -m 256M was estimated at 13.85 GiB, reported to fit 15.46
+    GiB, and was OOM-killed after 5 hours."""
+    ref = _hs38(tmp_path)
+    options = {"samblaster": False, "preset": "map-ont"}
+    estimate = alignment_memory.estimate_mapping_memory(
+        ref, "minimap2", threads=threads, memory=memory,
+        input_bytes=ONT_CRAM_BYTES, **options,
+    )  # fmt: skip
+    assert estimate.total > measured * GIB * 1.05
+
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 15.46 * GIB)
+    result = results.CommandResult("realign")
+    with results.collecting(result):
+        alignment_memory.check_mapping_memory(
+            ref, "minimap2", threads=threads, memory=memory,
+            input_bytes=ONT_CRAM_BYTES, **options,
+        )  # fmt: skip
+    [warning] = result.warnings
+    assert warning.code == "alignment_memory"
+    suggested = (
+        str(warning.details["suggested_threads"]),
+        str(warning.details["suggested_memory"]),
+    )
+    assert int(suggested[0]) < int(threads)
+    fitted = alignment_memory.estimate_mapping_memory(
+        ref, "minimap2", threads=suggested[0], memory=suggested[1],
+        input_bytes=ONT_CRAM_BYTES, **options,
+    )  # fmt: skip
+    assert fitted.total <= 15.46 * GIB
+
+
+def test_longer_reads_raise_the_long_read_estimate(tmp_path):
+    """#475: minimap2's per-thread buffers grow with read length."""
+    ref = _hs38(tmp_path)
+
+    def total(read_length: float | None) -> int:
+        return alignment_memory.estimate_mapping_memory(
+            ref, "minimap2", threads="4", memory="256M", samblaster=False,
+            preset="map-ont", read_length=read_length, input_bytes=ONT_CRAM_BYTES,
+        ).total  # fmt: skip
+
+    assert total(10_000) == total(None) < total(60_000)
+
+
 def test_minimap2_small_short_read_input_does_not_get_the_genome_fallback():
     """A few-MB FASTQ pair aligned with minimap2 sr and samblaster must not be
     budgeted (and warned about) as the 680-million-read genome fallback."""

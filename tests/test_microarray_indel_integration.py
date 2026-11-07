@@ -20,7 +20,7 @@ probe_inputs = indel_fixtures.probe_inputs
         ("23andme_v5_2025", ["bad"], "FORMAT=PATH"),
         ("all", ["23andme_v5_2025={path}"], "selected"),
         ("ftdna_v2", ["ftdna_v2={path}"], "No verified"),
-        ("unknown", ["unknown={path}"], "No verified"),
+        ("23andme_v5", ["unknown={path}"], "Unknown microarray format"),
         (
             "23andme_v5_2025",
             ["23andme_v5_2025={path}", "23andMe-V5-2025={path}"],
@@ -38,7 +38,7 @@ def test_manifest_bindings_reject_unsupported_or_ambiguous_requests(
         formats=formats, indel_manifest=[entry.format(path=path) for entry in entries]
     )
     with pytest.raises(WGSExtractError, match=message):
-        indel_manifest_bindings(args, microarray._resolve_microarray_format)
+        indel_manifest_bindings(args)
 
 
 @pytest.mark.parametrize(

@@ -30,7 +30,12 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.output_checks import record_alignment_output
 from wgsextract_cli.core.paths import absolute_path, java_local_path
-from wgsextract_cli.core.read_counts import fastq_input_statistics
+from wgsextract_cli.core.read_counts import (
+    alignment_sample,
+    fasta_read_length,
+    fastq_input_statistics,
+    fastq_statistics,
+)
 from wgsextract_cli.core.reference_assets import header_sequences, is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.resource_estimates import (
@@ -1219,6 +1224,21 @@ def _minimap2_preset(args: argparse.Namespace) -> str:
     return "sr"
 
 
+def _long_read_length(reads: str, cram_opt: Sequence[str]) -> float | None:
+    """Sampled mean read length, which scales minimap2's long-read buffers."""
+    if _is_alignment_file(reads):
+        sample = alignment_sample(reads, cram_opt=list(cram_opt), single_end=True)
+        mean = sample.read_length
+    elif is_fasta_path(reads):
+        mean = fasta_read_length(reads)
+    else:
+        statistics = fastq_statistics(reads)
+        mean = statistics.read_length if statistics is not None else None
+    if mean is not None:
+        logging.info("Sampled mean read length: %s bp.", f"{mean:,.0f}")
+    return mean
+
+
 def align_minimap2(args: argparse.Namespace) -> None:
     setup = _prepare_alignment(args, ["minimap2", "samtools"], "Minimap2 alignment")
 
@@ -1245,6 +1265,9 @@ def align_minimap2(args: argparse.Namespace) -> None:
     if read_count is None and duplicates == "samblaster":
         statistics = fastq_input_statistics(args.r1, args.r2)
         read_count = statistics.reads if statistics is not None else None
+    read_length = getattr(args, "_input_read_length", None)
+    if read_length is None and preset != "sr" and input_bytes:
+        read_length = _long_read_length(args.r1, getattr(args, "_input_cram_opt", []))
     preflight_resources(
         lambda: estimate_resources(
             "align",
@@ -1259,6 +1282,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
             samblaster=duplicates == "samblaster",
             reads=read_count,
             platform=args.platform,
+            read_length=read_length,
             output_format=args.format,
         )
     )
@@ -1270,6 +1294,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
         samblaster=duplicates == "samblaster",
         reads=read_count,
         platform=args.platform,
+        read_length=read_length,
         preset=preset,
         input_bytes=input_bytes,
     )

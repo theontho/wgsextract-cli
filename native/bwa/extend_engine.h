@@ -6,14 +6,36 @@
 #include "bwamem.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
 namespace wgse::extend {
 static_assert(sizeof(ExtendParameters) == 52 && sizeof(ExtendJob) == 36);
 static_assert(sizeof(ExtendResult) == 112);
-// The kernel's threadgroup arrays are sized for two SIMD-groups.
 constexpr size_t threadgroup_size = 64;
+// The longest query of each kernel class; extend.metal instantiates
+// extend_left_<cap> and extend_right_<cap> for each.
+constexpr uint32_t class_caps[] = {16, 32, 48, 64, 80, 96, 112, 128, extend_max_query};
+constexpr size_t classes = sizeof(class_caps) / sizeof(class_caps[0]);
+static_assert(class_caps[classes - 1] == extend_max_query);
+
+// Both sides' pipelines for every class, or false if any fails to build.
+inline bool pipelines(wgse::metal::Runtime &runtime, const char *source,
+    __strong id<MTLComputePipelineState> (&out)[2][classes]) {
+    id<MTLLibrary> library = runtime.library(source);
+    if (!library) return false;
+    for (int side = 0; side < 2; ++side)
+        for (size_t k = 0; k < classes; ++k) {
+            const std::string name = std::string(side ? "extend_right_" : "extend_left_")
+                + std::to_string(class_caps[k]);
+            out[side][k] = runtime.pipeline(library, name.c_str());
+            if (!out[side][k] || threadgroup_size > out[side][k].maxTotalThreadsPerThreadgroup)
+                return false;
+        }
+    return true;
+}
 
 // The kernel's parameters for opt's scoring, or false if ksw_extend2 would
 // score differently than it models: a bwa_fill_scmat-style matrix with a
@@ -47,7 +69,10 @@ inline bool parameters(const mem_opt_t &opt, ExtendParameters &p) {
         && opt.o_del < limit && opt.o_ins < limit && opt.e_del < limit && opt.e_ins < limit;
     const bool bounded = opt.w > 0 && opt.w < limit && std::abs(opt.zdrop) < limit
         && std::abs(opt.pen_clip5) < limit && std::abs(opt.pen_clip3) < limit;
-    return highest > 0 && gaps && bounded;
+    // Gap penalties must fit the kernel's 16-bit cells.
+    const bool narrow = opt.o_del + opt.e_del <= INT16_MAX
+        && opt.o_ins + int(extend_max_query) * opt.e_ins <= INT16_MAX;
+    return highest > 0 && gaps && bounded && narrow;
 }
 
 // Job indices with a side to extend, longest query first (a counting sort),
@@ -73,15 +98,16 @@ inline size_t order_side(const ExtendJob *jobs, size_t count, bool right, uint32
 class GpuExtend {
 public:
     wgse::metal::Runtime &runtime;
-    id<MTLComputePipelineState> left, right;
+    id<MTLComputePipelineState> kernels[2][classes];
 
-    GpuExtend(wgse::metal::Runtime &metal, id<MTLComputePipelineState> left_kernel,
-        id<MTLComputePipelineState> right_kernel)
-        : runtime(metal), left(left_kernel), right(right_kernel) {
-        if (!left || !right || !runtime.queue()) throw std::runtime_error("extension kernel unavailable");
-        if (threadgroup_size > left.maxTotalThreadsPerThreadgroup
-            || threadgroup_size > right.maxTotalThreadsPerThreadgroup)
-            throw std::runtime_error("extension kernel threadgroup too large");
+    GpuExtend(wgse::metal::Runtime &metal, id<MTLComputePipelineState> const (&built)[2][classes])
+        : runtime(metal) {
+        if (!runtime.queue()) throw std::runtime_error("extension kernel unavailable");
+        for (int side = 0; side < 2; ++side)
+            for (size_t k = 0; k < classes; ++k) {
+                kernels[side][k] = built[side][k];
+                if (!kernels[side][k]) throw std::runtime_error("extension kernel unavailable");
+            }
     }
 
     // Shared buffers for up to `count` jobs (their results and two orders) and `bytes` bases.
@@ -112,32 +138,50 @@ public:
             if (!command) throw std::runtime_error("Metal command allocation failed");
             for (int side = 0; side < 2; ++side) {
                 if (sides[side] == 0) continue;
-                id<MTLComputeCommandEncoder> encoder = [command computeCommandEncoder];
+                // The jobs of each class are a contiguous run of the descending
+                // order; the classes' dispatches are independent.
+                id<MTLComputeCommandEncoder> encoder =
+                    [command computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
                 if (!encoder) throw std::runtime_error("Metal command allocation failed");
-                ExtendParameters current = p;
-                current.count = static_cast<uint32_t>(sides[side]);
-                [encoder setComputePipelineState:side ? right : left];
-                [encoder setBuffer:bases offset:0 atIndex:0];
-                [encoder setBuffer:jobs offset:0 atIndex:1];
-                [encoder setBuffer:results offset:0 atIndex:2];
-                [encoder setBytes:&current length:sizeof(current) atIndex:3];
-                [encoder setBuffer:order offset:side * capacity * sizeof(uint32_t) atIndex:4];
-                const size_t per_group = 32 / extend_lanes;
-                const size_t threads = (sides[side] + per_group - 1) / per_group * 32;
-                [encoder dispatchThreads:MTLSizeMake(threads, 1, 1)
-                    threadsPerThreadgroup:MTLSizeMake(threadgroup_size, 1, 1)];
+                command.label = encoder.label = side ? @"extend_right" : @"extend_left";
+                const uint32_t *slots = indices + side * capacity;
+                auto length = [&](size_t slot) {
+                    const ExtendJob &j = job[slots[slot]];
+                    return side ? j.right_qlen : j.left_qlen;
+                };
+                size_t low = 0;
+                for (size_t k = classes; k-- > 0 && low < sides[side];) {
+                    const uint32_t below = k ? class_caps[k - 1] : 0;
+                    size_t high = low;
+                    while (high < sides[side] && length(high) > below) ++high;
+                    if (high == low) continue;
+                    ExtendParameters current = p;
+                    current.count = static_cast<uint32_t>(high - low);
+                    [encoder setComputePipelineState:kernels[side][k]];
+                    [encoder setBuffer:bases offset:0 atIndex:0];
+                    [encoder setBuffer:jobs offset:0 atIndex:1];
+                    [encoder setBuffer:results offset:0 atIndex:2];
+                    [encoder setBytes:&current length:sizeof(current) atIndex:3];
+                    [encoder setBuffer:order offset:(side * capacity + low) * sizeof(uint32_t)
+                               atIndex:4];
+                    const size_t per_group = 32 / extend_lanes;
+                    const size_t threads = (current.count + per_group - 1) / per_group * 32;
+                    [encoder dispatchThreads:MTLSizeMake(threads, 1, 1)
+                        threadsPerThreadgroup:MTLSizeMake(threadgroup_size, 1, 1)];
+                    low = high;
+                }
                 [encoder endEncoding];
             }
             [command addCompletedHandler:done];
-            [command commit];
+            wgse::metal::Runtime::commit(command);
         }
     }
 
     // A completed command buffer's GPU time, or a failure.
     static double finished(id<MTLCommandBuffer> command) {
         if (command.status != MTLCommandBufferStatusCompleted)
-            throw std::runtime_error(command.error
-                ? command.error.localizedDescription.UTF8String : "Metal command failed");
+            throw std::runtime_error(std::string("GPU extension: ") + (command.error
+                ? command.error.localizedDescription.UTF8String : "Metal command failed"));
         return std::max(0.0, command.GPUEndTime - command.GPUStartTime);
     }
 };

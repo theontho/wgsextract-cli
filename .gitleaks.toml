@@ -5,5 +5,9 @@ useDefault = true
 description = "Microarray vendor format key is not a secret"
 # Both must match, so other secrets in this file are still reported.
 condition = "AND"
-paths = ['''src/wgsextract_cli/commands/microarray\.py''']
+paths = [
+    '''src/wgsextract_cli/commands/microarray\.py''',
+    '''src/wgsextract_cli/core/microarray_utils\.py''',
+    '''tests/test_microarray_pr43_regressions\.py''',
+]
 regexes = ['''23andMe_SNPs_API''']

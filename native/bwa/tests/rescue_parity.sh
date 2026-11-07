@@ -107,6 +107,24 @@ for threads in 1 4; do
     run "t$threads" -t "$threads"
     test "$(metric "metal-t$threads.log" rescue_hits)" -gt 1000
 done
+# Small chunks: Metal maps each chunk while the previous one pairs.
+run chunks -t 4 -K 20000
+test "$(metric metal-chunks.log rescue_hits)" -gt 0
+test "$(metric metal-chunks.log overlapped_chunks)" -gt 0
+# macOS aborts command buffers that delay the display (ImpactingInteractivity),
+# for example while another process uses the GPU; that work is committed again.
+# Report every second piece of seeding, locate, rescue and extension work as
+# interrupted, so its kernels run twice: the results must not change.
+"$aligner" --gpu-inject-interruptions 2 --gpu-policy all --gpu-rescue-batch 7 \
+    --gpu-rescue-verify --gpu-extend-verify --metal mem -t 4 -K 20000 reference.fa \
+    pairs-R1.fq pairs-R2.fq > interrupted.sam 2> interrupted.log
+same cpu-chunks.sam interrupted.sam
+test "$(grep -c 'CPU fallback' interrupted.log)" -eq 0
+test "$(metric interrupted.log interruptions)" -gt 0
+test "$(metric interrupted.log rescue_hits)" -gt 0
+test "$(metric interrupted.log rescue_mismatches)" -eq 0
+test "$(metric interrupted.log extend_hits)" -gt 0
+test "$(metric interrupted.log extend_mismatches)" -eq 0
 # Other gap penalties and clipping; a manual insert size distribution.
 run gaps -t 4 -O 4,8 -E 2,1 -L 3,7 -U 9
 test "$(metric metal-gaps.log rescue_hits)" -gt 0
@@ -150,15 +168,25 @@ same cpu-saturate.sam metal-saturate.sam
 test "$(metric metal-saturate.log rescue_declined)" -eq 200
 test "$(metric metal-saturate.log rescue_misses)" -eq 0
 
-# A failed rescue batch is finished on the CPU. Explicit --metal still reports it.
+# A rescue batch that fails after the first one (while the next is packed) is
+# finished on the CPU, as is the rest. Explicit --metal still reports it.
 status=0
-"$aligner" --gpu-inject-rescue-failure --gpu-policy all --metal mem -t 4 reference.fa \
+"$aligner" --gpu-inject-rescue-failure --gpu-policy all --gpu-rescue-batch 7 --metal mem -t 4 reference.fa \
     pairs-R1.fq pairs-R2.fq > failed-metal.sam 2> failed-metal.log || status=$?
 test "$status" -eq 1
 grep -q 'CPU fallback: injected GPU rescue failure' failed-metal.log
+test "$(metric failed-metal.log rescue_batches)" -ge 1
 grep -q 'Metal execution failed (alignments were completed on the CPU)' failed-metal.log
 same cpu.sam failed-metal.sam
-"$aligner" --gpu-inject-rescue-failure --gpu-policy all --backend auto mem -t 4 \
+"$aligner" --gpu-inject-rescue-failure --gpu-policy all --gpu-rescue-batch 7 --backend auto mem -t 4 \
     reference.fa pairs-R1.fq pairs-R2.fq > failed-auto.sam 2> failed-auto.log
 grep -q 'CPU fallback: injected GPU rescue failure' failed-auto.log
 same cpu.sam failed-auto.sam
+# The same while the next chunk is being mapped on the GPU.
+status=0
+"$aligner" --gpu-inject-rescue-failure --gpu-policy all --gpu-rescue-batch 7 --metal mem -t 4 \
+    -K 20000 reference.fa pairs-R1.fq pairs-R2.fq > failed-chunks.sam 2> failed-chunks.log \
+    || status=$?
+test "$status" -eq 1
+grep -q 'CPU fallback: injected GPU rescue failure' failed-chunks.log
+same cpu-chunks.sam failed-chunks.sam

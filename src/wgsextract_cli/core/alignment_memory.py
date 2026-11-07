@@ -65,6 +65,19 @@ _DECODED_BYTES_PER_INPUT_BYTE = 96
 # gzip/BGZF stores a FASTA's bases in at least 0.2 bytes each.
 _FASTA_GZ_BASES_PER_BYTE = 5
 _MINIMAP2_THREAD_BYTES = _GIB // 2
+# Whole-genome HG002 ONT (#475: PAO83395, 20 kb mean, 32 kb N50, hs38) peaked
+# 5.8 GiB above the index at both -t 4 and -t 5 while its 15.5 GiB cgroup was
+# full, so these are lower bounds; -t 5 -m 256M was OOM-killed after 5 hours
+# against a 13.85 GiB estimate. Long reads' per-thread buffers grow with their
+# length (a 40k-read slice of the same run stayed 1.6 GiB lower), so allow
+# 0.85 GiB per thread at a 20 kb mean read length and scale it for longer reads.
+_LONG_READ_THREAD_BYTES = 0.85 * _GIB
+_LONG_READ_CALIBRATION_LENGTH = 20_000
+# samtools sort held 1.65-1.70 times -m per thread of these records.
+_LONG_READ_SORT_FACTOR = 1.75
+# samtools fastq peaked at 1.0 GiB decoding the CRAM, beside the other stages.
+_LONG_READ_DECODER_BYTES = _GIB
+_LONG_READ_HEADROOM = 0.10
 
 
 class MappingMemory(NamedTuple):
@@ -73,6 +86,7 @@ class MappingMemory(NamedTuple):
     samblaster: int
     sort: int
     overhead: int
+    headroom: int = 0
 
     @property
     def total(self) -> int:
@@ -193,14 +207,25 @@ def _working_memory(
     return math.ceil(max(_ALIGNER_WORKING_BYTES, working))
 
 
+def _long_read_preset(preset: str | None) -> bool:
+    return preset is not None and preset != "sr"
+
+
 def _minimap2_memory(
-    bases: int, preset: str | None, threads: int, input_bytes: int | None
-) -> tuple[int, int]:
-    """(resident index, working memory beyond it) for minimap2. An unknown
-    preset gets the largest index. The build's scratch counts as working
-    memory while it exceeds mapping's."""
+    bases: int,
+    preset: str | None,
+    threads: int,
+    input_bytes: int | None,
+    read_length: float | None = None,
+) -> tuple[int, int, int]:
+    """(resident index, the build's scratch beyond it, mapping's working
+    memory beyond it) for minimap2. An unknown preset gets the largest index.
+    Long reads' thread buffers scale with their mean ``read_length`` above the
+    calibration's."""
     if threads < 1:
         raise ValueError("threads must be positive")
+    if read_length is not None and (not math.isfinite(read_length) or read_length <= 0):
+        raise ValueError("read_length must be finite and positive")
     index = math.ceil(
         bases
         * _MINIMAP2_INDEX_BYTES_PER_BASE.get(
@@ -212,14 +237,19 @@ def _minimap2_memory(
         * _MINIMAP2_BUILD_BYTES_PER_BASE.get(preset or "", _MINIMAP2_BUILD_DEFAULT)
     )
     batch = _MINIMAP2_BATCH_BYTES
-    thread_work = threads * _MINIMAP2_THREAD_BYTES
+    per_thread: float = _MINIMAP2_THREAD_BYTES
+    if _long_read_preset(preset):
+        length = read_length or _LONG_READ_CALIBRATION_LENGTH
+        per_thread = _LONG_READ_THREAD_BYTES * max(
+            1, length / _LONG_READ_CALIBRATION_LENGTH
+        )
+    thread_work = math.ceil(threads * per_thread)
     if input_bytes is not None:
         decoded = max(0, input_bytes) * _DECODED_BYTES_PER_INPUT_BYTE
         batch = min(batch, decoded)
         # One long read can still need a whole thread's alignment buffers.
-        thread_work = min(thread_work, max(_MINIMAP2_THREAD_BYTES, decoded))
-    mapping = batch + thread_work
-    return index, max(build - index, mapping)
+        thread_work = min(thread_work, max(math.ceil(per_thread), decoded))
+    return index, max(0, build - index), batch + thread_work
 
 
 def _fasta_bases_bound(ref: str | None) -> int:
@@ -271,21 +301,40 @@ def estimate_mapping_memory(
     sort = int(int(threads) * per_thread * 1.25)
     input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
     if aligner == "minimap2":
-        index, working = _minimap2_memory(bases, preset, int(threads), input_bytes)
+        long_read = _long_read_preset(preset)
+        index, build, mapping = _minimap2_memory(
+            bases, preset, int(threads), input_bytes, read_length
+        )
+        # The build's scratch counts as working memory while it exceeds mapping's.
+        working = max(build, mapping)
+        overhead = _PIPELINE_OVERHEAD_BYTES
+        if long_read:
+            sort = int(int(threads) * per_thread * _LONG_READ_SORT_FACTOR)
+            overhead += _LONG_READ_DECODER_BYTES
         if input_bytes is not None:
+            decoded = max(0, input_bytes) * _DECODED_BYTES_PER_INPUT_BYTE
             # samtools sort fills its buffers only with the reads it receives.
-            sort = min(sort, max(0, input_bytes) * _DECODED_BYTES_PER_INPUT_BYTE)
+            sort = min(sort, decoded)
+            overhead = min(overhead, _PIPELINE_OVERHEAD_BYTES + decoded)
         if reads is None and input_bytes is not None:
             # A compressed short read takes at least 8 bytes.
             input_reads = min(input_reads, max(0, input_bytes) // 8)
-        return MappingMemory(
-            index,
-            working,
+        samblaster_bytes = (
             # Only short reads (preset sr) have their duplicates marked.
-            (input_reads * _SAMBLASTER_BYTES_PER_PAIR + 1) // 2 if samblaster else 0,
-            sort,
-            _PIPELINE_OVERHEAD_BYTES,
+            (input_reads * _SAMBLASTER_BYTES_PER_PAIR + 1) // 2 if samblaster else 0
         )
+        if not long_read:
+            return MappingMemory(index, working, samblaster_bytes, sort, overhead)
+        # Long reads' measured mapping peaks are lower bounds (see above). While
+        # the index builds, no reads reach the sort and the decoder is blocked
+        # on its pipe, so the measured build peak stands on its own.
+        mapping_parts = (index, mapping, samblaster_bytes, sort, overhead)
+        headroom = math.ceil(sum(mapping_parts) * _LONG_READ_HEADROOM)
+        building = MappingMemory(
+            index, build, samblaster_bytes, 0, _PIPELINE_OVERHEAD_BYTES
+        )
+        mapping_phase = MappingMemory(*mapping_parts, headroom)
+        return max(building, mapping_phase, key=lambda phase: phase.total)
     suffixes, bytes_per_base = _INDEX_PARTS[aligner]
     # A missing/unknown index may be built later; don't omit it from the preflight.
     index = int(bases * bytes_per_base)

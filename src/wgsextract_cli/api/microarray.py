@@ -3,12 +3,14 @@ files generated from a BAM/CRAM or VCF."""
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.microarray_quirks import MODES
 from wgsextract_cli.core.results import CommandResult
+from wgsextract_cli.core.utils import UsageError
 
 from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
@@ -20,6 +22,25 @@ from ._shared import (
     table_format_param,
     threads_param,
 )
+
+
+def _check_formats(formats: str) -> None:
+    """Refuse unknown names: each becomes part of template and output paths."""
+    from wgsextract_cli.core.microarray_aadr import aadr_panel
+    from wgsextract_cli.core.microarray_utils import resolve_format_key
+
+    for item in formats.split(","):
+        if aadr_panel(item) is None:
+            resolve_format_key(item)
+
+
+def _formats_type(text: str) -> str:
+    """--formats, checked while parsing, before the input is opened."""
+    try:
+        _check_formats(text)
+    except UsageError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+    return text
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -40,6 +61,7 @@ class MicroarrayParams(Params):
     formats: str = param(
         "all",
         help=CLI_HELP["micro_formats_help"],
+        cli_type=_formats_type,
         doc="Comma-separated formats to generate, e.g. "
         '"23andme_v5,ancestry_v2" (default: "all", the combined kit only); see '
         "`wgsextract microarray --help` for the list.",
@@ -140,6 +162,10 @@ class MicroarrayParams(Params):
         None, help=CLI_HELP["arg_region"], flags=("-r", "--region")
     )
     qc_min_depth: float | None = depth_param()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        _check_formats(self.formats)
 
 
 def generate(

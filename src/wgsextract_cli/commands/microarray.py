@@ -60,6 +60,7 @@ from wgsextract_cli.core.microarray_targets import (
 from wgsextract_cli.core.microarray_utils import (
     GenotypeTally,
     _resolve_templates_roots,
+    resolve_format_key,
 )
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
@@ -99,50 +100,7 @@ from ._microarray_vcf import (
     _prepare_vcf_target_tab_for_input,
 )
 
-_MICROARRAY_TEMPLATE_MAP = {
-    # 23andMe's v1 and v2 chips export the same marker list.
-    "23andme_v1": "23andMe_V2",
-    "23andme_v2": "23andMe_V2",
-    "23andme_v3": "23andMe_V3",
-    "23andme_v4": "23andMe_V4",
-    "23andme_v5": "23andMe_V5",
-    "23andme_v5_2025": "23andMe_V5_2025",
-    "23andme_v3+v5": "23andMe_V35",
-    "23andme_v3_v5": "23andMe_V35",
-    "23andme_v35": "23andMe_V35",
-    "23andme_api": "23andMe_SNPs_API",
-    "ancestry_v1": "Ancestry_V1",
-    "ancestry_v2": "Ancestry_V2",
-    "ancestry_v2_2021": "Ancestry_V2_2021",
-    "ancestry_v2_2024": "Ancestry_V2_2024",
-    "ftdna_v1": "FTDNA_V1_Affy",
-    "ftdna_v1_affy": "FTDNA_V1_Affy",
-    "familytreedna_v1": "FTDNA_V1_Affy",
-    "ftdna_v2": "FTDNA_V2",
-    "ftdna_v3": "FTDNA_V3",
-    "familytreedna_v2": "FTDNA_V2",
-    "familytreedna_v3": "FTDNA_V3",
-    "ldna_v1": "LDNA_V1",
-    "ldna_v2": "LDNA_V2",
-    "livingdna_v1": "LDNA_V1",
-    "livingdna_v2": "LDNA_V2",
-    "myheritage_v1": "MyHeritage_V1",
-    "myheritage_v2": "MyHeritage_V2",
-    "myheritage_gsa_2025": "MyHeritage_GSA_2025",
-    "myheritage_gsa_2025_609424": "MyHeritage_GSA_2025_609424",
-    "nucleus": "Nucleus_V1",
-    "nucleus_v1": "Nucleus_V1",
-}
-
-
 _PACKAGED_ASSETS = absolute_path(__file__).parents[1] / "assets"
-
-
-def _resolve_microarray_format(format_key: str) -> str | None:
-    normalized = format_key.strip().lower().replace("-", "_")
-    if normalized in {"", "all", "combined_all"}:
-        return None
-    return _MICROARRAY_TEMPLATE_MAP.get(normalized, normalized)
 
 
 _HG19_TO_HG38 = "hg19ToHg38.over.chain.gz"
@@ -319,7 +277,7 @@ def _convert_microarray_outputs(
             record_aadr(outdir, base_name, panel)
             written_panels.add(panel)
             continue
-        real_fmt = _resolve_microarray_format(fmt_key)
+        real_fmt = resolve_format_key(fmt_key)
         if real_fmt is None:
             continue
 
@@ -377,7 +335,7 @@ def _run(params: MicroarrayParams, cleanup: contextlib.ExitStack) -> None:
         raise UsageError(LOG_MESSAGES["input_required"])
     input_path = str(params.input)
     verify_paths_exist({"--input": input_path})
-    indel_bindings = indel_manifest_bindings(params, _resolve_microarray_format)
+    indel_bindings = indel_manifest_bindings(params)
 
     verify_dependencies(["bcftools", "tabix", "bgzip", "samtools"])
     log_dependency_info(["bcftools", "tabix", "bgzip", "samtools"])

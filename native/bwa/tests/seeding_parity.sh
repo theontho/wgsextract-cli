@@ -114,7 +114,7 @@ grep -q 'concurrent_parity=exact' concurrent-parity.log
 same cpu-edges.sam metal-edges.sam
 grep -Eq 'gpu_batches=[1-9][0-9]* .*fallback_reads=[1-9][0-9]*' metal-edges.log
 # Every GPU-located row is consumed by mem_chain in order.
-grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0$' metal-edges.log
+grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0( |$)' metal-edges.log
 "$aligner" --gpu-policy all --gpu-locate off --metal mem -t 1 -K 10000 reference.fa reads.fq \
     > seeds-only.sam 2> seeds-only.log
 same cpu-edges.sam seeds-only.sam
@@ -127,7 +127,7 @@ for occ in 1 7 50; do
     "$aligner" --gpu-policy all --gpu-batch 300 --metal mem -t 2 -c "$occ" -K 20000 \
         reference.fa reads.fq > "metal-c$occ.sam" 2> "metal-c$occ.log"
     same "cpu-c$occ.sam" "metal-c$occ.sam"
-    grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0$' "metal-c$occ.log"
+    grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0( |$)' "metal-c$occ.log"
 done
 
 # Regression (PR #455 review): a per-batch locate cap leaves the remaining
@@ -135,7 +135,21 @@ done
 "$aligner" --gpu-policy all --gpu-batch 300 --gpu-locate-rows 1000 --metal mem -t 2 -c 50 \
     -K 20000 reference.fa reads.fq > metal-capped.sam 2> metal-capped.log
 same cpu-c50.sam metal-capped.sam
-grep -Eq 'unlocated_reads=[1-9][0-9]* located_rows=[1-9][0-9]* locate_misses=0$' metal-capped.log
+grep -Eq 'unlocated_reads=[1-9][0-9]* located_rows=[1-9][0-9]* locate_misses=0( |$)' metal-capped.log
+
+# Denser suffix-array samples, built after some chunks, serve the GPU's located
+# rows and the capped reads' upstream bwt_sa() lookups alike. Small build
+# dispatches (19 and 277 here) check entries past the first dispatch.
+for shift in 1 4; do
+    "$aligner" --gpu-policy all --gpu-batch 300 --gpu-locate-rows 1000 \
+        --gpu-locate-dense "$shift" --gpu-locate-dense-after 500 --gpu-locate-dense-slice 1056 \
+        --metal mem -t 2 -c 50 \
+        -K 20000 reference.fa reads.fq > "metal-dense$shift.sam" 2> "metal-dense$shift.log"
+    same cpu-c50.sam "metal-dense$shift.sam"
+    grep -q "locate_dense shift=$shift built=1 " "metal-dense$shift.log"
+    grep -Eq 'unlocated_reads=[1-9][0-9]* located_rows=[1-9][0-9]* locate_misses=0( |$)' \
+        "metal-dense$shift.log"
+done
 
 # Regression (PR #455 review): paired-end reads across many GPU batches, more
 # than the scheduler keeps outstanding, so later batches' mate offsets are used.
@@ -166,7 +180,12 @@ awk 'BEGIN {
     pairs-R2.fq > metal-pairs.sam 2> metal-pairs.log
 same cpu-pairs.sam metal-pairs.sam
 grep -Eq 'gpu_batches=([4-9]|[1-9][0-9]+) gpu_reads=1200 ' metal-pairs.log
-grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0$' metal-pairs.log
+grep -Eq 'located_rows=[1-9][0-9]* locate_misses=0( |$)' metal-pairs.log
+"$aligner" --gpu-policy all --gpu-batch 64 --gpu-locate-dense 4 --gpu-locate-dense-after 0 \
+    --metal mem -t 3 reference.fa pairs-R1.fq pairs-R2.fq > metal-pairs-dense.sam \
+    2> metal-pairs-dense.log
+same cpu-pairs.sam metal-pairs-dense.sam
+grep -q 'locate_dense shift=4 built=1 ' metal-pairs-dense.log
 
 "$aligner" mem -t 3 -K 20000 -k 11 -r 1.1 -s 5 -y 0 reference.fa reads.fq \
     > cpu-options.sam 2> cpu-options.log

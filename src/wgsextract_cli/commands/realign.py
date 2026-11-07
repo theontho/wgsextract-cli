@@ -22,6 +22,7 @@ that finished, and redoes the one that didn't.
 
 import argparse
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -50,11 +51,14 @@ from wgsextract_cli.core.reference_assets import (
     resolve_reference_library,
 )
 from wgsextract_cli.core.resource_estimates import (
+    GIB,
     PreflightEstimate,
     estimate_resources,
+    long_read_disk,
     preflight_resources,
 )
 from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.steps import (
     Decision,
@@ -200,6 +204,45 @@ def _preflight_disk_space(
             f"(needs ~{total_gb} GB). Free up space or rerun with "
             "--no-preflight to override (not recommended)."
         )
+
+
+def _preflight_long_read_disk_space(
+    input_path: str,
+    outdir: str,
+    *,
+    output_format: str,
+    extract: bool,
+    threads: str,
+    memory: str,
+) -> None:
+    """Long reads stream into the aligner without a collate: the peak is the
+    sorter's spills beside its output, and an extracted FASTQ when kept."""
+    amount, unit = parse_memory(memory)
+    disk = long_read_disk(
+        input_path,
+        Path(input_path).stat().st_size,
+        output_format,
+        int(threads) * amount * (GIB if unit == "G" else 1024**2),
+    )
+    fastq = disk.fastq if extract else 0
+    scratch = configured_temp_directory()
+    if scratch and Path(scratch).stat().st_dev != Path(outdir).stat().st_dev:
+        requirements = [(outdir, disk.output + fastq), (scratch, disk.spill)]
+    else:
+        requirements = [(outdir, disk.spill + disk.output + fastq)]
+    for directory, needed in requirements:
+        gigabytes = math.ceil(needed / GIB)
+        logging.warning(
+            "Realign pre-flight: ~%d GB free space required at %s.",
+            gigabytes,
+            directory,
+        )
+        if not check_free_space(directory, needed / GIB):
+            raise WGSExtractError(
+                f"Insufficient free disk space at {directory} for realign "
+                f"(needs ~{gigabytes} GB). Free up space or rerun with "
+                "--no-preflight to override (not recommended)."
+            )
 
 
 def _input_cram_reference(args: argparse.Namespace) -> list[str]:
@@ -496,6 +539,7 @@ def _realign_long_reads(
     target: str | None,
     outdir: str,
     threads: str,
+    memory: str,
     input_cram_opt: list[str] | None,
 ) -> None:
     """ONT and PacBio reads are single-end and carry base-modification tags:
@@ -549,12 +593,13 @@ def _realign_long_reads(
         return
     cram_opt = input_cram_opt or _input_cram_reference(args)
     if not args.no_preflight:
-        _preflight_disk_space(
+        _preflight_long_read_disk_space(
             args.input,
             outdir,
-            need_extract=bool(extract_decision and extract_decision.run),
-            reads=indexed_read_count(args.input, threads),
-            keep_fastq=args.keep_fastq,
+            output_format=getattr(args, "format", "BAM"),
+            extract=bool(extract_decision and extract_decision.run),
+            threads=threads,
+            memory=memory,
         )
     align_args = argparse.Namespace(**vars(args))
     align_args.r1 = args.input
@@ -609,6 +654,7 @@ def _run_steps(
             target=target,
             outdir=outdir,
             threads=threads,
+            memory=memory,
             input_cram_opt=input_cram_opt,
         )
         return
@@ -857,7 +903,16 @@ def _run_steps(
         )
 
     # 2. Disk-space pre-flight.
-    if not args.no_preflight:
+    if not args.no_preflight and align_cmd.is_long_read(args) and args.r1:
+        _preflight_long_read_disk_space(
+            args.r1,
+            outdir,
+            output_format=getattr(args, "format", "BAM"),
+            extract=False,
+            threads=threads,
+            memory=memory,
+        )
+    elif not args.no_preflight:
         try:
             _preflight_disk_space(
                 args.input,

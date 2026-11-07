@@ -1,0 +1,28 @@
+/* wgse: with Metal, kt_pipeline() runs mem_process_seqs() as two steps (see
+ * wgse_mem_map()), so a third worker maps the next chunk while this one pairs.
+ * kt_pipeline() still runs each step in chunk order. */
+typedef struct {
+	ktp_data_t *data;
+	void *mapped;
+} wgse_chunk_t;
+
+static void *wgse_process(void *shared, int step, void *_data)
+{
+	ktp_aux_t *aux = (ktp_aux_t*)shared;
+	if (step == 1) {
+		ktp_data_t *data = (ktp_data_t*)_data;
+		const bwaidx_t *idx = aux->idx;
+		wgse_chunk_t *chunk = calloc(1, sizeof(wgse_chunk_t));
+		chunk->data = data;
+		chunk->mapped = wgse_mem_map(aux->opt, idx->bwt, idx->bns, idx->pac, aux->n_processed, data->n_seqs, data->seqs, aux->pes0);
+		aux->n_processed += data->n_seqs;
+		return chunk;
+	} else if (step == 2) {
+		wgse_chunk_t *chunk = (wgse_chunk_t*)_data;
+		ktp_data_t *data = chunk->data;
+		wgse_mem_pair(chunk->mapped);
+		free(chunk);
+		return data;
+	}
+	return process(shared, step == 3? 2 : step, _data);
+}
