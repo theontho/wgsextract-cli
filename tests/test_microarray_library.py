@@ -46,7 +46,7 @@ def _library(root: Path) -> tuple[Path, str]:
     y_snps.write_text(
         "##fileformat=VCFv4.2\n##contig=<ID=chrY,length=59373566>\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        "chrY\t2655180\tM42\tG\tA\t.\tPASS\t.\n"
+        "chrY\t7000000\tSYN_Y1\tG\tA\t.\tPASS\t.\n"
     )
     bgzip_index(y_snps)
     return fasta, "".join(seq)

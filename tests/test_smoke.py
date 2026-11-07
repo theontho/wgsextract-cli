@@ -104,7 +104,7 @@ COMMANDS: list[tuple[str, list[str]]] = [
         "align",
         ["align", "--ref", "{ref}", "--r1", "{fastq}", "--r2", "{fastq}"],
     ),
-    ("vep", ["vep", "--input", "{vcf}", "--format", "vcf"]),
+    ("vep", ["vep", "run", "--input", "{vcf}", "--format", "vcf"]),
     ("vep download", ["vep", "download", "--assembly", "GRCh38"]),
     ("sign create", ["sign", "create", "{bam}"]),
     ("sign verify", ["sign", "verify", "{dir}/SHA256SUMS"]),

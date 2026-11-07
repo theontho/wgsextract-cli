@@ -706,7 +706,9 @@ def test_real_reference_library_robustness(
     if not real_dataset.ref.is_dir():
         pytest.skip("standard reference robustness checks require a reference library")
 
-    stdout, stderr = _run_ok(["ref", "library-list", "--ref", str(real_dataset.ref)])
+    stdout, stderr = _run_ok(
+        ["ref", "library", "--list", "--ref", str(real_dataset.ref)]
+    )
     assert any(
         build in stdout + stderr for build in ("hg19", "hg38", "GRCh37", "GRCh38")
     )

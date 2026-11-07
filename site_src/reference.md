@@ -3,9 +3,9 @@ output: 'reference.html'
 title: 'Reference | WGS Extract CLI'
 description: 'WGS Extract glossary, file extension reference, tool reference, privacy notes, and troubleshooting guide.'
 eyebrow: 'Lookup pages'
-heading: 'Glossary, files, tools, privacy, and troubleshooting.'
+heading: 'Glossary, files, tools, privacy, data licences, and troubleshooting.'
 lede: 'Use this as a quick reference when a command mentions an unfamiliar acronym, file extension, external tool, reference-build concept, or common failure mode.'
-toc: 'Glossary|glossary; Files|files; Tools|tools; Privacy|privacy; Troubleshooting|troubleshooting'
+toc: 'Glossary|glossary; Files|files; Tools|tools; Privacy|privacy; Data licences|licences; Troubleshooting|troubleshooting'
 footer_title: 'WGS Extract Reference'
 footer_text: 'Glossary, files, tools, and troubleshooting.'
 footer_link_text: 'Back home'
@@ -192,6 +192,26 @@ When debugging, use fake data, region-limited extracts, or redacted logs instead
 
 ::: callout
 {{ text: **Not medical advice:** Variant interpretation can be difficult and clinically consequential. Confirm medically relevant findings through qualified professionals and validated labs. Do not treat a consumer annotation, SNP chip report, or exploratory filter result as a diagnosis. }}
+:::
+:::
+:::
+
+::: section id=licences
+::: wrap
+::: section-head
+## Data licences
+WGS Extract is GPL software. The data it downloads comes as separate modules, each with its own licence.
+:::
+
+Data modules are not part of the program, and their licences don't apply to it. Each is pinned by SHA-256 and fetched into the reference library only when a command needs it; the YFull modules print a one-line licence notice when first downloaded.
+
+::: table-wrap
+| Data module | Used by | Licence |
+| --- | --- | --- |
+| `yfull-tree` | `lineage y-haplogroup --tree yfull` (the default tree) | CC-BY-4.0, YFull |
+| `yfull-ybrowse-positions` | The same, unless `--pos-file` is given | CC-BY-SA (version not stated), Thomas Krahn YSEQ (2022) |
+| Yleaf data `v4.1.6` | `lineage y-haplogroup` QC tables and the other trees | GPL-3.0-or-later, Yleaf |
+| YBrowse SNP VCF | `ref ybrowse --install`, `extract ydna-vcf --ybrowse` | CC-BY-SA, Thomas Krahn YSEQ; downloaded from ybrowse.org, not redistributed |
 :::
 :::
 :::

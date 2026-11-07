@@ -68,6 +68,17 @@ KNOWN_SETTINGS = {
         "and write, besides genome_library, reference_library and "
         "output_directory",
     ),
+    "server_mcp_transport": (
+        "stdio",
+        "How `wgsextract serve --mcp` speaks MCP: stdio, or http (streamable "
+        "HTTP on 127.0.0.1 with a per-launch token; needs the optional 'mcp' "
+        "package)",
+    ),
+    "server_mcp_port": (
+        0,
+        "Port `wgsextract serve --mcp-transport http` listens on at 127.0.0.1 "
+        "(0: any free port)",
+    ),
     "server_max_jobs": (
         1,
         "Long `wgsextract serve` jobs that run at once; more wait in a queue",

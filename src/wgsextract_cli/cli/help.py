@@ -26,10 +26,15 @@ from wgsextract_cli.commands._help_catalog import COMMAND_HELP, CommandHelp
 from wgsextract_cli.commands._help_topics import HELP_TOPICS
 from wgsextract_cli.commands.registry import (
     ADVANCED,
+    ADVANCED_SUBCOMMANDS,
     COMMAND_TIERS,
     CORE,
+    DEPRECATED,
+    JOURNEYS,
     SETUP,
     TIERS,
+    Deprecation,
+    Journey,
     command_tier,
 )
 from wgsextract_cli.core.config import settings_suspended
@@ -138,6 +143,10 @@ class CommandEntry:
     def runnable(self) -> bool:
         return "func" in self.parser._defaults
 
+    @property
+    def deprecation(self) -> Deprecation | None:
+        return DEPRECATED.get(self.path)
+
 
 def _subcommands(
     parser: argparse.ArgumentParser,
@@ -208,8 +217,11 @@ def apply_help_metadata(parser: argparse.ArgumentParser, prefix: str = "") -> No
             )
             subparser.command_help = COMMAND_HELP.get(path)
             subparser.command_needs = COMMAND_NEEDS.get(path)
+            subparser.deprecation = DEPRECATED.get(path)
             subparser.advanced_actions = advanced_actions(subparser, path)
             tiers[choice.dest] = command_tier(path)
+            if path in DEPRECATED and not DEPRECATED[path].bare and choice.help:
+                choice.help = f"({deprecated_text(DEPRECATED[path])}) {choice.help}"
             apply_help_metadata(subparser, path)
         if group_tier is not None and group_tier != ADVANCED:
             for choice in action._choices_actions:
@@ -271,11 +283,42 @@ def _wrap(text: str, color: bool, label: str) -> list[str]:
     return lines
 
 
+def deprecated_text(deprecation: Deprecation) -> str:
+    """ "deprecated: use 'X'", for a deprecated command's help line."""
+    return f"deprecated: use '{deprecation.replacement}'"
+
+
+def deprecation_message(deprecation: Deprecation) -> str:
+    """The warning a deprecated command prints when it runs."""
+    subject = f"'wgsextract {deprecation.path}'"
+    if deprecation.bare:
+        subject = f"Running {subject} without a subcommand"
+    text = (
+        f"{subject} is deprecated and will be removed in "
+        f"{deprecation.remove_in}; use 'wgsextract {deprecation.replacement}'."
+    )
+    return text + (" Its subcommands are not affected." if deprecation.bare else "")
+
+
 def contract_text(
-    command_help: CommandHelp, color: bool, needs: CommandNeeds | None = None
+    command_help: CommandHelp,
+    color: bool,
+    needs: CommandNeeds | None = None,
+    deprecation: Deprecation | None = None,
 ) -> str:
-    """The examples, outputs and needs sections that end a command's --help."""
-    lines = [_heading("examples:", color)]
+    """The deprecation, examples, outputs and needs sections that end a
+    command's --help."""
+    lines = []
+    if deprecation is not None:
+        lines.append(_heading("deprecated:", color))
+        lines += textwrap.wrap(
+            deprecation_message(deprecation),
+            width=78,
+            initial_indent="  ",
+            subsequent_indent="  ",
+        )
+        lines.append("")
+    lines.append(_heading("examples:", color))
     lines += [f"  {example}" for example in command_help.examples]
     sections = [
         ("outputs (in the output directory unless noted):", command_help.outputs)
@@ -355,18 +398,45 @@ def format_index(entries: list[CommandEntry], color: bool) -> str:
     width = max((len(entry.path) for entry in entries), default=0) + 2
     room = max(20, INDEX_WIDTH - 2 - width)
     lines: list[str] = []
-    for tier in TIERS:
-        tier_entries = [entry for entry in entries if entry.tier == tier]
-        if not tier_entries:
-            continue
+    for title, group in _index_groups(entries):
         if lines:
             lines.append("")
-        lines.append(_heading(f"{TIER_TITLES[tier]}:", color))
-        for entry in tier_entries:
+        lines.append(_heading(f"{title}:", color))
+        for entry in group:
             pad = " " * (width - len(entry.path))
-            summary = textwrap.shorten(entry.summary, room, placeholder="...")
+            summary = textwrap.shorten(
+                _deprecated_summary(entry.deprecation)
+                if entry.deprecation
+                else entry.summary,
+                room,
+                placeholder="...",
+            )
             lines.append(f"  {_name(entry.path, color)}{pad}{summary}")
     return "\n".join(lines) + "\n"
+
+
+def _md_deprecated(deprecation: Deprecation) -> str:
+    """The deprecated form in Markdown: `path`, plus "without a subcommand"."""
+    alone = " without a subcommand" if deprecation.bare else ""
+    return f"`{deprecation.path}`{alone}"
+
+
+def _deprecated_summary(deprecation: Deprecation) -> str:
+    alone = "Without a subcommand: use" if deprecation.bare else "Use"
+    return f"{alone} '{deprecation.replacement}'; removed in {deprecation.remove_in}."
+
+
+def _index_groups(
+    entries: list[CommandEntry],
+) -> Iterator[tuple[str, list[CommandEntry]]]:
+    """(title, entries) for each tier, then the deprecated commands."""
+    for tier in TIERS:
+        group = [e for e in entries if e.tier == tier and not e.deprecation]
+        if group:
+            yield TIER_TITLES[tier], group
+    deprecated = [e for e in entries if e.deprecation]
+    if deprecated:
+        yield "Deprecated", deprecated
 
 
 def index_json(
@@ -407,6 +477,12 @@ def index_json(
             command["runtime_text"] = needs.runtime_text
         if entry.path in schemas:
             command["input_schema"] = schemas[entry.path]
+        if entry.deprecation is not None:
+            command["deprecated"] = {
+                "replacement": entry.deprecation.replacement,
+                "remove_in": entry.deprecation.remove_in,
+                "without_subcommand": entry.deprecation.bare,
+            }
         commands.append(command)
     document: dict[str, Any] = {"schema": HELP_SCHEMA}
     if global_options is not None:
@@ -649,6 +725,11 @@ def _print_tree_recursive(parser: argparse.ArgumentParser, indent: int) -> None:
         _print_tree_recursive(subparser, indent + 1)
 
 
+def journey_text(journey: Journey) -> str:
+    """A journey's steps as one Markdown line: `info` (what it gives) → ..."""
+    return " → ".join(f"`{path}` ({why})" for path, why in journey.steps)
+
+
 def render_markdown(parser: argparse.ArgumentParser) -> str:
     """docs/commands.md: the command reference, generated from the tiers and
     the help catalog."""
@@ -656,7 +737,8 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
         "# Command reference",
         "",
         "<!-- Generated by `pixi run gen-command-docs` from "
-        "src/wgsextract_cli/commands/registry.py (tiers), _help_catalog.py "
+        "src/wgsextract_cli/commands/registry.py (tiers, journeys, deprecations), "
+        "_help_catalog.py "
         "(examples, outputs) and _command_needs.py (tools, run time). Don't "
         "edit by hand. -->",
         "",
@@ -673,14 +755,19 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
         "command checks for (`wgsextract deps check` shows which are "
         "installed) and how long it typically takes.",
     ]
+    out += ["", "## Start from what you have", ""]
+    for journey in JOURNEYS:
+        out.append(f"- **{journey.have}:** {journey_text(journey)}")
     entries = command_index(parser)
-    for tier in TIERS:
-        out += ["", f"## {TIER_TITLES[tier]}", ""]
+    for title, group in _index_groups(entries):
+        if title == "Deprecated":
+            break
+        out += ["", f"## {title}", ""]
         out += [
             "| Command | What it does | Writes | Needs | Example |",
             "| --- | --- | --- | --- | --- |",
         ]
-        for entry in (e for e in entries if e.tier == tier):
+        for entry in group:
             example = entry.help.examples[0] if entry.help else ""
             needs = COMMAND_NEEDS.get(entry.path)
             prose = [
@@ -694,6 +781,89 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
                 f"`{example}`",
             ]
             out.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+    deprecated = [e for e in entries if e.deprecation is not None]
+    if deprecated:
+        out += [
+            "",
+            "## Deprecated",
+            "",
+            "These still work for one more minor release, with a warning "
+            "(`deprecated_command`).",
+            "",
+            "| Command | Use instead | Removed in |",
+            "| --- | --- | --- |",
+        ]
+        out += [
+            f"| {_md_deprecated(e.deprecation)} | `{e.deprecation.replacement}` "
+            f"| {e.deprecation.remove_in} |"
+            for e in deprecated
+            if e.deprecation is not None
+        ]
     out += ["", "## Help topics", "", "`wgsextract help <topic>` explains:", ""]
     out += [f"- `{name}`: {topic.summary}" for name, topic in HELP_TOPICS.items()]
     return "\n".join(out) + "\n"
+
+
+SITE_BLOCK_START = "<!-- generated by 'pixi run gen-command-docs': start -->"
+SITE_BLOCK_END = "<!-- generated by 'pixi run gen-command-docs': end -->"
+
+
+def render_site_commands() -> str:
+    """The site CLI page's "start from what you have" and tier cards, between
+    SITE_BLOCK_START and SITE_BLOCK_END, from the same metadata as
+    docs/commands.md."""
+    out = [
+        SITE_BLOCK_START,
+        "::: section id=journeys",
+        "::: wrap",
+        "::: section-head",
+        "## Start from what you have",
+        "Pick the line that matches your file and run its commands in order. "
+        "Each command's `--help` lists its options, examples and output files.",
+        ":::",
+        "",
+        "::: grid three",
+    ]
+    for journey in JOURNEYS:
+        out += ["::: card", f"### {journey.have}"]
+        out += [f"- `{path}`: {why}" for path, why in journey.steps]
+        out += [":::", ""]
+    out += [":::", ":::", ":::", "", "::: section id=groups", "::: wrap"]
+    out += ["::: section-head", "## Command groups", _GROUPS_LEDE, ":::", ""]
+    out.append("::: grid three")
+    for tier in TIERS:
+        out += ["::: card", f"### {TIER_TITLES[tier]}"]
+        out += [
+            f"- `{command.name}`: {command.summary}"
+            for command in COMMAND_TIERS
+            if command.tier == tier
+        ]
+        if tier == ADVANCED:
+            names = ", ".join(f"`{path}`" for path in sorted(ADVANCED_SUBCOMMANDS))
+            out += ["", f"Advanced subcommands of core groups: {names}."]
+        out += [":::", ""]
+    if DEPRECATED:
+        out += ["::: card", "### Deprecated"]
+        out += [
+            f"- {_md_deprecated(d)}: use `{d.replacement}`; removed in {d.remove_in}."
+            for d in DEPRECATED.values()
+        ]
+        out += [":::", ""]
+    out += [":::", ":::", ":::", SITE_BLOCK_END]
+    return "\n".join(out) + "\n"
+
+
+_GROUPS_LEDE = (
+    "`wgsextract --help` lists the core commands first, in the order you would "
+    "usually run them, then setup and advanced commands. Run `wgsextract help "
+    "--all` for one line per command (`--json` for a machine-readable index "
+    "with each command's options and, for typed commands, a JSON Schema), "
+    "`wgsextract help <command>` for one command's options, examples and "
+    "output files (`--help-all` adds the advanced options), `wgsextract help "
+    "topics` for concepts such as references, builds and exit codes, or "
+    "`wgsextract help` for the full tree. The [command reference]"
+    "(https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/commands.md)"
+    "{.inline-link} lists every command with its outputs and an example. A "
+    'mistyped command or option gets a "Did you mean" hint, and on a '
+    "terminal some commands suggest what to run next."
+)

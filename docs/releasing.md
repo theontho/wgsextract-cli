@@ -25,9 +25,16 @@ it.
 
 2. **Write the release notes** in `docs/release-notes/vX.Y.Z.md`, in the same
    PR: what users get, under `## New` and `## Fixes` (see v0.4.2 and v0.4.3),
-   with the app's changes too (`gui/docs/CHANGELOG.md`'s Unreleased section),
-   ending with a compare link (`.../compare/vPREVIOUS...vX.Y.Z`). The PRs since
-   the last release are `git log --oneline vPREVIOUS..origin/main`.
+   plus `## Deprecated` when commands are deprecated, and the app's changes
+   (`gui/docs/CHANGELOG.md`'s Unreleased section), ending with a compare
+   link (`.../compare/vPREVIOUS...vX.Y.Z`). Start from
+   `docs/release-notes/unreleased.md`, where PRs record entries as they land
+   (deprecations must be announced there), and rename it; the deprecated
+   commands are also listed in `DEPRECATIONS` in
+   `src/wgsextract_cli/commands/registry.py`. A command deprecated in one minor
+   release is removed in the next, so a release that reaches a deprecation's
+   `remove_in` version removes the command. The PRs since the last release are
+   `git log --oneline vPREVIOUS..origin/main`.
 
 3. **Open a PR** titled `Release X.Y.Z` and merge it once CI is green.
 

@@ -6,13 +6,13 @@ import io
 import logging
 import os
 import sys
-from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
 from tests.fake_tools import FakePixi, python_tool
-from wgsextract_cli.commands import _deps_status
+from wgsextract_cli import api
+from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.core import dependency_checks, pixi_tools, windows_arm64
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -391,15 +391,25 @@ def test_log_dependency_info(host, caplog):
 def test_deps_check_tool_prints_its_path(host, capsys):
     samtools = _tool(host, "samtools", "")
 
-    _deps_status.run(Namespace(tool="samtools", debug=False))
-    assert _same_path(capsys.readouterr().out.removesuffix("\n"), samtools)
+    found = api.deps.check(api.DepsCheckParams(tool="samtools"))
+    assert _same_path(found.text.removesuffix("\n"), samtools)
+    assert _same_path(found.details["path"], samtools)
 
-    _deps_status.run(Namespace(tool="samtools", debug=True))
-    assert capsys.readouterr().out == ""
-
-    with pytest.raises(WGSExtractError) as error:
-        _deps_status.run(Namespace(tool="bwa", debug=False))
+    with pytest.raises(api.CommandFailed) as error:
+        api.deps.check(api.DepsCheckParams(tool="bwa"))
+    assert error.value.exit_code == 3
     assert str(error.value).startswith("Tool not found: bwa. Run: ")
+
+
+def test_deps_check_tool_with_debug_logs_its_path_instead(host, capsys):
+    samtools = _tool(host, "samtools", "")
+
+    parser, _ = build_parser()
+    for argv, printed in (([], True), (["--debug"], False)):
+        args = parser.parse_args(["deps", "check", "--tool", "samtools", *argv])
+        args.func(args)
+        out = capsys.readouterr().out.removesuffix("\n")
+        assert _same_path(out, samtools) if printed else out == ""
 
 
 # The report lists these, but a user can run most commands without them.
@@ -421,17 +431,9 @@ def _report(monkeypatch, encoding: str | None) -> tuple[dict[str, str], str | No
         else io.TextIOWrapper(io.BytesIO(), encoding=encoding)
     )
     monkeypatch.setattr(sys, "stdout", stdout)
-    error = None
-    try:
-        _deps_status.run(Namespace(tool=None, debug=False))
-    except MissingDependencyError as raised:
-        error = str(raised)
-    stdout.flush()
-    if isinstance(stdout, io.StringIO):
-        text = stdout.getvalue()
-    else:
-        text = stdout.buffer.getvalue().decode(stdout.encoding)
-    rows = {line.split()[1]: line for line in text.splitlines() if " " in line}
+    result = api.deps.check(api.DepsCheckParams(), check=False)
+    error = result.error.message if result.error else None
+    rows = {line.split()[1]: line for line in result.text.splitlines() if " " in line}
     return rows, error
 
 

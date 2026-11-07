@@ -18,6 +18,13 @@ files and modifications. Yleaf data is distributed separately, unmodified,
 with upstream provenance and SHA-256 checksums in the yleaf-data release
 manifest (release tags: yleaf-data-v<VERSION>).
 
+The default YFull Y tree is not part of WGS Extract either. It is downloaded
+on demand as two separately licensed data modules (release tags:
+yleaf-yfull-v<VERSION>): yfull-tree (YFull YTree, CC-BY-4.0) and
+yfull-ybrowse-positions (marker positions derived from YBrowse, CC-BY-SA
+Thomas Krahn YSEQ (2022)). Each module carries its own licence file and
+SHA-256 pins; neither licence applies to this program.
+
 Please cite:
 Ralf A, Montiel González D, Zhong K, Kayser M. Yleaf: Software for Human
 Y-Chromosomal Haplogroup Inference from Next-Generation Sequencing Data.

@@ -51,19 +51,22 @@ def yleaf_tables_cached(build: str, tree: str = "yfull") -> bool:
     """Keep optional real-data smoke tests from downloading large tables."""
     from wgsextract_cli.core.reference_assets import resolve_reference_library
     from wgsextract_cli.ydna.yleaf_native.data import manifest
-    from wgsextract_cli.ydna.yleaf_native.trees import tree_metadata
+    from wgsextract_cli.ydna.yleaf_native.trees import module_root, tree_metadata
 
     metadata = manifest()
     library = Path(resolve_reference_library()) / "yleaf"
     root = library / metadata["upstream"]["tag"]
     tree_meta = tree_metadata(tree)
-    # A tree pack carries its own marker tables; built-in trees use Yleaf's.
-    pack = library / "trees" / tree / tree_meta["version"]
+    # Data modules carry their own tree and marker tables; others use Yleaf's.
     needed = [
         root / name for name in metadata["archives"]["hg_prediction_tables"]["files"]
     ] + (
-        [pack / name for name in tree_meta["files"]]
-        if tree_meta["data"] == "pack"
+        [
+            module_root(tree, module, library.parent) / name
+            for module, spec in tree_meta["modules"].items()
+            for name in spec["files"]
+        ]
+        if tree_meta["data"] == "modules"
         else [root / name for name in metadata["archives"][build]["files"]]
     )
     return all(path.is_file() for path in needed)

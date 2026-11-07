@@ -57,8 +57,10 @@ class TestRefLibrarySmoke:
         assert "Downloading" in stdout or "Downloading" in stderr or rc == 0
 
     def test_ref_databases_list(self):
-        # The CLI 'ref' command doesn't have 'databases --list', it has individual dl commands or library-list
-        rc, stdout, _stderr = run_cli(["ref", "library-list", "--ref", self.reflib])
+        # The CLI 'ref' command doesn't have 'databases --list', it has individual dl commands or library --list
+        rc, stdout, _stderr = run_cli(
+            ["ref", "library", "--list", "--ref", self.reflib]
+        )
         assert rc == 0
         assert "REFERENCE LIBRARY" in stdout
         assert "hg38" in stdout

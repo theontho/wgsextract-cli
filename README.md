@@ -115,7 +115,7 @@ Commands that write files also write a `<output>.manifest.json` beside them. It 
 
 Commands can also be called from Python through the typed `wgsextract_cli.api` package, which returns that manifest as a `Result` object; see [docs/api.md](docs/api.md). Commands are moving onto it one group at a time: so far `info`, `vcf snp`/`indel`, `lineage` and `microarray`.
 
-The same operations are available to other programs on this computer through `wgsextract serve`: a local HTTP/JSON API (127.0.0.1 only, with a per-launch token, background jobs, progress, cancelling and an OpenAPI document) or an MCP server for AI agents (`--mcp`). Requests may only use files in the folders you allow. See [docs/server.md](docs/server.md).
+The same operations are available to other programs on this computer through `wgsextract serve`: a local HTTP/JSON API (127.0.0.1 only, with a per-launch token, background jobs, progress, cancelling and an OpenAPI document) or an MCP server for AI agents (`--mcp`, on stdio or streamable HTTP). Requests may only use files in the folders you allow. See [docs/server.md](docs/server.md).
 
 Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
 60 seconds, including processed versus expected reads (when known), or completed
@@ -154,9 +154,11 @@ Long workflows (`realign`, `vcf deepvariant`, `analyze comprehensive`) record ea
 
 `wgsextract --help` starts with the core commands, in the order you would
 usually run them: `info` → `microarray` / `lineage` → `extract` → `realign` /
-`align` → `vcf` → `vep`. Setup commands (`ref`, `deps`, `example-genome`,
-`config`) follow, and the advanced ones (optional or hard-to-install tools,
-format repair, benchmarks) are listed by name only.
+`align` → `vcf` → `vep` → `report`. Setup commands (`ref`, `deps`,
+`example-genome`, `config`) follow, and the advanced ones (optional or
+hard-to-install tools, format repair, benchmarks) are listed by name only.
+[docs/commands.md](docs/commands.md) starts with the path to take from what you
+have (a BAM/CRAM, FASTQ, VCF or raw-data file), then lists every command.
 
 - `wgsextract help --all`: every command on one line, grouped by tier
   (`help --all vcf` for one group).
@@ -264,7 +266,7 @@ exposed as an application configuration setting.
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `methylation` | `pileup`: CpG 5mC (optionally 5hmC) bedMethyl and summary from Nanopore/PacBio MM/ML tags (modkit) |
 | `gatk`, `freebayes` | Used by `vcf gatk` / `vcf freebayes` from optional environments; [Windows GATK](docs/windows.md#gatk-on-native-windows) is prepared at setup, not during calling |
-| `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
+| `vep` | `run`, `download`, `verify` (Ensembl Variant Effect Predictor) |
 | `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, streaming paired reads into BWA or reusing FASTQs |
 | `basecall` | Nanopore POD5 to an unaligned BAM with ONT's Dorado (optional, installed separately), with `MM`/`ML` modification tags for `align`; [docs](docs/ont.md#basecalling) |
@@ -273,7 +275,7 @@ exposed as an application configuration setting.
 | `qc` | `fastp`, `fastqc`, `multiqc` (FastQC, bcftools stats and our metrics in one report), `multiqc-metrics` (MultiQC custom content from manifests; [pipeline interop](docs/interop.md)), `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
 | `repair` | `ftdna-bam`, `ftdna-vcf` |
 | `analyze` | `comprehensive` (QC, lineage, calling, annotation in one run), `batch-gen` |
-| `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `ybrowse` (GRCh38 only) |
+| `ref` | Library: `bootstrap`, `library` (`--list` to list), `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `ybrowse` (GRCh38 only) |
 | `sign` | `create` (SHA256SUMS manifest, optionally signed with an OpenSSH key), `verify` |
 | `example-genome` | `list`, `download` curated 1000 Genomes / HGSVC2 datasets |
 | `deps` | `check` |
@@ -282,7 +284,8 @@ exposed as an application configuration setting.
 
 Notes on a few commands:
 
-- `ref library-list` is a deprecated compatibility alias for `ref library --list`.
+- Deprecated, removed in 0.8.0: `ref library-list` (use `ref library --list`)
+  and running VEP with bare `vep` (use `vep run`). Both still work and warn.
   `vep run --assembly GRCh37` and the deprecated `--vep-assembly GRCh37` select the
   same annotation build; `vep download --assembly` selects the cache build.
   VEP conflict warnings use the canonical `--assembly` spelling for either alias.
@@ -321,9 +324,10 @@ Data attribution/copyright: **CC-BY-SA Thomas Krahn YSEQ (2022).**
 The exact statement and source attribution are retained in the local manifest
 and output VCF header. The upstream grant does not specify a CC-BY-SA version:
 clarify it before redistributing adapted data. These commands perform local
-processing, not a licensed-data mirror. (The YFull tree pack for
-`lineage y-haplogroup` does redistribute YBrowse-derived positions, with this
-attribution and a share-alike notice; see the Yleaf module README.)
+processing, not a licensed-data mirror. (The `yfull-ybrowse-positions` data
+module for `lineage y-haplogroup` does redistribute YBrowse-derived positions,
+separately from the program, with this attribution and a share-alike notice;
+see [Data licences](#data-licences).)
 
 Calling never downloads or refreshes resources. It validates installed
 samtools/bcftools/bgzip/tabix, checks an indexed matching GRCh38 FASTA and rejects
@@ -693,6 +697,25 @@ Options include `--real-input`, `--real-ref`, `--real-vcf`, `--real-region`, `--
 
 To cut a release, and get it into the WGS Extract app, see [docs/releasing.md](docs/releasing.md).
 
+## Data licences
+
+WGS Extract is GPL-3.0 software. The reference data it downloads at run time
+comes as separate data modules, each carrying its own licence. Data modules
+are not part of the program, and their licences don't apply to it. Each is
+pinned by SHA-256 and fetched into the reference library only when a command
+needs it.
+
+| Data module | Used by | Licence |
+|---|---|---|
+| `yfull-tree` | `lineage y-haplogroup --tree yfull` (default) | CC-BY-4.0, YFull |
+| `yfull-ybrowse-positions` | the same, unless `--pos-file` is given | CC-BY-SA (version not stated), Thomas Krahn YSEQ (2022) |
+| Yleaf data `v4.1.6` | `lineage y-haplogroup` QC tables and the other trees | GPL-3.0-or-later, Yleaf |
+| YBrowse SNP VCF | `ref ybrowse --install`, `extract ydna-vcf --ybrowse` | CC-BY-SA, Thomas Krahn YSEQ; downloaded from ybrowse.org, not redistributed |
+
+The YFull modules print a one-line licence notice when first downloaded; see
+the [native Yleaf README](src/wgsextract_cli/ydna/yleaf_native/README.md#trees).
+
 ## License
 
-Distributed under the GPL-3.0 License. See `LICENSE`.
+Distributed under the GPL-3.0 License. See `LICENSE`. Downloaded data modules
+have their own licences; see [Data licences](#data-licences).

@@ -52,18 +52,31 @@ SHA-256. The config.toml setting `y_tree` picks the default tree.
 
 | `--tree` | Tree | Version | Markers from |
 |---|---|---|---|
-| `yfull` (default) | YFull YTree, CC-BY-4.0; YBrowse positions, CC-BY-SA | see `trees.json` | tree pack built by `scripts/build_yfull_tree.py` |
+| `yfull` (default) | YFull YTree, CC-BY-4.0; YBrowse positions, CC-BY-SA | see `trees.json` | data modules built by `scripts/build_yfull_tree.py` |
 | `yfull_v10` | YFull YTree | 10.01.0 (2022-02-25) | Yleaf v4.1.6 data |
 | `ftdna` | FamilyTreeDNA Y-DNA tree | 2026-03-26 | Yleaf v4.1.6 data |
 | `isogg` | ISOGG Y-DNA tree | 2020-07 SNP table, 2023-08 index | Yleaf v4.1.6 data |
 
-The `yfull` tree is a *tree pack*: Yleaf's `tree.json` plus hg19, hg38 and T2T
-marker tables (`new_positions.txt`, `new_positions_ancient.txt`), built
-reproducibly from a YFull [YTree](https://github.com/YFullTeam/YTree) release
-and a [YBrowse](https://ybrowse.org) SNP snapshot. It is pinned by SHA-256 in
-`trees.json`, hosted on the `yleaf-tree-yfull-v<version>` release and verified
-into `<reference_library>/yleaf/trees/yfull/<version>/` on first use. The other
-trees and Yleaf's QC1 backbone tables still come from the Yleaf data cache.
+The `yfull` tree comes as two data modules, built reproducibly from a YFull
+[YTree](https://github.com/YFullTeam/YTree) release and a
+[YBrowse](https://ybrowse.org) SNP snapshot. They are separately licensed and
+are not part of the GPL program:
+
+| Module | Contents | Licence |
+|---|---|---|
+| `yfull-tree` | Yleaf's `tree.json`, `LICENSE-YTree.md` | CC-BY-4.0 (YFull) |
+| `yfull-ybrowse-positions` | hg19, hg38 and T2T marker tables (`new_positions.txt`, `new_positions_ancient.txt`), `NOTICE-YBrowse.md` | CC-BY-SA, version not stated (YBrowse) |
+
+Each module has its own `build_info.json` and SHA-256 pin in `trees.json`, is
+hosted on the `yleaf-yfull-v<version>` release, and is verified into
+`<reference_library>/yleaf/modules/<module>/<version>/` the first time a run
+needs it, with a one-line licence notice. The positions module is fetched only
+when a run uses its marker tables: `--tree yfull` with `--pos-file` needs only
+the tree, and other trees need neither. The other trees and Yleaf's QC1
+backbone tables still come from the Yleaf data cache. Versions before #503
+used one combined pack in `<reference_library>/yleaf/trees/yfull/<version>/`
+(release `yleaf-tree-yfull-v<version>`); that folder is no longer read and can
+be deleted.
 
 Each SNP group on a branch (`/`-separated aliases) becomes one marker when its
 aliases name exactly one GRCh38 chrY single-base substitution in YBrowse.
@@ -72,13 +85,15 @@ complemented on reverse-strand blocks) and kept only when the lift is unique
 and the target reference base is the ancestral or derived allele. The ancient
 tables drop C>T and G>A markers, as upstream does.
 
-`build_info.json` records the exact inputs: the YTree commit and ZIP read from
-it (an uncommitted ZIP is refused), the YBrowse snapshot's SHA-256 and its
-archived copy on the release, the chains, and each reference's chrY name,
-length, MD5 and SHA-256. The YBrowse-derived positions are attributed
-"CC-BY-SA Thomas Krahn YSEQ (2022)." and shared under the same terms
-(`NOTICE-YBrowse.md` in the pack). That grant names no CC-BY-SA version; the
-version question in the top-level README's yBrowse section still applies.
+Each module's `build_info.json` records its exact inputs: the YTree commit and
+ZIP read from it (an uncommitted ZIP is refused); for the positions module
+also the YBrowse snapshot's SHA-256 and its archived copy on the release, the
+chains, and each reference's chrY name, length, MD5 and SHA-256. The
+YBrowse-derived positions are attributed "CC-BY-SA Thomas Krahn YSEQ (2022)."
+and shared under the same terms (`NOTICE-YBrowse.md` in the module). That
+grant names no CC-BY-SA version; the version question in the top-level
+README's yBrowse section still applies. No YBrowse-derived data is in this
+repository or the wheel.
 
 ### Your own trees
 
@@ -118,12 +133,13 @@ can't reuse a built-in tree's id. An error gives the file, line and fix. `qc = "
 and the only choice for `--tree-file`, skips Yleaf's QC1 backbone check (QC1
 is scored 1). A QC profile is accepted only if most of that profile's
 backbone groups are nodes of the tree; it suits a newer release of the same
-tree, such as a YFull pack built with `scripts/build_yfull_tree.py`.
+tree, such as a YFull tree built with `scripts/build_yfull_tree.py`.
 
 Sources and their licenses:
 
-* **YFull**: the YTree is CC-BY-4.0. The built-in `yfull` pack is downloaded
-  at run time, pinned by SHA-256. For a newer release, build a pack (below)
+* **YFull**: the YTree is CC-BY-4.0. The built-in `yfull` modules are
+  downloaded at run time, pinned by SHA-256. For a newer release, build the
+  modules (below)
   and register its `tree.json` and `<build>/new_positions.txt` as a custom
   tree with `qc = "yfull"`.
 * **FamilyTreeDNA**: FTDNA's public haplotree is under its
@@ -144,8 +160,8 @@ Sources and their licenses:
    YBrowse's `snps_hg38.csv` into `scratch/`. Have indexed hg38, hg19 and T2T
    (CHM13v2.0) FASTAs, Yleaf's liftover chains (in an upstream Yleaf checkout's
    `yleaf/data`) and the Yleaf v4.1.6 data cache at hand.
-2. Build the pack and review `build_info.json`'s counts (capture under `out/`).
-   The tarball is byte-reproducible from the same inputs:
+2. Build both modules and review `build_info.json`'s counts (capture under
+   `out/`). The tarballs are byte-reproducible from the same inputs:
 
    ```sh
    pixi run python scripts/build_yfull_tree.py --ytree scratch/YTree \
@@ -154,16 +170,17 @@ Sources and their licenses:
      --chain-t2t scratch/Yleaf/yleaf/data/t2t/hg38ToHs1.over.chain.gz \
      --ref-hg38 hs38DH.fa.gz --ref-hg19 hg19.fa.gz --ref-t2t chm13v2.0.fa.gz \
      --major-tables <reference_library>/yleaf/v4.1.6/hg_prediction_tables/major_tables \
-     --output out/yleaf-tree/14.06.0
+     --output out/yleaf-yfull/14.06.0
    ```
 
-3. Benchmark the pack against the previous tree on male WGS with known
+3. Benchmark the tree against the previous tree on male WGS with known
    haplogroups (for example 1000 Genomes, Poznik et al. 2016).
-4. Create a draft, non-latest release `yleaf-tree-yfull-v<version>` with the
-   files listed in the output's `SHA256SUMS` (the tarball, `build_info.json`,
-   `LICENSE-YTree.md`, `NOTICE-YBrowse.md` and the YBrowse snapshot
-   `ybrowse-snps_hg38-<date>.csv.gz`) and `SHA256SUMS` itself, check the assets, then publish it with
-   `--draft=false --latest=false`.
+4. Create a draft, non-latest release `yleaf-yfull-v<version>` with the files
+   listed in the output's `SHA256SUMS` (each module's tarball and
+   `<module>-<version>.build_info.json`, `LICENSE-YTree.md`,
+   `NOTICE-YBrowse.md` and the YBrowse snapshot
+   `ybrowse-snps_hg38-<date>.csv.gz`) and `SHA256SUMS` itself, check the
+   assets, then publish it with `--draft=false --latest=false`.
 5. Rerun with `--write-manifest`, which updates `trees.json`, and commit.
 
 ## Engine choice

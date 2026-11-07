@@ -5,7 +5,7 @@ variant allele and fixed, typed columns. Spreadsheets, `sqlite3`, DuckDB,
 pandas or an AI agent can read it without knowing the VCF format.
 
 ```bash
-wgsextract vep --input sample.vcf.gz                       # gene, consequence, HGVS
+wgsextract vep run --input sample.vcf.gz                   # gene, consequence, HGVS
 wgsextract vcf clinvar --vcf-input sample_vep.vcf.gz       # ClinVar significance
 wgsextract vcf gnomad --vcf-input clinvar_annotated.vcf.gz # gnomAD frequency
 wgsextract vcf table --vcf-input gnomad_annotated.vcf.gz

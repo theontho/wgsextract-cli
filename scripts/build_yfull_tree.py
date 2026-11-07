@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build a versioned YFull tree pack for native Yleaf from YFull's YTree.
+"""Build the versioned YFull tree data modules for native Yleaf.
 
 Usage (from the repository root):
 
@@ -10,7 +10,7 @@ Usage (from the repository root):
         --chain-hg19 hg38ToHg19.over.chain.gz --chain-t2t hg38ToHs1.over.chain.gz \
         --ref-hg38 hs38DH.fa.gz --ref-hg19 hg19.fa.gz --ref-t2t chm13v2.0.fa.gz \
         --major-tables <yleaf data>/hg_prediction_tables/major_tables \
-        --output out/yfull-tree/14.06.0 [--write-manifest]
+        --output out/yleaf-yfull/14.06.0 [--write-manifest]
 
 --ytree is a clone of https://github.com/YFullTeam/YTree (CC BY 4.0); the
 tree is read from ``ytree/tree_<version>.zip`` as committed, never from the
@@ -31,10 +31,19 @@ exactly one GRCh38 chrY single-base substitution in YBrowse. Rows are
 - also written to ``new_positions_ancient.txt`` unless the mutation is C->T or
   G->A (post-mortem deamination; Yleaf v4.1.6's ancient-DNA rule).
 
-The pack is a reproducible tar.gz. It, build_info.json, the YTree license,
-the YBrowse notice, the gzipped YBrowse snapshot and their SHA256SUMS are the
-assets of the GitHub release ``yleaf-tree-yfull-v<version>``.
---write-manifest pins the pack in trees.json.
+The output is two separately licensed data modules, each a reproducible
+tar.gz with its own build_info.json, so the share-alike positions never mix
+with the tree or with WGS Extract's code:
+
+- ``yfull-tree-<version>.tar.gz``: Yleaf's ``tree.json`` and the YTree
+  license (CC-BY-4.0); nothing from YBrowse.
+- ``yfull-ybrowse-positions-<version>.tar.gz``: the hg19, hg38 and T2T
+  ``new_positions*.txt`` tables and ``NOTICE-YBrowse.md`` (CC-BY-SA).
+
+Both archives, their build_info.json files, the YTree license, the YBrowse
+notice, the gzipped YBrowse snapshot and their SHA256SUMS are the assets of
+the GitHub release ``yleaf-yfull-v<version>``. --write-manifest pins both
+modules in trees.json.
 """
 
 from __future__ import annotations
@@ -63,6 +72,10 @@ YBROWSE_URL = "http://ybrowse.org/gbrowse2/gff/snps_hg38.csv"
 # YBrowse's grant, as in the header of its snps_hg38.vcf.gz; it names no version.
 YBROWSE_COPYRIGHT = "CC-BY-SA Thomas Krahn YSEQ (2022)."
 LICENSE = "CC-BY-4.0 tree; CC-BY-SA YBrowse positions"
+TREE_LICENSE = "CC-BY-4.0"
+POSITIONS_LICENSE = "CC-BY-SA (version not stated)"
+# Module id -> its reference-library folder and release archive stem.
+MODULES = {"tree": "yfull-tree", "positions": "yfull-ybrowse-positions"}
 RELEASE_URL = "https://github.com/WGSExtract/wgsextract-cli/releases/download"
 ROOT_KEY = 'ROOT (Y-Chromosome "Adam")'
 BASES = frozenset("ACGT")
@@ -138,14 +151,15 @@ def flatten(tree: dict[str, Any]) -> tuple[dict[str, list[str]], dict[str, list[
     return children, snps
 
 
-def read_ybrowse(path: Path) -> dict[str, set[tuple[int, str, str]]]:
-    """Each YBrowse name's GRCh38 chrY single-base substitutions."""
+def read_ybrowse(path: Path, names: set[str]) -> dict[str, set[tuple[int, str, str]]]:
+    """The GRCh38 chrY single-base substitutions of each YBrowse name in ``names``."""
     sites: dict[str, set[tuple[int, str, str]]] = {}
     with path.open(encoding="utf-8", newline="") as stream:
         for row in csv.DictReader(stream):
             anc, der = row["allele_anc"].upper(), row["allele_der"].upper()
             if (
-                row["seqid"] != "chrY"
+                row["Name"] not in names
+                or row["seqid"] != "chrY"
                 or row["start"] != row["end"]
                 or anc not in BASES
                 or der not in BASES
@@ -286,6 +300,10 @@ def write_pack(files: dict[str, bytes], archive: Path) -> dict[str, Any]:
     }
 
 
+def _json(data: dict[str, Any]) -> bytes:
+    return (json.dumps(data, indent=2) + "\n").encode()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -312,7 +330,7 @@ def main() -> None:
     parser.add_argument(
         "--write-manifest",
         action="store_true",
-        help="Pin the pack as the yfull tree in trees.json",
+        help="Pin both modules as the yfull tree in trees.json",
     )
     args = parser.parse_args()
 
@@ -323,7 +341,8 @@ def main() -> None:
         raise SystemExit(f"YTree {args.version} lacks Yleaf backbone groups {missing}")
     print(f"YTree {args.version}: {len(children) - 1} branches")
 
-    sites = read_ybrowse(args.ybrowse)
+    aliases = {a for groups in snps.values() for g in groups for a in g.split("/")}
+    sites = read_ybrowse(args.ybrowse, aliases)
     hg38, stats = resolve(snps, sites)
     by_build: dict[str, list[Marker]] = {"hg38": hg38}
     build_stats: dict[str, dict[str, int]] = {}
@@ -340,67 +359,127 @@ def main() -> None:
         build_stats[build]["markers"] = len(by_build[build])
         print(f"{build}: {build_stats[build]}")
 
-    files: dict[str, bytes] = {
+    tree_files: dict[str, bytes] = {
         "tree.json": json.dumps(children, separators=(",", ":")).encode(),
         "LICENSE-YTree.md": (args.ytree / "LICENSE.md").read_bytes(),
     }
+    position_files: dict[str, bytes] = {}
     for build, markers in by_build.items():
         for ancient, name in (
             (False, "new_positions.txt"),
             (True, "new_positions_ancient.txt"),
         ):
             text = "".join(position_rows(markers, ancient=ancient))
-            files[f"{build}/{name}"] = text.encode()
+            position_files[f"{build}/{name}"] = text.encode()
     ybrowse_date = (
         args.ybrowse_date
         or datetime.fromtimestamp(args.ybrowse.stat().st_mtime, timezone.utc)
         .date()
         .isoformat()
     )
-    tag = f"yleaf-tree-yfull-v{args.version}"
-    name = f"yfull-{args.version}.tar.gz"
+    version = args.version
+    tag = f"yleaf-yfull-v{version}"
     snapshot = f"ybrowse-snps_hg38-{ybrowse_date}.csv.gz"
     args.output.mkdir(parents=True, exist_ok=True)
     gzip_snapshot(args.ybrowse, args.output / snapshot)
-    files["NOTICE-YBrowse.md"] = (
+    position_files["NOTICE-YBrowse.md"] = (
         "# YBrowse attribution\n\n"
         "The marker positions and alleles in `hg19/`, `hg38/` and `t2t/` are adapted\n"
         f"from YBrowse's `snps_hg38.csv` (<{YBROWSE_URL}>), retrieved {ybrowse_date}\n"
         f"and released unchanged as `{snapshot}`. YBrowse data: {YBROWSE_COPYRIGHT}\n"
         "They are shared under the same CC-BY-SA terms. The changes: SNP names were\n"
-        "matched to YFull YTree branches, lifted to GRCh37 and T2T-CHM13, and\n"
-        "filtered as described in build_info.json and scripts/build_yfull_tree.py.\n"
+        f"matched to YFull YTree {version} branches, lifted to GRCh37 and T2T-CHM13,\n"
+        "and filtered as described in build_info.json and\n"
+        "scripts/build_yfull_tree.py.\n\n"
+        "This data module is downloaded separately. It is not part of WGS Extract\n"
+        "(GPL-3.0-or-later) or of the YFull YTree module (CC-BY-4.0), and these\n"
+        "terms apply to this module only.\n"
     ).encode()
-    build_info = {
-        "tree": {"version": args.version, **source, "branches": len(children) - 1},
-        "positions": {
-            "source": "YBrowse",
-            "url": YBROWSE_URL,
-            "retrieved": ybrowse_date,
-            "sha256": sha256_file(args.ybrowse),
-            "copyright": YBROWSE_COPYRIGHT,
-            "archive": {
-                "url": f"{RELEASE_URL}/{tag}/{snapshot}",
-                "sha256": sha256_file(args.output / snapshot),
+    tree_info = {"version": version, **source, "branches": len(children) - 1}
+    tree_files["build_info.json"] = _json(
+        {
+            "module": MODULES["tree"],
+            "license": TREE_LICENSE,
+            "tree": tree_info,
+            "script": "scripts/build_yfull_tree.py",
+        }
+    )
+    position_files["build_info.json"] = _json(
+        {
+            "module": MODULES["positions"],
+            "license": POSITIONS_LICENSE,
+            "tree": {k: tree_info[k] for k in ("version", "commit", "sha256")},
+            "positions": {
+                "source": "YBrowse",
+                "url": YBROWSE_URL,
+                "retrieved": ybrowse_date,
+                "sha256": sha256_file(args.ybrowse),
+                "copyright": YBROWSE_COPYRIGHT,
+                "archive": {
+                    "url": f"{RELEASE_URL}/{tag}/{snapshot}",
+                    "sha256": sha256_file(args.output / snapshot),
+                },
+                "snp_groups": dict(stats),
             },
-            "snp_groups": dict(stats),
-        },
-        "references": identities,
-        "liftover": {
-            build: {"chain": chain.name, "sha256": sha256_file(chain)}
-            for build, chain in (("hg19", args.chain_hg19), ("t2t", args.chain_t2t))
-        },
-        "builds": build_stats,
-        "script": "scripts/build_yfull_tree.py",
-    }
-    files["build_info.json"] = (json.dumps(build_info, indent=2) + "\n").encode()
+            "references": identities,
+            "liftover": {
+                build: {"chain": chain.name, "sha256": sha256_file(chain)}
+                for build, chain in (
+                    ("hg19", args.chain_hg19),
+                    ("t2t", args.chain_t2t),
+                )
+            },
+            "builds": build_stats,
+            "script": "scripts/build_yfull_tree.py",
+        }
+    )
 
-    archive = args.output / name
-    listing = write_pack(files, archive)
-    released = [name, "build_info.json", "LICENSE-YTree.md", "NOTICE-YBrowse.md"]
-    for extra in released[1:]:
-        (args.output / extra).write_bytes(files[extra])
-    released.append(snapshot)
+    label = f"YFull YTree {version}"
+    notices = {
+        "tree": (
+            f"Licence: the {label} data module is {TREE_LICENSE}, YFull "
+            "(LICENSE-YTree.md); it is not part of WGS Extract."
+        ),
+        "positions": (
+            f"Licence: the YBrowse-derived Y marker positions for {label} are "
+            f"CC-BY-SA, Thomas Krahn YSEQ (2022); a separate data module, not part "
+            "of WGS Extract (NOTICE-YBrowse.md)."
+        ),
+    }
+    licenses = {
+        "tree": TREE_LICENSE,
+        "positions": POSITIONS_LICENSE,
+    }
+    tree_source = f"{YTREE_REPO}/blob/{source['commit']}/{source['file']}"
+    sources = {
+        "tree": tree_source,
+        "positions": (
+            f"YBrowse snps_hg38.csv retrieved {ybrowse_date}, {YBROWSE_COPYRIGHT}"
+        ),
+    }
+    released: list[str] = []
+    modules: dict[str, dict[str, Any]] = {}
+    for module, files in (("tree", tree_files), ("positions", position_files)):
+        folder = MODULES[module]
+        archive = args.output / f"{folder}-{version}.tar.gz"
+        listing = write_pack(files, archive)
+        info = args.output / f"{folder}-{version}.build_info.json"
+        info.write_bytes(files["build_info.json"])
+        released += [archive.name, info.name]
+        modules[module] = {
+            "folder": folder,
+            "license": licenses[module],
+            "source": sources[module],
+            "notice": notices[module],
+            "url": f"{RELEASE_URL}/{tag}/{archive.name}",
+            "sha256": sha256_file(archive),
+            "size": archive.stat().st_size,
+            "files": listing,
+        }
+        print(f"Wrote {archive} ({archive.stat().st_size} bytes)")
+    (args.output / "LICENSE-YTree.md").write_bytes(tree_files["LICENSE-YTree.md"])
+    (args.output / "NOTICE-YBrowse.md").write_bytes(position_files["NOTICE-YBrowse.md"])
+    released += ["LICENSE-YTree.md", "NOTICE-YBrowse.md", snapshot]
     (args.output / "SHA256SUMS").write_text(
         "".join(f"{sha256_file(args.output / n)}  {n}\n" for n in released),
         encoding="utf-8",
@@ -408,25 +487,23 @@ def main() -> None:
     )
     entry = {
         "name": "YFull YTree",
-        "version": args.version,
+        "version": version,
         "date": source["committed"],
         "license": LICENSE,
-        "source": f"{YTREE_REPO}/blob/{source['commit']}/{source['file']}",
-        "positions_source": (
-            f"YBrowse snps_hg38.csv retrieved {ybrowse_date}, {YBROWSE_COPYRIGHT}"
-        ),
-        "url": f"{RELEASE_URL}/{tag}/{name}",
-        "sha256": sha256_file(archive),
-        "size": archive.stat().st_size,
-        "files": listing,
+        "source": tree_source,
+        "data": "modules",
+        "modules": modules,
     }
     (args.output / "trees_entry.json").write_text(
         json.dumps(entry, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
-    print(f"Wrote {archive} ({entry['size']} bytes, sha256 {entry['sha256']})")
     if args.write_manifest:
         manifest = json.loads(TREES_JSON.read_text(encoding="utf-8"))
-        manifest["trees"]["yfull"] = {**manifest["trees"]["yfull"], **entry}
+        current = manifest["trees"]["yfull"]
+        # A single-pack entry's pins don't apply to the modules.
+        for key in ("url", "sha256", "size", "files", "positions_source"):
+            current.pop(key, None)
+        manifest["trees"]["yfull"] = {**current, **entry}
         TREES_JSON.write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
