@@ -276,7 +276,7 @@ vncdotool = ">=1.2, <2"
 
 [feature.dev.target.linux-aarch64.dependencies]
 # Qualify the same test runner as x64, not a newly released pytest.
-pytest = "==9.1.1"
+pytest = "==9.2.0"
 
 [environments]
 default = { features = ["bio-tools", "pysam"], solve-group = "default" }
