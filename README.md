@@ -673,11 +673,13 @@ updates must retain a full commit SHA and version comment from an allow-listed
 source, rather than updating a duplicate SHA table in the validator.
 
 The weekly **Pixi refresh** workflow resolves updates within the declared
-manifest pins, restores declared direct-archive digests, and publishes a lockfile
-patch artifact and its validation outcome for a reviewed PR. Publication alone
-does not mean validation passed. It never merges dependencies automatically.
-Automatic PR creation is currently blocked by the repository's Actions permission policy; no new secret
-or permission change is required for the artifact handoff. Numerical-tool
+manifest pins, restores declared direct-archive digests, and validates the
+lockfile candidate with a read-only token. A validated change is force-pushed to
+the fixed `automation/pixi-refresh` branch and opens or updates a single PR; a
+run with no change opens none and closes a superseded one. Because pushes made
+with `GITHUB_TOKEN` start no `pull_request` workflows, the refresh dispatches CI
+on that branch so the checks attach to the PR head. It never merges
+dependencies automatically. Numerical-tool
 changes still need public small/full-genome byte-parity validation before merge.
 
 Real-data tests read their inputs from pytest options or from config:
