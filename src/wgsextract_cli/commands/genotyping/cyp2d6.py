@@ -14,7 +14,6 @@ Cyrius runs on those plus its normalization regions as they were.
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import re
@@ -24,6 +23,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.genotyping import TypingCyp2d6Params
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.results import current_result, warn
@@ -191,8 +192,8 @@ def rescue_alt_reads(
     return mini_bam
 
 
-def cmd_cyp2d6(args: argparse.Namespace) -> None:
-    aln = open_alignment(args)
+def run_cyp2d6(params: TypingCyp2d6Params) -> None:
+    aln = open_alignment(params)
     genome = cyrius_genome(aln)
     cyrius = env_tool("cyrius", "cyrius", LICENSE_NOTE)
     region_bed = _region_bed(genome)
@@ -268,3 +269,6 @@ def cmd_cyp2d6(args: argparse.Namespace) -> None:
         [("CYP2D6", call.outside_call)] if call.outside_call else [],
     )
     logging.info(f"Cyrius results: {str(Path(aln.outdir, prefix + '.tsv'))}")
+
+
+cmd_cyp2d6 = cli_handler(TypingCyp2d6Params, run_cyp2d6)
