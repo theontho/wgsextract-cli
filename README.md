@@ -154,9 +154,11 @@ Long workflows (`realign`, `vcf deepvariant`, `analyze comprehensive`) record ea
 
 `wgsextract --help` starts with the core commands, in the order you would
 usually run them: `info` → `microarray` / `lineage` → `extract` → `realign` /
-`align` → `vcf` → `vep`. Setup commands (`ref`, `deps`, `example-genome`,
-`config`) follow, and the advanced ones (optional or hard-to-install tools,
-format repair, benchmarks) are listed by name only.
+`align` → `vcf` → `vep` → `report`. Setup commands (`ref`, `deps`,
+`example-genome`, `config`) follow, and the advanced ones (optional or
+hard-to-install tools, format repair, benchmarks) are listed by name only.
+[docs/commands.md](docs/commands.md) starts with the path to take from what you
+have (a BAM/CRAM, FASTQ, VCF or raw-data file), then lists every command.
 
 - `wgsextract help --all`: every command on one line, grouped by tier
   (`help --all vcf` for one group).
@@ -264,7 +266,7 @@ exposed as an application configuration setting.
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `methylation` | `pileup`: CpG 5mC (optionally 5hmC) bedMethyl and summary from Nanopore/PacBio MM/ML tags (modkit) |
 | `gatk`, `freebayes` | Used by `vcf gatk` / `vcf freebayes` from optional environments; [Windows GATK](docs/windows.md#gatk-on-native-windows) is prepared at setup, not during calling |
-| `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
+| `vep` | `run`, `download`, `verify` (Ensembl Variant Effect Predictor) |
 | `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, streaming paired reads into BWA or reusing FASTQs |
 | `basecall` | Nanopore POD5 to an unaligned BAM with ONT's Dorado (optional, installed separately), with `MM`/`ML` modification tags for `align`; [docs](docs/ont.md#basecalling) |
@@ -273,7 +275,7 @@ exposed as an application configuration setting.
 | `qc` | `fastp`, `fastqc`, `multiqc` (FastQC, bcftools stats and our metrics in one report), `multiqc-metrics` (MultiQC custom content from manifests; [pipeline interop](docs/interop.md)), `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
 | `repair` | `ftdna-bam`, `ftdna-vcf` |
 | `analyze` | `comprehensive` (QC, lineage, calling, annotation in one run), `batch-gen` |
-| `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `ybrowse` (GRCh38 only) |
+| `ref` | Library: `bootstrap`, `library` (`--list` to list), `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `ybrowse` (GRCh38 only) |
 | `sign` | `create` (SHA256SUMS manifest, optionally signed with an OpenSSH key), `verify` |
 | `example-genome` | `list`, `download` curated 1000 Genomes / HGSVC2 datasets |
 | `deps` | `check` |
@@ -282,7 +284,8 @@ exposed as an application configuration setting.
 
 Notes on a few commands:
 
-- `ref library-list` is a deprecated compatibility alias for `ref library --list`.
+- Deprecated, removed in 0.8.0: `ref library-list` (use `ref library --list`)
+  and running VEP with bare `vep` (use `vep run`). Both still work and warn.
   `vep run --assembly GRCh37` and the deprecated `--vep-assembly GRCh37` select the
   same annotation build; `vep download --assembly` selects the cache build.
   VEP conflict warnings use the canonical `--assembly` spelling for either alias.

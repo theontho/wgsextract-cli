@@ -6,6 +6,7 @@ from pathlib import Path
 
 from wgsextract_cli.api._runtime import _context_of, cancel_event
 from wgsextract_cli.commands._command_needs import COMMAND_NEEDS, HOURS, MINUTES
+from wgsextract_cli.commands.registry import DEPRECATED
 from wgsextract_cli.core import live_status
 from wgsextract_cli.core.genome_library import apply_genome_selection
 from wgsextract_cli.core.keep_awake import keep_awake
@@ -17,10 +18,12 @@ from wgsextract_cli.core.results import (
     params_from_args,
     redact_argv,
     stdout_reserved,
+    warn,
 )
 from wgsextract_cli.core.run_log import active_log_path
 from wgsextract_cli.core.sample_workspace import SampleWorkspace, active_workspace
 
+from .help import deprecation_message
 from .hints import print_next_steps
 from .platform_support import verify_platform_support
 
@@ -148,6 +151,13 @@ def _run(
     args: argparse.Namespace, explicit_dests: set[str], result: CommandResult
 ) -> None:
     try:
+        if deprecation := DEPRECATED.get(result.command):
+            warn(
+                "deprecated_command",
+                deprecation_message(deprecation),
+                replacement=deprecation.replacement,
+                remove_in=deprecation.remove_in,
+            )
         verify_platform_support(args)
         apply_genome_selection(args, set(explicit_dests))
         with active_workspace(
