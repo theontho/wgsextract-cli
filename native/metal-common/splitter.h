@@ -51,7 +51,37 @@ public:
           per_batch_(std::max<long>(1, pairs_per_batch)), overlap_(overlap),
           all_on_gpu_(all_on_gpu), max_outstanding_(std::max<size_t>(1, max_outstanding)),
           back_(pairs), owner_(size_t(pairs)) {}
-    virtual ~Splitter() = default;
+    // A derived class whose GPU side may have started calls cancel_gpu() in its
+    // own destructor, before its overrides go away.
+    virtual ~Splitter() { cancel_gpu(); }
+
+    // Starts the GPU side on a thread of its own before run(), e.g. while the
+    // previous chunk maps; until run() it prepares at most max_outstanding
+    // batches. If no thread starts, run() starts the GPU side as usual.
+    void start_gpu() {
+        try {
+            gpu_thread_ = std::thread(&Splitter::gpu_loop, this);
+        } catch (const std::system_error &) {
+        }
+    }
+
+    // Stops a GPU side started by start_gpu() and waits for it.
+    void cancel_gpu() {
+        if (!gpu_thread_.joinable()) return;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            gpu_stopping_ = true;
+        }
+        drained_.notify_all();
+        packed_changed_.notify_all();
+        gpu_thread_.join();
+    }
+
+    void run(void (*worker)(void *, long, int), void *data) {
+        worker_ = worker;
+        data_ = data;
+        run();
+    }
 
     void run() {
         std::vector<std::thread> threads;
@@ -63,15 +93,22 @@ public:
             // Map with the threads that started; this thread covers a missing tid.
         }
         // The GPU waits for workers to drain its batches, so it needs at least one.
-        if (threads.empty()) stop_gpu();
-        else gpu_loop();
+        if (gpu_thread_.joinable()) {
+            if (threads.empty()) cancel_gpu();
+            else gpu_thread_.join();
+        } else if (threads.empty()) {
+            stop_gpu();
+            gpu_finished();
+        } else {
+            gpu_loop();
+        }
         if (threads.size() < size_t(threads_)) cpu(static_cast<int>(threads.size()));
         for (auto &thread : threads) thread.join();
     }
 
 protected:
-    void (*const worker_)(void *, long, int);
-    void *const data_;
+    void (*worker_)(void *, long, int);
+    void *data_;
     std::mutex mutex_;
 
     // Packs [first, last) for the GPU; CPU threads cannot take these pairs yet.
@@ -85,6 +122,8 @@ protected:
     virtual void finish_thread() {}
     // A GPU failure; the CPU threads map the remaining pairs.
     virtual void failed(const std::string &reason) = 0;
+    // When the GPU side has stopped preparing batches.
+    virtual void gpu_finished() {}
 
     // Whether CPU threads have taken every pair of the batch that starts at first.
     bool taken(long first) {
@@ -113,6 +152,7 @@ private:
     // The batch of each pair in [0, ready_).
     std::vector<BatchBase *> owner_;
     std::vector<std::unique_ptr<BatchBase>> batches_;
+    std::thread gpu_thread_;
 
     void cpu(int tid) {
         double wait_time = 0;
@@ -200,6 +240,7 @@ private:
         }
         stop_gpu();
         gpu_time += seconds(start);
+        gpu_finished();
     }
 
     void pack_loop() {

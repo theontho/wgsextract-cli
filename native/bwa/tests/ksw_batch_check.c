@@ -2,7 +2,7 @@
  * ksw_align2() returns for every task: random scoring, gap penalties, query and
  * window lengths (mixed and shared segment lengths), ambiguous bases, planted
  * matches, 8-bit saturation and 16-bit tasks, with and without start search. */
-#include "metal_backend.h"
+#include "../ksw_batch.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

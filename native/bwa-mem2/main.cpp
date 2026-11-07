@@ -66,6 +66,7 @@ int main(int argc, char **argv) {
         || strcmp(argv[command_index], "--gpu-seed-verify") == 0
         || strcmp(argv[command_index], "--gpu-inject-seed-failure") == 0
         || strcmp(argv[command_index], "--gpu-overlap") == 0
+        || strcmp(argv[command_index], "--cpu-rescue-batch") == 0
         || strcmp(argv[command_index], "--gpu-rescue-batch") == 0
         || strcmp(argv[command_index], "--gpu-rescue-verify") == 0
         || strcmp(argv[command_index], "--gpu-inject-rescue-failure") == 0
@@ -97,10 +98,13 @@ int main(int argc, char **argv) {
         if (argc <= command_index + 2) return 2;
         if (strcmp(argv[command_index], "--gpu-rescue") == 0
             || strcmp(argv[command_index], "--gpu-seed") == 0
-            || strcmp(argv[command_index], "--gpu-overlap") == 0) {
+            || strcmp(argv[command_index], "--gpu-overlap") == 0
+            || strcmp(argv[command_index], "--cpu-rescue-batch") == 0) {
             std::string value = argv[command_index + 1];
             if (value != "on" && value != "off") return 2;
             if (strcmp(argv[command_index], "--gpu-rescue") == 0) wgse_set_gpu_rescue(value == "on");
+            else if (strcmp(argv[command_index], "--cpu-rescue-batch") == 0)
+                wgse_set_cpu_rescue_batching(value == "on");
             else if (strcmp(argv[command_index], "--gpu-seed") == 0) wgse_set_gpu_seed(value == "on");
             else wgse_set_overlap(value == "on");
         } else if (strcmp(argv[command_index], "--gpu-rescue-batch") == 0

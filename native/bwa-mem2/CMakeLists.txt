@@ -57,6 +57,7 @@ endfunction()
 set(bwa_dir "${CMAKE_CURRENT_SOURCE_DIR}/../bwa")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${bwa_dir}/rescue_oracle.c.in" "${bwa_dir}/rescue_types.h" "${bwa_dir}/rescue.metal"
+    "${bwa_dir}/pac_oracle.c.in" "${bwa_dir}/sort_oracle.c.in" "${bwa_dir}/ksw_oracle.c.in"
     "${CMAKE_CURRENT_SOURCE_DIR}/mem_stages.cpp.in"
     "${CMAKE_CURRENT_SOURCE_DIR}/fastmap_stages.cpp.in"
     "${CMAKE_CURRENT_SOURCE_DIR}/seeding_types.h" "${CMAKE_CURRENT_SOURCE_DIR}/seeding.metal")
@@ -113,6 +114,21 @@ void wgse_kt_for_bwt(worker_t &w, int n)
         kt_for(worker_bwt, &w, n);
 }
 ")
+# With Metal, fastmap.cpp does not load the .0123 file (the 2-bit .pac unpacked
+# to a byte per base, 6.2 GB for hs38), and extension windows are decoded from
+# the .pac instead: the same bases.
+set(ref_window "#else\n            seq = ref_string + beg;\n#endif")
+mem2_seam(bwamem_source "${ref_window}\n        } else { // forward strand"
+    "#else\n            seq = ref_string ? ref_string + beg : wgse_ref_window(l_pac, pac, beg, end);\n#endif\n        } else { // forward strand")
+mem2_seam(bwamem_source "${ref_window}"
+    "#else\n            seq = ref_string ? ref_string + beg : wgse_ref_window(l_pac, pac, beg, end);\n#endif")
+# mem_sort_dedup_patch()'s sorts move pointers instead of regions (native/bwa/sort_oracle.c.in).
+mem2_seam(bwamem_source "    ks_introsort(mem_ars2, n, a); // sort by the END position, not START!"
+    "    if (wgse_metal_active()) wgse_sort_alnreg_by_end(n, a);\n    else ks_introsort(mem_ars2, n, a);")
+mem2_seam(bwamem_source "    n = m;\n    ks_introsort(mem_ars, n, a);"
+    "    n = m;\n    if (wgse_metal_active()) wgse_sort_alnreg_by_score(n, a);\n    else ks_introsort(mem_ars, n, a);")
+file(READ "${bwa_dir}/sort_oracle.c.in" sort_oracle)
+string(APPEND bwamem_source "${sort_oracle}")
 # mem_process_seqs() in two halves, so that with Metal the pipeline maps chunk
 # i + 1 while chunk i pairs (mostly GPU mate rescue). Each half is upstream's
 # code on the chunk's own alignments, so its output does not depend on overlap.
@@ -120,6 +136,38 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/mem_stages.cpp.in" mem_stages)
 string(APPEND bwamem_source "${mem_stages}")
 file(WRITE "${mem2_src}/bwamem.cpp"
     "#include \"metal_backend.h\"\n#include \"rescue_backend.h\"\n${bwamem_source}")
+# bns_get_seq()'s unpacking loops (mate-rescue windows) and wgse_ref_window()
+# decode with NEON (native/bwa/pac_oracle.c.in).
+file(READ "${mem2_SOURCE_DIR}/src/bntseq.cpp" bntseq_source)
+mem2_seam(bntseq_source "\t\t\tfor (k = end_f; k > beg_f; --k) {\n\t\t\t\tseq[l++] = 3 - _get_pac(pac, k);\n\t\t\t}"
+    "\t\t\tif (wgse_metal_active()) wgse_unpack_pac_reverse(pac, beg_f, end_f, seq);\n\t\t\telse for (k = end_f; k > beg_f; --k) {\n\t\t\t\tseq[l++] = 3 - _get_pac(pac, k);\n\t\t\t}")
+mem2_seam(bntseq_source "\t\t\tfor (k = beg; k < end; ++k) {\n\t\t\t\tseq[l++] = _get_pac(pac, k);\n\t\t\t}"
+    "\t\t\tif (wgse_metal_active()) wgse_unpack_pac(pac, beg, end, seq);\n\t\t\telse for (k = beg; k < end; ++k) {\n\t\t\t\tseq[l++] = _get_pac(pac, k);\n\t\t\t}")
+file(READ "${bwa_dir}/pac_oracle.c.in" pac_oracle)
+file(WRITE "${mem2_src}/bntseq.cpp" "#include \"metal_backend.h\"
+#include \"rescue_backend.h\"
+${bntseq_source}
+${pac_oracle}
+#include <vector>
+uint8_t *wgse_ref_window(int64_t l_pac, const uint8_t *pac, int64_t beg, int64_t end)
+{
+    static thread_local std::vector<uint8_t> window;
+    if (window.size() < (size_t)(end - beg)) window.resize(end - beg);
+    if (beg >= l_pac) wgse_unpack_pac_reverse(pac, (l_pac<<1) - 1 - end, (l_pac<<1) - 1 - beg, window.data());
+    else wgse_unpack_pac(pac, beg, end, window.data());
+    return window.data();
+}
+")
+# Batched ksw_align2() for CPU threads' mate rescue (native/bwa/ksw_oracle.c.in),
+# with ksw_u8()'s horizontal maximum and zero test in NEON; upstream code is unchanged.
+file(READ "${mem2_SOURCE_DIR}/src/ksw.cpp" ksw_source)
+file(READ "${bwa_dir}/ksw_oracle.c.in" ksw_oracle)
+file(WRITE "${mem2_src}/ksw.cpp" "#include \"${bwa_dir}/ksw_batch.h\"
+${ksw_source}
+#undef __max_16
+#define __max_16(ret, xx) (ret) = vmaxvq_u8(vreinterpretq_u8_m128i(xx))
+#define allzero_16(xx) (vmaxvq_u8(vreinterpretq_u8_m128i(xx)) == 0)
+${ksw_oracle}")
 file(READ "${mem2_SOURCE_DIR}/src/bwamem_pair.cpp" pair_source)
 set(rescue_call "aln = ksw_align2(l_ms, seq, re - rb, ref, 5,\n                             opt->mat, opt->o_del, opt->e_del,\n                             opt->o_ins, opt->e_ins, xtra, 0);")
 mem2_seam(pair_source "${rescue_call}"
@@ -156,6 +204,10 @@ mem2_seam(fastmap_source "${process_call}" "            if (wgse_overlap)
                                            aux->pes0, w);
             else
 ${process_call}")
+mem2_seam(fastmap_source "    FILE *fr = fopen(binary_seq_file, \"r\");\n"
+    "    ref_string = 0;\n    aux.ref_string = 0;\n    if (!wgse_metal_active()) {\n    FILE *fr = fopen(binary_seq_file, \"r\");\n")
+mem2_seam(fastmap_source "    fprintf(stderr, \"* Reference genome size: %ld bp\\n\", rlen);\n"
+    "    fprintf(stderr, \"* Reference genome size: %ld bp\\n\", rlen);\n    }\n")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/fastmap_stages.cpp.in" fastmap_stages)
 mem2_seam(fastmap_source "static void *ktp_worker(void *data)"
     "${fastmap_stages}\nstatic void *ktp_worker(void *data)")
@@ -206,7 +258,7 @@ target_compile_options(metal_backend PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(metal_backend PUBLIC mem2_core wgse_metal_common)
 add_executable(wgse-bwa-mem2 main.cpp)
 target_link_libraries(wgse-bwa-mem2 PRIVATE metal_backend)
-set(WGSE_BWA_MEM2_VERSION 0.2.0)
+set(WGSE_BWA_MEM2_VERSION 0.3.0)
 target_compile_definitions(wgse-bwa-mem2 PRIVATE WGSE_VERSION="${WGSE_BWA_MEM2_VERSION}")
 target_compile_options(wgse-bwa-mem2 PRIVATE -Wall -Wextra -Werror)
 
@@ -227,6 +279,11 @@ if(BUILD_TESTING)
     add_test(NAME bwa_mem2_seed_parity
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/seed_parity.sh"
         $<TARGET_FILE:wgse-bwa-mem2> "${CMAKE_CURRENT_BINARY_DIR}/seed-parity")
+    # The batched rescue against BWA-MEM2's own ksw_align2().
+    add_executable(mem2_ksw_batch_check "${bwa_dir}/tests/ksw_batch_check.c")
+    target_compile_options(mem2_ksw_batch_check PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(mem2_ksw_batch_check PRIVATE mem2_core)
+    add_test(NAME bwa_mem2_ksw_batch COMMAND mem2_ksw_batch_check)
     add_executable(extension_benchmark tests/extension_benchmark.cpp)
     target_link_libraries(extension_benchmark PRIVATE metal_backend)
     target_compile_options(extension_benchmark PRIVATE -Wall -Wextra -Werror)

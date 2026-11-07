@@ -17,6 +17,9 @@ bool wgse_metal_hardware_supported();
 // True after a GPU execution failure that was recovered on the CPU.
 bool wgse_metal_execution_failed(std::string &reason);
 void wgse_set_backend(Backend backend);
+// Whether the selected backend uses Metal: its CPU threads also take the exact
+// CPU-side replacements (reference windows from .pac, pointer sorts, batched rescue).
+bool wgse_metal_active();
 void wgse_print_backend_metrics();
 uint64_t wgse_gpu_execution_ns();
 uint64_t wgse_gpu_dispatches();
@@ -47,6 +50,8 @@ void wgse_inject_seed_failure();
 void wgse_verify_gpu_seeds();
 // GPU mate rescue (enabled with Metal) and its test hooks.
 void wgse_set_gpu_rescue(bool enable);
+// Whether CPU threads align a pair's rescue windows together (on by default).
+void wgse_set_cpu_rescue_batching(bool enable);
 void wgse_set_gpu_rescue_batch(size_t pairs);
 void wgse_inject_rescue_failure();
 // Also run each GPU rescue alignment on the CPU and count differences.
