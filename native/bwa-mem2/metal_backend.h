@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -28,6 +29,30 @@ void wgse_set_force_gpu(bool force);
 void wgse_set_gpu8(bool enabled, int32_t target, int32_t minimum_pairs = 1,
     bool paired = true);
 void wgse_set_pipelining(bool enabled);
+// Whether the pipeline should map each chunk while the previous one pairs:
+// with GPU mate rescue, pairing is mostly GPU work.
+bool wgse_metal_overlap();
+void wgse_set_overlap(bool enable);
+// A chunk finished mapping while the previous one was pairing.
+void wgse_note_overlapped_chunk();
+// Page-aligned memory for the FM index checkpoints, so Metal can use them in place.
+void *wgse_metal_index_alloc(size_t bytes);
+// GPU SMEM collection (enabled with Metal) and its test hooks.
+void wgse_set_gpu_seed(bool enable);
+void wgse_set_gpu_seed_batch(size_t reads);
+// SMEMs per read on the GPU before the CPU collects the read instead.
+void wgse_set_gpu_seed_capacity(size_t smems);
+void wgse_inject_seed_failure();
+// Also collect each GPU unit's SMEMs on the CPU and count differences.
+void wgse_verify_gpu_seeds();
+// GPU mate rescue (enabled with Metal) and its test hooks.
+void wgse_set_gpu_rescue(bool enable);
+void wgse_set_gpu_rescue_batch(size_t pairs);
+void wgse_inject_rescue_failure();
+// Also run each GPU rescue alignment on the CPU and count differences.
+void wgse_verify_gpu_rescue();
+// Report the first commit of every nth piece of GPU work as interrupted.
+void wgse_inject_gpu_interruptions(size_t every);
 struct WgseExtensionScratch {
     dnaSeqPair *pairs, *aux;
     int32_t *hist;

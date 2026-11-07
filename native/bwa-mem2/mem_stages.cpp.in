@@ -1,0 +1,70 @@
+
+/* wgse: mem_process_seqs() in two halves (see fastmap_stages.cpp.in).
+ * wgse_mem_map() runs everything up to and including the insert-size estimate
+ * and moves the chunk's alignments out of w; wgse_mem_pair() runs the rest. */
+#include <atomic>
+static std::atomic<int> wgse_pairing{0};
+static std::atomic<long> wgse_pair_starts{0};
+
+struct wgse_mapped_t {
+    worker_t w;
+    mem_pestat_t pes[4];
+    double ctime, rtime;
+    int n;
+};
+
+void *wgse_mem_map(mem_opt_t *opt, int64_t n_processed, int n, bseq1_t *seqs,
+                   const mem_pestat_t *pes0, worker_t &w)
+{
+    wgse_mapped_t *m = new wgse_mapped_t();
+    m->ctime = cputime(); m->rtime = realtime(); m->n = n;
+    w.opt = opt;
+    w.seqs = seqs; w.n_processed = n_processed;
+    w.pes = &m->pes[0];
+
+    // A chunk overlaps if any pairing ran while it was mapped.
+    const bool paired_at_start = wgse_pairing.load() != 0;
+    const long pairs_before = wgse_pair_starts.load();
+    uint64_t tim = __rdtsc();
+    fprintf(stderr, "[0000] 1. Calling kt_for - worker_bwt\n");
+    wgse_kt_for_bwt(w, n); // SMEMs (+SAL)
+    fprintf(stderr, "[0000] 2. Calling kt_for - worker_aln\n");
+    kt_for(worker_aln, &w, n); // BSW
+    tprof[WORKER10][0] += __rdtsc() - tim;
+    if (paired_at_start || wgse_pairing.load() || wgse_pair_starts.load() != pairs_before)
+        wgse_note_overlapped_chunk();
+
+    if (opt->flag & MEM_F_PE) {
+        if (pes0)
+            memcpy(m->pes, pes0, 4 * sizeof(mem_pestat_t));
+        else {
+            fprintf(stderr, "[0000] Inferring insert size distribution of PE reads from data, "
+                    "l_pac: %ld, n: %d\n", w.fmi->idx->bns->l_pac, n);
+            mem_pestat(opt, w.fmi->idx->bns->l_pac, n, w.regs, m->pes);
+        }
+    }
+    m->w = w;
+    w.regs = (mem_alnreg_v *) calloc(w.nreads, sizeof(mem_alnreg_v));
+    assert(w.regs != NULL);
+    return m;
+}
+
+void wgse_mem_pair(void *mapped)
+{
+    wgse_mapped_t *m = (wgse_mapped_t *) mapped;
+    worker_t &w = m->w;
+    ++wgse_pairing;
+    ++wgse_pair_starts;
+    uint64_t tim = __rdtsc();
+    fprintf(stderr, "[0000] 3. Calling kt_for - worker_sam\n");
+    if (!wgse_metal_pair(w.opt, w.fmi->idx->bns, w.fmi->idx->pac, m->pes, m->n, w.seqs,
+            w.regs, w.nthreads, wgse_worker_sam_pair, &w))
+        kt_for(worker_sam, &w, m->n);   // SAM
+    tprof[WORKER20][0] += __rdtsc() - tim;
+    --wgse_pairing;
+    fprintf(stderr, "\t[0000][ M::%s] Processed %d reads in %.3f "
+            "CPU sec, %.3f real sec\n",
+            "mem_process_seqs", m->n, cputime() - m->ctime, realtime() - m->rtime);
+    free(w.regs);
+    delete m;
+}

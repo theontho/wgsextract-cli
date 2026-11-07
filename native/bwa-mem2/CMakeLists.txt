@@ -44,9 +44,89 @@ string(REGEX REPLACE
     "\\1\n    WgseExtensionScope wgse_scope(numPairs);\n    if (wgse_metal_extend(pairArray, seqBufRef, seqBufQer, numPairs, w,\n        o_del, e_del, o_ins, e_ins, zdrop, end_bonus, mat, \\2)) return;\n"
     banded_source "${banded_source}")
 file(WRITE "${mem2_src}/bandedSWA.cpp" "#include \"metal_backend.h\"\n${banded_source}")
+function(mem2_seam variable before after)
+    string(FIND "${${variable}}" "${before}" position)
+    if(position EQUAL -1)
+        message(FATAL_ERROR "Unexpected upstream BWA-MEM2 source: ${before}")
+    endif()
+    string(REPLACE "${before}" "${after}" patched "${${variable}}")
+    set(${variable} "${patched}" PARENT_SCOPE)
+endfunction()
+# GPU mate rescue, shared with wgse-bwa (native/bwa): BWA-MEM2's mem_sam_pe(),
+# mem_matesw() and ksw_align2() are BWA 0.7.19's.
+set(bwa_dir "${CMAKE_CURRENT_SOURCE_DIR}/../bwa")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${bwa_dir}/rescue_oracle.c.in" "${bwa_dir}/rescue_types.h" "${bwa_dir}/rescue.metal"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mem_stages.cpp.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fastmap_stages.cpp.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/seeding_types.h" "${CMAKE_CURRENT_SOURCE_DIR}/seeding.metal")
+# GPU SMEM collection reads FMI_search's checkpoints in place, so they are
+# page-aligned for Metal.
+file(READ "${mem2_SOURCE_DIR}/src/FMI_search.h" fmi_header)
+mem2_seam(fmi_header "    int64_t sentinel_index;\nprivate:"
+    "    int64_t sentinel_index;\n    const int64_t *wgse_count() const { return count; }\n    const CP_OCC *wgse_cp_occ() const { return cp_occ; }\nprivate:")
+file(WRITE "${mem2_src}/FMI_search.h" "${fmi_header}")
+file(READ "${mem2_SOURCE_DIR}/src/FMI_search.cpp" fmi_source)
+mem2_seam(fmi_source "(CP_OCC *)_mm_malloc(cp_occ_size * sizeof(CP_OCC), 64)) == NULL"
+    "(CP_OCC *)wgse_metal_index_alloc(cp_occ_size * sizeof(CP_OCC))) == NULL")
+# Suffix-array locate: an SMEM yields min(s, max_occ) rows, but upstream sizes
+# its row buffers by the sum of s (megabytes for repeats, faulted in on every
+# read), and its precedence slip `pos & SA_COMPX_MASK == 0` means sampled rows
+# are never prefetched. Same rows, same results.
+mem2_seam(fmi_source "        mem_lim += smem.s;"
+    "        mem_lim += smem.s < max_occ ? smem.s : max_occ;")
+mem2_seam(fmi_source "if (pos & SA_COMPX_MASK == 0) {" "if ((pos & SA_COMPX_MASK) == 0) {")
+mem2_seam(fmi_source "if (sp & SA_COMPX_MASK == 0) {" "if ((sp & SA_COMPX_MASK) == 0) {")
+file(WRITE "${mem2_src}/FMI_search.cpp" "#include \"metal_backend.h\"\n${fmi_source}")
 file(READ "${mem2_SOURCE_DIR}/src/bwamem.cpp" bwamem_source)
 include(extension_pipeline.cmake)
-file(WRITE "${mem2_src}/bwamem.cpp" "#include \"metal_backend.h\"\n${bwamem_source}")
+mem2_seam(bwamem_source "    kt_for(worker_bwt, &w, n_); // SMEMs (+SAL)"
+    "    wgse_kt_for_bwt(w, n_); // SMEMs (+SAL)")
+mem2_seam(bwamem_source "    matchArray = mem_collect_smem(fmi, opt,"
+    "    if (SMEM *gpu = wgse_metal_smems(fmi, opt, seq_, nseq, mmc, num_smem, tid)) matchArray = gpu;\n    else matchArray = mem_collect_smem(fmi, opt,")
+mem2_seam(bwamem_source "    kt_for(worker_sam, &w,  n_);   // SAM"
+    "    if (!wgse_metal_pair(opt, w.fmi->idx->bns, w.fmi->idx->pac, pes, n, seqs, w.regs,\n        w.nthreads, wgse_worker_sam_pair, &w))\n        kt_for(worker_sam, &w,  n_);   // SAM")
+# worker_sam()'s paired-end loop body for one pair.
+string(APPEND bwamem_source "
+void wgse_worker_sam_pair(void *data, long pair, int)
+{
+    worker_t *w = (worker_t*) data;
+    long i = pair << 1;
+    mem_sam_pe(w->opt, w->fmi->idx->bns, w->fmi->idx->pac, w->pes,
+               (w->n_processed >> 1) + pair, &w->seqs[i], &w->regs[i]);
+    free(w->regs[i].a);
+    free(w->regs[i+1].a);
+}
+
+// kt_for(worker_bwt)'s units (BATCH_SIZE reads each), with SMEMs from the GPU.
+struct wgse_bwt_t { worker_t *w; int n; };
+static void wgse_worker_bwt(void *data, long unit, int tid)
+{
+    wgse_bwt_t *b = (wgse_bwt_t*) data;
+    int st = unit * BATCH_SIZE;
+    worker_bwt(b->w, st, b->n - st < BATCH_SIZE ? b->n - st : BATCH_SIZE, tid);
+}
+void wgse_kt_for_bwt(worker_t &w, int n)
+{
+    wgse_bwt_t b = {&w, n};
+    if (!wgse_metal_seed(w.fmi, w.opt, w.seqs, n, w.nthreads, wgse_worker_bwt, &b))
+        kt_for(worker_bwt, &w, n);
+}
+")
+# mem_process_seqs() in two halves, so that with Metal the pipeline maps chunk
+# i + 1 while chunk i pairs (mostly GPU mate rescue). Each half is upstream's
+# code on the chunk's own alignments, so its output does not depend on overlap.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/mem_stages.cpp.in" mem_stages)
+string(APPEND bwamem_source "${mem_stages}")
+file(WRITE "${mem2_src}/bwamem.cpp"
+    "#include \"metal_backend.h\"\n#include \"rescue_backend.h\"\n${bwamem_source}")
+file(READ "${mem2_SOURCE_DIR}/src/bwamem_pair.cpp" pair_source)
+set(rescue_call "aln = ksw_align2(l_ms, seq, re - rb, ref, 5,\n                             opt->mat, opt->o_del, opt->e_del,\n                             opt->o_ins, opt->e_ins, xtra, 0);")
+mem2_seam(pair_source "${rescue_call}"
+    "if (!wgse_metal_matesw(opt, ms, seq, l_ms, ref, is_rev, rb, re, xtra, &aln))\n                ${rescue_call}")
+file(READ "${bwa_dir}/rescue_oracle.c.in" rescue_oracle)
+file(WRITE "${mem2_src}/bwamem_pair.cpp"
+    "#include \"rescue_backend.h\"\n${pair_source}\n${rescue_oracle}")
 file(READ "${mem2_SOURCE_DIR}/src/fastmap.cpp" fastmap_source)
 string(REGEX REPLACE
     "void __cpuid\\(unsigned int i, unsigned int cpuid\\[4\\]\\) \\{[^}]+\\}"
@@ -65,13 +145,40 @@ string(REPLACE "${output_close}"
     fastmap_source "${fastmap_source}")
 string(REPLACE "${final_return}" "    display_stats(nt);\n\n    return wgse_output_status;\n}"
     fastmap_source "${fastmap_source}")
-file(WRITE "${mem2_src}/fastmap.cpp" "${fastmap_source}")
+set(process_call "            mem_process_seqs(opt,
+                             aux->n_processed,
+                             ret->n_seqs,
+                             ret->seqs,
+                             aux->pes0,
+                             w);")
+mem2_seam(fastmap_source "${process_call}" "            if (wgse_overlap)
+                wgse_mapped = wgse_mem_map(opt, aux->n_processed, ret->n_seqs, ret->seqs,
+                                           aux->pes0, w);
+            else
+${process_call}")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/fastmap_stages.cpp.in" fastmap_stages)
+mem2_seam(fastmap_source "static void *ktp_worker(void *data)"
+    "${fastmap_stages}\nstatic void *ktp_worker(void *data)")
+mem2_seam(fastmap_source "        w->data = kt_pipeline(p->shared,"
+    "        w->data = wgse_kt_pipeline(p->shared,")
+mem2_seam(fastmap_source "    int n_steps = 3;\n"
+    "    int n_steps = 3;\n    wgse_overlap = p_nt == 2 && (opt->flag & MEM_F_PE)\n        && !(opt->flag & MEM_F_SMARTPE) && wgse_metal_overlap();\n    if (wgse_overlap) n_steps = 4, p_nt = 3;\n")
+# wgse_mapped: step 1's wgse_mem_map() result, taken by the same worker right after it.
+file(WRITE "${mem2_src}/fastmap.cpp" "#include \"metal_backend.h\"
+#include \"rescue_backend.h\"
+static bool wgse_overlap = false;
+static void *wgse_mapped = 0;
+${fastmap_source}")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/extension.metal" kernel_source)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/extension_tiled.metal" tiled_source)
 string(APPEND kernel_source "\n${tiled_source}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/extension.metal"
     "${CMAKE_CURRENT_SOURCE_DIR}/extension_tiled.metal")
+file(READ "${bwa_dir}/rescue_types.h" rescue_types)
+file(READ "${bwa_dir}/rescue.metal" rescue_source)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/seeding_types.h" seeding_types)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/seeding.metal" seeding_source)
 configure_file(kernel_source.h.in "${generated}/kernel_source.h" @ONLY)
 
 set(core_names
@@ -96,10 +203,11 @@ target_link_libraries(mem2_core PUBLIC safestring_static ZLIB::ZLIB Threads::Thr
 add_library(metal_backend STATIC metal_backend.mm)
 target_include_directories(metal_backend PRIVATE "${generated}")
 target_compile_options(metal_backend PRIVATE -fobjc-arc -Wall -Wextra -Werror)
-target_link_libraries(metal_backend PUBLIC mem2_core "-framework Foundation" "-framework Metal")
+target_link_libraries(metal_backend PUBLIC mem2_core wgse_metal_common)
 add_executable(wgse-bwa-mem2 main.cpp)
 target_link_libraries(wgse-bwa-mem2 PRIVATE metal_backend)
-target_compile_definitions(wgse-bwa-mem2 PRIVATE WGSE_VERSION="${PROJECT_VERSION}")
+set(WGSE_BWA_MEM2_VERSION 0.2.0)
+target_compile_definitions(wgse-bwa-mem2 PRIVATE WGSE_VERSION="${WGSE_BWA_MEM2_VERSION}")
 target_compile_options(wgse-bwa-mem2 PRIVATE -Wall -Wextra -Werror)
 
 if(BUILD_TESTING)
@@ -113,6 +221,12 @@ if(BUILD_TESTING)
     add_test(NAME bwa_mem2_capabilities COMMAND wgse-bwa-mem2 capabilities --json)
     add_test(NAME bwa_mem2_smoke COMMAND "${PROJECT_SOURCE_DIR}/tests/smoke.sh"
         $<TARGET_FILE:wgse-bwa-mem2> "${CMAKE_CURRENT_BINARY_DIR}/smoke" force-gpu)
+    add_test(NAME bwa_mem2_rescue_parity
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rescue_parity.sh"
+        $<TARGET_FILE:wgse-bwa-mem2> "${CMAKE_CURRENT_BINARY_DIR}/rescue-parity")
+    add_test(NAME bwa_mem2_seed_parity
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/seed_parity.sh"
+        $<TARGET_FILE:wgse-bwa-mem2> "${CMAKE_CURRENT_BINARY_DIR}/seed-parity")
     add_executable(extension_benchmark tests/extension_benchmark.cpp)
     target_link_libraries(extension_benchmark PRIVATE metal_backend)
     target_compile_options(extension_benchmark PRIVATE -Wall -Wextra -Werror)
