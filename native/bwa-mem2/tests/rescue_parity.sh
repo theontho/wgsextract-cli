@@ -110,11 +110,12 @@ done
 # Small chunks, each paired separately.
 run chunks -t 4 -K 20000
 test "$(metric metal-chunks.log rescue_hits)" -gt 0
-# Pairs left to CPU threads are rescued in interleaved ksw batches; each result
-# is compared with upstream ksw_align2 too.
-"$aligner" --metal --gpu-rescue-verify mem -t 8 -K 20000 reference.fa pairs-R1.fq pairs-R2.fq \
+# Pairs left to CPU threads (here all after a failed first batch) are rescued in
+# interleaved ksw batches; each result is compared with upstream ksw_align2 too.
+"$aligner" --backend auto --gpu-inject-rescue-failure --gpu-policy all --gpu-rescue-batch 7 \
+    --gpu-rescue-verify mem -t 8 reference.fa pairs-R1.fq pairs-R2.fq \
     > cpu-batched.sam 2> cpu-batched.log
-same cpu-chunks.sam cpu-batched.sam
+same cpu.sam cpu-batched.sam
 test "$(metric cpu-batched.log rescue_cpu_hits)" -gt 100
 test "$(metric cpu-batched.log rescue_mismatches)" -eq 0
 # With Metal a third pipeline worker maps each chunk while the previous one pairs.

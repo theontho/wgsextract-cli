@@ -1352,15 +1352,18 @@ private:
 
     void prepare(BatchBase &base, long first) override {
         auto &batch = static_cast<SeedBatch &>(base);
-        // The test failure comes after a published batch, with the next one packed.
-        if (inject_seed_failure && batches > 0)
-            throw std::runtime_error("injected GPU seeding failure (test)");
+        // The test failure comes after a published batch, with the next one
+        // packed, once the chunk maps.
+        const bool inject = inject_seed_failure && batches > 0;
         bool cancelled;
         {
             std::unique_lock<std::mutex> lock(seed_turn_mutex);
-            seed_turn.wait(lock, [this] { return mapping_ || cancelled_ || !seed_mapping_gpu; });
+            seed_turn.wait(lock, [this, inject] {
+                return mapping_ || cancelled_ || (!inject && !seed_mapping_gpu);
+            });
             cancelled = cancelled_;
         }
+        if (inject && !cancelled) throw std::runtime_error("injected GPU seeding failure (test)");
         // A cancelled scheduler never maps; it publishes nothing usable.
         if (cancelled) {
             SeedCount declined{};

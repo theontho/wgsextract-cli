@@ -98,6 +98,7 @@ public:
             else gpu_thread_.join();
         } else if (threads.empty()) {
             stop_gpu();
+            gpu_finished();
         } else {
             gpu_loop();
         }
