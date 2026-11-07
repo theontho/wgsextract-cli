@@ -17,9 +17,11 @@ printed by `--version`.
 
 ## Installing
 
-The `macos-aligners-7` prerelease has `wgse-bwa` 0.7.0 and `wgse-bwa-mem2`
-0.1.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
-later. Earlier prereleases: `macos-aligners-6` has `wgse-bwa` 0.6.0, whose
+The `macos-aligners-8` prerelease has `wgse-bwa` 0.7.0 and `wgse-bwa-mem2`
+0.2.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
+later. Earlier prereleases: `macos-aligners-7` has `wgse-bwa` 0.7.0 and
+`wgse-bwa-mem2` 0.1.0, whose `--metal` only extends seeds on the GPU;
+`macos-aligners-6` has `wgse-bwa` 0.6.0, whose
 CPU threads locate seeds and rescue mates one at a time;
 `macos-aligners-5` has `wgse-bwa` 0.5.0, with
 slower GPU kernels and no overlap of mapping and pairing;
@@ -37,8 +39,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-7 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-7 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-8 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-8 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -58,7 +60,7 @@ wgse-bwa-mem2 capabilities --json
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
 `xattr -dr com.apple.quarantine wgse-bwa-0.7.0-macos-arm64` (and
-`wgse-bwa-mem2-0.1.0-macos-arm64`).
+`wgse-bwa-mem2-0.2.0-macos-arm64`).
 
 ## Usage
 
