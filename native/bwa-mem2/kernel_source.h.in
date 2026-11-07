@@ -6,3 +6,7 @@ inline constexpr const char *wgse_rescue_source = R"wgse_metal(
 @rescue_types@
 @rescue_source@
 )wgse_metal";
+inline constexpr const char *wgse_seeding_source = R"wgse_metal(
+@seeding_types@
+@seeding_source@
+)wgse_metal";

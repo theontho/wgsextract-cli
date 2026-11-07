@@ -1,8 +1,22 @@
 #pragma once
 
-// Seams for GPU mate rescue and for mapping one chunk while the previous one
-// pairs, in the generated bwamem.cpp, bwamem_pair.cpp and fastmap.cpp.
+// Seams for GPU SMEM collection, GPU mate rescue and mapping one chunk while
+// the previous one pairs, in the generated bwamem.cpp, bwamem_pair.cpp and fastmap.cpp.
 #include "bwamem.h"
+
+// Replaces kt_for(worker_bwt) (appended to bwamem.cpp).
+void wgse_kt_for_bwt(worker_t &w, int n);
+// Runs worker(data, unit, tid) for each unit of BATCH_SIZE reads, collecting
+// their SMEMs on the GPU too; returns 0 to leave the chunk to upstream.
+int wgse_metal_seed(FMI_search *fmi, const mem_opt_t *opt, bseq1_t *seqs, int n, int threads,
+    void (*worker)(void *, long, int), void *data);
+// mem_collect_smem()'s result for these reads from the GPU, in mmc's matchArray
+// for tid, or nullptr to leave them to mem_collect_smem().
+SMEM *wgse_metal_smems(FMI_search *fmi, const mem_opt_t *opt, const bseq1_t *seq, int nseq,
+    mem_cache *mmc, int64_t &total, int tid);
+SMEM *mem_collect_smem(FMI_search *fmi, const mem_opt_t *opt, const bseq1_t *seq_, int nseq,
+    SMEM *matchArray, int32_t *min_intv_ar, int16_t *query_pos_ar, uint8_t *enc_qdb,
+    int32_t *rid, mem_cache *mmc, int64_t &tot_smem, int tid);
 
 // mem_process_seqs() in two halves (mem_stages.cpp.in).
 void *wgse_mem_map(mem_opt_t *opt, int64_t n_processed, int n, bseq1_t *seqs,

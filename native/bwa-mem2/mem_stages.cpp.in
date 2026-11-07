@@ -23,7 +23,7 @@ void *wgse_mem_map(mem_opt_t *opt, int64_t n_processed, int n, bseq1_t *seqs,
 
     uint64_t tim = __rdtsc();
     fprintf(stderr, "[0000] 1. Calling kt_for - worker_bwt\n");
-    kt_for(worker_bwt, &w, n); // SMEMs (+SAL)
+    wgse_kt_for_bwt(w, n); // SMEMs (+SAL)
     fprintf(stderr, "[0000] 2. Calling kt_for - worker_aln\n");
     kt_for(worker_aln, &w, n); // BSW
     tprof[WORKER10][0] += __rdtsc() - tim;

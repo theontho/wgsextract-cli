@@ -17,8 +17,8 @@ void help() {
         "  capabilities --json       report Metal availability\n"
         "  --version                 print executable and engine version\n"
         "Options precede the command. The default CPU backend uses BWA-MEM2's own extension code.\n"
-        "--metal (EXPERIMENTAL) offloads batched seed extension and paired-end mate\n"
-        "rescue to the GPU. It fails if Metal is unavailable, and exits 1 after finishing\n"
+        "--metal (EXPERIMENTAL) offloads SMEM seeding, batched seed extension and\n"
+        "paired-end mate rescue to the GPU. It fails if Metal is unavailable, and exits 1 after finishing\n"
         "on the CPU if a GPU batch fails; --backend auto falls back to the CPU in both cases.\n"
         "SAM is written to stdout; diagnostics to stderr.\n"
         "Not qualified for clinical use.\n",
@@ -60,6 +60,11 @@ int main(int argc, char **argv) {
     bool gpu8_paired = true;
     while (argc > command_index && (strcmp(argv[command_index], "--capture-batches") == 0
         || strcmp(argv[command_index], "--gpu-rescue") == 0
+        || strcmp(argv[command_index], "--gpu-seed") == 0
+        || strcmp(argv[command_index], "--gpu-seed-batch") == 0
+        || strcmp(argv[command_index], "--gpu-seed-capacity") == 0
+        || strcmp(argv[command_index], "--gpu-seed-verify") == 0
+        || strcmp(argv[command_index], "--gpu-inject-seed-failure") == 0
         || strcmp(argv[command_index], "--gpu-overlap") == 0
         || strcmp(argv[command_index], "--gpu-rescue-batch") == 0
         || strcmp(argv[command_index], "--gpu-rescue-verify") == 0
@@ -78,20 +83,29 @@ int main(int argc, char **argv) {
         || strcmp(argv[command_index], "--gpu-min-pairs") == 0)) {
         std::string reason;
         if (strcmp(argv[command_index], "--gpu-rescue-verify") == 0
-            || strcmp(argv[command_index], "--gpu-inject-rescue-failure") == 0) {
+            || strcmp(argv[command_index], "--gpu-inject-rescue-failure") == 0
+            || strcmp(argv[command_index], "--gpu-seed-verify") == 0
+            || strcmp(argv[command_index], "--gpu-inject-seed-failure") == 0) {
             if (strcmp(argv[command_index], "--gpu-rescue-verify") == 0) wgse_verify_gpu_rescue();
-            else wgse_inject_rescue_failure();
+            else if (strcmp(argv[command_index], "--gpu-inject-rescue-failure") == 0)
+                wgse_inject_rescue_failure();
+            else if (strcmp(argv[command_index], "--gpu-seed-verify") == 0) wgse_verify_gpu_seeds();
+            else wgse_inject_seed_failure();
             ++command_index;
             continue;
         }
         if (argc <= command_index + 2) return 2;
         if (strcmp(argv[command_index], "--gpu-rescue") == 0
+            || strcmp(argv[command_index], "--gpu-seed") == 0
             || strcmp(argv[command_index], "--gpu-overlap") == 0) {
             std::string value = argv[command_index + 1];
             if (value != "on" && value != "off") return 2;
             if (strcmp(argv[command_index], "--gpu-rescue") == 0) wgse_set_gpu_rescue(value == "on");
+            else if (strcmp(argv[command_index], "--gpu-seed") == 0) wgse_set_gpu_seed(value == "on");
             else wgse_set_overlap(value == "on");
         } else if (strcmp(argv[command_index], "--gpu-rescue-batch") == 0
+            || strcmp(argv[command_index], "--gpu-seed-batch") == 0
+            || strcmp(argv[command_index], "--gpu-seed-capacity") == 0
             || strcmp(argv[command_index], "--gpu-inject-interruptions") == 0) {
             char *end = nullptr;
             long value = strtol(argv[command_index + 1], &end, 10);
@@ -99,6 +113,10 @@ int main(int argc, char **argv) {
                 || value > 1000000) return 2;
             if (strcmp(argv[command_index], "--gpu-rescue-batch") == 0)
                 wgse_set_gpu_rescue_batch(size_t(value));
+            else if (strcmp(argv[command_index], "--gpu-seed-batch") == 0)
+                wgse_set_gpu_seed_batch(size_t(value));
+            else if (strcmp(argv[command_index], "--gpu-seed-capacity") == 0)
+                wgse_set_gpu_seed_capacity(size_t(value));
             else wgse_inject_gpu_interruptions(size_t(value));
         } else if (strcmp(argv[command_index], "--gpu-pipeline") == 0) {
             std::string value = argv[command_index + 1];

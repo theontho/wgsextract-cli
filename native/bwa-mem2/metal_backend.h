@@ -35,6 +35,16 @@ bool wgse_metal_overlap();
 void wgse_set_overlap(bool enable);
 // A chunk finished mapping while the previous one was pairing.
 void wgse_note_overlapped_chunk();
+// Page-aligned memory for the FM index checkpoints, so Metal can use them in place.
+void *wgse_metal_index_alloc(size_t bytes);
+// GPU SMEM collection (enabled with Metal) and its test hooks.
+void wgse_set_gpu_seed(bool enable);
+void wgse_set_gpu_seed_batch(size_t reads);
+// SMEMs per read on the GPU before the CPU collects the read instead.
+void wgse_set_gpu_seed_capacity(size_t smems);
+void wgse_inject_seed_failure();
+// Also collect each GPU unit's SMEMs on the CPU and count differences.
+void wgse_verify_gpu_seeds();
 // GPU mate rescue (enabled with Metal) and its test hooks.
 void wgse_set_gpu_rescue(bool enable);
 void wgse_set_gpu_rescue_batch(size_t pairs);
