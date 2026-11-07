@@ -1,0 +1,45 @@
+
+/* bns_get_seq()'s unpacking loops, a byte of four bases at a time:
+ * seq[i] = _get_pac(pac, beg + i) for beg <= beg + i < end. */
+#ifdef __ARM_NEON
+#include <arm_neon.h>
+#endif
+
+void wgse_unpack_pac(const uint8_t *pac, int64_t beg, int64_t end, uint8_t *seq)
+{
+	int64_t k = beg;
+	for (; k < end && (k & 3); ++k) *seq++ = _get_pac(pac, k);
+#ifdef __ARM_NEON
+	const uint8x16_t three = vdupq_n_u8(3);
+	for (; end - k >= 64; k += 64, seq += 64) {
+		const uint8x16_t b = vld1q_u8(pac + (k >> 2));
+		uint8x16x4_t bases;
+		bases.val[0] = vshrq_n_u8(b, 6);
+		bases.val[1] = vandq_u8(vshrq_n_u8(b, 4), three);
+		bases.val[2] = vandq_u8(vshrq_n_u8(b, 2), three);
+		bases.val[3] = vandq_u8(b, three);
+		vst4q_u8(seq, bases);
+	}
+#endif
+	for (; k < end; ++k) *seq++ = _get_pac(pac, k);
+}
+
+/* seq[l++] = 3 - _get_pac(pac, k) for k from end_f down to beg_f + 1. */
+void wgse_unpack_pac_reverse(const uint8_t *pac, int64_t beg_f, int64_t end_f, uint8_t *seq)
+{
+	uint8_t *lo = seq, *hi = seq + (end_f - beg_f), t;
+	wgse_unpack_pac(pac, beg_f + 1, end_f + 1, seq);
+#ifdef __ARM_NEON
+	const uint8x16_t three = vdupq_n_u8(3);
+	for (; hi - lo >= 32; lo += 16, hi -= 16) {
+		uint8x16_t a = vld1q_u8(lo), b = vld1q_u8(hi - 16);
+		a = vrev64q_u8(a), b = vrev64q_u8(b);
+		a = veorq_u8(vextq_u8(a, a, 8), three);
+		b = veorq_u8(vextq_u8(b, b, 8), three);
+		vst1q_u8(lo, b);
+		vst1q_u8(hi - 16, a);
+	}
+#endif
+	for (; hi - lo >= 2; ++lo, --hi) t = lo[0], lo[0] = 3 - hi[-1], hi[-1] = 3 - t;
+	if (hi - lo == 1) *lo = 3 - *lo;
+}
