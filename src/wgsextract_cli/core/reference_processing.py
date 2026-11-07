@@ -278,7 +278,7 @@ def download_bootstrap(
         if not install_bootstrap_support_files(reflib_dir):
             return False
         Path(reflib_dir, BOOTSTRAP_MARKER_PREFIX + BOOTSTRAP_VERSION).write_text(
-            BOOTSTRAP_SHA256 + "\n", encoding="utf-8"
+            BOOTSTRAP_SHA256 + "\n", encoding="utf-8", newline="\n"
         )
         Path(dest_path).unlink()
         logging.info("Bootstrap extraction complete.")
