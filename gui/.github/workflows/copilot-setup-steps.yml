@@ -1,0 +1,53 @@
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # The job name must remain `copilot-setup-steps` for Copilot cloud agent.
+  copilot-setup-steps:
+    # Set the COPILOT_AGENT_RUNNER repository variable to override the default,
+    # for example `ubuntu-latest` or a self-hosted/larger-runner label.
+    runs-on: ${{ vars.COPILOT_AGENT_RUNNER || 'windows-latest' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Validate supported Copilot runner OS
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_OS -notin @("Linux", "Windows")) {
+            Write-Error "Copilot cloud agent setup supports only Linux and Windows runners; got '$env:RUNNER_OS'."
+            exit 1
+          }
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefix app

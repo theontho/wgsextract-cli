@@ -1,0 +1,59 @@
+{
+  "id": "repository",
+  "title": "Repository",
+  "summary": "Choose a repository and inspect status or history.",
+  "sections": [
+    {
+      "id": "repository",
+      "title": "Repository",
+      "textIcon": "GT",
+      "controls": [
+        {
+          "id": "repo_path",
+          "label": "Repository folder",
+          "kind": "path",
+          "pathType": "directory",
+          "tooltip": "Choose the local Git repository to inspect."
+        },
+        {
+          "id": "log_limit",
+          "label": "Commit count",
+          "kind": "text",
+          "value": "20"
+        }
+      ],
+      "actions": [
+        {
+          "id": "status",
+          "title": "Status",
+          "command": {
+            "executable": "git",
+            "arguments": [
+              "-C",
+              "{{repo_path}}",
+              "status",
+              "--short",
+              "--branch"
+            ]
+          }
+        },
+        {
+          "id": "recent-log",
+          "title": "Recent commits",
+          "command": {
+            "executable": "git",
+            "arguments": [
+              "-C",
+              "{{repo_path}}",
+              "log",
+              "--oneline",
+              "--decorate",
+              "-n",
+              "{{log_limit}}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

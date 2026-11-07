@@ -1,0 +1,71 @@
+{
+  "id": "image",
+  "title": "Image",
+  "summary": "Choose an image and run common ImageMagick operations.",
+  "sections": [
+    {
+      "id": "image",
+      "title": "Image file",
+      "textIcon": "IM",
+      "controls": [
+        {
+          "id": "input_file",
+          "label": "Input file",
+          "kind": "path",
+          "pathType": "file"
+        },
+        {
+          "id": "output_file",
+          "label": "Output file",
+          "kind": "path",
+          "pathType": "file"
+        },
+        {
+          "id": "resize",
+          "label": "Resize geometry",
+          "kind": "text",
+          "value": "1024x1024"
+        }
+      ],
+      "actions": [
+        {
+          "id": "identify",
+          "title": "Identify",
+          "command": {
+            "executable": "magick",
+            "arguments": [
+              "identify",
+              "-verbose",
+              "{{input_file}}"
+            ]
+          }
+        },
+        {
+          "id": "resize",
+          "title": "Resize",
+          "command": {
+            "executable": "magick",
+            "arguments": [
+              "{{input_file}}",
+              "-resize",
+              "{{resize}}",
+              "{{output_file}}"
+            ]
+          }
+        },
+        {
+          "id": "strip-metadata",
+          "title": "Strip metadata",
+          "command": {
+            "executable": "magick",
+            "arguments": [
+              "{{input_file}}",
+              "-strip",
+              "{{output_file}}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "Git Helper smoke",
+  "inputs": {
+    "fieldValues": {
+      "repo_path": "{{bundleWorkspace}}/repo",
+      "log_limit": "5",
+      "branch_name": "main",
+      "remote_name": "origin"
+    }
+  },
+  "steps": [
+    {
+      "id": "init-repository",
+      "kind": "action",
+      "pageID": "branches",
+      "actionID": "init-repository",
+      "requiredOutput": [
+        "Initialized empty Git repository"
+      ],
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "status",
+      "kind": "action",
+      "pageID": "repository",
+      "actionID": "status",
+      "requiredOutput": [
+        "No commits yet"
+      ],
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "current-branch",
+      "kind": "action",
+      "pageID": "branches",
+      "actionID": "current-branch",
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "list-branches",
+      "kind": "action",
+      "pageID": "branches",
+      "actionID": "list-branches",
+      "timeoutSeconds": 10
+    }
+  ]
+}

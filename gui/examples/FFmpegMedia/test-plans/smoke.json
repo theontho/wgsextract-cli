@@ -1,0 +1,56 @@
+{
+  "name": "FFmpeg Media smoke",
+  "inputs": {
+    "fieldValues": {
+      "input_file": "{{bundleWorkspace}}/test-video.mp4",
+      "output_file": "{{bundleWorkspace}}/test-video.mp4",
+      "frame_size": "64x64",
+      "duration_seconds": "1",
+      "video_codec": "copy"
+    }
+  },
+  "steps": [
+    {
+      "id": "generate-test-video",
+      "kind": "action",
+      "pageID": "generate",
+      "actionID": "generate-test-video",
+      "requiredOutput": [
+        "video:"
+      ],
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "probe",
+      "kind": "action",
+      "pageID": "media",
+      "actionID": "probe",
+      "inputs": {
+        "fieldValues": {
+          "input_file": "{{bundleWorkspace}}/test-video.mp4"
+        }
+      },
+      "requiredOutput": [
+        "Duration"
+      ],
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "transcode",
+      "kind": "action",
+      "pageID": "media",
+      "actionID": "transcode",
+      "inputs": {
+        "fieldValues": {
+          "input_file": "{{bundleWorkspace}}/test-video.mp4",
+          "output_file": "{{bundleWorkspace}}/test-video-copy.mp4",
+          "video_codec": "copy"
+        }
+      },
+      "requiredOutput": [
+        "video:"
+      ],
+      "timeoutSeconds": 30
+    }
+  ]
+}

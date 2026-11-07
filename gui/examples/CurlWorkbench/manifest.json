@@ -1,0 +1,12 @@
+{
+  "id": "curl-workbench",
+  "version": "0.1.0",
+  "displayName": "curl Workbench",
+  "summary": "Build quick HTTP checks and downloads with curl.",
+  "textIcon": "CU",
+  "terminalTextDirection": "ltr",
+  "pages": [
+    "request.json",
+    "download.json"
+  ]
+}

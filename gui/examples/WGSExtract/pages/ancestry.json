@@ -1,0 +1,107 @@
+{
+  "id": "ancestry",
+  "title": "pages.ancestry.title",
+  "summary": "pages.ancestry.summary",
+  "sidebarGroup": "sidebar.groups.analyze",
+  "sections": [
+    {
+      "id": "ancestry-inputs",
+      "title": "sections.ancestry.ancestry-inputs.title",
+      "iconName": "ancestry-tree",
+      "textIcon": "🌳",
+      "controls": [
+        {
+          "id": "lineage_tree_links",
+          "label": "controls.ancestry.post-v063.tree-links.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--tree-links",
+              "title": "controls.ancestry.post-v063.tree-links.label"
+            }
+          ],
+          "tooltip": "controls.ancestry.post-v063.tree-links.tooltip"
+        },
+        {
+          "id": "bam_path",
+          "label": "controls.ancestry.ancestry-inputs.bam_path.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.ancestry.ancestry-inputs.bam_path.tooltip"
+        },
+        {
+          "id": "yleaf_path",
+          "label": "controls.ancestry.ancestry-inputs.yleaf_path.label",
+          "kind": "path",
+          "tooltip": "controls.ancestry.ancestry-inputs.yleaf_path.tooltip"
+        },
+        {
+          "id": "yleaf_pos",
+          "label": "controls.ancestry.ancestry-inputs.yleaf_pos.label",
+          "kind": "path",
+          "tooltip": "controls.ancestry.ancestry-inputs.yleaf_pos.tooltip"
+        },
+        {
+          "id": "haplogrep_path",
+          "label": "controls.ancestry.ancestry-inputs.haplogrep_path.label",
+          "kind": "path",
+          "tooltip": "controls.ancestry.ancestry-inputs.haplogrep_path.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "run-yleaf",
+          "title": "actions.ancestry.ancestry-inputs.run-yleaf.title",
+          "tooltip": "actions.ancestry.ancestry-inputs.run-yleaf.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "lineage",
+              "y-haplogroup",
+              "--input",
+              "{{bam_path}}",
+              "--yleaf-path",
+              "{{yleaf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "{{lineage_tree_links}}"
+              ],
+              [
+                "--pos-file",
+                "{{yleaf_pos}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "run-haplogrep",
+          "title": "actions.ancestry.ancestry-inputs.run-haplogrep.title",
+          "tooltip": "actions.ancestry.ancestry-inputs.run-haplogrep.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "lineage",
+              "mt-haplogroup",
+              "--input",
+              "{{bam_path}}",
+              "--haplogrep-path",
+              "{{haplogrep_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "{{lineage_tree_links}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "iconName": "ancestry",
+  "textIcon": "👥"
+}

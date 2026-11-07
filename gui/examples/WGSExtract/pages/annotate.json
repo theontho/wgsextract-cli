@@ -1,0 +1,466 @@
+{
+  "id": "annotate",
+  "title": "pages.annotate.title",
+  "summary": "pages.annotate.summary",
+  "sidebarGroup": "sidebar.groups.analyze",
+  "sections": [
+    {
+      "id": "annotate-inputs",
+      "title": "sections.vcf.vcf-inputs.title",
+      "iconName": "inspect-variants",
+      "textIcon": "🔎",
+      "controls": [
+        {
+          "id": "ref_path",
+          "label": "controls.vcf.vcf-inputs.ref_path.label",
+          "kind": "path",
+          "tooltip": "controls.vcf.vcf-inputs.ref_path.tooltip"
+        },
+        {
+          "id": "out_dir",
+          "label": "controls.vcf.vcf-inputs.out_dir.label",
+          "kind": "path",
+          "tooltip": "controls.vcf.vcf-inputs.out_dir.tooltip"
+        }
+      ]
+    },
+    {
+      "id": "vcf-annotation",
+      "title": "sections.vcf.vcf-annotation.title",
+      "iconName": "annotation",
+      "textIcon": "✅",
+      "dataSource": {
+        "path": "scripts/library-state.sh",
+        "arguments": [
+          "{{ref_path}}",
+          "{{genome_library}}",
+          "{{vcf_ann_vcf}}",
+          "{{vcf_path}}"
+        ]
+      },
+      "controls": [
+        {
+          "id": "vcf_path",
+          "label": "controls.vcf.vcf-inputs.vcf_path.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.vcf.vcf-inputs.vcf_path.tooltip"
+        },
+        {
+          "id": "vcf_region",
+          "label": "controls.vcf.variant-calling.vcf_region.label",
+          "kind": "text",
+          "placeholder": "controls.vcf.variant-calling.vcf_region.placeholder",
+          "tooltip": "controls.vcf.variant-calling.vcf_region.tooltip"
+        },
+        {
+          "id": "vcf_gene",
+          "label": "controls.vcf.variant-calling.vcf_gene.label",
+          "kind": "text",
+          "placeholder": "controls.vcf.variant-calling.vcf_gene.placeholder",
+          "tooltip": "controls.vcf.variant-calling.vcf_gene.tooltip"
+        },
+        {
+          "id": "vcf_exclude_gaps",
+          "label": "controls.vcf.variant-calling.vcf_exclude_gaps.label",
+          "kind": "toggle",
+          "value": "false",
+          "tooltip": "controls.vcf.variant-calling.vcf_exclude_gaps.tooltip"
+        },
+        {
+          "id": "vcf_filter_expr",
+          "label": "controls.vcf.variant-calling.vcf_filter_expr.label",
+          "kind": "text",
+          "placeholder": "controls.vcf.variant-calling.vcf_filter_expr.placeholder",
+          "tooltip": "controls.vcf.variant-calling.vcf_filter_expr.tooltip"
+        },
+        {
+          "id": "vcf_ann_vcf",
+          "label": "controls.vcf.variant-calling.vcf_ann_vcf.label",
+          "kind": "path",
+          "tooltip": "controls.vcf.variant-calling.vcf_ann_vcf.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "vcf-annotate",
+          "title": "actions.vcf.variant-calling.vcf-annotate.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-annotate.tooltip",
+          "disabledTooltip": "actions.vcf.variant-calling.vcf-annotate.disabledTooltip",
+          "disabledWhen": [
+            {
+              "placeholder": "library.annotationVcfReady",
+              "notEquals": "true"
+            }
+          ],
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "annotate",
+              "--vcf-input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ann-vcf",
+                "{{library.annotationVcfArgument}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-spliceai",
+          "title": "actions.vcf.variant-calling.vcf-spliceai.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-spliceai.tooltip",
+          "disabledTooltip": "actions.vcf.variant-calling.vcf-spliceai.disabledTooltip",
+          "disabledWhen": [
+            {
+              "placeholder": "library.spliceaiInstalled",
+              "notEquals": "true"
+            }
+          ],
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "spliceai",
+              "--vcf-input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--spliceai-file",
+                "{{library.spliceaiFile}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-alphamissense",
+          "title": "actions.vcf.variant-calling.vcf-alphamissense.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-alphamissense.tooltip",
+          "disabledTooltip": "actions.vcf.variant-calling.vcf-alphamissense.disabledTooltip",
+          "disabledWhen": [
+            {
+              "placeholder": "library.alphamissenseInstalled",
+              "notEquals": "true"
+            }
+          ],
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "alphamissense",
+              "--vcf-input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--am-file",
+                "{{library.alphamissenseFile}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-pharmgkb",
+          "title": "actions.vcf.variant-calling.vcf-pharmgkb.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-pharmgkb.tooltip",
+          "disabledTooltip": "actions.vcf.variant-calling.vcf-pharmgkb.disabledTooltip",
+          "disabledWhen": [
+            {
+              "placeholder": "library.pharmgkbInstalled",
+              "notEquals": "true"
+            }
+          ],
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "pharmgkb",
+              "--vcf-input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--pharmgkb-file",
+                "{{library.pharmgkbFile}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-filter",
+          "title": "actions.vcf.variant-calling.vcf-filter.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-filter.tooltip",
+          "visibleWhen": [
+            {
+              "placeholder": "vcf_exclude_gaps",
+              "equals": "false"
+            }
+          ],
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "filter",
+              "--vcf-input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--expr",
+                "{{vcf_filter_expr}}"
+              ],
+              [
+                "--gene",
+                "{{vcf_gene}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-filter-gap-aware",
+          "title": "actions.vcf.variant-calling.vcf-filter-gap-aware.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-filter-gap-aware.tooltip",
+          "visibleWhen": [
+            {
+              "placeholder": "vcf_exclude_gaps",
+              "equals": "true"
+            }
+          ],
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "filter",
+              "--vcf-input",
+              "{{vcf_path}}",
+              "--exclude-near-gaps"
+            ],
+            "optionalArguments": [
+              [
+                "--expr",
+                "{{vcf_filter_expr}}"
+              ],
+              [
+                "--gene",
+                "{{vcf_gene}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-qc",
+          "title": "actions.vcf.variant-calling.vcf-qc.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-qc.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "qc",
+              "vcf",
+              "--vcf-input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-repair-ftdna",
+          "title": "actions.vcf.variant-calling.vcf-repair-ftdna.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-repair-ftdna.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "repair",
+              "ftdna-vcf",
+              "--input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "trio-analysis",
+      "title": "sections.vcf.trio-analysis.title",
+      "iconName": "trio",
+      "textIcon": "👪",
+      "controls": [
+        {
+          "id": "vcf_child",
+          "label": "controls.vcf.trio-analysis.vcf_child.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.vcf.trio-analysis.vcf_child.tooltip"
+        },
+        {
+          "id": "vcf_mother",
+          "label": "controls.vcf.trio-analysis.vcf_mother.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.vcf.trio-analysis.vcf_mother.tooltip"
+        },
+        {
+          "id": "vcf_father",
+          "label": "controls.vcf.trio-analysis.vcf_father.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.vcf.trio-analysis.vcf_father.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "vcf-trio",
+          "title": "actions.vcf.trio-analysis.vcf-trio.title",
+          "tooltip": "actions.vcf.trio-analysis.vcf-trio.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "trio",
+              "--proband",
+              "{{vcf_child}}",
+              "--mother",
+              "{{vcf_mother}}",
+              "--father",
+              "{{vcf_father}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "vep-analysis",
+      "title": "sections.vcf.vep-analysis.title",
+      "iconName": "annotation",
+      "textIcon": "✅",
+      "controls": [
+        {
+          "id": "vep_input_vcf",
+          "label": "controls.vcf.vep-analysis.vep_input_vcf.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.vcf.vep-analysis.vep_input_vcf.tooltip"
+        },
+        {
+          "id": "vep_cache_path",
+          "label": "controls.vcf.vep-analysis.vep_cache_path.label",
+          "kind": "path",
+          "tooltip": "controls.vcf.vep-analysis.vep_cache_path.tooltip"
+        },
+        {
+          "id": "vcf_vep_args",
+          "label": "controls.vcf.vep-analysis.vcf_vep_args.label",
+          "kind": "text",
+          "tooltip": "controls.vcf.vep-analysis.vcf_vep_args.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "vcf-vep-run",
+          "title": "actions.vcf.vep-analysis.vcf-vep-run.title",
+          "tooltip": "actions.vcf.vep-analysis.vcf-vep-run.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vep",
+              "run",
+              "--input",
+              "{{vep_input_vcf}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--vep-cache",
+                "{{vep_cache_path}}"
+              ],
+              [
+                "--vep-args={{vcf_vep_args}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "iconName": "annotation",
+  "textIcon": "✅"
+}

@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WGSExtract/gui-for-cli/schema/page.schema.json",
+  "title": "GUI for CLI Bundle Page",
+  "type": "object",
+  "required": ["id", "title", "summary", "sections"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "iconName": { "type": "string" },
+    "textIcon": { "$ref": "#/$defs/textIcon" },
+    "sidebarGroup": {
+      "type": "string",
+      "description": "Optional sidebar section title or localization key used to group related pages."
+    },
+    "sidebarPlacement": {
+      "type": "string",
+      "enum": ["primary", "bottom"],
+      "default": "primary",
+      "description": "Optional sidebar placement. Use bottom for pages that should be pinned below the primary navigation."
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/section" },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "iconName": { "type": "string" },
+        "textIcon": { "$ref": "#/$defs/textIcon" },
+        "dataSource": { "$ref": "#/$defs/dataSource" },
+        "controls": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control" },
+          "default": []
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/action" },
+          "default": []
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "required": ["id", "label", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["text", "path", "dropdown", "toggle", "checkboxGroup", "infoGrid", "libraryList", "configEditor"]
+        },
+        "value": { "type": "string" },
+        "pathType": {
+          "type": "string",
+          "enum": ["file", "directory", "bundle"],
+          "description": "Explicit native picker kind, independent of translated labels."
+        },
+        "placeholder": { "type": "string" },
+        "tooltip": { "type": "string" },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/option" },
+          "default": []
+        },
+        "columns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/column" },
+          "default": []
+        },
+        "rows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/listRow" },
+          "default": []
+        },
+        "rowTemplate": { "$ref": "#/$defs/listRow" },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/listItem" },
+          "default": []
+        },
+        "rowActions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/action" },
+          "default": []
+        },
+        "dataSource": { "$ref": "#/$defs/dataSource" },
+        "configFile": { "$ref": "#/$defs/configFile" },
+        "settings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/configSetting" },
+          "default": []
+        }
+      }
+    },
+    "option": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "selected": { "type": "boolean", "default": false }
+      }
+    },
+    "column": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 }
+      }
+    },
+    "listRow": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "values": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        },
+        "status": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tag" },
+          "default": []
+        },
+        "tooltip": { "type": "string" }
+      }
+    },
+    "tag": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["title"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string", "minLength": 1 },
+            "style": {
+              "type": "string",
+              "enum": ["primary", "secondary", "success", "warning", "danger"],
+              "default": "secondary"
+            }
+          }
+        }
+      ]
+    },
+    "listItem": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"]
+      }
+    },
+    "configFile": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "format": { "type": "string", "enum": ["toml"], "default": "toml" },
+        "bootstrap": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "string", "enum": ["none", "createIfMissing", "mergeMissing"] },
+            { "$ref": "#/$defs/configBootstrap" }
+          ]
+        }
+      }
+    },
+    "configBootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["none", "createIfMissing", "mergeMissing"] },
+        "script": { "$ref": "#/$defs/bootstrapScript" }
+      }
+    },
+    "bootstrapScript": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "arguments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        },
+        "workingDirectory": { "type": "string" }
+      }
+    },
+    "configSetting": {
+      "type": "object",
+      "required": ["id", "key", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["text", "path", "dropdown", "toggle", "checkboxGroup"],
+          "default": "text"
+        },
+        "value": {
+          "type": ["string", "boolean", "number"],
+          "description": "Scalar default: toggles use native TOML booleans, numeric defaults declare numeric settings, and other settings remain strings."
+        },
+        "placeholder": { "type": "string" },
+        "tooltip": { "type": "string" },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/option" },
+          "default": []
+        },
+        "dataSource": { "$ref": "#/$defs/dataSource" }
+      }
+    },
+    "dataSource": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "#/$defs/bundledRelativePath" },
+        "arguments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        },
+        "workingDirectory": { "$ref": "#/$defs/bundledRelativePath" }
+      }
+    },
+    "bundledRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          { "pattern": "^/" },
+          { "pattern": "^~" },
+          { "pattern": "\\.\\." },
+          { "pattern": "\\{\\{" },
+          { "pattern": "\\}\\}" }
+        ]
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["id", "title", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "enum": ["primary", "secondary", "destructive"] },
+        "tooltip": { "type": "string" },
+        "iconName": { "type": "string" },
+        "textIcon": { "$ref": "#/$defs/textIcon" },
+        "iconOnly": { "type": "boolean", "default": false },
+        "estimatedDurationMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional expected action duration in minutes, displayed as H:MM near the action button."
+        },
+        "visibleWhen": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/actionCondition" },
+          "default": []
+        },
+        "disabledWhen": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/actionCondition" },
+          "default": []
+        },
+        "disabledTooltip": { "type": "string" },
+        "precheck": { "$ref": "#/$defs/actionPrecheck" },
+        "confirm": { "$ref": "#/$defs/actionConfirmation" },
+        "command": { "$ref": "#/$defs/command" }
+      }
+    },
+    "actionPrecheck": {
+      "type": "object",
+      "required": ["diskSpaceGB", "diskSpacePath"],
+      "additionalProperties": false,
+      "properties": {
+        "diskSpaceGB": { "type": "string", "minLength": 1 },
+        "diskSpacePath": { "type": "string", "minLength": 1 }
+      }
+    },
+    "actionConfirmation": {
+      "type": "object",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" },
+        "confirmButtonTitle": { "type": "string", "minLength": 1, "default": "Continue" },
+        "cancelButtonTitle": { "type": "string", "minLength": 1, "default": "Cancel" },
+        "requiredText": { "type": "string", "minLength": 1 },
+        "prompt": { "type": "string", "minLength": 1 }
+      }
+    },
+    "actionCondition": {
+      "type": "object",
+      "required": ["placeholder"],
+      "additionalProperties": false,
+      "properties": {
+        "placeholder": { "type": "string", "minLength": 1 },
+        "equals": { "type": "string" },
+        "notEquals": { "type": "string" },
+        "in": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "notIn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "exists": { "type": "boolean" }
+      },
+      "anyOf": [
+        { "required": ["equals"] },
+        { "required": ["notEquals"] },
+        { "required": ["in"] },
+        { "required": ["notIn"] },
+        { "required": ["exists"] }
+      ]
+    },
+    "command": {
+      "type": "object",
+      "required": ["executable"],
+      "additionalProperties": false,
+      "properties": {
+        "executable": { "type": "string", "minLength": 1 },
+        "arguments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "optionalArguments": {
+          "type": "array",
+          "description": "Argument groups appended only when every placeholder referenced by the group has a non-empty value.",
+          "items": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "default": []
+        }
+      }
+    },
+    "textIcon": {
+      "description": "One or two user-visible Unicode characters used when text icons are preferred.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2
+    }
+  }
+}

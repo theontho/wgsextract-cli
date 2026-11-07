@@ -1,0 +1,12 @@
+{
+  "id": "imagemagick-tools",
+  "version": "0.1.0",
+  "displayName": "ImageMagick Tools",
+  "summary": "Inspect and transform images with ImageMagick.",
+  "textIcon": "IM",
+  "terminalTextDirection": "ltr",
+  "pages": [
+    "generate.json",
+    "image.json"
+  ]
+}

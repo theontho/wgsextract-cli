@@ -1,0 +1,40 @@
+{
+  "name": "curl Workbench smoke",
+  "inputs": {
+    "fieldValues": {
+      "url": "{{bundleWorkspaceFileURL}}/test-fixtures/payload.txt",
+      "method": "GET",
+      "body": "",
+      "output_file": "{{bundleWorkspace}}/downloaded-payload.txt"
+    }
+  },
+  "steps": [
+    {
+      "id": "headers",
+      "kind": "action",
+      "pageID": "request",
+      "actionID": "headers",
+      "requiredOutput": [
+        "Content-Length"
+      ],
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "request",
+      "kind": "action",
+      "pageID": "request",
+      "actionID": "request",
+      "requiredOutput": [
+        "curl workbench smoke payload"
+      ],
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "download",
+      "kind": "action",
+      "pageID": "download",
+      "actionID": "download",
+      "timeoutSeconds": 10
+    }
+  ]
+}

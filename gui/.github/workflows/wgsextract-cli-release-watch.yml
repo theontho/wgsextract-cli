@@ -1,0 +1,67 @@
+name: WGSExtract CLI release watch
+
+# A new wgsextract-cli release gets a PR that bundles it within the hour
+# (scripts/bump-wgsextract-cli.py). PRs opened with GITHUB_TOKEN don't trigger
+# pull_request workflows, so this dispatches the PR checks on its branch,
+# retrying any that haven't run on later hourly runs.
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Open a PR bundling a newer wgsextract-cli release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh release view -R WGSExtract/wgsextract-cli --json tagName -q .tagName)
+          current=$(cat examples/WGSExtract/scripts/wgsextract-release-tag.txt)
+          if [ "$latest" = "$current" ]; then
+            echo "The bundle already uses wgsextract-cli $latest."
+            exit 0
+          fi
+          branch="cli-$latest"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            pr=$(gh pr list --head "$branch" --state open --json number -q '.[0].number')
+            if [ -z "$pr" ]; then
+              echo "$branch exists without an open PR (closed, merged, or opened by hand later)."
+              exit 0
+            fi
+            sha=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          else
+            python3 scripts/bump-wgsextract-cli.py "$latest"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git switch -c "$branch"
+            git commit -qam "WGSExtract: bundle CLI $latest"
+            git push -q origin "$branch"
+            sha=$(git rev-parse HEAD)
+            notes="https://github.com/WGSExtract/wgsextract-cli/releases/tag/$latest"
+            body="Points the WGSExtract bundle at [CLI $latest]($notes) (was $current), made by scripts/bump-wgsextract-cli.py.
+
+          Before merging, replace the CHANGELOG entry's link with a line on what users get. After merging, tag the app release; wgsextract-cli's App release watch then runs its full Install Lab against it."
+            if ! gh pr create --base main --head "$branch" --title "WGSExtract: bundle CLI $latest" --body "$body"; then
+              echo "::error::Could not open the PR. Allow it under Settings > Actions > General > Workflow permissions, or open it by hand: https://github.com/$GITHUB_REPOSITORY/compare/main...$branch"
+              exit 1
+            fi
+          fi
+          # Start each PR check that hasn't run on the branch's head yet, so a
+          # failed dispatch is retried next hour.
+          for workflow in ci.yml gitleaks.yml tauri-installer.yml; do
+            runs=$(gh run list -w "$workflow" -c "$sha" --json databaseId -q 'length')
+            if [ "$runs" = 0 ]; then
+              gh workflow run "$workflow" --ref "$branch"
+            fi
+          done

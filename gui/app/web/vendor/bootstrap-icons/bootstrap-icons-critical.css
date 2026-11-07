@@ -1,0 +1,69 @@
+/*!
+ * Bootstrap Icons v1.11.3 critical subset for GUI for CLI.
+ * Copyright 2019-2024 The Bootstrap Authors
+ * Licensed under MIT (https://github.com/twbs/icons/blob/main/LICENSE)
+ */
+
+@font-face {
+  font-display: block;
+  font-family: "bootstrap-icons";
+  src: url("./fonts/bootstrap-icons.woff2?dd67030699838ea613ee6dbda90effa6") format("woff2"),
+url("./fonts/bootstrap-icons.woff?dd67030699838ea613ee6dbda90effa6") format("woff");
+}
+
+.bi::before,
+[class^="bi-"]::before,
+[class*=" bi-"]::before {
+  display: inline-block;
+  font-family: bootstrap-icons !important;
+  font-style: normal;
+  font-weight: normal !important;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+  vertical-align: -.125em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.bi-123::before { content: "\f67f"; }
+.bi-activity::before { content: "\f66b"; }
+.bi-arrow-clockwise::before { content: "\f116"; }
+.bi-arrow-down-circle::before { content: "\f119"; }
+.bi-arrow-repeat::before { content: "\f130"; }
+.bi-card-checklist::before { content: "\f224"; }
+.bi-check-circle-fill::before { content: "\f26a"; }
+.bi-copy::before { content: "\f759"; }
+.bi-clipboard2-pulse::before { content: "\f730"; }
+.bi-collection::before { content: "\f2cc"; }
+.bi-device-hdd::before { content: "\f6f9"; }
+.bi-diagram-3::before { content: "\f2ee"; }
+.bi-download::before { content: "\f30a"; }
+.bi-exclamation-triangle-fill::before { content: "\f33a"; }
+.bi-file-earmark-check::before { content: "\f360"; }
+.bi-file-earmark-medical::before { content: "\f373"; }
+.bi-file-earmark-richtext::before { content: "\f383"; }
+.bi-file-earmark-text::before { content: "\f38b"; }
+.bi-file-text::before { content: "\f3b9"; }
+.bi-folder::before { content: "\f3d7"; }
+.bi-folder-symlink::before { content: "\f3d5"; }
+.bi-gear::before { content: "\f3e5"; }
+.bi-globe2::before { content: "\f3ef"; }
+.bi-grid-3x3::before { content: "\f3fa"; }
+.bi-hammer::before { content: "\f3ff"; }
+.bi-hdd-network::before { content: "\f40d"; }
+.bi-intersect::before { content: "\f438"; }
+.bi-patch-check::before { content: "\f4b6"; }
+.bi-patch-check-fill::before { content: "\f4b5"; }
+.bi-people::before { content: "\f4d0"; }
+.bi-people-fill::before { content: "\f4cf"; }
+.bi-person-hearts::before { content: "\f77b"; }
+.bi-play::before { content: "\f4f5"; }
+.bi-play-fill::before { content: "\f4f4"; }
+.bi-scissors::before { content: "\f528"; }
+.bi-sliders::before { content: "\f56b"; }
+.bi-table::before { content: "\f5aa"; }
+.bi-terminal::before { content: "\f5c3"; }
+.bi-trash::before { content: "\f5de"; }
+.bi-trash-fill::before { content: "\f5dd"; }
+.bi-x::before { content: "\f62a"; }

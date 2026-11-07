@@ -1,0 +1,110 @@
+{
+  "id": "wgs-extract",
+  // Keep this bundle version in sync with scripts/wgsextract-release-tag.txt so installer names match the bundled WGSExtract CLI release.
+  "version": "0.6.6",
+  "displayName": "bundle.displayName",
+  "summary": "bundle.summary",
+  "iconName": "fasta",
+  "textIcon": "🧬",
+  "iconPath": "Assets/icon.png",
+  "sidebarIconStyle": "automatic",
+  "terminalTextDirection": "ltr",
+  "setup": {
+    "initialInstallSizeGB": 6,
+    "steps": [
+      {
+        "id": "xcode-command-line-tools",
+        "kind": "setupScript",
+        "label": "setup.xcode-command-line-tools.label",
+        "value": "scripts/check-xcode-command-line-tools.sh",
+        "platforms": [
+          "macos"
+        ]
+      },
+      {
+        "id": "pixi",
+        "kind": "setupScript",
+        "label": "setup.pixi.label",
+        "value": "scripts/check-preinstalled-pixi.sh"
+      },
+      {
+        "id": "install-wgsextract",
+        "kind": "setupScript",
+        "label": "setup.install-wgsextract.label",
+        "value": "scripts/setup-wgsextract-pixi.sh",
+        "arguments": [],
+        "platforms": [
+          "posix"
+        ],
+        "toolName": "WGS Extract CLI",
+        "toolVersionFile": "scripts/wgsextract-release-tag.txt",
+        "environment": {
+          "WGSEXTRACT_INSTALL_DIR": "{{bundleRoot}}/runtime/wgsextract-cli"
+        }
+      },
+      {
+        "id": "install-wgsextract-windows",
+        "kind": "setupScript",
+        "label": "setup.install-wgsextract-windows.label",
+        "value": "scripts/setup-wgsextract-pixi.sh",
+        "arguments": [],
+        // No elevation: setup installs for this user only. Elevating a standard user's setup asks for an
+        // administrator's password and then runs it as that administrator.
+        "platforms": [
+          "windows"
+        ],
+        "toolName": "WGS Extract CLI",
+        "toolVersionFile": "scripts/wgsextract-release-tag.txt",
+        "environment": {
+          "WGSEXTRACT_INSTALL_DIR": "{{bundleRoot}}/runtime/wgsextract-cli"
+        }
+      },
+      {
+        "id": "wgsextract-cli",
+        "kind": "pathTool",
+        "label": "setup.wgsextract.label",
+        "value": "{{bundleRoot}}/runtime/wgsextract-cli/bin/wgsextract",
+        "platforms": [
+          "posix"
+        ]
+      },
+      {
+        "id": "wgsextract-cli-windows",
+        "kind": "pathTool",
+        "label": "setup.wgsextract.label",
+        "value": "{{bundleRoot}}/runtime/wgsextract-cli/bin/wgsextract.cmd",
+        "platforms": [
+          "windows"
+        ]
+      },
+      {
+        "id": "bootstrap-reference-library",
+        "kind": "setupScript",
+        "label": "Download bootstrap reference library",
+        "value": "scripts/bootstrap-reference-library.sh",
+        "arguments": []
+      }
+    ]
+  },
+  "uninstall": {
+    "steps": [
+      {
+        "id": "cleanup-wgsextract-runtime",
+        "kind": "setupScript",
+        "label": "Cleanup WGS Extract runtime",
+        "value": "scripts/uninstall-wgsextract.sh"
+      }
+    ]
+  },
+  "pages": [
+    "fastq.json",
+    "info-bam.json",
+    "vcf.json",
+    "extract.json",
+    "microarray.json",
+    "ancestry.json",
+    "annotate.json",
+    "library.json",
+    "settings.json"
+  ]
+}

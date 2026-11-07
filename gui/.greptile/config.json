@@ -1,0 +1,70 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax"],
+  "triggerOnUpdates": true,
+  "updateExistingSummaryComment": true,
+  "includeBranches": ["main"],
+  "ignorePatterns": "**/dist/**\n**/target/**\nsite/**\nout/**\ntmp/**\n**/node_modules/**\n**/*.lock",
+  "summarySection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": false
+  },
+  "issuesTableSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": true
+  },
+  "instructions": "This is a greenfield cross-platform TypeScript app (Node backend + browser Web UI) packaged with Tauri for Windows, macOS, and Linux. Do NOT suggest backward-compatibility shims, legacy fallbacks, or deprecation paths — update all call sites in the same change. Skip style/formatting nits. Focus on correctness, security, cross-platform behavior, and maintainability.",
+  "rules": [
+    {
+      "id": "logic-out-of-shell",
+      "scope": ["app/web/packagers/tauri/**/*.rs"],
+      "rule": "The Tauri shell hosts the window, menus, native pickers, and updater. Bundle loading, setup, and action logic belong in the TypeScript server. Flag misplaced logic.",
+      "severity": 2,
+      "enabled": true
+    },
+    {
+      "id": "redact-secrets",
+      "scope": ["app/**/*.{ts,mjs,rs}"],
+      "rule": "Configuration display must redact keys, tokens, and secrets. Flag any code path that prints or logs raw credential-shaped values.",
+      "severity": 1,
+      "enabled": true
+    },
+    {
+      "id": "webui-isomorphic-shared",
+      "scope": ["app/shared/**"],
+      "rule": "Code in app/shared must run in both Node and the browser. Disallow Node-only APIs (fs, path, process, child_process, os) — those belong in app/web/src/server only.",
+      "severity": 2,
+      "enabled": true
+    },
+    {
+      "id": "webui-vanilla",
+      "scope": ["app/**/*.{ts,mjs,js,html,css}"],
+      "rule": "The Web UI is TypeScript compiled by tsc to vanilla ES modules with no bundler/framework. Flag introductions of bundlers, frameworks, or heavy runtime dependencies.",
+      "severity": 2,
+      "enabled": true
+    },
+    {
+      "id": "webui-a11y",
+      "scope": ["app/**/*.{html,ts}"],
+      "rule": "Every interactive control needs an accessible label (label/aria-label/title). Prefer semantic HTML over div soup.",
+      "severity": 2,
+      "enabled": true
+    },
+    {
+      "id": "cross-platform",
+      "scope": ["app/web/src/server/**", "tools/**", "scripts/**"],
+      "rule": "Code must work on Windows, macOS, and Linux. Flag hard-coded path separators, POSIX-only shell commands, or platform assumptions without a platform branch.",
+      "severity": 2,
+      "enabled": true
+    },
+    {
+      "id": "no-backcompat",
+      "scope": ["**/*"],
+      "rule": "Project is greenfield and unreleased. Reject suggestions to add backward-compatibility shims, legacy code paths, or deprecation warnings. Renames/restructures must update every call site in the same change.",
+      "severity": 2,
+      "enabled": true
+    }
+  ]
+}

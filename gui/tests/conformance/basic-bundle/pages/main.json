@@ -1,0 +1,151 @@
+{
+  "id": "main",
+  "title": "page.main.title",
+  "summary": "page.main.summary",
+  "sidebarGroup": "group.main",
+  "sections": [
+    {
+      "id": "inputs",
+      "title": "section.inputs.title",
+      "dataSource": {
+        "path": "scripts/section-state.sh",
+        "arguments": [
+          "{{input_path}}"
+        ]
+      },
+      "controls": [
+        {
+          "id": "input_path",
+          "label": "control.input.label",
+          "kind": "path",
+          "value": "/tmp/input.bam"
+        },
+        {
+          "id": "refs",
+          "label": "control.refs.label",
+          "kind": "libraryList",
+          "rowTemplate": {
+            "id": "{{id}}",
+            "title": "{{name}}",
+            "status": "{{status}}",
+            "values": {
+              "code": "{{code}}",
+              "status": "{{status}}"
+            },
+            "tags": [
+              {
+                "id": "recommended",
+                "title": "{{recommended}}",
+                "style": "primary"
+              }
+            ]
+          },
+          "items": [
+            {
+              "id": "hg38",
+              "name": "GRCh38",
+              "code": "hs38",
+              "status": "installed",
+              "recommended": "Recommended"
+            }
+          ],
+          "rowActions": [
+            {
+              "id": "verify-ref",
+              "title": "action.verify.title",
+              "visibleWhen": [
+                {
+                  "placeholder": "row.status",
+                  "equals": "installed"
+                }
+              ],
+              "disabledWhen": [
+                {
+                  "placeholder": "row.locked",
+                  "equals": "true"
+                }
+              ],
+              "disabledTooltip": "action.verify.disabled",
+              "command": {
+                "executable": "tool",
+                "arguments": [
+                  "verify",
+                  "{{row.code}}",
+                  "{{input_path}}"
+                ],
+                "optionalArguments": [
+                  [
+                    "--label",
+                    "{{row.label}}"
+                  ]
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "settings",
+          "label": "control.settings.label",
+          "kind": "configEditor",
+          "configFile": {
+            "path": "{{bundleWorkspace}}/settings/config.toml",
+            "format": "toml",
+            "bootstrap": {
+              "mode": "createIfMissing"
+            }
+          },
+          "settings": [
+            {
+              "id": "out_dir",
+              "key": "output_dir",
+              "label": "setting.out.label",
+              "kind": "text",
+              "value": "out"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "id": "run",
+          "title": "action.run.title",
+          "visibleWhen": [
+            {
+              "placeholder": "input_path",
+              "exists": true
+            }
+          ],
+          "disabledWhen": [
+            {
+              "placeholder": "library.ready",
+              "equals": "false"
+            }
+          ],
+          "disabledTooltip": "action.run.disabled",
+          "command": {
+            "executable": "tool",
+            "arguments": [
+              "run",
+              "{{input_path}}",
+              "{{out_dir}}"
+            ],
+            "optionalArguments": [
+              [
+                "--home",
+                "{{home}}"
+              ],
+              [
+                "--missing",
+                "{{missing}}"
+              ]
+            ]
+          },
+          "precheck": {
+            "diskSpaceGB": "{{input_path.fileSizeGB}} * 2",
+            "diskSpacePath": "{{config.output_dir}}"
+          }
+        }
+      ]
+    }
+  ]
+}

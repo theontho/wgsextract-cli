@@ -1,0 +1,130 @@
+name: Developer setup
+
+on:
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: Setup (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Supply Linux system prerequisites (administrator step, not setup)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Bootstrap with no user tools on PATH (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          hosted_node=$(command -v node || true)
+          mkdir -p tmp/bootstrap-bin tmp/fresh-home tmp/dev-setup
+          # A fresh user and system-only PATH: do not accidentally test hosted Node/Rust/uv.
+          for file in /usr/bin/* /bin/*; do
+            [ -f "$file" ] || continue
+            name=${file##*/}
+            case "$name" in node|nodejs|npm|npx|uv|uvx|cargo|rustc|rustup|python*) continue ;; esac
+            ln -sfn "$file" "tmp/bootstrap-bin/$name"
+          done
+          export HOME="$PWD/tmp/fresh-home"
+          export PATH="$PWD/tmp/bootstrap-bin"
+          sh scripts/dev_setup.sh > tmp/dev-setup/first.log 2>&1
+          cat tmp/dev-setup/first.log
+          grep -q "Open a new terminal" tmp/dev-setup/first.log
+          sh scripts/dev_setup.sh --skip-smoke > tmp/dev-setup/rerun.log 2>&1
+          cat tmp/dev-setup/rerun.log
+          grep -q "Open a new terminal" tmp/dev-setup/rerun.log
+          "$SHELL" -ic 'sh scripts/dev_setup.sh --skip-smoke > tmp/dev-setup/new-shell-rerun.log 2>&1 && ! grep -q "Open a new terminal" tmp/dev-setup/new-shell-rerun.log'
+          "$SHELL" -ic 'uv --version && node --version && npm --version && cargo --version && make precheck'
+          "$SHELL" -ic 'uv run --locked python scripts/smoke-dev.py'
+          if [ -n "$hosted_node" ]; then
+            "$hosted_node" --version
+            "$SHELL" -ic 'uv run --locked python scripts/smoke-dev.py --node "$1"' _ "$hosted_node"
+          fi
+          # Compile the real desktop shell on CI, not on the busy developer host.
+          "$SHELL" -ic 'npm --prefix app run tauri:prepare-node && node app/scripts/run-tauri.mjs build --debug --no-bundle'
+      - name: Bootstrap with system-only PATH (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force tmp\dev-setup | Out-Null
+          # Remove hosted user tools from discovery; this is a disposable runner.
+          $homeDirectory = [Environment]::GetFolderPath("UserProfile")
+          foreach ($directory in @(".cargo", ".rustup", ".local\bin")) {
+            $source = Join-Path $homeDirectory $directory
+            if (Test-Path $source) {
+              $destination = Join-Path $PWD ("tmp\dev-setup\hosted-" + $directory.Replace("\", "-").TrimStart("."))
+              Move-Item $source $destination
+            }
+          }
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0;C:\Program Files\Git\cmd"
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\make.ps1 setup > tmp\dev-setup\first.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Content tmp\dev-setup\first.log
+          if (-not (Select-String -Quiet "Open a new terminal" tmp\dev-setup\first.log)) { throw "First setup omitted new-terminal notice." }
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\make.ps1 setup -SkipSmoke > tmp\dev-setup\rerun.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Content tmp\dev-setup\rerun.log
+          if (-not (Select-String -Quiet "Open a new terminal" tmp\dev-setup\rerun.log)) { throw "Tool-free rerun omitted new-terminal notice." }
+          exit $LASTEXITCODE
+      - name: Notice survives a Windows project-setup failure
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $nodeRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\gui-for-cli\node"
+          $oldUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          try {
+            # A changed user PATH followed by a simulated uv run failure; no machine changes.
+            [Environment]::SetEnvironmentVariable("Path", (($oldUserPath -split ";" | Where-Object { $_ -ne $nodeRoot }) -join ";"), "User")
+            function global:uv {
+              if ($args[0] -eq "run") { $global:LASTEXITCODE = 23 }
+              else { & uv.exe @args }
+            }
+            $failed = $false
+            try { . .\scripts\dev_setup.ps1 -SkipSmoke 6> tmp\dev-setup\failure.log }
+            catch { $failed = $true }
+            if (-not $failed) { throw "Expected simulated project-setup failure." }
+            if (-not (Select-String -Quiet "Open a new terminal" tmp\dev-setup\failure.log)) { throw "Failure omitted new-terminal notice." }
+          } finally {
+            Remove-Item Function:\uv -ErrorAction SilentlyContinue
+            [Environment]::SetEnvironmentVariable("Path", $oldUserPath, "User")
+          }
+          exit 0
+      - name: Check persisted PATH in a new Windows shell
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          $nodeRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\gui-for-cli\node"
+          $winner = Get-Command node.exe
+          $needsWarning = ([version]((& $winner.Source --version).TrimStart("v"))) -lt ([version]((& "$nodeRoot\node.exe" --version).TrimStart("v")))
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\make.ps1 setup -SkipSmoke > tmp\dev-setup\new-shell-rerun.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String -Quiet "Open a new terminal" tmp\dev-setup\new-shell-rerun.log) { throw "Tool-ready rerun printed new-terminal notice." }
+          if ($needsWarning -and -not (Select-String -Quiet "New-terminal PATH conflict" tmp\dev-setup\new-shell-rerun.log)) { throw "Older machine Node was silently preferred." }
+          # Full machine PATH above is only the conflict probe, not bootstrap validation.
+          # Validate the persisted user paths without manually injecting the Node directory.
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0;C:\Program Files\Git\cmd;" + [Environment]::GetEnvironmentVariable("Path", "User")
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-new-shell.ps1
+          exit $LASTEXITCODE
+      - name: Upload setup smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: setup-${{ matrix.os }}
+          path: tmp/dev-setup/*.log
+          if-no-files-found: ignore

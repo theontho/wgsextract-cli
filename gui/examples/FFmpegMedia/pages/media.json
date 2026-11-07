@@ -1,0 +1,93 @@
+{
+  "id": "media",
+  "title": "Media",
+  "summary": "Choose a media file and run common FFmpeg commands.",
+  "sections": [
+    {
+      "id": "media",
+      "title": "Media file",
+      "textIcon": "AV",
+      "controls": [
+        {
+          "id": "input_file",
+          "label": "Input file",
+          "kind": "path",
+          "pathType": "file"
+        },
+        {
+          "id": "output_file",
+          "label": "Output file",
+          "kind": "path",
+          "pathType": "file"
+        },
+        {
+          "id": "video_codec",
+          "label": "Video codec",
+          "kind": "dropdown",
+          "value": "libx264",
+          "options": [
+            {
+              "id": "libx264",
+              "title": "H.264",
+              "selected": true
+            },
+            {
+              "id": "libx265",
+              "title": "H.265"
+            },
+            {
+              "id": "copy",
+              "title": "Copy stream"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "id": "probe",
+          "title": "Probe file",
+          "command": {
+            "executable": "ffprobe",
+            "arguments": [
+              "-hide_banner",
+              "{{input_file}}"
+            ]
+          }
+        },
+        {
+          "id": "transcode",
+          "title": "Transcode",
+          "command": {
+            "executable": "ffmpeg",
+            "arguments": [
+              "-hide_banner",
+              "-y",
+              "-i",
+              "{{input_file}}",
+              "-c:v",
+              "{{video_codec}}",
+              "{{output_file}}"
+            ]
+          }
+        },
+        {
+          "id": "extract-audio",
+          "title": "Extract audio",
+          "command": {
+            "executable": "ffmpeg",
+            "arguments": [
+              "-hide_banner",
+              "-y",
+              "-i",
+              "{{input_file}}",
+              "-vn",
+              "-acodec",
+              "copy",
+              "{{output_file}}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "id": "settings",
+  "title": "pages.settings.title",
+  "summary": "pages.settings.summary",
+  "sidebarPlacement": "bottom",
+  "sections": [
+    {
+      "id": "settings-paths",
+      "title": "sections.settings.settings-paths.title",
+      "controls": [
+        {
+          "id": "wgs_settings",
+          "label": "controls.settings.settings-paths.wgs_settings.label",
+          "kind": "configEditor",
+          "tooltip": "controls.settings.settings-paths.wgs_settings.tooltip",
+          "configFile": {
+            "path": "{{bundleWorkspace}}/settings/config.toml",
+            "format": "toml",
+            "bootstrap": {
+              "mode": "mergeMissing",
+              "script": {
+                "path": "scripts/bootstrap-wgsextract-config.sh"
+              }
+            }
+          },
+          "settings": [
+            {
+              "id": "temp_directory",
+              "key": "temp_directory",
+              "label": "controls.settings.post-v063.temp.label",
+              "kind": "path",
+              "tooltip": "controls.settings.post-v063.temp.tooltip"
+            },
+            {
+              "id": "log_dir",
+              "key": "log_dir",
+              "label": "controls.settings.post-v063.logs.label",
+              "kind": "path",
+              "tooltip": "controls.settings.post-v063.logs.tooltip"
+            },
+            {
+              "id": "atomic_outputs",
+              "key": "atomic_outputs",
+              "label": "controls.settings.post-v063.atomic.label",
+              "kind": "toggle",
+              "value": false,
+              "tooltip": "controls.settings.post-v063.atomic.tooltip"
+            },
+            {
+              "id": "keep_awake",
+              "key": "keep_awake",
+              "label": "controls.settings.post-v063.awake.label",
+              "kind": "toggle",
+              "value": false,
+              "tooltip": "controls.settings.post-v063.awake.tooltip"
+            },
+            {
+              "id": "out_dir",
+              "key": "output_directory",
+              "label": "controls.settings.settings-paths.out_dir.label",
+              "kind": "path",
+              "tooltip": "controls.settings.settings-paths.out_dir.tooltip"
+            },
+            {
+              "id": "ref_path",
+              "key": "reference_library",
+              "label": "controls.settings.settings-paths.ref_path.label",
+              "kind": "path",
+              "tooltip": "controls.settings.settings-paths.ref_path.tooltip"
+            },
+            {
+              "id": "genome_library",
+              "key": "genome_library",
+              "label": "controls.settings.settings-paths.genome_library.label",
+              "kind": "path",
+              "tooltip": "controls.settings.settings-paths.genome_library.tooltip"
+            },
+            {
+              "id": "ref_fasta",
+              "key": "reference_fasta",
+              "label": "controls.settings.settings-paths.ref_fasta.label",
+              "kind": "dropdown",
+              "tooltip": "controls.settings.settings-paths.ref_fasta.tooltip",
+              "dataSource": {
+                "path": "scripts/list-reference-genomes.py",
+                "arguments": [
+                  "options",
+                  "{{ref_path}}"
+                ]
+              }
+            },
+            {
+              "id": "vcf_path",
+              "key": "default_input_vcf",
+              "label": "controls.settings.settings-paths.vcf_path.label",
+              "kind": "path",
+              "defaultDirectory": "{{genome_library}}",
+              "tooltip": "controls.settings.settings-paths.vcf_path.tooltip"
+            },
+            {
+              "id": "mother_vcf_path",
+              "key": "mother_vcf_path",
+              "label": "controls.settings.settings-paths.mother_vcf_path.label",
+              "kind": "path",
+              "defaultDirectory": "{{genome_library}}",
+              "tooltip": "controls.settings.settings-paths.mother_vcf_path.tooltip"
+            },
+            {
+              "id": "father_vcf_path",
+              "key": "father_vcf_path",
+              "label": "controls.settings.settings-paths.father_vcf_path.label",
+              "kind": "path",
+              "defaultDirectory": "{{genome_library}}",
+              "tooltip": "controls.settings.settings-paths.father_vcf_path.tooltip"
+            },
+            {
+              "id": "yleaf_path",
+              "key": "yleaf_executable",
+              "label": "controls.settings.settings-paths.yleaf_path.label",
+              "kind": "path",
+              "tooltip": "controls.settings.settings-paths.yleaf_path.tooltip"
+            },
+            {
+              "id": "haplogrep_path",
+              "key": "haplogrep_executable",
+              "label": "controls.settings.settings-paths.haplogrep_path.label",
+              "kind": "path",
+              "tooltip": "controls.settings.settings-paths.haplogrep_path.tooltip"
+            }
+          ]
+        }
+      ],
+      "iconName": "workspace",
+      "textIcon": "🗂️"
+    },
+    {
+      "id": "dependency-checks",
+      "title": "sections.settings.dependency-checks.title",
+      "summary": "sections.settings.dependency-checks.summary",
+      "actions": [
+        {
+          "id": "deps-check",
+          "title": "actions.settings.dependency-checks.deps-check.title",
+          "tooltip": "actions.settings.dependency-checks.deps-check.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "deps",
+              "check"
+            ]
+          }
+        }
+      ],
+      "iconName": "precheck",
+      "textIcon": "☑️"
+    }
+  ],
+  "iconName": "settings",
+  "textIcon": "⚙️"
+}
