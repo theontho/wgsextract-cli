@@ -8,6 +8,10 @@ When outputting test run results, logs, or stdout captures, **always** put them 
 
 Do not add new environment-variable configuration. Put persistent configuration in config.toml settings, and use command-line parameters for run-specific overrides.
 
+## The desktop app (`gui/`)
+
+`gui/` is the WGS Extract desktop app (formerly the gui-for-cli repository): TypeScript, Tauri and its own Python tooling, with its own [AGENTS.md](gui/AGENTS.md), which applies to work there. Root ruff, mypy and pytest skip `gui/`; check app changes with `just gui-ci` (or `just gui-test`, `just gui-lint`), which GUI CI (`.github/workflows/gui-*.yml`) runs for changes under `gui/`. The app and the CLI release together as one `vX.Y.Z`; see `docs/releasing.md`.
+
 ## Python Formatting & Linting
 
 - **Always** run `pixi run ruff check --fix {file_path}` and `pixi run ruff format {file_path}` after editing a Python file in this directory.

@@ -1,10 +1,10 @@
 # Releasing
 
-A CLI release reaches app users in two steps: the CLI release itself, then a
-WGS Extract app release (gui-for-cli) that bundles it. Most of it is automated;
-this is the whole sequence, with what to check at each step.
+One `vX.Y.Z` release ships both the CLI and the WGS Extract desktop app
+(`gui/`), which bundles that same CLI release. Most of it is automated; this is
+the whole sequence, with what to check at each step.
 
-## 1. The CLI release
+## 1. The release
 
 Merging the release PR is the whole CLI release: nobody has to push a tag or
 run `gh release`, so an agent session that can only open and merge PRs can do
@@ -17,11 +17,15 @@ it.
    ```
 
    It sets the version in `pyproject.toml`, `pixi.toml` and
-   `src/wgsextract_cli/__init__.py`, the three files the release workflow
-   checks.
+   `src/wgsextract_cli/__init__.py`, and points the app's bundle at the same
+   release with `gui/scripts/bump-wgsextract-cli.py vX.Y.Z` (the tag file
+   `gui/examples/WGSExtract/scripts/wgsextract-release-tag.txt`, the bundle
+   version that names the installers, and an entry in `gui/docs/CHANGELOG.md`).
+   The release workflow checks all four versions against the tag.
 
 2. **Write the release notes** in `docs/release-notes/vX.Y.Z.md`, in the same
    PR: what users get, under `## New` and `## Fixes` (see v0.4.2 and v0.4.3),
+   with the app's changes too (`gui/docs/CHANGELOG.md`'s Unreleased section),
    ending with a compare link (`.../compare/vPREVIOUS...vX.Y.Z`). The PRs since
    the last release are `git log --oneline vPREVIOUS..origin/main`.
 
@@ -30,7 +34,12 @@ it.
    On the merge, `release.yml` sees the new version, runs lint, type checks,
    tests and the package smoke test on the merge commit, then creates the
    `vX.Y.Z` tag and publishes the release as the latest with the notes file.
-   `install.sh` installs the latest published release. The native Windows
+   `install.sh` installs the latest published release. Its last job then calls
+   `gui-distribution.yml`, which builds the app at the tagged commit on Linux,
+   macOS (Apple Silicon and Intel) and Windows, signs and notarizes the macOS
+   app, and adds the installers and the updater feed (`latest.json`) to the
+   same release; installed apps update from the latest release's
+   `latest.json`. The app's version is the tag's. The native Windows
    tools aren't part of it: `pixi.toml` pins their own packages (see
    [packaging/windows/README.md](../packaging/windows/README.md)).
 
@@ -39,7 +48,9 @@ it.
    *Run workflow* on the Release workflow (`gh workflow run release.yml`): it
    picks up where it stopped, publishing from the existing tag if one was
    already created. A release only becomes the latest if no newer version
-   already is.
+   already is. If only the app's build failed, rerun the failed jobs, or add
+   the app to the existing release with
+   `gh workflow run gui-distribution.yml -f tag=vX.Y.Z`.
 
 Without a notes file the release is left as a **draft** with generated notes.
 Edit and publish it on the release's GitHub page (**Edit**, then **Publish
@@ -48,35 +59,51 @@ release**), or with
 Pushing a `vX.Y.Z` tag by hand still works too, and also uses the notes file
 if the tagged commit has one.
 
-## 2. The app release (gui-for-cli)
+## 2. What the app's release needs
 
-1. **The bump PR.** Within the hour, gui-for-cli's *WGSExtract CLI release
-   watch* runs `scripts/bump-wgsextract-cli.py vX.Y.Z` and pushes a
-   `cli-vX.Y.Z` branch. GitHub Actions isn't allowed to open PRs there, so the
-   job then fails once with a link to open the PR: that failure email is the
-   notification. To start it by hand instead:
-   `gh workflow run wgsextract-cli-release-watch.yml -R WGSExtract/gui-for-cli`.
+- **Secrets and variables.** The app's build reads the Apple signing and
+  notarization secrets (`APPLE_CERTIFICATE_P12`, `APPLE_CERTIFICATE_PASSWORD`,
+  `APPLE_SIGNING_IDENTITY`, and `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`,
+  `APPLE_API_ISSUER_ID` or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
+  `APPLE_TEAM_ID`), the updater signing key (`TAURI_SIGNING_PRIVATE_KEY`,
+  optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and the
+  `TAURI_UPDATER_PUBKEY` variable. A release's macOS build fails without the
+  Apple secrets, and without the updater key the release has no `latest.json`.
+  See [gui/docs/distribution.md](../gui/docs/distribution.md).
+- **Trying a change first.** *Run workflow* on *GUI distribution* (or
+  `gh workflow run gui-distribution.yml --ref BRANCH`) builds unsigned
+  installers as run artifacts without releasing anything; the Install Lab can
+  test them (section 3).
 
-   Open the PR, replace its CHANGELOG entry's link with a line on what users
-   get, and merge once CI is green. CI runs normally, since a person opened the
-   PR.
+### Tags and earlier app releases
 
-2. **Tag the app** once gui-for-cli's `main` CI passes on the merge commit, in
-   an up-to-date gui-for-cli checkout (not this repository's):
+The app's releases up to v0.6.6 were made in the former
+[gui-for-cli](https://github.com/WGSExtract/gui-for-cli/releases) repository
+(also tagged `vX.Y.Z`, with the same numbers as the CLI release each bundled),
+and stay there. From the first release after v0.6.6, the app has no tags or
+releases of its own: it ships in this repository's `vX.Y.Z` release.
 
-   ```bash
-   cd ../gui-for-cli && git switch main && git pull --ff-only
-   git tag -a vA.B.C -m "vA.B.C ..." && git push origin vA.B.C
-   ```
+Apps up to v0.6.6 look for updates in gui-for-cli's latest release. Until
+that repository is archived, copy each release's `latest.json` there so those
+installs find the update (once is enough: the updated app checks here):
 
-   The Distribution workflow builds, signs and publishes the installers. The
-   app's version comes from the tag.
+```bash
+gh release download vX.Y.Z -p latest.json -D out/bridge
+gh release create vX.Y.Z -R WGSExtract/gui-for-cli --latest \
+  --title "WGS Extract vX.Y.Z" \
+  --notes "Moved to https://github.com/WGSExtract/wgsextract-cli/releases/tag/vX.Y.Z" \
+  out/bridge/latest.json
+```
+
+The feed's download links point at this repository's release, so the update
+itself comes from here; the old apps accept it because the release is signed
+with the same updater key (copy the gui-for-cli secrets, not new ones).
 
 ## 3. Proof it reached users
 
-Within the hour of the app release, this repo's *App release watch*
+Within the hour of the app joining the release, *App release watch*
 (`app_release_watch.yml`) starts a full Install Lab run named
-`Install Lab: app vA.B.C`: Linux, macOS and Windows, with the CLI from this
+`Install Lab: app vX.Y.Z`: Linux, macOS and Windows, with the CLI from this
 tree and with the CLI release the app pins, plus the negative controls. To
 start it at once: `gh workflow run app_release_watch.yml`.
 
@@ -85,7 +112,7 @@ user's machine does, with the CLI release it bundles. The Windows app jobs only
 collect evidence; **windows-judge** checks it (and the negative controls), so
 the evidence the release works is the pinned jobs and windows-judge passing. See [install_testing.md](install_testing.md)
 for what the lab checks, and for trying an app fix before releasing it
-(`gh workflow run install_lab.yml -f app_run=<Distribution run id>`).
+(`gh workflow run install_lab.yml -f app_run=<GUI distribution run id>`).
 
 ## Optional tool releases
 

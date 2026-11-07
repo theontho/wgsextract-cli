@@ -6,7 +6,7 @@
 
 An independent command-line recreation of [WGS Extract](https://github.com/WGSExtract/WGSExtract-Dev/). It wraps samtools, bcftools, bwa/minimap2, GATK, Haplogrep, VEP and other tools and includes native Yleaf-derived Y-DNA analysis, so you can inspect BAM/CRAM files, simulate consumer microarray files, extract Y/mtDNA data, call and annotate variants, and manage reference genomes from scripts or the terminal. [Pixi](https://pixi.sh) provides Python and the bioinformatics tools on macOS, Linux, and Windows.
 
-Documentation site: <https://wgsextract.github.io/wgsextract-cli/>. A separate graphical app is available from [gui-for-cli](https://github.com/WGSExtract/gui-for-cli/releases).
+Documentation site: <https://wgsextract.github.io/wgsextract-cli/>. The WGS Extract desktop app, which bundles this CLI, lives in [`gui/`](gui/README.md); its installers come with each [release](https://github.com/WGSExtract/wgsextract-cli/releases) (see the [app's site](https://wgsextract.github.io/wgsextract-cli/app/)).
 
 Y-DNA prediction credits Yleaf's authors at Erasmus MC: Arwin Ralf, Diego
 Montiel Gonzalez, Kaiyin Zhong, Manfred Kayser and Bram van Wersch.
