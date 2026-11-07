@@ -13,6 +13,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Bundle WGSExtract CLI `v0.6.5`: fresh Windows installs work again and invalid configuration values produce clear warnings. Includes the v0.6.4 opt-in MultiQC, expanded microarray/AADR exports and targeted Y analysis, streamed eligible small paired realignment, and safer downloads, outputs and Windows cancellation ([v0.6.5 release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.5), [v0.6.4 features](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.4)).
 - Bundle WGSExtract CLI `v0.6.3`: alignment output no longer depends on thread count, BWA-MEM2 sorts in less memory, alignment checks memory before starting and falls back to BWA when MEM2 won't fit, long jobs show memory and disk estimates up front, and SNP/indel calling can optionally run per chromosome in parallel. Native Windows is now validated on full genomes ([CLI release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.3)).
 
+### Fixed
+- The Web UI server rejects an invalid `--port` (not a decimal integer from 0 to 65535) with a clear error before it starts, instead of failing later inside Node.
+
 ## [0.6.2] - 2026-10-27
 
 ### Changed

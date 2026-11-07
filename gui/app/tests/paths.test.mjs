@@ -3,7 +3,7 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
-const { expandPathTokens } = await import("../dist/web/src/server/paths.js");
+const { expandPathTokens, parseArgs } = await import("../dist/web/src/server/paths.js");
 
 test("path token expansion preserves unset environment variables", () => {
   const key = "GUI_FOR_CLI_MISSING_TEST_PATH_TOKEN";
@@ -71,4 +71,17 @@ test("Windows app data lives under LOCALAPPDATA, not a POSIX-style ~/.local/shar
   } finally {
     process.env.LOCALAPPDATA = previous;
   }
+});
+
+test("--port rejects values that are not a port from 0 to 65535 (#527)", () => {
+  for (const value of ["banana", "-1", "65536", "80.5", "1e3", " 80", "+80", "0x50"]) {
+    assert.throws(() => parseArgs(["--port", value]), /--port.*0 to 65535/, `--port ${JSON.stringify(value)}`);
+  }
+});
+
+test("--port accepts the boundary ports 0 and 65535 (#527)", () => {
+  assert.equal(parseArgs(["--port", "0"]).port, "0");
+  assert.equal(parseArgs(["--port", "65535"]).port, "65535");
+  assert.equal(parseArgs(["--bundle", "b"]).port, undefined);
+  assert.throws(() => parseArgs(["--port"]), /Missing value for --port/);
 });
