@@ -63,6 +63,23 @@ def build(source: Path, output: Path, version: str, source_sha256: str) -> Path:
         raise SystemExit(f"{source}: SHA-256 {actual}, expected {source_sha256}")
     output.mkdir(parents=True, exist_ok=True)
     target = output / f"wgsextract-reference-bootstrap-{version}.tar.gz"
+    partial = target.with_name(target.name + ".partial")
+    try:
+        removed = _copy(source, partial, version)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    partial.replace(target)
+    digest = sha256(target)
+    (output / "SHA256SUMS").write_text(f"{digest}  {target.name}\n", encoding="utf-8")
+    for name in removed:
+        print(f"removed {name}")
+    print(f"Wrote {target} ({target.stat().st_size} bytes, sha256 {digest})")
+    return target
+
+
+def _copy(source: Path, target: Path, version: str) -> list[str]:
+    """Write the filtered bootstrap to ``target``; return the dropped members."""
     removed = []
     with tarfile.open(source, "r:gz") as old:
         members = sorted(old.getmembers(), key=lambda m: m.name)
@@ -98,12 +115,7 @@ def build(source: Path, output: Path, version: str, source_sha256: str) -> Path:
                 else:
                     info.size = member.size
                 new.addfile(info, data)
-    digest = sha256(target)
-    (output / "SHA256SUMS").write_text(f"{digest}  {target.name}\n", encoding="utf-8")
-    for name in removed:
-        print(f"removed {name}")
-    print(f"Wrote {target} ({target.stat().st_size} bytes, sha256 {digest})")
-    return target
+    return removed
 
 
 def main(argv: list[str] | None = None) -> None:

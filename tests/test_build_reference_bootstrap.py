@@ -76,3 +76,19 @@ def test_bootstrap_build_refuses_an_unpinned_source(tmp_path):
     assert result.returncode != 0
     assert "expected " + "0" * 64 in result.stderr
     assert not (tmp_path / "out").exists()
+
+
+def test_a_failed_bootstrap_build_keeps_the_previous_archive(tmp_path):
+    source = tmp_path / "old.tar.gz"
+    sha = _source(source)
+    out = tmp_path / "out"
+    assert _build(source, sha, out).returncode == 0
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+    with tarfile.open(source, "w:gz") as tar:  # README without a yBrowse section
+        info = tarfile.TarInfo("reference/00README.txt")
+        info.size = 2
+        tar.addfile(info, io.BytesIO(b"x\n"))
+    sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    result = _build(source, sha, out)
+    assert result.returncode != 0 and "no yBrowse section" in result.stderr
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before
