@@ -214,6 +214,11 @@ pyarrow = ">=14"
 
 # Optional MCP over streamable HTTP (`serve --mcp-http`): the official MCP
 # Python SDK; never installed by command invocation.
+# conda-forge's build: PyPI has no cryptography wheel for Intel macOS, and
+# building it from source needs Rust.
+[feature.mcp.dependencies]
+cryptography = "*"
+
 [feature.mcp.pypi-dependencies]
 mcp = ">=2.3,<3"
 

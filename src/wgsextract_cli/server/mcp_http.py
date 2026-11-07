@@ -12,6 +12,7 @@ import functools
 import logging
 import socket
 import sys
+import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -28,18 +29,27 @@ if TYPE_CHECKING:
 PATH = "/mcp"
 
 
+SDK_RANGE = ">=2.3,<3"
+
+
 def require_sdk() -> None:
-    """Stop with a clear error unless the MCP SDK is installed."""
+    """Stop with a clear error unless a supported MCP SDK is installed."""
     try:
+        # The 2.x interfaces build_app uses; 1.x lacks them.
+        import mcp.server.context  # noqa: F401
         import mcp.server.lowlevel  # noqa: F401
+        import mcp.server.transport_security  # noqa: F401
+        import mcp.shared.exceptions  # noqa: F401
+        import mcp_types  # noqa: F401
         import uvicorn  # noqa: F401
     except ImportError as e:
         raise MissingDependencyError(
-            "MCP over HTTP needs the optional 'mcp' package (the official MCP "
-            f"Python SDK), which is not installed for {sys.executable}. Install "
-            "it into that environment (pip install 'wgsextract-cli[mcp]', or "
-            "pixi run -e mcp from a source checkout), or use MCP over stdio "
-            f"(--mcp-transport stdio), which needs nothing extra. ({e})"
+            f"MCP over HTTP needs the optional 'mcp' package {SDK_RANGE} (the "
+            "official MCP Python SDK), which is not installed, or too old, for "
+            f"{sys.executable}. Install it into that environment (pip install "
+            "'wgsextract-cli[mcp]', or pixi run -e mcp from a source checkout), "
+            "or use MCP over stdio (--mcp-transport stdio), which needs nothing "
+            f"extra. ({e})"
         ) from e
 
 
@@ -108,6 +118,16 @@ def build_app(tools: McpTools, token: str, port: int) -> ASGIApp:
         ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
     ) -> types.CallToolResult:
         jobs: list[str] = []
+        cancelled = False
+        lock = threading.Lock()
+
+        def started(job_id: str) -> None:
+            # A job submitted after the call was cancelled is cancelled at once.
+            with lock:
+                jobs.append(job_id)
+                late = cancelled
+            if late:
+                tools.manager.cancel(job_id)
 
         def progress(step: int, message: str) -> None:
             try:
@@ -122,7 +142,7 @@ def build_app(tools: McpTools, token: str, port: int) -> ASGIApp:
             params.name,
             params.arguments or {},
             progress=progress,
-            started=jobs.append,
+            started=started,
         )
         try:
             # Tools can take minutes; the job keeps the thread, not the loop.
@@ -131,7 +151,10 @@ def build_app(tools: McpTools, token: str, port: int) -> ASGIApp:
             raise MCPError(types.INVALID_PARAMS, str(e)) from None
         except anyio.get_cancelled_exc_class():
             # notifications/cancelled, or the client went away.
-            for job_id in jobs:
+            with lock:
+                cancelled = True
+                submitted = list(jobs)
+            for job_id in submitted:
                 tools.manager.cancel(job_id)
             raise
         return types.CallToolResult.model_validate(result)

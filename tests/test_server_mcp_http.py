@@ -7,7 +7,6 @@ import os
 import signal
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -188,18 +187,46 @@ time.sleep(600)
 """
 
 
-def test_cancelling_an_mcp_http_call_stops_its_job(
-    tmp_path, work, fake_data, monkeypatch
-):
+def _hanging_samtools(tmp_path, monkeypatch) -> Path:
+    """Put a samtools that runs until killed first on PATH; each run records
+    its pid in the returned folder."""
     if sys.platform == "win32":
         pytest.skip("a scripted fake can't replace a bare 'samtools' on Windows")
-    bam, _ = fake_data
     pids = tmp_path / "pids"
     pids.mkdir()
     bindir = python_tool(
         tmp_path / "bin", "samtools", HANGING_SAMTOOLS.format(pids=str(pids))
     ).parent
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    return pids
+
+
+async def _all_cancelled(session: Any, pids: Path) -> None:
+    """Wait until every job is cancelled and every samtools has exited."""
+    with anyio.fail_after(60):
+        while True:
+            jobs = await session.call_tool("list_jobs", {})
+            statuses = {j["status"] for j in jobs.structured_content["jobs"]}
+            if statuses <= {"cancelled"}:
+                break
+            await anyio.sleep(0.2)
+    with anyio.fail_after(30):
+        for pid in pids.iterdir():
+            while True:
+                try:
+                    tool = psutil.Process(int(pid.name))
+                    if tool.status() == psutil.STATUS_ZOMBIE:
+                        break
+                except psutil.NoSuchProcess:
+                    break
+                await anyio.sleep(0.2)
+
+
+def test_cancelling_an_mcp_http_call_stops_its_job(
+    tmp_path, work, fake_data, monkeypatch
+):
+    bam, _ = fake_data
+    pids = _hanging_samtools(tmp_path, monkeypatch)
 
     async def cancel(served: Served) -> None:
         async with _session(served) as session:
@@ -209,18 +236,11 @@ def test_cancelling_an_mcp_http_call_stops_its_job(
                     while not any(pids.iterdir()):
                         await anyio.sleep(0.2)
                 tasks.cancel_scope.cancel()
-            tool = psutil.Process(int(next(pids.iterdir()).name))
-            with anyio.fail_after(60):
-                while True:
-                    jobs = await session.call_tool("list_jobs", {})
-                    statuses = [j["status"] for j in jobs.structured_content["jobs"]]
-                    if statuses == ["cancelled"]:
-                        break
-                    await anyio.sleep(0.2)
-            deadline = time.monotonic() + 30
-            while tool.is_running() and tool.status() != psutil.STATUS_ZOMBIE:
-                assert time.monotonic() < deadline, "samtools still running"
-                time.sleep(0.2)
+            await _all_cancelled(session, pids)
+            jobs = await session.call_tool("list_jobs", {})
+            assert [j["status"] for j in jobs.structured_content["jobs"]] == [
+                "cancelled"
+            ]
 
     with _serve("--allow", str(work), "--allow", str(FAKE_DIR)) as served:
         anyio.run(cancel, served)
