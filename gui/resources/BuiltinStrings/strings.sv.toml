@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "Mapp för arbetsytor"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "Aktuell arbetsyta"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "Använd standard"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "Filer i den aktuella arbetsytan flyttas inte, och installationen körs igen i den nya mappen."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "Starta om appen för att använda den här mappen."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "Flytten tar arbetsytan och allt i den till den här mappen, och alla sökvägar som visas under {{bundleWorkspace}} följer med. Mappar som du har angett någon annanstans stannar där de är."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "Flytta"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "Flytta arbetsytan till {path}? Pågående åtgärder stoppas, och installationen installerar sedan om CLI-körmiljön på den nya platsen."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "Flyttar arbetsytan: {percent} %"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "Avbryt"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "Den här mappen anges av miljövariabeln GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Tema"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Systeminställning"  # i18n-source-hash:bc0792d8

@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "ওয়ার্কস্পেস ফোল্ডার"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "বর্তমান ওয়ার্কস্পেস"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "ডিফল্ট ব্যবহার করুন"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "বর্তমান ওয়ার্কস্পেসে থাকা ফাইলগুলো সরানো হয় না, এবং নতুন ফোল্ডারে সেটআপ আবার চলে।"  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "এই ফোল্ডারটি ব্যবহার করতে অ্যাপটি পুনরায় চালু করুন।"  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "সরানো হলে ওয়ার্কস্পেস ও এর সবকিছু এই ফোল্ডারে যায়, তাই {{bundleWorkspace}}-এর অধীনে দেখানো প্রতিটি পাথও সঙ্গে যায়। আপনি অন্য কোথাও সেট করা ফোল্ডারগুলো যেখানে আছে সেখানেই থাকে।"  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "সরান"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "ওয়ার্কস্পেস {path}-এ সরাবেন? চলমান অ্যাকশনগুলো বন্ধ হবে, এবং এরপর সেটআপ নতুন অবস্থানে CLI রানটাইম আবার ইনস্টল করবে।"  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "ওয়ার্কস্পেস সরানো হচ্ছে: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "বাতিল"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "এই ফোল্ডারটি GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR এনভায়রনমেন্ট ভেরিয়েবল দ্বারা সেট করা হয়েছে।"  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "থিম"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "সিস্টেম"  # i18n-source-hash:bc0792d8

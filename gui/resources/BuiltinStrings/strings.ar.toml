@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "مجلد مساحات العمل"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "مساحة العمل الحالية"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "استخدام الافتراضي"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "لا يتم نقل الملفات الموجودة في مساحة العمل الحالية، ويُعاد تشغيل الإعداد في المجلد الجديد."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "أعد تشغيل التطبيق لاستخدام هذا المجلد."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "ينقل هذا الإجراء مساحة العمل وكل ما فيها إلى هذا المجلد، فتتبعها كل المسارات المعروضة تحت {{bundleWorkspace}}. وتبقى المجلدات التي حددتها في أماكن أخرى في مكانها."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "نقل"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "هل تريد نقل مساحة العمل إلى {path}؟ ستتوقف الإجراءات قيد التشغيل، ثم يعيد الإعداد تثبيت بيئة تشغيل CLI في الموقع الجديد."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "جارٍ نقل مساحة العمل: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "إلغاء"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "يتم تعيين هذا المجلد بواسطة متغير البيئة GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "السمة"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "النظام"  # i18n-source-hash:bc0792d8

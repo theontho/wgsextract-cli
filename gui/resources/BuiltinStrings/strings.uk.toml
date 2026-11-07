@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "Папка робочих областей"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "Поточна робоча область"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "За замовчуванням"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "Файли поточної робочої області не переміщуються, а налаштування запускається знову в новій папці."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "Перезапустіть застосунок, щоб використовувати цю папку."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "Під час перенесення робоча область і весь її вміст переходять до цієї папки, і всі шляхи, показані під {{bundleWorkspace}}, ідуть за нею. Папки, задані в інших місцях, залишаються на місці."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "Перемістити"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "Перемістити робочу область до {path}? Запущені дії буде зупинено, а потім налаштування заново встановить середовище виконання CLI у новому місці."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "Перенесення робочої області: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "Скасувати"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "Цю папку задано змінною середовища GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Тема"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Системна"  # i18n-source-hash:bc0792d8

@@ -5,7 +5,7 @@ import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/
 import path from "node:path";
 import { allControls, configEditorControls, parseFlatToml, persistsFieldValue, serializeFlatToml } from "../../../shared/rendering.js";
 import type { BundleManifest, ConfigBootstrapScriptSpec, ConfigSetting, ControlSpec, LooseRecord, SetupRun, StateValue, StringMap, ValueMap } from "../../../shared/types.js";
-import { configPath, expandPathTokens } from "./paths.js";
+import { configPath, expandPathTokens, expandWorkspaceToken } from "./paths.js";
 import { resolvePlatformScriptPath } from "./platform-scripts.js";
 import { errnoCode, errorMessage } from "./errors.js";
 
@@ -252,7 +252,7 @@ function shouldSkipBootstrap(mode: string, existing: ValueMap | null, defaultKey
     if (mode !== "mergeMissing" || existing == null) {
         return false;
     }
-    return defaultKeys.every((key) => String(existing[key] ?? "").trim() !== "");
+    return defaultKeys.every((key) => Object.hasOwn(existing, key));
 }
 async function bootstrapDocument(control: ControlSpec, bundleRoot: string, defaultURL: string, script: BootstrapScript | undefined): Promise<ConfigDocument> {
     if (!script) {
@@ -381,7 +381,8 @@ async function bootstrapToml(mode: string, url: string, defaults: ValueMap) {
         : { ...defaults };
     if (mode === "mergeMissing" && existing) {
         for (const [key, value] of Object.entries(defaults)) {
-            if (String(existing[key] ?? "").trim() === "") {
+            // A key that is there but blank is the user's choice: a blank log directory turns logging off.
+            if (!Object.hasOwn(existing, key)) {
                 next[key] = value;
             }
         }
@@ -521,10 +522,12 @@ export async function saveConfig(control: ControlSpec, requestedPath: string | u
     const byKey: Record<string, unknown> = {};
     for (const setting of control.settings ?? []) {
         const key = settingKey(setting);
-        byKey[key] = typedSettingValue(
+        const value = typedSettingValue(
             setting,
             values[key] ?? values[setting.id] ?? values[`${control.id}.${setting.id}`] ?? setting.value ?? "",
         );
+        // The CLI reads this file too, and knows only real paths.
+        byKey[key] = setting.kind === "path" && typeof value === "string" ? expandWorkspaceToken(value, bundleRoot) : value;
     }
     await writeFileAtomically(filePath, serializeFlatToml(byKey));
     return { path: filePath, keyCount: Object.keys(byKey).length };

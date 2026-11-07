@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "工作区文件夹"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "当前工作区"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "使用默认值"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "当前工作区中的文件不会被移动,并且会在新文件夹中重新运行设置。"  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "重新启动应用以使用此文件夹。"  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "移动会将工作区及其全部内容转到此文件夹,{{bundleWorkspace}} 下显示的所有路径也会随之变化。您在其他位置设置的文件夹保持不变。"  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "移动"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "要将工作区移动到 {path} 吗?正在运行的操作将被停止,然后设置会在新位置重新安装 CLI 运行时。"  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "正在移动工作区:{percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "取消"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "此文件夹由环境变量 GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR 设置。"  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "主题"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "系统"  # i18n-source-hash:bc0792d8

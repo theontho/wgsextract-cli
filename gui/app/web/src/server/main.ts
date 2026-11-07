@@ -14,6 +14,7 @@ import { createProcessManager } from "./process-runner.js";
 import { takeApiToken } from "./request-guard.js";
 import { createRequestHandler } from "./routes.js";
 import { prepareBundleWorkspace } from "./workspace.js";
+import { moveWorkspace } from "./workspace-move.js";
 import { errorMessage } from "./errors.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +38,20 @@ delete process.env.GFC_PORT_FILE;
 const { runProcess, terminateAllProcesses } = createProcessManager({ maxOutputBytes: 1_048_576, maxErrorBytes: 65_536 });
 let bundleRuntime = await loadBundleRuntime(sourceBundleRoot, Boolean(args.bundle));
 let server: Server | undefined;
+let bundleChangeInFlight = false;
+/** Loading a bundle and moving its workspace both replace the running bundle, so only one may run at a time. */
+async function exclusively<Result>(change: () => Promise<Result>): Promise<Result> {
+    if (bundleChangeInFlight) {
+        throw new Error("Bundle load already in progress.");
+    }
+    bundleChangeInFlight = true;
+    try {
+        return await change();
+    }
+    finally {
+        bundleChangeInFlight = false;
+    }
+}
 const shutdownController = createShutdownController({
     getServer: () => server,
     terminateAllProcesses,
@@ -58,29 +73,33 @@ const requestContext: RequestHandlerContext = {
     runProcess,
     shutdown: shutdownController.shutdown,
     webRoot,
-    loadBundle: (() => {
-        let inFlight = false;
-        return async (requestedSource: string) => {
-            if (inFlight) {
-                throw new Error("Bundle load already in progress.");
-            }
-            inFlight = true;
-            try {
-                const nextRuntime = await loadBundleRuntime(requestedSource, false);
-                await terminateAllProcesses();
-                bundleRuntime = nextRuntime;
-                Object.assign(requestContext, nextRuntime);
-                return {
-                    bundleRootPath: nextRuntime.bundleRoot,
-                    sourceRootPath: nextRuntime.sourceBundleRoot,
-                };
-            }
-            finally {
-                inFlight = false;
-            }
+    loadBundle: (requestedSource) => exclusively(async () => {
+        const nextRuntime = await loadBundleRuntime(requestedSource, false);
+        await terminateAllProcesses();
+        useBundleRuntime(nextRuntime);
+        return {
+            bundleRootPath: nextRuntime.bundleRoot,
+            sourceRootPath: nextRuntime.sourceBundleRoot,
         };
-    })(),
+    }),
+    moveWorkspace: (directory, emit, signal) => exclusively(async () => {
+        await terminateAllProcesses();
+        await moveWorkspace({
+            manifest: bundleRuntime.manifest,
+            sourceRoot: bundleRuntime.sourceBundleRoot,
+            workspaceRoot: bundleRuntime.bundleRoot,
+            directory,
+            onProgress: (percent) => emit({ type: "progress", percent }),
+            signal,
+        });
+        useBundleRuntime(await loadBundleRuntime(bundleRuntime.sourceBundleRoot, false));
+    }),
 };
+
+function useBundleRuntime(nextRuntime: Awaited<ReturnType<typeof loadBundleRuntime>>) {
+    bundleRuntime = nextRuntime;
+    Object.assign(requestContext, nextRuntime);
+}
 
 shutdownController.installParentMonitor();
 shutdownController.installShutdownHandlers();

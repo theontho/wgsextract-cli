@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "ورک اسپیس فولڈر"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "موجودہ ورک اسپیس"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "ڈیفالٹ استعمال کریں"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "موجودہ ورک اسپیس کی فائلیں منتقل نہیں ہوتیں، اور نئے فولڈر میں سیٹ اپ دوبارہ چلتا ہے۔"  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "یہ فولڈر استعمال کرنے کے لیے ایپ دوبارہ شروع کریں۔"  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "منتقل کرنے سے ورک اسپیس اور اس کا سارا مواد اس فولڈر میں چلا جاتا ہے، اور {{bundleWorkspace}} کے تحت دکھائے گئے تمام پاتھ بھی ساتھ جاتے ہیں۔ آپ کے کہیں اور سیٹ کردہ فولڈر اپنی جگہ رہتے ہیں۔"  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "منتقل کریں"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "کیا ورک اسپیس کو {path} میں منتقل کریں؟ چلنے والی کارروائیاں روک دی جائیں گی، اور پھر سیٹ اپ نئے مقام پر CLI رن ٹائم دوبارہ انسٹال کرے گا۔"  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "ورک اسپیس منتقل ہو رہا ہے: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "منسوخ کریں"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "یہ فولڈر GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR ماحولیاتی متغیر سے سیٹ کیا گیا ہے۔"  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "تھیم"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "سسٹم"  # i18n-source-hash:bc0792d8

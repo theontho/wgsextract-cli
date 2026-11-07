@@ -5,7 +5,12 @@
 //! On macOS the app then moves itself to the Trash; on Linux the package manager removes the
 //! package. Windows does all of this in its NSIS uninstaller.
 
-use std::{fs, path::Path, process::Command, thread};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+    thread,
+};
 
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -23,9 +28,9 @@ pub(crate) fn request_uninstall<R: Runtime>(app: &AppHandle<R>) {
         let confirmed = app
             .dialog()
             .message(format!(
-                "This runs {name}'s uninstall steps and deletes everything {name} keeps in your \
-                 home folder, including downloaded reference genomes and the settings in its \
-                 workspace. Files you saved elsewhere are kept.\n\n{}",
+                "This runs {name}'s uninstall steps and deletes its data and what its setup \
+                 installed. You choose next whether to keep its workspace folder. Files you saved \
+                 elsewhere are kept.\n\n{}",
                 app_removal_note(&name)
             ))
             .title(format!("Uninstall {name}"))
@@ -36,20 +41,59 @@ pub(crate) fn request_uninstall<R: Runtime>(app: &AppHandle<R>) {
             ))
             .blocking_show();
         if confirmed {
-            run_uninstall(&app, true);
+            let remove_workspace = ask_to_remove_workspace(&app, &name);
+            run_uninstall(&app, true, remove_workspace);
         }
     });
 }
 
 pub(crate) fn auto_run_uninstall<R: Runtime>(app: &AppHandle<R>) {
     let app = app.clone();
-    thread::spawn(move || run_uninstall(&app, false));
+    thread::spawn(move || run_uninstall(&app, false, true));
 }
 
-fn run_uninstall<R: Runtime>(app: &AppHandle<R>, interactive: bool) {
+/// The workspace holds the user's libraries and outputs, wherever they moved it, so it goes only if they say so.
+fn ask_to_remove_workspace<R: Runtime>(app: &AppHandle<R>, name: &str) -> bool {
+    let paths = app.state::<AppPaths>();
+    let workspace = Command::new(&paths.node_path)
+        .arg(child_process_path(&uninstall_script(&paths)))
+        .args([
+            "--app-support-name",
+            &paths.app_support_name,
+            "--print-workspace",
+        ])
+        .arg(child_process_path(&paths.bundle_root))
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_default();
+    if workspace.is_empty() {
+        return false;
+    }
+    app.dialog()
+        .message(format!(
+            "Also delete {name}'s workspace folder?\n\n{workspace}\n\nThis deletes the Reference \
+             and Genome Libraries, your outputs, logs and settings kept there, including any \
+             shared with other users."
+        ))
+        .title(format!("Uninstall {name}"))
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Delete Folder".into(),
+            "Keep Folder".into(),
+        ))
+        .blocking_show()
+}
+
+fn uninstall_script(paths: &AppPaths) -> PathBuf {
+    paths
+        .repo_root
+        .join("app/dist/web/src/server/bundle-uninstall-cli.js")
+}
+
+fn run_uninstall<R: Runtime>(app: &AppHandle<R>, interactive: bool, remove_workspace: bool) {
     // Nothing of the bundle may run while its runtime is removed.
     app.state::<BackendProcess>().terminate();
-    let outcome = remove_setup_and_data(app);
+    let outcome = remove_setup_and_data(app, remove_workspace);
     if interactive {
         let name = app_name(app);
         let (kind, message) = match &outcome {
@@ -78,18 +122,21 @@ fn run_uninstall<R: Runtime>(app: &AppHandle<R>, interactive: bool) {
     app.exit(if outcome.is_ok() { 0 } else { 1 });
 }
 
-fn remove_setup_and_data<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+fn remove_setup_and_data<R: Runtime>(
+    app: &AppHandle<R>,
+    remove_workspace: bool,
+) -> Result<(), String> {
     let paths = app.state::<AppPaths>();
-    let script = paths
-        .repo_root
-        .join("app/dist/web/src/server/bundle-uninstall-cli.js");
-    let status = Command::new(&paths.node_path)
-        .arg(child_process_path(&script))
-        .args([
-            "--app-support-name",
-            &paths.app_support_name,
-            "--remove-app-data",
-        ])
+    let mut command = Command::new(&paths.node_path);
+    command.arg(child_process_path(&uninstall_script(&paths))).args([
+        "--app-support-name",
+        &paths.app_support_name,
+        "--remove-app-data",
+    ]);
+    if remove_workspace {
+        command.arg("--remove-workspace");
+    }
+    let status = command
         .arg(child_process_path(&paths.bundle_root))
         .status()
         .map_err(|error| format!("could not run the uninstall steps: {error}"))?;

@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "Dossier des espaces de travail"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "Espace de travail actuel"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "Utiliser la valeur par défaut"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "Les fichiers de l'espace de travail actuel ne sont pas déplacés, et la configuration est relancée dans le nouveau dossier."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "Redémarrez l'application pour utiliser ce dossier."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "Le déplacement emmène l'espace de travail et tout son contenu dans ce dossier, et tous les chemins affichés sous {{bundleWorkspace}} suivent. Les dossiers que vous avez définis ailleurs restent à leur place."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "Déplacer"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "Déplacer l'espace de travail vers {path} ? Les actions en cours sont arrêtées, puis la configuration réinstalle l'environnement d'exécution de la CLI au nouvel emplacement."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "Déplacement de l'espace de travail : {percent} %"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "Annuler"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "Ce dossier est défini par la variable d'environnement GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Thème"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Système"  # i18n-source-hash:bc0792d8

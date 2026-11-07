@@ -1,3 +1,4 @@
+import { displayWorkspacePath } from "../../../shared/workspace-paths.js";
 import { applyDataSourcePayload, configValueKey, hydrateRows, rowContext, } from "../../../shared/rendering.js";
 import { escapeAttribute, escapeHTML } from "./dom.js";
 import { buildTagStyle, commandContext, configDataSourceContext, displayOption, localizedStatus, localizedTag, renderIcon, renderIconTitle, renderInlineError, renderLoadingBox, renderLoadingInline, renderTooltip, resolveText, tagStyle, } from "./model.js";
@@ -187,7 +188,8 @@ export function renderControl(control: ControlSpec, sectionContext: CommandConte
 export function renderTextControl(control: ControlSpec) {
     const inputID = `control-${control.id}`;
     const pathAttributes = control.kind === "path" ? ` class="path-input" dir="ltr"` : "";
-    const input = `<input id="${escapeAttribute(inputID)}" type="text"${pathAttributes} value="${escapeAttribute(state.fieldValues[control.id] ?? control.value ?? "")}"
+    const rawValue = state.fieldValues[control.id] ?? control.value ?? "";
+    const input = `<input id="${escapeAttribute(inputID)}" type="text"${pathAttributes} value="${escapeAttribute(control.kind === "path" ? displayWorkspacePath(String(rawValue), state.bundleRootPath) : rawValue)}"
         placeholder="${escapeAttribute(control.placeholder ?? "")}" data-field-id="${escapeAttribute(control.id)}">`;
     return `
     <div class="form-row">
@@ -308,18 +310,17 @@ export function renderLibraryList(control: ControlSpec, context: CommandContext,
 export function renderConfigEditor(control: ControlSpec, location: ManifestLocation) {
     return `
     <div class="config-editor">
-      <div class="control-label">${escapeHTML(control.label)}${renderTooltip(control.tooltip)}</div>
       ${control.configFile
         ? `<label class="form-row">
-              <span class="row-label">${escapeHTML(state.labels.settingsFileLabel)}</span>
+              <span class="row-label">${escapeHTML(control.label)}${renderTooltip(control.tooltip)}</span>
               <span class="input-button-row">
-                <input type="text" class="mono path-input" dir="ltr" value="${escapeAttribute(state.configFilePaths[control.id] ?? control.configFile.path)}"
+                <input type="text" class="mono path-input" dir="ltr" value="${escapeAttribute(displayWorkspacePath(state.configFilePaths[control.id] ?? control.configFile.path, state.bundleRootPath))}"
                   data-config-path="${escapeAttribute(control.id)}">
                 <button type="button" class="secondary-button" data-load-config="${escapeAttribute(control.id)}">${escapeHTML(state.labels.loadButtonTitle)}</button>
               </span>
             </label>
             <button type="button" class="visually-hidden" data-save-config="${escapeAttribute(control.id)}">${escapeHTML(state.labels.saveButtonTitle)}</button>`
-        : ""}
+        : `<div class="control-label">${escapeHTML(control.label)}${renderTooltip(control.tooltip)}</div>`}
       ${(control.settings ?? []).map((setting) => renderConfigSetting(control, setting, location)).join("")}
     </div>
   `;
@@ -359,7 +360,7 @@ export function renderConfigSetting(control: ControlSpec, setting: ConfigSetting
     <div class="form-row">
       <label class="row-label" for="${escapeAttribute(inputID)}">${escapeHTML(setting.label)}${renderTooltip(setting.tooltip)}</label>
       ${setting.kind === "path"
-        ? `<span class="input-button-row"><input id="${escapeAttribute(inputID)}" type="text" class="path-input" dir="ltr" value="${escapeAttribute(value)}" placeholder="${escapeAttribute(setting.placeholder ?? "")}" ${common}>
+        ? `<span class="input-button-row"><input id="${escapeAttribute(inputID)}" type="text" class="path-input" dir="ltr" value="${escapeAttribute(displayWorkspacePath(String(value), state.bundleRootPath))}" placeholder="${escapeAttribute(setting.placeholder ?? "")}" ${common}>
               <button type="button" class="secondary-button" data-config-path-prompt="${escapeAttribute(control.id)}:${escapeAttribute(setting.id)}">${escapeHTML(state.labels.chooseButtonTitle)}</button></span>`
         : `<input id="${escapeAttribute(inputID)}" type="text" value="${escapeAttribute(value)}" placeholder="${escapeAttribute(setting.placeholder ?? "")}" ${common}>`}
     </div>

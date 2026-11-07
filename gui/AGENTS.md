@@ -62,7 +62,10 @@ benchmarks) live on the `old-experimental` branch; do not reintroduce them here.
 
 ## App Behavior
 
-- Configuration lives in platform-standard Application Support paths.
+- The app's own settings live in platform-standard Application Support paths.
+- The user's data does not. Everything that can grow large or that the user manages (settings file, outputs, libraries, temporary files, logs) defaults to a visible, non-dot folder in the user's home, `~/wgs-extract`, known as `{{bundleWorkspace}}`. The app is normally installed for one user on a desktop, who may want to move it all at once to a bigger or faster disk from Settings, or point a single folder elsewhere.
+- Paths inside the workspace are shown in the GUI as `{{bundleWorkspace}}/...`, so moving it doesn't appear to change them. Settings files keep real paths, because the CLI reads them too.
+- Uninstall never deletes `{{bundleWorkspace}}` without asking, wherever it is. The Reference and Genome Libraries in it may be shared.
 - Redact keys, tokens, and secrets in displayed configuration.
 - Behavior must work the same on Windows, macOS, and Linux; platform-specific script folders in bundles are the extension point.
 

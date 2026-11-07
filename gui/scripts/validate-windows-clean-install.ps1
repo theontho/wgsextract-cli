@@ -23,7 +23,7 @@ param(
     [string]$Msys2Root = "$env:LOCALAPPDATA\msys64",
     [string]$PixiRoot = "$env:USERPROFILE\.pixi",
     [string]$PixiBaseDir = "$env:LOCALAPPDATA\WGSExtractPixi",
-    [string]$WorkspaceDirectory = "$env:LOCALAPPDATA\dev.guiforcli.web.embed.wgsextract\BundleWorkspaces\wgs-extract",
+    [string]$WorkspaceDirectory = "$HOME\wgs-extract",
     [string]$InstallDirectory = "$env:LOCALAPPDATA\WGSExtract",
     [string]$AdminTaskName = "GUIForCLIWindowsAdminBroker",
     [string]$AdminQueueDirectory = "tmp\windows-admin-broker",

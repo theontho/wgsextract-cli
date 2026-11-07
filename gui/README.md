@@ -92,9 +92,13 @@ npm --prefix app run bundle:test -- --help
 
 ## Configuration
 
-Configuration and bundle workspaces are stored in the platform Application Support directory (`~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` on Linux). Set `GUI_FOR_CLI_APP_SUPPORT_NAME` to use a different folder name under that directory for isolated tests or scripts.
+The app's own settings are stored in the platform Application Support directory (`~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` on Linux). Set `GUI_FOR_CLI_APP_SUPPORT_NAME` to use a different folder name under that directory for isolated tests or scripts.
 
-To keep bundle workspaces somewhere else, such as a larger drive, choose a **Workspaces Folder** on the Settings page or set `GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR`, which takes precedence. The change applies at the next launch, existing files are not moved, and setup runs again in the new folder.
+The WGS Extract workspace, known as `{{bundleWorkspace}}`, defaults to `~/wgs-extract` (`%USERPROFILE%\wgs-extract` on Windows). It holds the settings file, outputs, Reference and Genome Libraries, temporary files, and logs. These folders can become very large, so they are kept visible and in the user's own space rather than hidden in application data. A bundle sets this with `defaultWorkspace` in its manifest; other bundles use the Application Support directory.
+
+To move the workspace, for example to a larger or faster drive, choose a **Workspaces Folder** on the Settings page and click **Move**. Its contents move with it, and paths shown under `{{bundleWorkspace}}` follow, while folders you set elsewhere stay where they are. Setup then reinstalls the CLI runtime in the new location, because the runtime holds absolute paths. `GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR` overrides the location without moving anything.
+
+Uninstalling asks before deleting the workspace, wherever it is, since its Reference and Genome Libraries may be shared. A workspace left at the old location in the Application Support directory is always removed.
 
 ## Distribution
 

@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "Ordner für Arbeitsbereiche"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "Aktueller Arbeitsbereich"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "Standard verwenden"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "Dateien im aktuellen Arbeitsbereich werden nicht verschoben, und die Einrichtung wird im neuen Ordner erneut ausgeführt."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "Starten Sie die App neu, um diesen Ordner zu verwenden."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "Beim Verschieben wandern der Arbeitsbereich und sein gesamter Inhalt in diesen Ordner, und alle unter {{bundleWorkspace}} angezeigten Pfade folgen. Ordner, die Sie anderswo festgelegt haben, bleiben, wo sie sind."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "Verschieben"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "Arbeitsbereich nach {path} verschieben? Laufende Aktionen werden beendet, und die Einrichtung installiert die CLI-Laufzeit danach am neuen Ort neu."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "Arbeitsbereich wird verschoben: {percent} %"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "Abbrechen"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "Dieser Ordner wird durch die Umgebungsvariable GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR festgelegt."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Design"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Systemstandard"  # i18n-source-hash:bc0792d8

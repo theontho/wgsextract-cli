@@ -35,7 +35,10 @@ export type LabelTextKey =
     | "workspaceLocationCurrentLabel"
     | "workspaceLocationUseDefaultTitle"
     | "workspaceLocationNote"
-    | "workspaceLocationRestartNote"
+    | "workspaceLocationMoveTitle"
+    | "workspaceLocationMoveConfirm"
+    | "workspaceLocationMovingFormat"
+    | "workspaceLocationCancelTitle"
     | "workspaceLocationEnvironmentNote"
     | "terminalCopyTextLabel"
     | "terminalCopiedTextLabel"
@@ -281,6 +284,8 @@ export interface SetupSpec {
 }
 
 export interface BundleManifest {
+    /** A visible folder directly in the user's home for the workspace, like ~/my-app. Without it, the app's data folder. */
+    defaultWorkspace?: string;
     id?: string;
     displayName?: string;
     iconPath?: string;
@@ -507,6 +512,8 @@ export interface WebUIState {
     sourceRootPath: string;
     appVersion: string;
     workspaceLocation: WorkspaceLocationInfo | null;
+    workspaceLocationDraft: string | null;
+    workspaceMove: { directory: string | null; running: boolean; percent: number } | null;
     activePageID: string;
     fieldValues: ValueMap;
     checkedOptions: Record<string, Set<string>>;
@@ -541,11 +548,11 @@ export interface WebUIState {
     [key: string]: unknown;
 }
 
-/** Where this bundle's workspace is, and where the bundle workspaces folder is set to be from the next launch. */
+/** Where this bundle's workspace is, and where it can be moved to. */
 export interface WorkspaceLocationInfo {
     workspaceRoot: string;
     defaultDirectory: string;
     configuredDirectory: string | null;
     environmentOverride: boolean;
-    restartRequired: boolean;
+    usingDefault: boolean;
 }

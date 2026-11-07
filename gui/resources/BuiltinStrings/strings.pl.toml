@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "Folder obszarów roboczych"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "Bieżący obszar roboczy"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "Użyj domyślnego"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "Pliki z bieżącego obszaru roboczego nie są przenoszone, a konfiguracja zostanie ponownie uruchomiona w nowym folderze."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "Uruchom ponownie aplikację, aby użyć tego folderu."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "Przeniesienie przenosi obszar roboczy i całą jego zawartość do tego folderu, a wszystkie ścieżki pokazane pod {{bundleWorkspace}} podążają za nim. Foldery ustawione w innym miejscu pozostają tam, gdzie są."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "Przenieś"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "Przenieść obszar roboczy do {path}? Uruchomione działania zostaną zatrzymane, a konfiguracja zainstaluje następnie środowisko uruchomieniowe CLI w nowej lokalizacji."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "Przenoszenie obszaru roboczego: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "Anuluj"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "Ten folder jest ustawiony przez zmienną środowiskową GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Motyw"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Systemowy"  # i18n-source-hash:bc0792d8

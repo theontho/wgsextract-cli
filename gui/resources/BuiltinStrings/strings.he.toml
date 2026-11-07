@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "תיקיית סביבות עבודה"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "סביבת העבודה הנוכחית"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "שימוש בברירת המחדל"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "קבצים בסביבת העבודה הנוכחית אינם מועברים, וההתקנה תרוץ שוב בתיקייה החדשה."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "הפעילו מחדש את היישום כדי להשתמש בתיקייה זו."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "ההעברה מעבירה את סביבת העבודה ואת כל תוכנה לתיקייה זו, וכל הנתיבים המוצגים תחת {{bundleWorkspace}} עוברים איתה. תיקיות שהגדרתם במקום אחר נשארות במקומן."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "העברה"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "להעביר את סביבת העבודה אל {path}? פעולות שרצות ייעצרו, ולאחר מכן ההתקנה תתקין מחדש את סביבת הריצה של CLI במיקום החדש."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "מעביר את סביבת העבודה: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "ביטול"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "תיקייה זו מוגדרת על ידי משתנה הסביבה GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "ערכת נושא"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "מערכת"  # i18n-source-hash:bc0792d8

@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "Map voor werkruimten"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "Huidige werkruimte"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "Standaard gebruiken"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "Bestanden in de huidige werkruimte worden niet verplaatst en de installatie wordt opnieuw uitgevoerd in de nieuwe map."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "Start de app opnieuw om deze map te gebruiken."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "Bij het verplaatsen gaan de werkruimte en alles erin naar deze map, en alle paden die onder {{bundleWorkspace}} worden getoond, volgen mee. Mappen die u elders hebt ingesteld, blijven waar ze zijn."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "Verplaatsen"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "Werkruimte naar {path} verplaatsen? Lopende acties worden gestopt, en de installatie installeert daarna de CLI-runtime opnieuw op de nieuwe locatie."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "Werkruimte wordt verplaatst: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "Annuleren"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "Deze map is ingesteld door de omgevingsvariabele GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Thema"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Systeem"  # i18n-source-hash:bc0792d8

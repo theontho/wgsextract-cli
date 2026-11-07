@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "ワークスペースフォルダー"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "現在のワークスペース"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "既定を使用"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "現在のワークスペース内のファイルは移動されず、新しいフォルダーでセットアップが再度実行されます。"  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "このフォルダーを使用するにはアプリを再起動してください。"  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "移動すると、ワークスペースとその中身すべてがこのフォルダーに移り、{{bundleWorkspace}} の下に表示されるパスもすべて追従します。別の場所に設定したフォルダーはそのままです。"  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "移動"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "ワークスペースを {path} に移動しますか?実行中のアクションは停止し、その後セットアップが新しい場所に CLI ランタイムを再インストールします。"  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "ワークスペースを移動しています: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "キャンセル"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "このフォルダーは環境変数 GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR で設定されています。"  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "テーマ"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "システム"  # i18n-source-hash:bc0792d8

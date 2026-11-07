@@ -18,6 +18,11 @@
     "iconName": { "type": "string" },
     "iconPath": { "type": "string" },
     "textIcon": { "$ref": "#/$defs/textIcon" },
+    "defaultWorkspace": {
+      "description": "One visible folder directly in the user's home for the bundle's workspace, for bundles whose workspace holds large data the user manages. Without it, the workspace is in the app's data folder. The user can move it from the Settings page.",
+      "type": "string",
+      "pattern": "^~/[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+    },
     "sidebarIconStyle": {
       "type": "string",
       "enum": ["automatic", "image", "emoji", "symbol", "hidden"]

@@ -45,8 +45,11 @@
 "app.workspaceLocation.folder.label" = "پوشه فضاهای کاری"  # i18n-source-hash:2163b3f1
 "app.workspaceLocation.current.label" = "فضای کاری فعلی"  # i18n-source-hash:35ff0b48
 "app.workspaceLocation.useDefault.title" = "استفاده از پیش‌فرض"  # i18n-source-hash:e145072a
-"app.workspaceLocation.note" = "فایل‌های موجود در فضای کاری فعلی جابه‌جا نمی‌شوند و راه‌اندازی در پوشه جدید دوباره اجرا می‌شود."  # i18n-source-hash:367d4f76
-"app.workspaceLocation.restart.note" = "برای استفاده از این پوشه، برنامه را دوباره راه‌اندازی کنید."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.note" = "با انتقال، فضای کاری و همه محتوای آن به این پوشه می‌رود و همه مسیرهای نمایش‌داده‌شده زیر {{bundleWorkspace}} نیز همراه آن می‌روند. پوشه‌هایی که جای دیگری تنظیم کرده‌اید در جای خود می‌مانند."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "انتقال"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "فضای کاری به {path} منتقل شود؟ اقدام‌های در حال اجرا متوقف می‌شوند و سپس راه‌اندازی، محیط اجرای CLI را در مکان جدید دوباره نصب می‌کند."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "در حال انتقال فضای کاری: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "لغو"  # i18n-source-hash:77dfd213
 "app.workspaceLocation.environment.note" = "این پوشه با متغیر محیطی GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR تنظیم شده است."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "پوسته"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "سیستم"  # i18n-source-hash:bc0792d8

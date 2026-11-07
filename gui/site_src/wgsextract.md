@@ -93,7 +93,7 @@ CLI setup is native on Windows, without WSL or MSYS2, and GUI settings save real
 - setup dry-runs and setup execution;
 - dynamic page controls and action state;
 - terminal output panes and process lifecycle handling;
-- config storage in platform-standard Application Support paths;
+- app settings in platform-standard Application Support paths, and your own data in a visible `wgs-extract` folder in your home folder that you can move to another disk;
 - localized strings and semantic icon maps;
 - bundle-specific packaging and app identity.
 

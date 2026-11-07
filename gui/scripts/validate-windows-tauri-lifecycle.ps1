@@ -1,7 +1,7 @@
 param(
     [string]$InstallerPath = "",
     [string]$InstallDirectory = "$env:LOCALAPPDATA\WGSExtract",
-    [string]$WorkspaceDirectory = "$env:LOCALAPPDATA\dev.guiforcli.web.embed.wgsextract\BundleWorkspaces\wgs-extract",
+    [string]$WorkspaceDirectory = "$HOME\wgs-extract",
     [string]$LogDirectory = "tmp\tauri-lifecycle",
     [int]$InstallTimeoutSeconds = 180,
     [int]$StartupTimeoutSeconds = 60,
@@ -301,8 +301,8 @@ function Get-TargetProcesses {
         $_.CommandLine -and (
             $_.CommandLine -like "*WGSExtract*" -or
             $_.CommandLine -like "*gui-for-cli-webui-tauri*" -or
-            $_.CommandLine -like "*BundleWorkspaces\\wgs-extract*" -or
-            $_.CommandLine -like "*BundleWorkspaces/wgs-extract*"
+            $_.CommandLine -like "*\\wgs-extract\\*" -or
+            $_.CommandLine -like "*/wgs-extract/*"
         )
     } | Select-Object ProcessId, ParentProcessId, Name, CommandLine
 }
