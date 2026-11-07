@@ -30,6 +30,16 @@ export type LabelTextKey =
     | "sidebarHideLabel"
     | "openBundleWorkspaceTitle"
     | "openBundleWorkspaceTooltip"
+    | "workspaceLocationTitle"
+    | "workspaceLocationFolderLabel"
+    | "workspaceLocationCurrentLabel"
+    | "workspaceLocationUseDefaultTitle"
+    | "workspaceLocationNote"
+    | "workspaceLocationMoveTitle"
+    | "workspaceLocationMoveConfirm"
+    | "workspaceLocationMovingFormat"
+    | "workspaceLocationCancelTitle"
+    | "workspaceLocationEnvironmentNote"
     | "terminalCopyTextLabel"
     | "terminalCopiedTextLabel"
     | "terminalCancelButtonTitle"
@@ -274,6 +284,8 @@ export interface SetupSpec {
 }
 
 export interface BundleManifest {
+    /** A visible folder directly in the user's home for the workspace, like ~/my-app. Without it, the app's data folder. */
+    defaultWorkspace?: string;
     id?: string;
     displayName?: string;
     iconPath?: string;
@@ -409,6 +421,7 @@ export interface ManifestResponse {
     usingSystemDefaultLocale?: boolean;
     bundleState?: BundleStateSnapshot | null;
     appVersion?: string;
+    workspaceLocation?: WorkspaceLocationInfo;
     bundleRootPath: string;
     sourceRootPath: string;
     fieldValues?: ValueMap;
@@ -498,6 +511,9 @@ export interface WebUIState {
     homePath?: string;
     sourceRootPath: string;
     appVersion: string;
+    workspaceLocation: WorkspaceLocationInfo | null;
+    workspaceLocationDraft: string | null;
+    workspaceMove: { directory: string | null; running: boolean; percent: number } | null;
     activePageID: string;
     fieldValues: ValueMap;
     checkedOptions: Record<string, Set<string>>;
@@ -530,4 +546,13 @@ export interface WebUIState {
     sidebarWidth: number;
     terminalHeight: number;
     [key: string]: unknown;
+}
+
+/** Where this bundle's workspace is, and where it can be moved to. */
+export interface WorkspaceLocationInfo {
+    workspaceRoot: string;
+    defaultDirectory: string;
+    configuredDirectory: string | null;
+    environmentOverride: boolean;
+    usingDefault: boolean;
 }

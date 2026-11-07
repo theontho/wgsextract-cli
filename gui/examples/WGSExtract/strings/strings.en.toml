@@ -461,7 +461,7 @@
 "controls.settings.post-v063.temp.label" = "Temporary workload directory"
 "controls.settings.post-v063.temp.tooltip" = "Optional existing writable directory for sort spills, GATK and realignment staging. CLI-owned run directories are cleaned up; recoverable failed realign FASTQs may be retained. Blank keeps CLI defaults."
 "controls.settings.post-v063.logs.label" = "Persistent run log directory"
-"controls.settings.post-v063.logs.tooltip" = "Opt-in directory for unique DEBUG logs and companion provenance JSON. Blank disables persistent logs; logs may contain local file paths."
+"controls.settings.post-v063.logs.tooltip" = "Directory for unique DEBUG logs and companion provenance JSON, one pair per run. Blank disables persistent logs; logs may contain local file paths."
 "controls.settings.post-v063.atomic.label" = "Publish main outputs atomically"
 "controls.settings.post-v063.atomic.tooltip" = "Opt in to publishing completed main outputs by rename. Staged tool provenance paths may differ. Default is off; CLI still protects existing outputs and cleans failed work."
 "controls.settings.post-v063.awake.label" = "Keep awake during commands"

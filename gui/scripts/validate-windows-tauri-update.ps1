@@ -303,7 +303,7 @@ function Resolve-UpdaterPublicKey {
 function Get-TargetProcesses {
     param([string]$AppName = "", [string]$AppIdentifier = "")
 
-    $needles = @($AppName, $AppIdentifier, "gui-for-cli-webui-tauri", "BundleWorkspaces\wgs-extract", "BundleWorkspaces/wgs-extract") |
+    $needles = @($AppName, $AppIdentifier, "gui-for-cli-webui-tauri", "\wgs-extract\", "/wgs-extract/") |
         Where-Object { $_ } |
         Select-Object -Unique
     Get-CimInstance Win32_Process | Where-Object {

@@ -41,6 +41,16 @@
 "app.iconSet.sfSymbols" = "SF 심볼"  # i18n-source-hash:38617e24
 "app.iconSet.bootstrapIcons" = "Bootstrap 아이콘"  # i18n-source-hash:02165c87
 "app.iconSet.emoji" = "이모지"  # i18n-source-hash:5090a9e7
+"app.workspaceLocation.title" = "번들 작업 공간 위치"  # i18n-source-hash:c02cd15f
+"app.workspaceLocation.folder.label" = "작업 공간 폴더"  # i18n-source-hash:2163b3f1
+"app.workspaceLocation.current.label" = "현재 작업 공간"  # i18n-source-hash:35ff0b48
+"app.workspaceLocation.useDefault.title" = "기본값 사용"  # i18n-source-hash:e145072a
+"app.workspaceLocation.note" = "이동하면 작업 공간과 그 안의 모든 항목이 이 폴더로 옮겨지고, {{bundleWorkspace}} 아래에 표시되는 모든 경로도 함께 따라갑니다. 다른 곳으로 설정한 폴더는 그대로 유지됩니다."  # i18n-source-hash:26dd97ea
+"app.workspaceLocation.move.title" = "이동"  # i18n-source-hash:76cdb950
+"app.workspaceLocation.move.confirm" = "작업 공간을 {path}(으)로 이동할까요? 실행 중인 작업이 중지되고, 그런 다음 설정이 새 위치에 CLI 런타임을 다시 설치합니다."  # i18n-source-hash:8aedca50
+"app.workspaceLocation.moving.format" = "작업 공간 이동 중: {percent}%"  # i18n-source-hash:53d1ec3e
+"app.workspaceLocation.cancel.title" = "취소"  # i18n-source-hash:77dfd213
+"app.workspaceLocation.environment.note" = "이 폴더는 GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR 환경 변수로 설정되어 있습니다."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "테마"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "시스템"  # i18n-source-hash:bc0792d8
 "app.colorTheme.light" = "라이트"  # i18n-source-hash:a36ef8ab

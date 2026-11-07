@@ -39,3 +39,5 @@ app/web/packagers/tauri/resources/node/
 app/web/packagers/tauri/resources/EmbeddedBundle/
 app/web/packagers/tauri/resources/branding.json
 app/web/packagers/tauri/target/
+examples/*/temp/
+examples/*/logs/

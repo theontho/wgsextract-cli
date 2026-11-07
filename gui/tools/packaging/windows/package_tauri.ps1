@@ -114,8 +114,8 @@ function Stop-WGSExtractProcesses {
         `$AppName,
         `$AppIdentifier,
         "gui-for-cli-webui-tauri",
-        "BundleWorkspaces\wgs-extract",
-        "BundleWorkspaces/wgs-extract"
+        "\wgs-extract\",
+        "/wgs-extract/"
     ) | Where-Object { `$_ }
 
     `$currentPid = `$PID

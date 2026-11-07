@@ -5,6 +5,10 @@ $configPath = if ($env:GUI_FOR_CLI_CONFIG_PATH) { $env:GUI_FOR_CLI_CONFIG_PATH }
 $outputPath = Join-Path $workspace "output"
 $referencePath = Join-Path $workspace "reference"
 $genomeLibraryPath = Join-Path $workspace "genomes"
+$tempPath = Join-Path $workspace "temp"
+$logPath = Join-Path $workspace "logs"
+# The CLI requires its temporary directory to exist already.
+New-Item -ItemType Directory -Force -Path $tempPath, $logPath | Out-Null
 
 function ConvertTo-TomlBasicString {
     param([string]$Value)
@@ -14,8 +18,10 @@ function ConvertTo-TomlBasicString {
 $tomlOutputPath = ConvertTo-TomlBasicString $outputPath
 $tomlReferencePath = ConvertTo-TomlBasicString $referencePath
 $tomlGenomeLibraryPath = ConvertTo-TomlBasicString $genomeLibraryPath
+$tomlTempPath = ConvertTo-TomlBasicString $tempPath
+$tomlLogPath = ConvertTo-TomlBasicString $logPath
 
 [ordered]@{
     path = $configPath
-    contents = "output_directory = `"$tomlOutputPath`"`nreference_library = `"$tomlReferencePath`"`ngenome_library = `"$tomlGenomeLibraryPath`"`nreference_fasta = `"`"`ndefault_input_vcf = `"`"`nmother_vcf_path = `"`"`nfather_vcf_path = `"`"`nyleaf_executable = `"`"`nhaplogrep_executable = `"`"`n"
+    contents = "output_directory = `"$tomlOutputPath`"`nreference_library = `"$tomlReferencePath`"`ngenome_library = `"$tomlGenomeLibraryPath`"`ntemp_directory = `"$tomlTempPath`"`nlog_dir = `"$tomlLogPath`"`nreference_fasta = `"`"`ndefault_input_vcf = `"`"`nmother_vcf_path = `"`"`nfather_vcf_path = `"`"`nyleaf_executable = `"`"`nhaplogrep_executable = `"`"`n"
 } | ConvertTo-Json -Compress

@@ -2,6 +2,8 @@
   "id": "wgs-extract",
   // Keep this bundle version in sync with scripts/wgsextract-release-tag.txt so installer names match the bundled WGSExtract CLI release.
   "version": "0.6.6",
+  // Its folders grow large and belong to the user, so they are kept in plain sight, not in the app's data folder.
+  "defaultWorkspace": "~/wgs-extract",
   "displayName": "bundle.displayName",
   "summary": "bundle.summary",
   "iconName": "fasta",

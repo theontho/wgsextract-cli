@@ -1,9 +1,10 @@
 import type { Dirent } from "node:fs";
 import { chmod, cp, mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { appSupportDirectory, relativeTopLevelName, resolveUserPath, safePathComponent } from "./paths.js";
+import { relativeTopLevelName, resolveUserPath } from "./paths.js";
+import { assertAdoptableWorkspaceRoot, resolveWorkspaceRoot, workspaceSentinelContents, workspaceSentinelFileName } from "./workspace-location.js";
 import { configEditorControls } from "../../../shared/rendering.js";
-import type { BundleManifest } from "../../../shared/types.js";
+import type { BundleManifest, ControlSpec } from "../../../shared/types.js";
 import { errnoCode } from "./errors.js";
 
 interface EntryFingerprint {
@@ -23,20 +24,20 @@ interface WorkspaceFingerprint {
 }
 
 const syncMetadataFileName = ".workspace-sync.json";
-const workspaceSentinelFileName = ".bundle-workspace";
-const workspaceSentinelContents = "GUI for CLI bundle workspace\n";
 const syncMetadataVersion = 1;
 
 export async function prepareBundleWorkspace(manifest: BundleManifest, sourceRoot: string, explicitWorkspaceRoot: string | undefined = undefined) {
-    const workspaceRoot = explicitWorkspaceRoot
-        ? path.resolve(explicitWorkspaceRoot)
-        : path.join(appSupportDirectory(), "BundleWorkspaces", safePathComponent(manifest.id));
+    const workspaceRoot = explicitWorkspaceRoot ? path.resolve(explicitWorkspaceRoot) : (await resolveWorkspaceRoot(manifest)).root;
     if (explicitWorkspaceRoot) {
         await assertSafeExplicitWorkspaceRoot(workspaceRoot, manifest, sourceRoot);
     }
+    else {
+        await assertAdoptableWorkspaceRoot(workspaceRoot);
+    }
     await mkdir(workspaceRoot, { recursive: true });
     await writeWorkspaceSentinel(workspaceRoot);
-    const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true })).filter((entry) => !entry.name.startsWith("."));
+    const generatedNames = bootstrappedWorkspaceEntryNames(manifest, workspaceRoot);
+    const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true })).filter((entry) => !entry.name.startsWith(".") && !generatedNames.has(entry.name));
     const sourceNames = new Set(sourceEntries.map((entry) => entry.name));
     const preservedNames = preservedWorkspaceEntryNames(manifest, workspaceRoot);
     const fingerprint = await workspaceSyncFingerprint(manifest, sourceRoot, sourceEntries, preservedNames);
@@ -219,16 +220,29 @@ async function sourceEntryFingerprints(root: string, entries: Dirent[], prefix =
 export function preservedWorkspaceEntryNames(manifest: BundleManifest, workspaceRoot: string): Set<string> {
     const names = new Set(["runtime", "state.json"]);
     for (const control of configEditorControls(manifest)) {
-        const rawPath = control.configFile?.path;
-        if (!rawPath) {
-            continue;
-        }
-        const topLevelName = relativeTopLevelName(workspaceRoot, resolveUserPath(rawPath, workspaceRoot));
+        const topLevelName = configFileTopLevelName(control, workspaceRoot);
         if (topLevelName) {
             names.add(topLevelName);
         }
     }
     return names;
+}
+
+/** Bootstrap writes these for this workspace; a copy in the bundle's source (a dev run's) would hold another's paths. */
+function bootstrappedWorkspaceEntryNames(manifest: BundleManifest, workspaceRoot: string): Set<string> {
+    const names = new Set<string>();
+    for (const control of configEditorControls(manifest)) {
+        const topLevelName = configFileTopLevelName(control, workspaceRoot);
+        if (topLevelName && (control.configFile?.bootstrap?.mode ?? "none") !== "none") {
+            names.add(topLevelName);
+        }
+    }
+    return names;
+}
+
+function configFileTopLevelName(control: ControlSpec, workspaceRoot: string) {
+    const rawPath = control.configFile?.path;
+    return rawPath ? relativeTopLevelName(workspaceRoot, resolveUserPath(rawPath, workspaceRoot)) : undefined;
 }
 async function markDemoScriptsExecutable(root: string) {
     const scriptsRoot = path.join(root, "scripts");

@@ -13,6 +13,7 @@ const defaultTests = [
   "tests/bundle-uninstall-cli.test.mjs",
   "tests/example-bundles.test.mjs",
   "tests/workspace.test.mjs",
+  "tests/workspace-location.test.mjs",
   "tests/platform.test.mjs",
   "tests/platform-command.test.mjs",
   "tests/process-runner.test.mjs",

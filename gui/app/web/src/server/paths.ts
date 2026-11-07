@@ -1,9 +1,10 @@
+import { workspaceToken } from "../../../shared/workspace-paths.js";
 import { realpathSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { checkedOptionsForContext } from "../../../shared/rendering.js";
-import type { CommandContext, ControlSpec } from "../../../shared/types.js";
+import type { CommandContext, ControlSpec, ValueMap } from "../../../shared/types.js";
 import { errnoCode, HttpError } from "./errors.js";
 export function parseArgs(argv: readonly string[]): Record<string, string | undefined> {
     const parsed: Record<string, string | undefined> = {};
@@ -112,6 +113,13 @@ export function expandPathTokens(value: unknown, bundleRoot: string, configPathV
     expanded = expanded.replaceAll("{{configPath}}", tokens.configPath);
     expanded = replacePathToken(expanded, "{{configDir}}", tokens.configDir);
     return expandEnvironmentVariables(expanded.replace(/^~(?=\/|$)/, tokens.home));
+}
+/** Turns a value the GUI shows relative to {{bundleWorkspace}} back into the path it stands for. */
+export function expandWorkspaceToken(value: string, bundleRoot: string): string {
+    return replacePathToken(value, workspaceToken, bundleRoot);
+}
+function expandWorkspaceTokens(values: ValueMap, bundleRoot: string): ValueMap {
+    return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, typeof value === "string" ? expandWorkspaceToken(value, bundleRoot) : value]));
 }
 export function pathTokenValues(bundleRoot: string, configPathValue = "") {
     const home = homedir();
@@ -230,10 +238,10 @@ export function distModulePath(pathname: string, distRoot: string): string | und
 export function normalizeContext(context: CommandContext = {}, bundleRoot: string): CommandContext {
     return {
         ...context,
-        fieldValues: context.fieldValues ?? {},
+        fieldValues: expandWorkspaceTokens(context.fieldValues ?? {}, bundleRoot),
         checkedOptions: context.checkedOptions ?? checkedOptionsForContext({}),
-        configValues: context.configValues ?? {},
-        rowValues: context.rowValues ?? {},
+        configValues: expandWorkspaceTokens(context.configValues ?? {}, bundleRoot),
+        rowValues: expandWorkspaceTokens(context.rowValues ?? {}, bundleRoot),
         bundleRootPath: bundleRoot,
         homePath: homedir(),
     };
