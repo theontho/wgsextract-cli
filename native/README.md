@@ -365,6 +365,57 @@ hidden GPU tuning flags. Metal tests are skipped when no Metal device is
 available. `.github/workflows/macos_aligners.yml` builds, tests and packages
 both executables, and publishes them when run with a `macos-aligners-N` tag.
 
+## Benchmarking on GitHub runners
+
+`.github/workflows/aligner_bench.yml` times both aligners and checks their
+alignments on GitHub-hosted Macs. Standard arm64 runners (`macos-15`,
+`macos-26`, `macos-latest`) are virtual M1s with 3 cores and 7 GiB of RAM, so
+they also show how the aligners behave on small Macs. Run it from Actions >
+Aligner Bench, or:
+
+```bash
+gh workflow run aligner_bench.yml -f variants=main,my-branch -f tiers=small,medium \
+    -f configs=bwa:cpu,bwa:metal -f rounds=3
+gh run watch "$(gh run list --workflow aligner_bench.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+```
+
+- `variants`: git refs to build, or `macos-aligners-N` releases to download;
+  the first is the baseline that the others are compared with.
+- `tiers`: the datasets in `bench/tiers.tsv`. `small` is chr20, `medium` is
+  chr1–3 and `full` is hs38, each with HG002 pairs; `full-5m` is hs38 with
+  5M pairs. The workflow downloads them from the `aligner-bench-data-1`
+  release and checks their sha256 (`bench/data.tsv`).
+- `configs`: `TOOL:BACKEND[:tN][:KN][:probe][:+ARG...]`, for example
+  `bwa:metal:t2` or `mem2:metal:probe`; by default each tier's configs in
+  `bench/tiers.tsv` (only `wgse-bwa` on `full`). A failure of a `probe`
+  config, such as an out-of-memory kill, is reported but does not fail the job.
+- `runners`: runner labels; larger runners such as `macos-15-xlarge` work when
+  the organisation pays for them.
+- `rounds`, `threads`, `balloon_mib` (RAM to wire for the whole job, to act
+  like a smaller Mac; a runner can wire about 4.9 GiB), and timeouts.
+
+Each runner and tier is one job. It runs every config with every variant in
+turn, reversing the order on even rounds so that the variants share the
+runner's conditions, and records the hardware (memory, cores, Metal device),
+each run's time, CPU time, peak RSS and footprint, page faults, swap,
+memory pressure, GPU work, CPU fallbacks and exit status or signal, and a hash
+of its alignments. Alignments must match `bench/expected.tsv` (computed with
+the CPU backends, which are upstream's code) and each other; a mismatch or a
+failed run fails the job. The job summary has a table per job and the report
+job one for the whole run; `bench-run-*` artifacts hold the logs. Several runs
+can be dispatched at once.
+
+`bench/bench.sh` also runs locally:
+
+```bash
+native/bench/bench.sh fetch --data out/bench-data --tier small
+native/bench/bench.sh run --data out/bench-data --tier small --out out/bench \
+    --bin main=out/native-prefix/bin --bin test=../other/out/native-prefix/bin --rounds 3
+```
+
+`bench/make_data.sh` builds the datasets and expected hashes from hs38 and
+HG002 reads.
+
 ## Licences
 
 `wgse-bwa` combines BWA (GPL-3.0) with the code in `bwa/` and `metal-common/`

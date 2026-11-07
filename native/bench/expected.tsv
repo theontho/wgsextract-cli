@@ -1,1 +1,9 @@
 # tier	tool	K	hash of the SAM without @PG lines (shasum -a 256, first 16)
+small	wgse-bwa	10000000	008ecf39fac8af90
+small	wgse-bwa-mem2	10000000	a43c3e5c28ed49e9
+medium	wgse-bwa	10000000	3b4fa8aaaec7a3f7
+medium	wgse-bwa-mem2	10000000	be61e3b8d94fb887
+full	wgse-bwa	10000000	bf35bba2923cd0a0
+full	wgse-bwa-mem2	10000000	a8cd3fb9199db4be
+full-5m	wgse-bwa	10000000	e2febf171215d840
+full-5m	wgse-bwa-mem2	10000000	dff39743a72242de

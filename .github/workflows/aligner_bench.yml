@@ -229,9 +229,9 @@ jobs:
           for binary in bins/*/wgse-*; do
             chmod +x "$binary"
             status=0
-            "$binary" --version 2> err.txt || status=$?
+            { "$binary" --version; } 2> err.txt || status=$?
             cat err.txt
-            [ "$status" = 126 ] || [ "$status" = 134 ] || { echo "::error::$binary exited $status"; exit 1; }
+            [ "$status" != 0 ] && grep -q 'Bad CPU type' err.txt || { echo "::error::$binary exited $status"; exit 1; }
           done
           echo "Intel runner: the arm64 builds refuse to start (as expected); nothing to benchmark." >> "$GITHUB_STEP_SUMMARY"
 

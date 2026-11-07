@@ -33,6 +33,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 threads=$(sysctl -n hw.ncpu)
 K=10000000
 medium_pairs=500000
+tag=aligner-bench-data-1 # the release that holds the assets
 mkdir -p "$out/data/reads" "$out/assets"
 out=$(cd "$out" && pwd)
 data=$out/data
@@ -121,13 +122,14 @@ expect full-5m hs38 hg002-5m --metal
 #    numbered parts; reads as they are. data.tsv lists each file of the layout.
 part_bytes=1900000000
 {
+    printf '# tag %s\n' "$tag"
     printf '# path\tbytes\tsha256\tassets (concatenated, then zstd -d if .zst)\n'
     for file in chr20/chr20.fa chr1-3/chr1-3.fa hs38/hs38.fa; do
         for ext in amb ann bwt pac sa bwt.2bit.64 0123; do
             path=$file.$ext
             asset=$(basename "$path").zst
             if ! ls "$out/assets/$asset"* > /dev/null 2>&1; then
-                zstd -q -T"$threads" -10 -c "$data/$path" > "$out/assets/$asset"
+                zstd -q -T"$threads" -10 -c < "$data/$path" > "$out/assets/$asset"
                 if [ "$(stat -f %z "$out/assets/$asset")" -gt "$part_bytes" ]; then
                     split -b "$part_bytes" -d -a 2 "$out/assets/$asset" "$out/assets/$asset."
                     rm "$out/assets/$asset"
@@ -148,4 +150,4 @@ part_bytes=1900000000
     done
 } > "$out/data.tsv"
 echo "Wrote $out/data.tsv, $out/expected.tsv and $(ls "$out/assets" | wc -l | tr -d ' ') assets ($(du -sh "$out/assets" | cut -f1))"
-echo "Upload: gh release upload <tag> $out/assets/* ; then copy data.tsv and expected.tsv to $here"
+echo "Upload: gh release upload $tag $out/assets/* ; then copy data.tsv and expected.tsv to $here"

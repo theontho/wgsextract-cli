@@ -233,6 +233,16 @@ vm_counters() {
         sub(/:/, "", $1); sub(/\./, "", $2); print $1 "=" $2 }'
 }
 
+# Read the run's index and reads, so that no run pays for the disk because
+# another config or variant ran before it, unless they could not stay cached.
+warm() {
+    local files=() ext total=0 file
+    for ext in $(tool_files "$c_tool" "$c_backend"); do files+=("$ref_fa.$ext"); done
+    files+=("$data/reads/${reads}_R1.fastq.gz" "$data/reads/${reads}_R2.fastq.gz")
+    for file in "${files[@]}"; do total=$((total + $(file_bytes "$file"))); done
+    [ "$total" -lt $((($(sysctl -n hw.memsize) - balloon * 1048576) / 2)) ] && cat "${files[@]}" > /dev/null || true
+}
+
 # One run: writes $dir/runstat.txt, stderr.txt, samples.tsv, vm_*.txt and
 # hash, and prints its results.tsv row.
 run_one() {
@@ -242,6 +252,7 @@ run_one() {
     tool_command "$bin" "$c_tool" "$c_backend" "$c_threads" "$c_K" "$ref_fa" \
         "$data/reads/${reads}_R1.fastq.gz" "$data/reads/${reads}_R2.fastq.gz" ${c_args[@]+"${c_args[@]}"}
     printf '%q ' "${cmd[@]}" > "$dir/command.txt"
+    warm
     vm_counters > "$dir/vm_before.txt"
     date '+%Y-%m-%d %H:%M:%S' > "$dir/started.txt"
     sampler > "$dir/samples.tsv" 2> /dev/null &
@@ -255,7 +266,6 @@ run_one() {
     wait "$sampler_pid" 2> /dev/null || true
     vm_counters > "$dir/vm_after.txt"
     hash=$(cat "$dir/hash")
-    [ "$rc" = 0 ] || hash=-
     expected=$(awk -F '\t' -v tier="$tier" -v tool="$(tool_binary "$c_tool")" -v K="$c_K" \
         '!/^#/ && $1 == tier && $2 == tool && $3 == K { print $4 }' "$here/expected.tsv")
     if [ "$rc" != 0 ]; then
@@ -313,6 +323,7 @@ row() {
             next }
         { r[$1] = $2 }
         END {
+            if (rc != 0 && hash == expected) note = (note == "-" ? "" : note "; ") "the alignments are complete and match"
             print name, tier, label, config, round, rc, r["signal"] + 0, r["timed_out"] + 0,
                 r["real_s"], r["user_s"], r["sys_s"],
                 sprintf("%.0f", r["max_rss_bytes"] / 1048576), sprintf("%.0f", r["peak_footprint_bytes"] / 1048576),
@@ -323,8 +334,8 @@ row() {
 }
 
 run() {
-    local out="" configs="" rounds=1 balloon=0 labels=() bins=() spec
-    data="" tier="" timeout=7200 threads=$(sysctl -n hw.ncpu) name=$(hostname -s)
+    local out="" configs="" rounds=1 labels=() bins=() spec
+    data="" tier="" timeout=7200 threads=$(sysctl -n hw.ncpu) name=$(hostname -s) balloon=0
     while [ $# -gt 0 ]; do
         case $1 in
             --data) data=$2; shift 2 ;;
@@ -369,14 +380,6 @@ run() {
                 > "$out/capabilities-${labels[$i]}-$c_tool.json" 2>&1 || true
         done
     done
-
-    # Read the files once so that the first run does not pay for the disk,
-    # unless they could not all stay cached.
-    local need=0
-    for path in $(tier_paths "$tier" "$configs"); do need=$((need + $(file_bytes "$data/$path"))); done
-    if [ "$need" -lt $(($(sysctl -n hw.memsize) / 2)) ]; then
-        for path in $(tier_paths "$tier" "$configs"); do cat "$data/$path" > /dev/null; done
-    fi
 
     local balloon_pid=""
     if [ "$balloon" -gt 0 ]; then
@@ -451,7 +454,7 @@ summary() {
             if ($19 > pressure[key]) pressure[key] = $19
             if ($20 != "-" && (!(key in freemin) || $20 < freemin[key])) freemin[key] = $20
             gpu[key] += $21; fallback[key] += $22 + $23; interruptions[key] += $24
-            if ($26 != "-") hash[key] = $26
+            if ($6 == 0 || !(key in hash)) hash[key] = $26
             if ($28 != "pass" && $28 != "probe-failed" || note[key] == "") if ($29 != "-") note[key] = $29
         }
         END {
