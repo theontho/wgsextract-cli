@@ -50,7 +50,7 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "arguments": {
-          "description": "Appended after all other arguments to ask the command for the document, such as --json.",
+          "description": "Appended after all other arguments to ask the command for the document. With an argument containing {{resultDocumentPath}}, the app reads the document from that temporary file; otherwise from stdout, such as with --json.",
           "type": "array",
           "items": { "type": "string" },
           "default": []

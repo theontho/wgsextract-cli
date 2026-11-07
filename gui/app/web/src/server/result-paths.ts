@@ -13,10 +13,12 @@ const maxRememberedPaths = 1000;
 export class ResultPaths {
     private readonly paths = new Set<string>();
 
-    remember(document: ResultDocument | null | undefined) {
+    /** Remembers the document's paths, resolved against the directory its command ran in. */
+    remember(document: ResultDocument | null | undefined, cwd: string) {
         for (const filePath of document ? resultDocumentPaths(document) : []) {
-            this.paths.delete(filePath);
-            this.paths.add(filePath);
+            const absolutePath = path.resolve(cwd, filePath);
+            this.paths.delete(absolutePath);
+            this.paths.add(absolutePath);
         }
         for (const stale of [...this.paths].slice(0, -maxRememberedPaths)) {
             this.paths.delete(stale);
@@ -30,11 +32,11 @@ export class ResultPaths {
 
 /** Opens a path with the system's default app or, with `reveal`, shows it in the file manager. */
 export async function openResultPath(filePath: string, reveal: boolean, paths: ResultPaths, runProcess: RunProcess, cwd: string) {
-    if (!paths.has(filePath)) {
-        throw new HttpError(403, "Only files listed in an action's result can be opened.");
-    }
     // A relative path is relative to the action's working directory.
     const absolutePath = path.resolve(cwd, filePath);
+    if (!paths.has(absolutePath)) {
+        throw new HttpError(403, "Only files listed in an action's result can be opened.");
+    }
     try {
         await stat(absolutePath);
     }
@@ -45,7 +47,11 @@ export async function openResultPath(filePath: string, reveal: boolean, paths: R
         throw error;
     }
     const [opener, args] = reveal ? revealCommand(absolutePath) : [systemOpener(), [absolutePath]];
-    await runProcess(opener, args, { cwd, env: process.env });
+    const result = await runProcess(opener, args, { cwd, env: process.env });
+    // Explorer exits 1 even when it opened the file, so only other platforms' failures are reported.
+    if (result.exitCode !== 0 && process.platform !== "win32") {
+        throw new HttpError(500, result.stderr.trim() || `${opener} could not open ${filePath} (exit ${result.exitCode}).`);
+    }
 }
 
 export function systemOpener() {

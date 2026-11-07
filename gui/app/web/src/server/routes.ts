@@ -89,11 +89,12 @@ export function createRequestHandler(context: RequestHandlerContext) {
             const action = resolveActionReference(context.manifest, parseActionReference(body.action), context.dynamicActions);
             const actionContext = commandContext(body, context);
             const resultSpec = resultDocumentSpecFor(context.manifest, action);
+            const { bundleRoot } = context;
             await streamNDJSON(
                 response,
-                (emit, signal) => runActionPreferringServer(action, actionContext, signal, context.bundleRoot, context.runProcess, context.jobServer, (event: ActionEvent) => {
+                (emit, signal) => runActionPreferringServer(action, actionContext, signal, bundleRoot, context.runProcess, context.jobServer, (event: ActionEvent) => {
                     if (event.type === "complete") {
-                        resultPaths.remember(event.result.resultDocument);
+                        resultPaths.remember(event.result.resultDocument, bundleRoot);
                     }
                     return emit(event);
                 }, resultSpec),

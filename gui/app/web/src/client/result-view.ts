@@ -1,10 +1,11 @@
 import type { ResultDocument, ResultFile, ResultNotice, ResultScalar } from "../../../shared/result-document.js";
-import type { ActionReference } from "../../../shared/types.js";
+import type { ActionReference, CommandContext } from "../../../shared/types.js";
 import { escapeAttribute, escapeHTML } from "./dom.js";
 import { state } from "./state.js";
 
-export function actionReferenceKey(reference: ActionReference): string {
-    return [reference.pageID, reference.sectionID, reference.controlID ?? "", reference.settingID ?? "", reference.actionID].join("\u0000");
+/** Identifies where an action's notice shows: the action and, for a row action, its row. */
+export function actionNoticeKey(reference: ActionReference, context: Pick<CommandContext, "rowValues">): string {
+    return [reference.pageID, reference.sectionID, reference.controlID ?? "", reference.settingID ?? "", reference.actionID, JSON.stringify(context.rowValues ?? {})].join("\u0000");
 }
 
 /** The outputs, warnings and metrics of an action's result document, below its output in the terminal. */

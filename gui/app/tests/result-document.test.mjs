@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,30 +13,31 @@ const { parseResultDocument, resultNotice } = await import("../dist/shared/resul
 const { createInitialState, state } = await import("../dist/web/src/client/state.js");
 const { renderResultNotice, renderResultSummary } = await import("../dist/web/src/client/result-view.js");
 
-// A CLI following the wgsextract.result/1 contract: logs on stderr and, with --json, one document
-// on stdout. MODE picks the run: ok writes report.txt (5 bytes); wrong-size records 99 bytes;
-// usage refuses its options with exit 2.
+// A CLI following the wgsextract.result/1 contract: logs on stderr, a human summary on stdout, and
+// the document in the --result-file file or, with --json, alone on stdout. MODE picks the run: ok
+// writes report.txt (5 bytes); wrong-size records 99 bytes; two-reports lists a second report
+// it did not write; usage refuses its options with exit 2.
 const fakeCli = String.raw`
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-const mode = process.argv[2];
+const [mode, ...options] = process.argv.slice(2);
 console.error("log: running " + mode);
-if (!process.argv.includes("--json")) {
-  console.log("a human summary");
-  process.exit(0);
-}
 const report = path.resolve("report.txt");
+const okReport = { path: report, role: "report", kind: "text", size_bytes: 5 };
 const documents = {
-  ok: { status: "ok", exit_code: 0, outputs: [{ path: report, role: "report", kind: "text", size_bytes: 5 }] },
-  "wrong-size": { status: "ok", exit_code: 0, outputs: [{ path: report, role: "report", kind: "text", size_bytes: 99 }] },
+  ok: { status: "ok", exit_code: 0, outputs: [okReport] },
+  "wrong-size": { status: "ok", exit_code: 0, outputs: [{ ...okReport, size_bytes: 99 }] },
+  "two-reports": { status: "ok", exit_code: 0, outputs: [okReport, { ...okReport, path: path.resolve("report-2.txt") }] },
   usage: { status: "failed", exit_code: 2, outputs: [], error: { kind: "usage", message: "--a and --b cannot be combined." } },
 };
 if (mode !== "usage") writeFileSync(report, "hello");
-console.log(JSON.stringify({ schema: "wgsextract.result/1", command: "fake", warnings: [], metrics: { reads: 10 }, ...documents[mode] }, null, 2));
+const document = JSON.stringify({ schema: "wgsextract.result/1", command: "fake", warnings: [], metrics: { reads: 10 }, ...documents[mode] }, null, 2);
+if (options[0] === "--result-file") writeFileSync(options[1], document);
+console.log(options[0] === "--json" ? document : "a human summary of " + mode);
 process.exit(documents[mode].exit_code);
 `;
 
-async function withResultBundle(t) {
+async function withResultBundle(t, resultArguments = ["--result-file", "{{resultDocumentPath}}"]) {
   const root = await mkdtemp(path.join(tmpdir(), "gfc-result-document-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bundleRoot = path.join(root, "Bundle");
@@ -45,7 +47,7 @@ async function withResultBundle(t) {
     id: "dev.guiforcli.result-document-fixture",
     displayName: "Result Document Fixture",
     summary: "Fixture bundle.",
-    resultDocument: { format: "wgsextract.result/1", executables: [process.execPath], arguments: ["--json"] },
+    resultDocument: { format: "wgsextract.result/1", executables: [process.execPath], arguments: resultArguments },
     pages: [{
       id: "main",
       title: "Main",
@@ -72,22 +74,39 @@ test("bundle tests check the result document instead of the printed output", asy
       step("ok", { expectedResult: { status: "ok", outputs: ["report"] } }),
       step("ok", { expectedResult: { outputs: ["coverage"] } }),
       step("wrong-size", { expectedResult: { status: "ok", outputs: ["report"] } }),
+      step("two-reports", { expectedResult: { outputs: ["report"] } }),
       step("usage", { expectedExitCodes: [2], expectedResult: { status: "failed", errorKind: "usage" } }),
       step("usage", { expectedExitCodes: [2], expectedResult: { errorKind: "missing_dependency" } }),
     ],
   }, { workspaceURL: workspaceRoot });
 
-  assert.deepEqual(report.steps.map((entry) => entry.status), ["passed", "failed", "failed", "passed", "failed"]);
-  const [ok, missingRole, wrongSize, usage, wrongKind] = report.steps;
-  // The command was asked for the document, which is kept in the report and not shown as output.
-  assert.match(ok.command, /cli\.mjs'? ok --json$/);
+  assert.deepEqual(report.steps.map((entry) => entry.status), ["passed", "failed", "failed", "failed", "passed", "failed"]);
+  const [ok, missingRole, wrongSize, twoReports, usage, wrongKind] = report.steps;
   assert.equal(ok.result.metrics.reads, 10);
+  // The human summary still streams; the document is kept in the report, and its file removed.
   assert.match(ok.output, /log: running ok/);
+  assert.match(ok.output, /a human summary of ok/);
   assert.doesNotMatch(ok.output, /wgsextract\.result/);
+  const documentFile = ok.command.match(/ok --result-file '?(.+result\.json)'?$/)?.[1];
+  assert.ok(documentFile);
+  assert.equal(existsSync(documentFile), false);
   assert.match(missingRole.error, /no output with role coverage/);
   assert.match(wrongSize.error, /5 bytes on disk but the result recorded 99/);
+  assert.match(twoReports.error, /Output report is missing on disk: .*report-2\.txt/);
   assert.equal(usage.exitCode, 2);
   assert.match(wrongKind.error, /Expected result error kind missing_dependency but got usage/);
+});
+
+test("a result document printed on stdout is read instead of shown", async (t) => {
+  const { bundleRoot, workspaceRoot } = await withResultBundle(t, ["--json"]);
+
+  const report = await runBundleTest(bundleRoot, {
+    steps: [step("ok", { expectedResult: { status: "ok", outputs: ["report"] } })],
+  }, { workspaceURL: workspaceRoot });
+
+  assert.equal(report.steps[0].status, "passed");
+  assert.match(report.steps[0].command, /cli\.mjs'? ok --json$/);
+  assert.doesNotMatch(report.steps[0].output, /wgsextract\.result/);
 });
 
 test("a dry run shows the command with the result document arguments", async (t) => {
@@ -95,7 +114,7 @@ test("a dry run shows the command with the result document arguments", async (t)
 
   const report = await runBundleTest(bundleRoot, { steps: [step("ok")] }, { workspaceURL: workspaceRoot, dryRun: true });
 
-  assert.match(report.steps[0].command, /cli\.mjs'? ok --json$/);
+  assert.match(report.steps[0].command, /cli\.mjs'? ok --result-file '<result document>'$/);
 });
 
 test("failed runs map to a usage or missing-tool notice, from the document or the exit code", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -292,6 +292,32 @@ test("a declared result document is read from stdout, and only its files can be 
   assert.equal(unlisted.status, 403);
   assert.equal(listed.status, 200);
   assert.deepEqual(calls.runProcess.slice(1).map((call) => call.args), [[output]]);
+});
+
+test("review regression: a listed relative output stays tied to its run's workspace, and a failed opener is reported", async (t) => {
+  const { baseURL, context, tempRoot } = await withTestServer(t);
+  context.manifest.resultDocument = { format: "wgsextract.result/1", executables: ["tool"], arguments: ["--json"] };
+  const document = { schema: "wgsextract.result/1", status: "ok", outputs: [{ path: "report.html", role: "report" }] };
+  const otherRoot = path.join(tempRoot, "other-bundle");
+  await mkdir(otherRoot);
+  await writeFile(path.join(tempRoot, "report.html"), "first");
+  await writeFile(path.join(otherRoot, "report.html"), "second");
+  context.runProcess = async (executable) => executable === "tool"
+    ? { exitCode: 0, stdout: JSON.stringify(document), stderr: "" }
+    : { exitCode: 4, stdout: "", stderr: "no application can open report.html\n" };
+
+  await readNDJSON(await apiFetch(baseURL, "/api/run/stream", {
+    body: { action: { pageID: "main", sectionID: "run", actionID: "run" }, context: runContext },
+  }));
+  const failedOpen = await apiFetch(baseURL, "/api/result/open", { body: { path: "report.html", reveal: false } });
+  context.bundleRoot = otherRoot;
+  const otherBundle = await apiFetch(baseURL, "/api/result/open", { body: { path: "report.html", reveal: false } });
+
+  if (process.platform !== "win32") {
+    assert.equal(failedOpen.status, 500);
+    assert.match((await failedOpen.json()).error, /no application can open/);
+  }
+  assert.equal(otherBundle.status, 403);
 });
 
 test("POST /api/run/stream rejects command bodies and unknown actions without running anything", async (t) => {

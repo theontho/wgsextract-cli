@@ -30,6 +30,11 @@ it instead of parsing log text or guessing output file names.
   JSON document, even when the run fails. Argument-parsing errors are the
   exception: argparse rejects them before the command starts, prints the usage
   text and exits 2 without a document.
+- **`--result-file PATH`.** This global option writes the same document to
+  PATH and leaves stdout as it is without `--json`, for programs that show a
+  command's human-readable output and also read its result, such as the
+  desktop app. It is not listed in `--help`. Like `--json`, it writes nothing
+  when argparse rejects the arguments.
 
 ## Document
 

@@ -104,7 +104,8 @@
       "{{bundleRoot}}/scripts/unalign-to-fastq.sh"
     ],
     "arguments": [
-      "--json"
+      "--result-file",
+      "{{resultDocumentPath}}"
     ]
   },
   "jobServer": {

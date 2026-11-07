@@ -46,7 +46,7 @@ export async function resultExpectationFailure(document: ResultDocument | null |
         return "expectedResult needs an action covered by the manifest's resultDocument.";
     }
     if (document === null) {
-        return "The action did not print a result document.";
+        return "The action wrote no result document.";
     }
     const failures: string[] = [];
     if (expected.status != null && document.status !== expected.status) {
@@ -56,17 +56,19 @@ export async function resultExpectationFailure(document: ResultDocument | null |
         failures.push(`Expected result error kind ${expected.errorKind} but got ${document.error?.kind ?? "none"}.`);
     }
     for (const role of expected.outputs ?? []) {
-        const output = document.outputs.find((candidate) => candidate.role === role);
-        if (!output) {
+        // A role can name several files (a reference's index sidecars, say); each must match.
+        const outputs = document.outputs.filter((candidate) => candidate.role === role);
+        if (!outputs.length) {
             failures.push(`Result lists no output with role ${role}.`);
-            continue;
         }
-        const size = await stat(path.resolve(cwd, output.path)).then((info) => info.size, () => null);
-        if (size == null) {
-            failures.push(`Output ${role} is missing on disk: ${output.path}`);
-        }
-        else if (output.sizeBytes != null && size !== output.sizeBytes) {
-            failures.push(`Output ${role} is ${size} bytes on disk but the result recorded ${output.sizeBytes}: ${output.path}`);
+        for (const output of outputs) {
+            const size = await stat(path.resolve(cwd, output.path)).then((info) => info.size, () => null);
+            if (size == null) {
+                failures.push(`Output ${role} is missing on disk: ${output.path}`);
+            }
+            else if (output.sizeBytes != null && size !== output.sizeBytes) {
+                failures.push(`Output ${role} is ${size} bytes on disk but the result recorded ${output.sizeBytes}: ${output.path}`);
+            }
         }
     }
     return failures.length ? failures.join(" ") : null;

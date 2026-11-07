@@ -5,8 +5,14 @@ import { state } from "./state.js";
 import { apiStream } from "./api.js";
 import { appendTerminal, appendTerminalOutput, runningActionControllers, terminalExitStatus, terminalProcessErrorStatus } from "./terminal.js";
 import { resultNotice, type ResultDocument } from "../../../shared/result-document.js";
-import { actionReferenceKey } from "./result-view.js";
+import { actionNoticeKey } from "./result-view.js";
 import type { ActionReference, ActionSpec, CommandContext, CommandSpec, TerminalEntry, ValueMap } from "../../../shared/types.js";
+
+interface NoticeRun {
+    key: string;
+}
+
+const latestNoticeRuns = new Map<string, NoticeRun>();
 
 type ActionStreamEvent =
     | { type: "start"; command: string }
@@ -31,14 +37,16 @@ export async function runAction(action: ActionSpec, context: CommandContext, ref
         command);
     const controller = new AbortController();
     runningActionControllers.set(runningID, controller);
-    const referenceKey = actionReferenceKey(reference);
-    state.actionResultNotices.delete(referenceKey);
+    // Only the latest run of an action (or row action) may set its notice; an older run can finish later.
+    const noticeRun = { key: actionNoticeKey(reference, context) };
+    latestNoticeRuns.set(noticeRun.key, noticeRun);
+    state.actionResultNotices.delete(noticeRun.key);
     scheduleRender();
     try {
         await apiStream<ActionStreamEvent>(
             "/api/run/stream",
             { action: reference, context },
-            (event) => applyActionEvent(event, action, context, runningID, referenceKey),
+            (event) => applyActionEvent(event, action, context, runningID, noticeRun),
             { signal: controller.signal, label: "Action stream" },
         );
     }
@@ -74,7 +82,7 @@ export async function runAction(action: ActionSpec, context: CommandContext, ref
     }
 }
 
-function applyActionEvent(event: ActionStreamEvent, action: ActionSpec, context: CommandContext, runningID: string, referenceKey: string) {
+function applyActionEvent(event: ActionStreamEvent, action: ActionSpec, context: CommandContext, runningID: string, noticeRun: NoticeRun) {
     const tab = state.terminalEntries.find((entry) => entry.id === runningID);
     if (!tab) {
         return;
@@ -104,7 +112,7 @@ function applyActionEvent(event: ActionStreamEvent, action: ActionSpec, context:
             }
             tab.body = [tab.body, `exit ${result.exitCode}`].filter(Boolean).join("\n");
             if (result.resultDocument !== undefined) {
-                applyResultDocument(tab, result.resultDocument, result.exitCode, result.stderr ?? "", referenceKey);
+                applyResultDocument(tab, result.resultDocument, result.exitCode, result.stderr ?? "", noticeRun);
             }
             break;
         }
@@ -114,13 +122,13 @@ function applyActionEvent(event: ActionStreamEvent, action: ActionSpec, context:
     scheduleRender();
 }
 
-function applyResultDocument(tab: TerminalEntry, document: ResultDocument | null, exitCode: number, stderr: string, referenceKey: string) {
+function applyResultDocument(tab: TerminalEntry, document: ResultDocument | null, exitCode: number, stderr: string, noticeRun: NoticeRun) {
     if (document) {
         tab.result = document;
     }
     const notice = resultNotice(document, exitCode, stderr);
-    if (notice) {
-        state.actionResultNotices.set(referenceKey, notice);
+    if (notice && latestNoticeRuns.get(noticeRun.key) === noticeRun) {
+        state.actionResultNotices.set(noticeRun.key, notice);
     }
 }
 

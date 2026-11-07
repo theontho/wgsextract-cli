@@ -5,7 +5,10 @@ export const resultDocumentFormats = ["wgsextract.result/1"] as const;
 
 export type ResultDocumentFormat = (typeof resultDocumentFormats)[number];
 
-/** A manifest's `resultDocument`: actions running one of `executables` print a result document on stdout. */
+/**
+ * A manifest's `resultDocument`: actions running one of `executables` write a result document,
+ * to the file named by `{{resultDocumentPath}}` in `arguments` or else to stdout.
+ */
 export interface ResultDocumentSpec {
     format: ResultDocumentFormat;
     /** Raw `command.executable` values, as written in the pages. */
@@ -13,6 +16,9 @@ export interface ResultDocumentSpec {
     /** Appended to the command, after its optional arguments, to ask for the document. */
     arguments?: string[];
 }
+
+/** Stands in `arguments` for a file the app makes for each run and reads the document from. */
+export const resultDocumentPathPlaceholder = "{{resultDocumentPath}}";
 
 export type ResultScalar = string | number | boolean | null;
 export type ResultScalars = Record<string, ResultScalar>;
@@ -68,10 +74,15 @@ export function resultDocumentSpecFor(manifest: Pick<BundleManifest, "resultDocu
     return spec?.executables.includes(action.command?.executable) ? spec : undefined;
 }
 
-/** The command with the declaration's arguments added at the end. */
-export function commandWithResultArguments(command: CommandSpec, spec: ResultDocumentSpec | undefined): CommandSpec {
+/** Whether the document is written to a file the app provides rather than to stdout. */
+export function resultDocumentInFile(spec: ResultDocumentSpec): boolean {
+    return spec.arguments?.some((argument) => argument.includes(resultDocumentPathPlaceholder)) ?? false;
+}
+
+/** The command with the declaration's arguments added at the end, naming `documentPath` as the document's file. */
+export function commandWithResultArguments(command: CommandSpec, spec: ResultDocumentSpec | undefined, documentPath: string): CommandSpec {
     return spec?.arguments?.length
-        ? { ...command, optionalArguments: [...(command.optionalArguments ?? []), spec.arguments] }
+        ? { ...command, optionalArguments: [...(command.optionalArguments ?? []), spec.arguments.map((argument) => argument.replaceAll(resultDocumentPathPlaceholder, documentPath))] }
         : command;
 }
 

@@ -1,6 +1,6 @@
 # Result documents
 
-A command can describe its run as a JSON result document: the files it wrote, warnings, key metrics, and why it failed. When a bundle says which of its commands print one, the app reads the document instead of the log:
+A command can describe its run as a JSON result document: the files it wrote, warnings, key metrics, and why it failed. When a bundle says which of its commands write one, the app reads the document instead of the log:
 
 - outputs are listed under the run's output, each with **Open** and **Show in Folder**;
 - warnings and metrics are shown in the same summary, not left in the log;
@@ -12,22 +12,23 @@ A command can describe its run as a JSON result document: the files it wrote, wa
 "resultDocument": {
   "format": "wgsextract.result/1",
   "executables": ["{{bundleRoot}}/scripts/run-tool.sh"],
-  "arguments": ["--json"]
+  "arguments": ["--result-file", "{{resultDocumentPath}}"]
 }
 ```
 
 **`executables`** lists `command.executable` values exactly as the page files write them. Every action, row action and data-source row action whose command runs one of them is covered. Setup steps and data sources are not.
 
-**`arguments`** are added after all of the command's other arguments, to ask for the document.
+**`arguments`** are added after all of the command's other arguments, to ask for the document. They decide where the app reads it:
 
-**`format`** is the only format the app reads today: [`wgsextract.result/1`](../../docs/result-manifest.md), the document every `wgsextract` command prints with `--json`.
+- **A file**, when an argument contains `{{resultDocumentPath}}`. The app replaces it with the path of a new file in a private temporary folder, reads the document from that file once the command exits, and then deletes the folder. Stdout and stderr stream to the terminal pane as for any command, so human-readable output such as a report table still reaches the user. Prefer this mode.
+- **Stdout**, otherwise (for example `["--json"]`). Stderr streams to the terminal pane; stdout is captured and read as the document once the command exits. If stdout does not hold a document, it is shown as ordinary output. The document must fit in the 1 MiB the app keeps of a command's output.
+
+**`format`** is the only format the app reads today: [`wgsextract.result/1`](../../docs/result-manifest.md), the document every `wgsextract` command writes with `--json` or `--result-file PATH`.
 
 ## Running a covered action
 
-- Stderr streams to the terminal pane as before. Stdout is captured, and read as the document once the command exits.
-- If stdout does not hold a document, it is shown in the terminal pane as ordinary output.
-- An action that runs as a job on the bundle's [job server](job-server.md) gets its document from the job's `result`.
-- **Open** and **Show in Folder** work only for the files a document listed, and for the document's own saved copy (`manifest`). A relative path is relative to the bundle workspace, where actions run.
+- An action that runs as a job on the bundle's [job server](job-server.md) gets its document from the job's `result`, whatever the mode.
+- **Open** and **Show in Folder** work only for the files a document listed, and for the document's own saved copy (`manifest`). A relative path is relative to the bundle workspace the action ran in.
 
 ## Failures
 
@@ -57,4 +58,4 @@ An action step can check the document with `expectedResult`:
 - Each role in `outputs` must be listed, and the file must exist with the size the document recorded.
 - `errorKind` must equal `error.kind`. Use it with `expectedExitCodes`, such as `[2]` for a usage error.
 
-The step report keeps the document under `result`. `requiredOutput` and `forbiddenOutput` still match the terminal output, which no longer includes a covered action's stdout.
+The step report keeps the document under `result`. `requiredOutput` and `forbiddenOutput` still match the terminal output, which in stdout mode no longer includes a covered action's stdout.

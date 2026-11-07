@@ -16,7 +16,7 @@ globalThis.document = {
 
 const { createInitialState, state } = await import("../dist/web/src/client/state.js");
 const { ensureDataSource, openBundleWorkspace, retryDataSource, runAction, runSetup } = await import("../dist/web/src/client/operations.js");
-const { renderConfigSetting, renderDropdownControl } = await import("../dist/web/src/client/view.js");
+const { renderActions, renderConfigSetting, renderDropdownControl } = await import("../dist/web/src/client/view.js");
 
 function resetState() {
   Object.assign(state, createInitialState(), {
@@ -491,6 +491,43 @@ test("an action's result document reaches its terminal tab, and a usage error it
     assert.equal(state.actionResultNotices.size, 0);
     streams[1].close();
     await rerun;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("review regression: an older run finishing last does not restore its notice, and a row's notice stays on its row", async () => {
+  resetState();
+  const originalFetch = globalThis.fetch;
+  const streams = [setupStreamResponse(), setupStreamResponse(), setupStreamResponse()];
+  let requests = 0;
+  globalThis.fetch = () => Promise.resolve(streams[requests++].response);
+  const rowContext = (genome) => ({ fieldValues: {}, checkedOptions: {}, configValues: {}, rowValues: { genome }, bundleRootPath: "/bundle", placeholderLabels: {} });
+  const action = { id: "run", title: "Index", command: { executable: "/bin/echo", arguments: [] } };
+  const usage = { exitCode: 2, command: "/bin/echo", stderr: "", resultDocument: { format: "wgsextract.result/1", status: "failed", error: { kind: "usage", message: "Choose a FASTA." }, outputs: [], warnings: [], metrics: {} } };
+  const finish = (index, result) => {
+    streams[index].write({ type: "complete", result });
+    streams[index].close();
+  };
+
+  try {
+    const older = runAction(action, rowContext("hg38"), actionReference);
+    await waitUntil(() => requests === 1);
+    const newer = runAction(action, rowContext("hg38"), actionReference);
+    await waitUntil(() => requests === 2);
+    finish(1, { exitCode: 0, command: "/bin/echo", stderr: "" });
+    await newer;
+    finish(0, usage);
+    await older;
+    assert.equal(state.actionResultNotices.size, 0);
+
+    const failing = runAction(action, rowContext("hg19"), actionReference);
+    await waitUntil(() => requests === 3);
+    finish(2, usage);
+    await failing;
+    const owner = { pageID: "main", sectionID: "run" };
+    assert.match(renderActions([action], rowContext("hg19"), owner, true), /result-notice/);
+    assert.doesNotMatch(renderActions([action], rowContext("hg38"), owner, true), /result-notice/);
   } finally {
     globalThis.fetch = originalFetch;
   }

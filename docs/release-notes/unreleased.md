@@ -17,7 +17,8 @@ land; the release PR renames this file to vX.Y.Z.md (see docs/releasing.md). -->
   list the files they wrote with **Open** and **Show in Folder**, and show
   their warnings and key metrics, instead of leaving them in the log. A
   refused option is shown next to the action, and a missing tool offers
-  **Open Setup**
+  **Open Setup**. The global `--result-file PATH` option, which writes the
+  document to PATH while keeping the human-readable output, is now documented
   ([#529](https://github.com/WGSExtract/wgsextract-cli/issues/529)).
 - `qc fastqc` fails if FastQC wrote no report, and warns (`no_reads`) when the
   input has no reads.

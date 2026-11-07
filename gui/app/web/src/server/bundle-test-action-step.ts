@@ -95,7 +95,7 @@ export async function runActionTestStep(
 }
 
 async function dryRunActionCommand(action: ActionSpec, context: CommandContext, workspaceRoot: string, resultSpec: ResultDocumentSpec | undefined) {
-    const rendered = renderedCommand(commandWithResultArguments(action.command, resultSpec), await contextWithFileState(context, workspaceRoot));
+    const rendered = renderedCommand(commandWithResultArguments(action.command, resultSpec, "<result document>"), await contextWithFileState(context, workspaceRoot));
     const executable = isPlatformScriptReference(rendered.executable, workspaceRoot)
         ? await resolvePlatformScriptPath(rendered.executable, workspaceRoot)
         : rendered.executable;
