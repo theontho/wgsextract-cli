@@ -402,8 +402,11 @@ memory pressure, GPU work, CPU fallbacks and exit status or signal, and a hash
 of its alignments. Alignments must match `bench/expected.tsv` (computed with
 the CPU backends, which are upstream's code) and each other; a mismatch or a
 failed run fails the job. The job summary has a table per job and the report
-job one for the whole run; `bench-run-*` artifacts hold the logs. Several runs
-can be dispatched at once.
+job one for the whole run; `bench-run-*` artifacts hold the logs. Its
+"vs first" column is the median change against the first variant over runs in
+the same round, with their range: runs on hosted runners vary by 5–20%, so
+compare variants in one job with three or more rounds. Several runs can be
+dispatched at once.
 
 `bench/bench.sh` also runs locally:
 

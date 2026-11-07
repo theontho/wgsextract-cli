@@ -447,6 +447,7 @@ summary() {
             runs[key]++
             statuses[key] = statuses[key] (index(" " statuses[key] " ", " " $28 " ") ? "" : (statuses[key] == "" ? "" : " ") $28)
             if ($6 == 0) { real[key] = real[key] " " $9; cpu[key] = cpu[key] " " ($10 + $11)
+                round_real[key, $5] = $9; rounds[key] = rounds[key] " " $5
                 rss[key] = rss[key] " " $12; foot[key] = foot[key] " " $13 }
             else { failures[key] = failures[key] (failures[key] == "" ? "" : "; ") (($8 ? "timeout" : ($7 ? "signal " $7 : "exit " $6)) ($25 ? " (jetsam)" : "")) }
             if ($16 > swap[key]) swap[key] = $16
@@ -463,8 +464,22 @@ summary() {
             for (k = 1; k <= nkeys; k++) {
                 key = keys[k]; split(key, p, SUBSEP); group = p[1] SUBSEP p[2] SUBSEP p[3]
                 t = median(real[key]); b = median(real[group SUBSEP base[group]])
-                vs = ""
-                if (t != "" && b != "" && base[group] != p[4]) vs = sprintf("%+.1f%%", (t / b - 1) * 100)
+                # Against the first variant: the median of the ratios of runs in the same round,
+                # which ran next to each other, and their range.
+                vs = ""; ratios = ""; lo = ""; hi = ""
+                if (base[group] != p[4]) {
+                    n = split(rounds[key], r, " ")
+                    for (i = 1; i <= n; i++) if ((group SUBSEP base[group], r[i]) in round_real) {
+                        ratio = round_real[key, r[i]] / round_real[group SUBSEP base[group], r[i]]
+                        ratios = ratios " " ratio
+                        if (lo == "" || ratio < lo) lo = ratio
+                        if (hi == "" || ratio > hi) hi = ratio
+                    }
+                    if (ratios != "") {
+                        vs = sprintf("%+.1f%%", (median(ratios) - 1) * 100)
+                        if (lo != hi) vs = vs sprintf(" (%+.0f%% to %+.0f%%)", (lo - 1) * 100, (hi - 1) * 100)
+                    } else if (t != "" && b != "") vs = sprintf("%+.1f%%", (t / b - 1) * 100)
+                }
                 level = "normal"
                 if (pressure[key] >= 2) level = "warning"
                 if (pressure[key] >= 4) level = "critical"
