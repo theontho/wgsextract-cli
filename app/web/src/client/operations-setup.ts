@@ -64,6 +64,9 @@ export async function runSetup() {
     finally {
         runningActionControllers.delete(setupID);
         runningSetup = null;
+        // Results from before setup, errors included, may no longer hold now that its tools are installed.
+        state.dataSourcePayloads.clear();
+        state.dataSourceErrors.clear();
     }
     scheduleRender();
 }

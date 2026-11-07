@@ -100,7 +100,7 @@ function Invoke-ForwardedCommand {
 }
 
 if (-not (Test-Path -LiteralPath $appDir -PathType Container)) {
-    Write-Error "WGS Extract bundle runtime is not installed at $appDir. Run setup before running commands."
+    [Console]::Error.WriteLine("WGS Extract bundle runtime is not installed at $appDir. Run setup before running commands.")
     exit 127
 }
 

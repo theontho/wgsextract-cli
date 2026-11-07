@@ -24,6 +24,10 @@ export function ensureDataSource(key: string, source: ManifestLocation, context:
     if (state.dataSourcePayloads.has(key) || state.dataSourceErrors.has(key) || state.loadingDataSources.has(key)) {
         return;
     }
+    // Data sources may need what setup installs; runSetup clears them when it ends, which loads them again.
+    if (state.setupRun?.status === "running") {
+        return;
+    }
     state.dataSourceErrors.delete(key);
     state.loadingDataSources.add(key);
     api<DataSourcePayload>("/api/datasource", { method: "POST", body: { source, context } })

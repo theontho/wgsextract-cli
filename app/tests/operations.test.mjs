@@ -318,6 +318,50 @@ test("data source errors do not block retries", async () => {
   }
 });
 
+test("setup holds data sources while running and reloads failed ones when it ends", async () => {
+  resetState();
+  const originalFetch = globalThis.fetch;
+  const dataSourceRequests = [];
+  const stream = setupStreamResponse();
+  globalThis.fetch = (path) => {
+    if (path === "/api/setup/stream") {
+      return Promise.resolve(stream.response);
+    }
+    if (path === "/api/state/save") {
+      return Promise.resolve(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+    }
+    dataSourceRequests.push(path);
+    if (dataSourceRequests.length === 1) {
+      return Promise.resolve(new Response(JSON.stringify({ error: "runtime is not installed" }), { status: 500, headers: { "content-type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(JSON.stringify({ options: [{ id: "hg38", label: "GRCh38" }] }), { status: 200, headers: { "content-type": "application/json" } }));
+  };
+
+  try {
+    ensureDataSource("control:reference", { command: { executable: "echo" } }, {});
+    await waitUntil(() => state.dataSourceErrors.has("control:reference"));
+
+    const setupPromise = runSetup();
+    await waitUntil(() => state.setupRun?.status === "running");
+    retryDataSource("control:reference");
+    ensureDataSource("control:reference", { command: { executable: "echo" } }, {});
+    assert.equal(dataSourceRequests.length, 1);
+
+    state.dataSourceErrors.set("control:reference", "failed before setup");
+    stream.write({ type: "complete", result: { status: "ok", results: [] } });
+    stream.close();
+    await setupPromise;
+    assert.equal(state.dataSourceErrors.has("control:reference"), false);
+
+    ensureDataSource("control:reference", { command: { executable: "echo" } }, {});
+    await waitUntil(() => state.dataSourcePayloads.has("control:reference"));
+    assert.equal(dataSourceRequests.length, 2);
+    assert.equal(state.fieldValues.reference, "hg38");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("opens the bundle workspace through the server API", async () => {
   resetState();
   const originalFetch = globalThis.fetch;
