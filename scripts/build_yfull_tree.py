@@ -448,7 +448,7 @@ def main() -> None:
     }
     licenses = {
         "tree": TREE_LICENSE,
-        "positions": f"{POSITIONS_LICENSE}; {YBROWSE_COPYRIGHT}",
+        "positions": POSITIONS_LICENSE,
     }
     tree_source = f"{YTREE_REPO}/blob/{source['commit']}/{source['file']}"
     sources = {

@@ -70,7 +70,7 @@
         },
         "positions": {
           "folder": "yfull-ybrowse-positions",
-          "license": "CC-BY-SA (version not stated); CC-BY-SA Thomas Krahn YSEQ (2022).",
+          "license": "CC-BY-SA (version not stated)",
           "source": "YBrowse snps_hg38.csv retrieved 2026-11-05, CC-BY-SA Thomas Krahn YSEQ (2022).",
           "notice": "Licence: the YBrowse-derived Y marker positions for YFull YTree 14.06.0 are CC-BY-SA, Thomas Krahn YSEQ (2022); a separate data module, not part of WGS Extract (NOTICE-YBrowse.md).",
           "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-yfull-v14.06.0/yfull-ybrowse-positions-14.06.0.tar.gz",
