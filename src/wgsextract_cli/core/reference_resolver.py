@@ -4,6 +4,7 @@ import os
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from typing import NamedTuple
 
 from wgsextract_cli.core import sample_workspace
 from wgsextract_cli.core.builds import (
@@ -49,6 +50,50 @@ def _warn_missing_configured_library(path: str) -> None:
     )
 
 
+class LibraryRoots(NamedTuple):
+    """Where a ``--ref`` points: the library root, an explicit FASTA, and the
+    FASTA's own folder when it is kept outside any library."""
+
+    root: str | None
+    fasta: str | None = None
+    beside_fasta: str | None = None
+
+    def resource_root(self, *relpaths: str) -> str | None:
+        """The first of ``beside_fasta`` and ``root`` holding one of
+        ``relpaths``, else ``root``, where missing resources are downloaded or
+        built."""
+        roots = [d for d in (self.beside_fasta, self.root) if d]
+        return next(
+            (r for r in roots if any(Path(r, p).exists() for p in relpaths)),
+            self.root,
+        )
+
+
+def library_roots(root_path: PathInput | None) -> LibraryRoots:
+    """The library folders ``root_path`` (a library, or a FASTA) names, else
+    the configured reference_library's, without searching the library."""
+    from wgsextract_cli.core.config import settings
+
+    root = expand_path(root_path) if root_path is not None else None
+    if not root:
+        configured = settings.get("reference_library")
+        root = expand_path(configured) if configured else None
+    if not root or not (Path(root).is_file() and is_fasta_path(root)):
+        return LibraryRoots(root)
+    fasta_dir = Path(root).parent
+    # A FASTA in <library>/genomes/ belongs to that library, whose root holds
+    # the ploidy files, liftover chains and annotation data.
+    if fasta_dir.name == "genomes":
+        return LibraryRoots(str(fasta_dir.parent), root)
+    # A FASTA kept outside any library chooses only the sequence.
+    configured = settings.get("reference_library")
+    if isinstance(configured, str) and configured:
+        library = expand_path(configured)
+        if Path(library).is_dir() and library != str(fasta_dir):
+            return LibraryRoots(library, root, str(fasta_dir))
+    return LibraryRoots(str(fasta_dir), root)
+
+
 class ReferenceLibrary:
     """Helper to manage and resolve reference genome paths."""
 
@@ -67,11 +112,15 @@ class ReferenceLibrary:
 
         root_path = expand_path(root_path) if root_path is not None else None
         input_path = expand_path(input_path) if input_path is not None else None
-        self.root: str | None = root_path or settings.get("reference_library")
-        if isinstance(self.root, str):
-            self.root = expand_path(self.root)
-            if not root_path and not Path(self.root).is_dir():
-                _warn_missing_configured_library(self.root)
+        if not root_path:
+            configured = settings.get("reference_library")
+            if (
+                isinstance(configured, str)
+                and not Path(expand_path(configured)).is_dir()
+            ):
+                _warn_missing_configured_library(expand_path(configured))
+        library = library_roots(root_path)
+        self.root: str | None = library.root
         self.md5: str | None = md5_sig
         self.input_path: str | None = input_path
         if isinstance(self.input_path, str):
@@ -98,22 +147,8 @@ class ReferenceLibrary:
         if not self.root:
             return
 
-        if Path(self.root).is_file() and is_fasta_path(self.root):
-            self.fasta = self.root
-            fasta_dir = Path(self.root).parent
-            self.root = str(fasta_dir)
-            # A FASTA in <library>/genomes/ belongs to that library, whose root
-            # holds the ploidy files, liftover chains and annotation data.
-            if fasta_dir.name == "genomes":
-                self.root = str(fasta_dir.parent)
-            else:
-                # A FASTA kept outside any library chooses only the sequence.
-                configured = settings.get("reference_library")
-                if isinstance(configured, str) and configured:
-                    library = expand_path(configured)
-                    if Path(library).is_dir() and library != self.root:
-                        self.beside_fasta = self.root
-                        self.root = library
+        self.fasta = library.fasta
+        self.beside_fasta = library.beside_fasta
 
         explicit_fasta = bool(self.fasta)
         signature_match = False
