@@ -131,7 +131,7 @@ def run(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["pet_aligning"].format(species=args.species))
     align_cmd = [
         aligner, "mem", "-K", BWA_BATCH_BASES, "-t", threads,
-        "-R", read_group(args, stem),
+        "-R", read_group(stem),
     ]  # fmt: skip
     align_cmd += [ref_file, args.r1]
     try:

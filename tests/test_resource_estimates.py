@@ -548,7 +548,7 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
             align,
             "_prepare_alignment",
             lambda *_a, **_k: align._AlignSetup(
-                "1", "256M", str(tmp_path), str(ref), "sample"
+                "1", "256M", str(tmp_path), str(ref), "sample", "r1.fq"
             ),
         )
         monkeypatch.setattr(
@@ -562,8 +562,8 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
         )
         with pytest.raises(Reported):
             align._bwa_setup(
-                argparse.Namespace(
-                    r1="r1.fq", r2=None, aligner="bwa", platform=platform, format="CRAM"
+                align.AlignJob(
+                    r1="r1.fq", aligner="bwa", platform=platform, format="CRAM"
                 ),
                 "align",
             )

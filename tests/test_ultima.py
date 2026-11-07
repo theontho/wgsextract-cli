@@ -12,6 +12,7 @@ from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.api import VcfDeepvariantParams
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands._bam_ubam import read_group_from_name
+from wgsextract_cli.commands.align import AlignJob
 from wgsextract_cli.commands.vcf import deepvariant
 from wgsextract_cli.core import native_support, paths, ultima
 from wgsextract_cli.core.utils import WGSExtractError
@@ -35,7 +36,9 @@ def test_flow_markduplicates_windows_argv_uses_native_local_paths(monkeypatch):
     monkeypatch.setattr(
         align, "get_sam_index_cmd", lambda *_a, **_k: ["samtools", "index"]
     )
-    setup = align._AlignSetup("1", "256M", "R:/Results", "R:/ref.fa", "sample")
+    setup = align._AlignSetup(
+        "1", "256M", "R:/Results", "R:/ref.fa", "sample", "reads.fq"
+    )
     align._sort_and_mark_ultima(
         [["bwa"]], "R:/Results/calls.bam", setup, "BAM", "R:/Sort temp"
     )
@@ -124,18 +127,18 @@ def test_fastq_flow_tags_are_found_in_the_comment(tmp_path):
 
 def test_realigned_read_groups_keep_flow_order_and_set_orientation():
     header = "@RG\tID:Z0138\tFO:TGCA\tPL:ULTIMA\tSM:HG008\tmc:20\ttp:read\n"
-    (line,) = align.ultima_read_groups(header, Namespace(sample=None), "x")
+    (line,) = align.ultima_read_groups(header, None, "x")
     fields = dict(f.split(":", 1) for f in line.split("\t")[1:])
     assert fields == {"ID": "Z0138", "FO": "TGCA", "PL": "ULTIMA", "SM": "HG008",
                       "mc": "20", "tp": "reference"}  # fmt: skip
-    (named,) = align.ultima_read_groups(header, Namespace(sample="me"), "x")
+    (named,) = align.ultima_read_groups(header, "me", "x")
     assert "\tSM:me\t" in named
 
 
 def _align_args(**overrides):
     values = {"platform": "ultima", "aligner": "auto", "long_read": False,
               "preset": None, "gpu": False, "r2": None}  # fmt: skip
-    return Namespace(**{**values, **overrides})
+    return AlignJob(**{**values, **overrides})
 
 
 @pytest.mark.usefixtures("x64_policy")
@@ -161,8 +164,8 @@ def test_ultima_refuses_what_would_lose_its_flow_data(overrides, message):
 @needs_tools("samtools")
 def test_ultima_bam_input_is_detected(tmp_path):
     bam = sam_to_bam(["@SQ\tSN:chr1\tLN:1000", _RG, _record(0)], tmp_path / "ug.bam")
-    assert align.resolve_platform(Namespace(platform=None), bam) == "ultima"
-    assert align.resolve_platform(Namespace(platform="illumina"), bam) == "illumina"
+    assert align.resolve_platform(None, bam) == "ultima"
+    assert align.resolve_platform("illumina", bam) == "illumina"
     assert ultima.bcftools_options(bam) == (["-X", "ultima"], [])
     data = ultima.flow_data(bam, f"{_RG}\n")
     assert data.flow_aware

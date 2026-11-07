@@ -23,6 +23,7 @@ from tests.htslib_helpers import (
 from wgsextract_cli import api
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands._extract_helpers import alignments_to_fastq
+from wgsextract_cli.commands.align import AlignJob
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -36,7 +37,7 @@ def _align_args(**overrides):
         "preset": None,
     }
     values.update(overrides)
-    return Namespace(**values)
+    return AlignJob(**values)
 
 
 def _short_reads(work, pairs=120, duplicates=20):

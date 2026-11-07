@@ -3,7 +3,6 @@ import os
 import random
 import re
 import shutil
-from argparse import Namespace
 from pathlib import Path
 
 import pytest
@@ -12,6 +11,7 @@ from tests.disk_volumes import GIB, Volumes
 from tests.fake_tools import python_tool
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands import align
+from wgsextract_cli.commands.align import AlignJob
 from wgsextract_cli.commands.info.metrics import determine_sequencer
 from wgsextract_cli.core import alignment_memory, results, sequencing
 from wgsextract_cli.core.config import settings
@@ -49,13 +49,10 @@ def test_fastq_detection_and_cache_invalidation(tmp_path, compressed):
     with opener(path, "wt") as handle:
         handle.write(f"@{UUID} runid=abc\nACGT\n+\nIIII\n")
     assert sequencing.input_platform(path) == "ont"
-    args = Namespace(platform=None, long_read=False, aligner="auto", preset=None)
-    args.platform = align.resolve_platform(args, str(path))
+    args = AlignJob(platform=align.resolve_platform(None, str(path)))
     assert align.select_aligner(args) == "minimap2"
     assert align._minimap2_preset(args) == "map-ont"
-    assert (
-        align.resolve_platform(Namespace(platform="illumina"), str(path)) == "illumina"
-    )
+    assert align.resolve_platform("illumina", str(path)) == "illumina"
     with opener(path, "wt") as handle:
         handle.write("@renamed\nACGT\n+\nIIII\n")
     assert sequencing.input_platform(path) is None
@@ -63,9 +60,7 @@ def test_fastq_detection_and_cache_invalidation(tmp_path, compressed):
 
 def test_ont_gpu_refuses_to_drop_modification_tags():
     with pytest.raises(WGSExtractError, match="MM/ML"):
-        align.select_aligner(
-            Namespace(platform="ont", long_read=False, aligner="auto", gpu=True)
-        )
+        align.select_aligner(AlignJob(platform="ont", gpu=True))
 
 
 @pytest.fixture
@@ -114,7 +109,7 @@ def test_other_platforms_keep_illumina_alignment_defaults(
         else:
             reads.write_text("".join(f"{line}\n" for line in lines))
     assert sequencing.input_platform(reads) == detected
-    assert align.resolve_platform(Namespace(platform=None), str(reads)) == "illumina"
+    assert align.resolve_platform(None, str(reads)) == "illumina"
     if suffix == ".sam":
         return  # align --r1 takes FASTQ and realign --input a BAM or CRAM
     # Having pbmm2 installed must not turn reporting into an automatic switch.
@@ -163,10 +158,10 @@ def test_undecodable_cram_never_falls_back_to_short_read_defaults(
     # Reporting-only callers (variant calling) keep treating this as unknown.
     assert sequencing.input_platform(cram, missing) is None
     with pytest.raises(WGSExtractError, match="CRAM read names.*paired short-read"):
-        align.resolve_platform(Namespace(platform=None, input_ref=missing), str(cram))
+        align.resolve_platform(None, str(cram), missing)
     # realign's --input-ref decodes it.
-    args = Namespace(platform=None, input_ref=str(moved / "original.fa"))
-    assert align.resolve_platform(args, str(cram)) == "ont"
+    decoding = str(moved / "original.fa")
+    assert align.resolve_platform(None, str(cram), decoding) == "ont"
 
 
 @needs_tools("samtools")
