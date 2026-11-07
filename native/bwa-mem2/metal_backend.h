@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -28,6 +29,14 @@ void wgse_set_force_gpu(bool force);
 void wgse_set_gpu8(bool enabled, int32_t target, int32_t minimum_pairs = 1,
     bool paired = true);
 void wgse_set_pipelining(bool enabled);
+// GPU mate rescue (enabled with Metal) and its test hooks.
+void wgse_set_gpu_rescue(bool enable);
+void wgse_set_gpu_rescue_batch(size_t pairs);
+void wgse_inject_rescue_failure();
+// Also run each GPU rescue alignment on the CPU and count differences.
+void wgse_verify_gpu_rescue();
+// Report the first commit of every nth piece of GPU work as interrupted.
+void wgse_inject_gpu_interruptions(size_t every);
 struct WgseExtensionScratch {
     dnaSeqPair *pairs, *aux;
     int32_t *hist;

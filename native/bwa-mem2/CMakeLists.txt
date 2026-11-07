@@ -44,9 +44,44 @@ string(REGEX REPLACE
     "\\1\n    WgseExtensionScope wgse_scope(numPairs);\n    if (wgse_metal_extend(pairArray, seqBufRef, seqBufQer, numPairs, w,\n        o_del, e_del, o_ins, e_ins, zdrop, end_bonus, mat, \\2)) return;\n"
     banded_source "${banded_source}")
 file(WRITE "${mem2_src}/bandedSWA.cpp" "#include \"metal_backend.h\"\n${banded_source}")
+function(mem2_seam variable before after)
+    string(FIND "${${variable}}" "${before}" position)
+    if(position EQUAL -1)
+        message(FATAL_ERROR "Unexpected upstream BWA-MEM2 source: ${before}")
+    endif()
+    string(REPLACE "${before}" "${after}" patched "${${variable}}")
+    set(${variable} "${patched}" PARENT_SCOPE)
+endfunction()
+# GPU mate rescue, shared with wgse-bwa (native/bwa): BWA-MEM2's mem_sam_pe(),
+# mem_matesw() and ksw_align2() are BWA 0.7.19's.
+set(bwa_dir "${CMAKE_CURRENT_SOURCE_DIR}/../bwa")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${bwa_dir}/rescue_oracle.c.in" "${bwa_dir}/rescue_types.h" "${bwa_dir}/rescue.metal")
 file(READ "${mem2_SOURCE_DIR}/src/bwamem.cpp" bwamem_source)
 include(extension_pipeline.cmake)
-file(WRITE "${mem2_src}/bwamem.cpp" "#include \"metal_backend.h\"\n${bwamem_source}")
+mem2_seam(bwamem_source "    kt_for(worker_sam, &w,  n_);   // SAM"
+    "    if (!wgse_metal_pair(opt, w.fmi->idx->bns, w.fmi->idx->pac, pes, n, seqs, w.regs,\n        w.nthreads, wgse_worker_sam_pair, &w))\n        kt_for(worker_sam, &w,  n_);   // SAM")
+# worker_sam()'s paired-end loop body for one pair.
+string(APPEND bwamem_source "
+void wgse_worker_sam_pair(void *data, long pair, int)
+{
+    worker_t *w = (worker_t*) data;
+    long i = pair << 1;
+    mem_sam_pe(w->opt, w->fmi->idx->bns, w->fmi->idx->pac, w->pes,
+               (w->n_processed >> 1) + pair, &w->seqs[i], &w->regs[i]);
+    free(w->regs[i].a);
+    free(w->regs[i+1].a);
+}
+")
+file(WRITE "${mem2_src}/bwamem.cpp"
+    "#include \"metal_backend.h\"\n#include \"rescue_backend.h\"\n${bwamem_source}")
+file(READ "${mem2_SOURCE_DIR}/src/bwamem_pair.cpp" pair_source)
+set(rescue_call "aln = ksw_align2(l_ms, seq, re - rb, ref, 5,\n                             opt->mat, opt->o_del, opt->e_del,\n                             opt->o_ins, opt->e_ins, xtra, 0);")
+mem2_seam(pair_source "${rescue_call}"
+    "if (!wgse_metal_matesw(opt, ms, seq, l_ms, ref, is_rev, rb, re, xtra, &aln))\n                ${rescue_call}")
+file(READ "${bwa_dir}/rescue_oracle.c.in" rescue_oracle)
+file(WRITE "${mem2_src}/bwamem_pair.cpp"
+    "#include \"rescue_backend.h\"\n${pair_source}\n${rescue_oracle}")
 file(READ "${mem2_SOURCE_DIR}/src/fastmap.cpp" fastmap_source)
 string(REGEX REPLACE
     "void __cpuid\\(unsigned int i, unsigned int cpuid\\[4\\]\\) \\{[^}]+\\}"
@@ -72,6 +107,8 @@ string(APPEND kernel_source "\n${tiled_source}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/extension.metal"
     "${CMAKE_CURRENT_SOURCE_DIR}/extension_tiled.metal")
+file(READ "${bwa_dir}/rescue_types.h" rescue_types)
+file(READ "${bwa_dir}/rescue.metal" rescue_source)
 configure_file(kernel_source.h.in "${generated}/kernel_source.h" @ONLY)
 
 set(core_names
@@ -96,10 +133,11 @@ target_link_libraries(mem2_core PUBLIC safestring_static ZLIB::ZLIB Threads::Thr
 add_library(metal_backend STATIC metal_backend.mm)
 target_include_directories(metal_backend PRIVATE "${generated}")
 target_compile_options(metal_backend PRIVATE -fobjc-arc -Wall -Wextra -Werror)
-target_link_libraries(metal_backend PUBLIC mem2_core "-framework Foundation" "-framework Metal")
+target_link_libraries(metal_backend PUBLIC mem2_core wgse_metal_common)
 add_executable(wgse-bwa-mem2 main.cpp)
 target_link_libraries(wgse-bwa-mem2 PRIVATE metal_backend)
-target_compile_definitions(wgse-bwa-mem2 PRIVATE WGSE_VERSION="${PROJECT_VERSION}")
+set(WGSE_BWA_MEM2_VERSION 0.2.0)
+target_compile_definitions(wgse-bwa-mem2 PRIVATE WGSE_VERSION="${WGSE_BWA_MEM2_VERSION}")
 target_compile_options(wgse-bwa-mem2 PRIVATE -Wall -Wextra -Werror)
 
 if(BUILD_TESTING)
@@ -113,6 +151,9 @@ if(BUILD_TESTING)
     add_test(NAME bwa_mem2_capabilities COMMAND wgse-bwa-mem2 capabilities --json)
     add_test(NAME bwa_mem2_smoke COMMAND "${PROJECT_SOURCE_DIR}/tests/smoke.sh"
         $<TARGET_FILE:wgse-bwa-mem2> "${CMAKE_CURRENT_BINARY_DIR}/smoke" force-gpu)
+    add_test(NAME bwa_mem2_rescue_parity
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/rescue_parity.sh"
+        $<TARGET_FILE:wgse-bwa-mem2> "${CMAKE_CURRENT_BINARY_DIR}/rescue-parity")
     add_executable(extension_benchmark tests/extension_benchmark.cpp)
     target_link_libraries(extension_benchmark PRIVATE metal_backend)
     target_compile_options(extension_benchmark PRIVATE -Wall -Wextra -Werror)

@@ -5,6 +5,9 @@
 #include "extension_batch.h"
 #include "kernel_source.h"
 #include "metal_backend.h"
+#include "rescue_backend.h"
+#include "splitter.h"
+#include "../bwa/rescue_engine.h"
 
 #include <algorithm>
 #include <atomic>
@@ -254,6 +257,9 @@ struct Slot {
     id<MTLCommandBuffer> command = nil;
     enum { free, packing, ready, executing, completed } status = free;
     std::string failure;
+    // The kernels overwrite their jobs; an interrupted dispatch reruns this copy.
+    std::vector<Job> jobs;
+    int attempt = 0;
 };
 
 // Only the submitter touches the two grow-only workspaces. Workers retain their
@@ -449,6 +455,9 @@ class Aggregator {
 
     void dispatch(Slot &slot) {
         auto &metal = state();
+        auto *jobs = static_cast<Job *>(slot.work.pairs.contents);
+        if (++slot.attempt == 1) slot.jobs.assign(jobs, jobs + slot.parameters.count);
+        else std::copy(slot.jobs.begin(), slot.jobs.end(), jobs);
         auto kernel = slot.kernel;
         bool tiled = kernel != ExtensionKernel::row;
         slot.command = [metal.queue commandBufferWithUnretainedReferences];
@@ -473,16 +482,30 @@ class Aggregator {
         [encoder dispatchThreads:MTLSizeMake(tiled ? (count + 31) / 32 * 32 : count * 32, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(tiled ? 32 : 128, 1, 1)];
         [encoder endEncoding];
-        uint64_t submitted = now_ns();
-        for (auto *request : slot.requests) queue_ns += submitted - request->enqueued;
+        if (slot.attempt == 1) {
+            uint64_t submitted = now_ns();
+            for (auto *request : slot.requests) queue_ns += submitted - request->enqueued;
+        }
+        // The submitter finishes the slot, so only it touches slot.command.
         Slot *completed_slot = &slot;
         [slot.command addCompletedHandler:^(id<MTLCommandBuffer>) {
-            @autoreleasepool { finish(*completed_slot); }
+            std::lock_guard<std::mutex> lock(mutex);
+            completed_slot->status = Slot::completed;
+            changed.notify_one();
         }];
-        [slot.command commit];
+        wgse::metal::Runtime::commit(slot.command);
     }
 
     void finish(Slot &slot) {
+        if (slot.failure.empty() && slot.attempt < wgse::metal::Runtime::attempts
+            && wgse::metal::Runtime::interrupted(slot.command, slot.attempt)) {
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                slot.status = Slot::executing;
+            }
+            dispatch(slot);
+            return;
+        }
         if (slot.failure.empty() && slot.command.status != MTLCommandBufferStatusCompleted)
             slot.failure = slot.command.error ? slot.command.error.localizedDescription.UTF8String
                 : "Metal command did not complete";
@@ -540,6 +563,7 @@ class Aggregator {
             request->completed.notify_one();
         }
         slot.command = nil;
+        slot.attempt = 0;
         slot.status = Slot::free;
         changed.notify_one();
     }
@@ -699,10 +723,307 @@ void release_companion() {
     worker_companion = nullptr;
     aggregator().release(*request);
 }
+
+// A GPU failure the CPU recovers from; explicit --metal still exits 1.
+void record_failure(const std::string &reason) {
+    {
+        std::lock_guard<std::mutex> lock(execution_failure_mutex);
+        if (execution_failure.empty()) execution_failure = reason;
+    }
+    static std::atomic<bool> reported{false};
+    if (!reported.exchange(true))
+        fprintf(stderr, "[wgse-bwa-mem2] CPU fallback: %s\n", reason.c_str());
+}
+
+using wgse::rescue::GpuRescue;
+using wgse::metal::BatchBase;
+using wgse::metal::Splitter;
+
+// Mate rescue (mem_matesw's ksw_align2) on the GPU, as in wgse-bwa.
+struct RescueKernel {
+    wgse::metal::Runtime runtime;
+    // Pipelines are specialised per query length class as batches need them;
+    // the longest class is compiled up front to check the kernel builds.
+    id<MTLLibrary> library = nil;
+    RescueKernel() {
+        if (runtime.device()) library = runtime.library(wgse_rescue_source);
+        if (library && !wgse::rescue::pipeline(runtime, library, rescue_max_segments))
+            library = nil;
+    }
+    std::string failure() const {
+        return library ? std::string()
+            : runtime.failure().empty() ? "rescue kernel unavailable" : runtime.failure();
+    }
+};
+
+RescueKernel &rescue_kernel() {
+    static RescueKernel value;
+    return value;
+}
+
+std::atomic<bool> rescue_enabled{true}, rescue_usable{true}, all_on_gpu{false};
+bool inject_rescue_failure = false, verify_rescue = false;
+size_t rescue_batch_pairs = 4096;
+// Prepared batches waiting for the CPU threads; bounds their memory.
+constexpr size_t rescue_outstanding_batches = 3;
+// Bounds one rescue batch's reads and reference windows (and its row scratch).
+constexpr size_t rescue_batch_bytes = size_t(64) << 20;
+constexpr int threadgroup_size = 256;
+std::unique_ptr<GpuRescue> rescuer;
+std::mutex rescue_mutex;
+size_t rescue_batches = 0, rescue_gpu_pairs = 0, rescue_cpu_pairs = 0, rescue_wasted_pairs = 0;
+size_t rescue_jobs = 0, rescue_declined = 0, rescue_skipped = 0;
+size_t rescue_hits = 0, rescue_misses = 0, rescue_mismatches = 0;
+double rescue_gpu_seconds = 0, rescue_kernel_seconds = 0, rescue_seconds = 0,
+    rescue_wait_seconds = 0;
+
+// mem_matesw()'s inputs for one alignment; equal keys mean equal ksw_align2 calls.
+struct RescueKey {
+    const uint8_t *ms;
+    int64_t rb, re;
+    int l_ms, is_rev, xtra;
+    // Index into the batch's results, or skipped for windows left to the CPU.
+    uint32_t result;
+};
+constexpr uint32_t skipped_job = UINT32_MAX;
+
+struct RescueBatch : BatchBase {
+    long first = 0;
+    std::vector<uint8_t> bases;
+    std::vector<RescueJob> jobs;
+    size_t row_bytes = 0;
+    std::vector<RescueKey> keys;
+    std::vector<RescueResult> results;
+    // The keys of pair first + i are [pair_keys[i], pair_keys[i + 1]).
+    std::vector<uint32_t> pair_keys;
+
+    void release() override {
+        std::vector<uint8_t>().swap(bases);
+        std::vector<RescueJob>().swap(jobs);
+        std::vector<RescueKey>().swap(keys);
+        std::vector<RescueResult>().swap(results);
+        std::vector<uint32_t>().swap(pair_keys);
+    }
+};
+
+// The GPU's alignments for the pair this thread is finishing.
+struct RescueCurrent {
+    const RescueBatch *batch = nullptr;
+    uint32_t begin = 0, end = 0;
+};
+thread_local RescueCurrent rescue_current;
+struct RescueTally {
+    size_t hits = 0, misses = 0, mismatches = 0;
+};
+thread_local RescueTally rescue_tally;
+
+// worker_sam for paired-end chunks with GPU mate rescue: the GPU aligns every
+// rescue window mem_sam_pe() may try for its pairs, and mem_matesw() uses the
+// GPU's result for each window it actually tries.
+class RescueScheduler : public Splitter {
+public:
+    size_t jobs = 0, declined = 0, skipped = 0;
+
+    RescueScheduler(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
+        const mem_pestat_t *pes, int n, bseq1_t *seqs, mem_alnreg_v *regs, int threads,
+        const RescueParameters &parameters, void (*worker)(void *, long, int), void *data)
+        : Splitter(threads, n / 2, long(rescue_batch_pairs), true, all_on_gpu,
+              rescue_outstanding_batches, worker, data),
+          opt_(opt), bns_(bns), pac_(pac), pes_(pes), seqs_(seqs), regs_(regs),
+          parameters_(parameters) {}
+
+private:
+    const mem_opt_t *opt_;
+    const bntseq_t *bns_;
+    const uint8_t *pac_;
+    const mem_pestat_t *pes_;
+    bseq1_t *seqs_;
+    mem_alnreg_v *regs_;
+    RescueParameters parameters_;
+    RescueBatch *packing_batch_ = nullptr;
+
+    static void emit(void *context, const uint8_t *ms, int l_ms, int is_rev, int64_t rb,
+        int64_t re, const uint8_t *ref, int xtra) {
+        auto &self = *static_cast<RescueScheduler *>(context);
+        auto &batch = *self.packing_batch_;
+        const int64_t tlen = re - rb;
+        // ksw_i16 (scores of 250 or more) and long queries stay on the CPU, as
+        // does whatever would exceed the batch's bounded buffers.
+        if (!(xtra & KSW_XBYTE) || l_ms < 1 || l_ms > int(rescue_max_query) || tlen < 1
+            || batch.bases.size() + size_t(l_ms) + size_t(tlen) > rescue_batch_bytes) {
+            self.skip(batch, ms, rb, re, l_ms, is_rev, xtra);
+            return;
+        }
+        const size_t query = batch.bases.size(), target = query + size_t(l_ms);
+        batch.bases.resize(target + size_t(tlen));
+        uint8_t *bases = batch.bases.data();
+        bool valid = true;
+        for (int i = 0; i < l_ms; ++i) {
+            valid &= ms[i] <= 4;
+            bases[is_rev ? query + size_t(l_ms - 1 - i) : query + size_t(i)] =
+                is_rev ? (ms[i] < 4 ? 3 - ms[i] : 4) : ms[i];
+        }
+        for (int64_t i = 0; i < tlen; ++i) valid &= ref[i] <= 4;
+        if (!valid) {
+            batch.bases.resize(query);
+            self.skip(batch, ms, rb, re, l_ms, is_rev, xtra);
+            return;
+        }
+        memcpy(bases + target, ref, size_t(tlen));
+        batch.jobs.push_back({uint32_t(query), uint32_t(target), uint32_t(batch.row_bytes),
+            uint32_t(l_ms), uint32_t(tlen), uint32_t(xtra)});
+        batch.row_bytes += size_t(tlen);
+        batch.keys.push_back({ms, rb, re, l_ms, is_rev, xtra, uint32_t(batch.jobs.size() - 1)});
+    }
+
+    void skip(RescueBatch &batch, const uint8_t *ms, int64_t rb, int64_t re, int l_ms,
+        int is_rev, int xtra) {
+        ++skipped;
+        batch.keys.push_back({ms, rb, re, l_ms, is_rev, xtra, skipped_job});
+    }
+
+    std::unique_ptr<BatchBase> pack(long first, long last) override {
+        auto batch = std::make_unique<RescueBatch>();
+        batch->first = first;
+        batch->pair_keys.reserve(size_t(last - first) + 1);
+        packing_batch_ = batch.get();
+        for (long pair = first; pair < last; ++pair) {
+            batch->pair_keys.push_back(uint32_t(batch->keys.size()));
+            wgse_rescue_candidates(opt_, bns_, pac_, pes_, seqs_ + 2 * pair, regs_ + 2 * pair,
+                emit, this);
+        }
+        batch->pair_keys.push_back(uint32_t(batch->keys.size()));
+        packing_batch_ = nullptr;
+        return batch;
+    }
+
+    void prepare(BatchBase &base, long first) override {
+        auto &batch = static_cast<RescueBatch &>(base);
+        // The test failure comes after a published batch, with the next one packed.
+        if (inject_rescue_failure && batches > 0)
+            throw std::runtime_error("injected GPU rescue failure (test)");
+        if (!taken(first)) {
+            rescuer->run(parameters_, batch.bases, batch.jobs, batch.row_bytes, batch.results,
+                threadgroup_size);
+            jobs += batch.jobs.size();
+            for (const RescueResult &result : batch.results) {
+                if (result.status != rescue_ok && result.status != rescue_cpu)
+                    throw std::runtime_error("invalid GPU rescue status");
+                declined += result.status == rescue_cpu;
+            }
+        }
+        std::vector<uint8_t>().swap(batch.bases);
+        std::vector<RescueJob>().swap(batch.jobs);
+    }
+
+    void begin(long pair, BatchBase *base) override {
+        rescue_current = {};
+        if (!base) return;
+        const auto *batch = static_cast<const RescueBatch *>(base);
+        const size_t index = size_t(pair - batch->first);
+        rescue_current = {batch, batch->pair_keys[index], batch->pair_keys[index + 1]};
+    }
+
+    void end() override { rescue_current = {}; }
+
+    void finish_thread() override {
+        std::lock_guard<std::mutex> lock(rescue_mutex);
+        rescue_hits += rescue_tally.hits;
+        rescue_misses += rescue_tally.misses;
+        rescue_mismatches += rescue_tally.mismatches;
+        rescue_tally = {};
+    }
+
+    void failed(const std::string &reason) override {
+        rescue_usable = false;
+        record_failure(reason);
+    }
+};
+}
+
+int wgse_metal_pair(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
+    const mem_pestat_t pes[4], int n, bseq1_t *seqs, mem_alnreg_v *regs, int threads,
+    void (*worker)(void *, long, int), void *data) {
+    RescueParameters parameters;
+    std::string unavailable;
+    if (selected_backend == Backend::cpu || !rescue_enabled || !rescue_usable
+        || !(opt->flag & MEM_F_PE) || (opt->flag & MEM_F_NO_RESCUE) || n % 2 || threads < 1
+        || !wgse::rescue::parameters(*opt, parameters) || !wgse_metal_available(unavailable))
+        return 0;
+    @autoreleasepool {
+        try {
+            auto &kernel = rescue_kernel();
+            if (!rescuer) rescuer = std::make_unique<GpuRescue>(kernel.runtime, kernel.library);
+            auto start = Splitter::Clock::now();
+            const double kernel_before = rescuer->kernel_seconds;
+            RescueScheduler scheduler(opt, bns, pac, pes, n, seqs, regs, threads, parameters,
+                worker, data);
+            scheduler.run();
+            std::lock_guard<std::mutex> lock(rescue_mutex);
+            rescue_batches += scheduler.batches;
+            rescue_gpu_pairs += scheduler.prepared;
+            rescue_cpu_pairs += scheduler.unprepared;
+            rescue_wasted_pairs += scheduler.wasted;
+            rescue_jobs += scheduler.jobs;
+            rescue_declined += scheduler.declined;
+            rescue_skipped += scheduler.skipped;
+            rescue_gpu_seconds += scheduler.gpu_time;
+            rescue_kernel_seconds += rescuer->kernel_seconds - kernel_before;
+            rescue_wait_seconds += scheduler.waited;
+            rescue_seconds += Splitter::seconds(start);
+        } catch (const std::exception &error) {
+            // Nothing was mapped: the scheduler throws only before it starts.
+            rescue_usable = false;
+            record_failure(error.what());
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int wgse_metal_matesw(const mem_opt_t *opt, const uint8_t *ms, uint8_t *seq, int l_ms,
+    uint8_t *ref, int is_rev, int64_t rb, int64_t re, int xtra, kswr_t *aln) {
+    const RescueCurrent &pair = rescue_current;
+    if (!pair.batch) return 0;
+    for (uint32_t i = pair.begin; i < pair.end; ++i) {
+        const RescueKey &key = pair.batch->keys[i];
+        if (key.ms != ms || key.rb != rb || key.re != re || key.l_ms != l_ms
+            || key.is_rev != is_rev || key.xtra != xtra) continue;
+        if (key.result == skipped_job) return 0;
+        const RescueResult &r = pair.batch->results[key.result];
+        if (r.status != rescue_ok) return 0;
+        *aln = {r.score, r.te, r.qe, r.score2, r.te2, r.tb, r.qb};
+        if (verify_rescue) {
+            const kswr_t cpu = ksw_align2(l_ms, seq, int(re - rb), ref, 5, opt->mat, opt->o_del,
+                opt->e_del, opt->o_ins, opt->e_ins, xtra, 0);
+            if (memcmp(&cpu, aln, sizeof(cpu))) {
+                if (rescue_tally.mismatches++ < 3)
+                    fprintf(stderr, "[wgse-bwa-mem2] rescue mismatch l_ms=%d tlen=%lld xtra=%#x "
+                        "gpu=%d,%d,%d,%d,%d,%d,%d cpu=%d,%d,%d,%d,%d,%d,%d\n", l_ms,
+                        static_cast<long long>(re - rb), xtra, aln->score, aln->te, aln->qe,
+                        aln->score2, aln->te2, aln->tb, aln->qb, cpu.score, cpu.te, cpu.qe,
+                        cpu.score2, cpu.te2, cpu.tb, cpu.qb);
+                *aln = cpu;
+            }
+        }
+        ++rescue_tally.hits;
+        return 1;
+    }
+    ++rescue_tally.misses;
+    return 0;
+}
+
+void wgse_set_gpu_rescue(bool enable) { rescue_enabled = enable; }
+void wgse_set_gpu_rescue_batch(size_t pairs) { rescue_batch_pairs = std::max<size_t>(1, pairs); }
+void wgse_inject_rescue_failure() { inject_rescue_failure = true; }
+void wgse_verify_gpu_rescue() { verify_rescue = true; }
+void wgse_inject_gpu_interruptions(size_t every) {
+    wgse::metal::Runtime::inject_interruptions(every);
 }
 
 bool wgse_metal_available(std::string &reason) {
     reason = state().failure;
+    if (reason.empty()) reason = rescue_kernel().failure();
     return reason.empty();
 }
 
@@ -737,7 +1058,10 @@ void wgse_set_aggregation(int32_t target, int32_t delay_us, int32_t queue_pairs)
     aggregation_delay_us = std::clamp(delay_us, 0, 100000);
     aggregation_queue_pairs = std::clamp(queue_pairs, 1, max_pairs * 2);
 }
-void wgse_set_force_gpu(bool force) { force_gpu = force; }
+void wgse_set_force_gpu(bool force) {
+    force_gpu = force;
+    all_on_gpu = force;
+}
 void wgse_set_gpu8(bool enabled, int32_t target, int32_t minimum_pairs, bool paired) {
     enable_gpu8 = enabled;
     aggregation_target8 = std::clamp(target, 1, max_pairs);
@@ -905,6 +1229,15 @@ void wgse_print_backend_metrics() {
         static_cast<unsigned long long>(query_sizes[3].load()),
         static_cast<unsigned long long>(query_sizes[4].load()),
         static_cast<unsigned long long>(query_sizes[5].load()));
+    std::lock_guard<std::mutex> lock(rescue_mutex);
+    fprintf(stderr, "[wgse-bwa-mem2] rescue_batches=%zu rescue_gpu_pairs=%zu rescue_cpu_pairs=%zu "
+        "rescue_wasted_pairs=%zu rescue_jobs=%zu rescue_declined=%zu rescue_skipped=%zu "
+        "rescue_hits=%zu rescue_misses=%zu rescue_mismatches=%zu interruptions=%zu\n",
+        rescue_batches, rescue_gpu_pairs, rescue_cpu_pairs, rescue_wasted_pairs, rescue_jobs,
+        rescue_declined, rescue_skipped, rescue_hits, rescue_misses, rescue_mismatches,
+        wgse::metal::Runtime::interruptions());
+    fprintf(stderr, "[wgse-bwa-mem2] rescue seconds gpu=%.3f kernel=%.3f pair=%.3f cpu_wait=%.3f\n",
+        rescue_gpu_seconds, rescue_kernel_seconds, rescue_seconds, rescue_wait_seconds);
 }
 
 bool wgse_metal_extend(SeqPair *pairs, const uint8_t *reference,
