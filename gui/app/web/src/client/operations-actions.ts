@@ -4,12 +4,14 @@ import { scheduleRender } from "./rerender.js";
 import { state } from "./state.js";
 import { apiStream } from "./api.js";
 import { appendTerminal, appendTerminalOutput, runningActionControllers, terminalExitStatus, terminalProcessErrorStatus } from "./terminal.js";
-import type { ActionReference, ActionSpec, CommandContext, CommandSpec, ValueMap } from "../../../shared/types.js";
+import { resultNotice, type ResultDocument } from "../../../shared/result-document.js";
+import { actionReferenceKey } from "./result-view.js";
+import type { ActionReference, ActionSpec, CommandContext, CommandSpec, TerminalEntry, ValueMap } from "../../../shared/types.js";
 
 type ActionStreamEvent =
     | { type: "start"; command: string }
     | { type: "output"; text?: string }
-    | { type: "complete"; result: { exitCode: number; command: string } }
+    | { type: "complete"; result: { exitCode: number; command: string; stderr?: string; resultDocument?: ResultDocument | null } }
     | { type: "error"; error?: string };
 
 export async function runAction(action: ActionSpec, context: CommandContext, reference: ActionReference) {
@@ -29,12 +31,14 @@ export async function runAction(action: ActionSpec, context: CommandContext, ref
         command);
     const controller = new AbortController();
     runningActionControllers.set(runningID, controller);
+    const referenceKey = actionReferenceKey(reference);
+    state.actionResultNotices.delete(referenceKey);
     scheduleRender();
     try {
         await apiStream<ActionStreamEvent>(
             "/api/run/stream",
             { action: reference, context },
-            (event) => applyActionEvent(event, action, context, runningID),
+            (event) => applyActionEvent(event, action, context, runningID, referenceKey),
             { signal: controller.signal, label: "Action stream" },
         );
     }
@@ -70,7 +74,7 @@ export async function runAction(action: ActionSpec, context: CommandContext, ref
     }
 }
 
-function applyActionEvent(event: ActionStreamEvent, action: ActionSpec, context: CommandContext, runningID: string) {
+function applyActionEvent(event: ActionStreamEvent, action: ActionSpec, context: CommandContext, runningID: string, referenceKey: string) {
     const tab = state.terminalEntries.find((entry) => entry.id === runningID);
     if (!tab) {
         return;
@@ -99,12 +103,25 @@ function applyActionEvent(event: ActionStreamEvent, action: ActionSpec, context:
                 delete tab.status;
             }
             tab.body = [tab.body, `exit ${result.exitCode}`].filter(Boolean).join("\n");
+            if (result.resultDocument !== undefined) {
+                applyResultDocument(tab, result.resultDocument, result.exitCode, result.stderr ?? "", referenceKey);
+            }
             break;
         }
         case "error":
             throw new Error(event.error ?? "Action failed.");
     }
     scheduleRender();
+}
+
+function applyResultDocument(tab: TerminalEntry, document: ResultDocument | null, exitCode: number, stderr: string, referenceKey: string) {
+    if (document) {
+        tab.result = document;
+    }
+    const notice = resultNotice(document, exitCode, stderr);
+    if (notice) {
+        state.actionResultNotices.set(referenceKey, notice);
+    }
 }
 
 function actionTerminalBody(title: unknown, context: CommandContext, action: ActionSpec | null = null) {

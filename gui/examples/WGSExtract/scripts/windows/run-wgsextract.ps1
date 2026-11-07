@@ -43,7 +43,7 @@ for ($index = 0; $index -lt $args.Count; $index += 1) {
         $message = Get-IndexInputMessage -Value $inputPath
         if ($message) {
             [Console]::Error.WriteLine($message)
-            exit 1
+            exit 2
         }
     }
     if ($null -ne $refPath) {
@@ -55,19 +55,21 @@ if ($args.Count -gt 0 -and [string]$args[0] -eq "microarray") {
     if (-not $microarrayRefPath) {
         [Console]::Error.WriteLine("Reference genome is required before generating microarray kits.")
         [Console]::Error.WriteLine("Install/download the reference library from the Library page or rerun setup, then choose an existing reference FASTA.")
-        exit 1
+        exit 2
     }
     if (Test-Path -LiteralPath $microarrayRefPath -PathType Container) {
         [Console]::Error.WriteLine("Reference genome must be a FASTA file, not the reference library directory: $microarrayRefPath")
         [Console]::Error.WriteLine("Choose an installed reference FASTA from the Reference genome dropdown on the Microarray page.")
-        exit 1
+        exit 2
     }
     if (-not (Test-Path -LiteralPath $microarrayRefPath -PathType Leaf)) {
         [Console]::Error.WriteLine("Reference genome was not found: $microarrayRefPath")
         [Console]::Error.WriteLine("Install/download the reference library from the Library page or rerun setup, then choose an existing reference FASTA.")
-        exit 1
+        exit 2
     }
 }
+
+# Refusals above exit 2, the CLI's usage-error code, so the app shows them next to the form.
 
 # The bundle's settings file is this runtime's config.toml, so what the CLI saves
 # (ref bootstrap's reference_library, for one) stays in the workspace instead of

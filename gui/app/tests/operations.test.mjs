@@ -382,6 +382,8 @@ test("opens the bundle workspace through the server API", async () => {
   }
 });
 
+const actionReference = { pageID: "main", sectionID: "run", actionID: "run" };
+
 test("action terminal streams progress and logs only command GUI inputs", async () => {
   resetState();
   state.manifest.pages = [
@@ -424,7 +426,7 @@ test("action terminal streams progress and logs only command GUI inputs", async 
           api_token: "API token",
           "settings.output_directory": "Output directory",
         },
-      });
+      }, actionReference);
     await waitUntil(() => requests.length === 1);
 
     assert.equal(requests[0].path, "/api/run/stream");
@@ -464,6 +466,36 @@ test("action terminal streams progress and logs only command GUI inputs", async 
   }
 });
 
+test("an action's result document reaches its terminal tab, and a usage error its notice until the next run", async () => {
+  resetState();
+  const originalFetch = globalThis.fetch;
+  const streams = [setupStreamResponse(), setupStreamResponse()];
+  let requests = 0;
+  globalThis.fetch = () => Promise.resolve(streams[requests++].response);
+  const context = { fieldValues: {}, checkedOptions: {}, configValues: {}, rowValues: {}, bundleRootPath: "/bundle", placeholderLabels: {} };
+  const action = { title: "Call SVs", command: { executable: "/bin/echo", arguments: [] } };
+  const document = { format: "wgsextract.result/1", status: "failed", error: { kind: "usage", message: "--pacbio and --ont cannot be combined." }, outputs: [], warnings: [], metrics: {} };
+
+  try {
+    const failing = runAction(action, context, actionReference);
+    await waitUntil(() => requests === 1);
+    streams[0].write({ type: "complete", result: { exitCode: 2, command: "/bin/echo", stderr: "", resultDocument: document } });
+    streams[0].close();
+    await failing;
+
+    assert.equal(state.terminalEntries.at(-1).result.status, "failed");
+    assert.deepEqual([...state.actionResultNotices.values()], [{ kind: "usage", message: "--pacbio and --ont cannot be combined." }]);
+
+    const rerun = runAction(action, context, actionReference);
+    await waitUntil(() => requests === 2);
+    assert.equal(state.actionResultNotices.size, 0);
+    streams[1].close();
+    await rerun;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("action terminal marks truncated streams as errors", async () => {
   resetState();
   const originalFetch = globalThis.fetch;
@@ -480,7 +512,7 @@ test("action terminal marks truncated streams as errors", async () => {
         rowValues: {},
         bundleRootPath: "/bundle",
         placeholderLabels: {},
-      });
+      }, actionReference);
 
     stream.write({ type: "start", command: "/bin/echo" });
     await waitUntil(() => /\[running\] Started/.test(state.terminalEntries[1].body));
@@ -510,7 +542,7 @@ test("action terminal marks streamed error events as errors", async () => {
         rowValues: {},
         bundleRootPath: "/bundle",
         placeholderLabels: {},
-      });
+      }, actionReference);
 
     stream.write({ type: "start", command: "/bin/echo" });
     stream.write({ type: "output", stream: "stdout", text: "before failure\n" });
@@ -542,7 +574,7 @@ test("action terminal reports invalid stream JSON events clearly", async () => {
         rowValues: {},
         bundleRootPath: "/bundle",
         placeholderLabels: {},
-      });
+      }, actionReference);
 
     stream.write({ type: "start", command: "/bin/echo" });
     stream.writeRaw("{not-json}\n");

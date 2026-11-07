@@ -10,6 +10,9 @@ import { contentType, json, notFound, readJSONBody, serveIndex, staticFile } fro
 import { findConfigEditorControl, locationKey, resolveActionReference, resolveDataSource, type DynamicActions } from "./manifest-lookup.js";
 import { streamNDJSON } from "./ndjson.js";
 import { runActionPreferringServer } from "./job-server-action.js";
+import type { ActionEvent } from "./action-runner.js";
+import { openResultPath, ResultPaths, systemOpener } from "./result-paths.js";
+import { resultDocumentSpecFor } from "../../../shared/result-document.js";
 import type { JobServer } from "./job-server.js";
 import { configPath, distModulePath, normalizeContext } from "./paths.js";
 import { pickPath, type NativePickerEndpoint } from "./path-picker.js";
@@ -66,6 +69,7 @@ const maxRememberedPicks = 16;
 export function createRequestHandler(context: RequestHandlerContext) {
     // Bundles can only be loaded from folders the user picked in a native dialog during this session.
     const pickedBundlePaths = new Set<string>();
+    const resultPaths = new ResultPaths();
     const staticRoutes: Record<string, RouteHandler> = {
         "/": (response, headOnly) => serveIndex(path.join(context.webRoot, "index.html"), indexToken(context), response, headOnly),
         "/index.html": (response, headOnly) => serveIndex(path.join(context.webRoot, "index.html"), indexToken(context), response, headOnly),
@@ -84,12 +88,22 @@ export function createRequestHandler(context: RequestHandlerContext) {
             const body = await readBody(request, context);
             const action = resolveActionReference(context.manifest, parseActionReference(body.action), context.dynamicActions);
             const actionContext = commandContext(body, context);
+            const resultSpec = resultDocumentSpecFor(context.manifest, action);
             await streamNDJSON(
                 response,
-                (emit, signal) => runActionPreferringServer(action, actionContext, signal, context.bundleRoot, context.runProcess, context.jobServer, emit),
+                (emit, signal) => runActionPreferringServer(action, actionContext, signal, context.bundleRoot, context.runProcess, context.jobServer, (event: ActionEvent) => {
+                    if (event.type === "complete") {
+                        resultPaths.remember(event.result.resultDocument);
+                    }
+                    return emit(event);
+                }, resultSpec),
                 (error) => ({ type: "error", error }),
             );
         },
+        "/api/result/open": jsonRoute(context, async (body) => {
+            await openResultPath(requiredString(body, "path"), body.reveal === true, resultPaths, context.runProcess, context.bundleRoot);
+            return { ok: true };
+        }),
         "/api/precheck": jsonRoute(context, async (body) => {
             const target = parsePrecheckTarget(body.target);
             const labels = parseLabels(body.labels);
@@ -293,6 +307,5 @@ function webuiVendorAssetPath(pathname: string, webRoot: string) {
 }
 
 async function openPath(filePath: string, runProcess: RunProcess) {
-    const opener = process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "/usr/bin/open" : "xdg-open";
-    await runProcess(opener, [filePath], { cwd: filePath, env: process.env });
+    await runProcess(systemOpener(), [filePath], { cwd: filePath, env: process.env });
 }

@@ -1,3 +1,4 @@
+import { commandWithResultArguments, resultDocumentSpecFor, type ResultDocumentSpec } from "../../../shared/result-document.js";
 import { checkedOptionsForContext, commandLine, disabledReason, hydrateRows, isActionVisible, missingPlaceholders, renderedCommand, rowContext } from "../../../shared/rendering.js";
 import { contextWithFileState, runAction } from "./action-runner.js";
 import { errorMessage } from "./errors.js";
@@ -5,7 +6,7 @@ import { manifestActionCandidates } from "./manifest-lookup.js";
 import { platformCommand } from "./platform-command.js";
 import { isPlatformScriptReference, resolvePlatformScriptPath } from "./platform-scripts.js";
 import { expandInputs, expandValueRecord } from "./bundle-test-runtime.js";
-import { makeReport, outputExpectationFailure } from "./bundle-test-report.js";
+import { makeReport, outputExpectationFailure, resultExpectationFailure } from "./bundle-test-report.js";
 import { timeoutRunProcess } from "./bundle-test-timeout.js";
 import type { ActionSpec, BundleManifest, CommandContext, ControlSpec, RowSpec } from "../../../shared/types.js";
 import type { BundleTestRuntime, BundleTestStep, BundleTestStepOptions, BundleTestStepReport } from "./bundle-test-types.js";
@@ -41,8 +42,9 @@ export async function runActionTestStep(
         }
 
         let command: string | null = null;
+        const resultSpec = resultDocumentSpecFor(manifest, resolved.action);
         if (options.dryRun) {
-            const startEvent = await dryRunActionCommand(resolved.action, resolved.context, workspaceRoot);
+            const startEvent = await dryRunActionCommand(resolved.action, resolved.context, workspaceRoot, resultSpec);
             command = startEvent.command;
             options.emit({ type: "message", text: `$ ${command}` });
             return makeReport(step, index, started, "skipped", { command, output });
@@ -66,17 +68,19 @@ export async function runActionTestStep(
                         break;
                 }
             },
+            resultSpec,
         );
         const expectedExitCodes = step.expectedExitCodes ?? [0];
         let error = expectedExitCodes.includes(result.exitCode)
             ? null
             : `Expected exit code ${expectedExitCodes.join(", ")} but got ${result.exitCode}.`;
-        error = error ?? outputExpectationFailure(output, step);
+        error = error ?? outputExpectationFailure(output, step) ?? await resultExpectationFailure(result.resultDocument, step, workspaceRoot);
         return makeReport(step, index, started, error ? "failed" : "passed", {
             actionID: step.actionID,
             command: command ?? result.command,
             exitCode: result.exitCode,
             output,
+            result: result.resultDocument?.raw,
             error,
         });
     }
@@ -90,8 +94,8 @@ export async function runActionTestStep(
     }
 }
 
-async function dryRunActionCommand(action: ActionSpec, context: CommandContext, workspaceRoot: string) {
-    const rendered = renderedCommand(action.command, await contextWithFileState(context, workspaceRoot));
+async function dryRunActionCommand(action: ActionSpec, context: CommandContext, workspaceRoot: string, resultSpec: ResultDocumentSpec | undefined) {
+    const rendered = renderedCommand(commandWithResultArguments(action.command, resultSpec), await contextWithFileState(context, workspaceRoot));
     const executable = isPlatformScriptReference(rendered.executable, workspaceRoot)
         ? await resolvePlatformScriptPath(rendered.executable, workspaceRoot)
         : rendered.executable;

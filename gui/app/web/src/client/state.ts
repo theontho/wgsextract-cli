@@ -41,6 +41,7 @@ export function createInitialState(): WebUIState {
         loadingFileStates: new Set(),
         actionPrechecks: new Map(),
         actionPrecheckErrors: new Map(),
+        actionResultNotices: new Map(),
         loadingActionPrechecks: new Set(),
         exitCodeReference: new Map(),
         setupRun: null,

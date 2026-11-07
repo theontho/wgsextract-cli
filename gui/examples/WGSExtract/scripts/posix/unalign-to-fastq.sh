@@ -2,12 +2,13 @@
 set -eu
 
 if [ "$#" -lt 2 ]; then
-  printf 'Usage: %s INPUT_BAM_OR_CRAM OUTPUT_DIR\n' "$0" >&2
-  exit 64
+  printf 'Usage: %s INPUT_BAM_OR_CRAM OUTPUT_DIR [ARG...]\n' "$0" >&2
+  exit 2
 fi
 
 input_path="$1"
 out_dir="$2"
+shift 2
 script_dir="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 
 if [ -z "$out_dir" ]; then
@@ -28,4 +29,5 @@ exec sh "$script_dir/run-wgsextract.sh" \
   --input "$input_path" \
   --outdir "$out_dir" \
   --r1 "${base_name}_R1.fastq.gz" \
-  --r2 "${base_name}_R2.fastq.gz"
+  --r2 "${base_name}_R2.fastq.gz" \
+  "$@"

@@ -2,6 +2,7 @@ import { allControls, disabledReason, displayCommand, isActionVisible, isPrechec
 import { escapeAttribute, escapeHTML } from "../dom.js";
 import { formatLabel, renderIcon, renderInlineError, renderLoadingInline } from "../model.js";
 import { actionPrecheckKey, contextWithFileState, ensureActionPrecheck } from "../operations.js";
+import { actionReferenceKey, renderResultNotice } from "../result-view.js";
 import { state } from "../state.js";
 import type { ActionReference, ActionSpec, CommandContext, ManifestLocation, PrecheckResult } from "../../../../shared/types.js";
 
@@ -39,6 +40,7 @@ export function renderActions(actions: ActionSpec[], context: CommandContext, ow
             ${action.iconOnly ? "" : `<span>${escapeHTML(action.title)}</span>`}
           </button>
           ${actionEstimate(action)}
+          ${renderResultNotice(state.actionResultNotices.get(actionReferenceKey(reference)))}
         </span>
       `;
     })

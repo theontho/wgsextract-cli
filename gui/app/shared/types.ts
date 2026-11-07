@@ -1,4 +1,5 @@
 import type { IconMap } from "./icon-map.js";
+import type { ResultDocument, ResultDocumentSpec, ResultNotice } from "./result-document.js";
 export type PrimitiveValue = string | number | boolean | null;
 export type StateValue = PrimitiveValue | undefined;
 export type StringMap = Record<string, string>;
@@ -79,7 +80,21 @@ export type LabelTextKey =
     | "actionPrecheckDiskSpaceTitle"
     | "actionPrecheckDiskSpaceMessageFormat"
     | "actionPrecheckDiskSpaceInfoTitle"
-    | "actionPrecheckDiskSpaceInfoFormat";
+    | "actionPrecheckDiskSpaceInfoFormat"
+    | "resultTitle"
+    | "resultStatusOkTitle"
+    | "resultStatusFailedTitle"
+    | "resultStatusCancelledTitle"
+    | "resultWarningsTitle"
+    | "resultMetricsTitle"
+    | "resultOutputsTitle"
+    | "resultOpenTitle"
+    | "resultRevealTitle"
+    | "resultManifestLabel"
+    | "resultDocumentTitle"
+    | "resultUsageTitle"
+    | "resultMissingDependencyTitle"
+    | "resultOpenSetupTitle";
 export interface Labels extends Partial<Record<LabelTextKey, string>> {
     libraryStatusLabels?: StringMap;
     libraryTagLabels?: StringMap;
@@ -283,6 +298,7 @@ export interface BundleManifest {
     defaultLocalizationCode?: string;
     exitCodeReference?: ExitCodeReference[];
     jobServer?: JobServerSpec;
+    resultDocument?: ResultDocumentSpec;
     [key: string]: unknown;
 }
 
@@ -455,6 +471,8 @@ export interface TerminalEntry {
     truncated?: boolean;
     command?: string;
     status?: TerminalStatus;
+    /** The action's result document, when its command printed one. */
+    result?: ResultDocument;
 }
 
 /** Identifies a section, control, or config setting in the loaded manifest. */
@@ -510,6 +528,8 @@ export interface WebUIState {
     loadingFileStates: Set<string>;
     actionPrechecks: Map<string, PrecheckResult>;
     actionPrecheckErrors: Map<string, string>;
+    /** What the last run of an action (by actionReferenceKey) asks the user to fix. */
+    actionResultNotices: Map<string, ResultNotice>;
     loadingActionPrechecks: Set<string>;
     exitCodeReference: Map<number, ExitCodeReference>;
     setupRun: SetupRun | null;

@@ -62,7 +62,7 @@ Every request carries `Authorization: Bearer <token>`. Paths are relative to `ur
 | --- | --- |
 | `POST /ops/{operation}` with the parameters as a JSON body | 2xx with a job: `{"id": "...", "status": "..."}` |
 | `GET /jobs/{id}/events` | Server-sent events until the job has finished, then the stream ends. `status` events carry `{"status": ...}`; `progress` events carry `stage`, `message` and/or `fraction` (0–1). |
-| `GET /jobs/{id}` | The job; `exit_code` once it has finished, and `error` if it failed. The action's exit code is `exit_code`, else 0 for `succeeded` and 1 otherwise. |
+| `GET /jobs/{id}` | The job; `exit_code` once it has finished, and `error` if it failed. The action's exit code is `exit_code`, else 0 for `succeeded` and 1 otherwise. When the bundle declares a [result document](result-documents.md) for the action, it is read from `result`. |
 | `GET /jobs/{id}/log?tail=0` | The job's whole log as text; it is added to the action's output. |
 | `DELETE /jobs/{id}` | Cancels the job. 409 means it had already finished. |
 

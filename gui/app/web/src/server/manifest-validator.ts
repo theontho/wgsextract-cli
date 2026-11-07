@@ -1,3 +1,4 @@
+import { resultDocumentFormats } from "../../../shared/result-document.js";
 import { setupPlatformAlias } from "../../../shared/setup-platforms.js";
 import type { BundleManifest, BundlePage, PageSection, SetupStep } from "../../../shared/types.js";
 import {
@@ -33,6 +34,7 @@ export function validateManifest(manifest: BundleManifest): void {
     validateUniqueValues(pageFiles(manifest), "pages");
     validateExitCodeReference(manifest);
     validateJobServer(manifest);
+    validateResultDocument(manifest);
     validateSetupSteps(manifest.setup?.steps, "setup.steps");
     validateSetupSteps(manifest.uninstall?.steps, "uninstall.steps");
     for (const page of manifest.pages) {
@@ -62,6 +64,23 @@ function validateJobServer(manifest: BundleManifest): void {
     const timeout = jobServer.startupTimeoutSeconds;
     if (timeout != null && (typeof timeout !== "number" || !(timeout > 0))) {
         throw new BundleValidationError("Invalid jobServer.startupTimeoutSeconds: expected a positive number.");
+    }
+}
+
+function validateResultDocument(manifest: BundleManifest): void {
+    const spec = manifest.resultDocument;
+    if (spec == null) {
+        return;
+    }
+    if (!(resultDocumentFormats as readonly string[]).includes(spec.format)) {
+        throw new BundleValidationError(`Invalid resultDocument.format: expected one of ${resultDocumentFormats.join(", ")}.`);
+    }
+    if (!Array.isArray(spec.executables) || spec.executables.length === 0) {
+        throw new BundleValidationError("Invalid resultDocument.executables: expected at least one executable.");
+    }
+    spec.executables.forEach((executable, index) => requireNonEmpty(executable, `resultDocument.executables.${index}`));
+    if (spec.arguments != null && !(Array.isArray(spec.arguments) && spec.arguments.every((argument) => typeof argument === "string"))) {
+        throw new BundleValidationError("Invalid resultDocument.arguments: expected an array of strings.");
     }
 }
 

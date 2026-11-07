@@ -2,6 +2,7 @@ import { escapeAttribute, escapeHTML } from "./dom.js";
 import type { TerminalEntry, TerminalStatus } from "../../../shared/types.js";
 import { formatLabel } from "./model.js";
 import { state } from "./state.js";
+import { renderResultSummary } from "./result-view.js";
 import { renderTerminalText } from "./terminal-output.js";
 export { appendTerminalOutput, discardPendingTerminalOutput } from "./terminal-output.js";
 /** Cancels the run streaming into a terminal tab (actions and setup) when the tab is closed. */
@@ -39,7 +40,7 @@ export function renderTerminalPane() {
         </button>
         ${state.terminalCopyFeedback ? `<span class="terminal-copy-feedback" role="status">${escapeHTML(state.labels.terminalCopiedTextLabel ?? "Copied!")}</span>` : ""}
       </header>
-      <div class="terminal-log" data-terminal-log-id="${escapeAttribute(entry?.id ?? "")}" dir="${escapeAttribute(textDirection)}">${renderTerminal()}</div>
+      <div class="terminal-log" data-terminal-log-id="${escapeAttribute(entry?.id ?? "")}" dir="${escapeAttribute(textDirection)}">${renderTerminal()}${renderResultSummary(entry?.result)}</div>
     </section>
   `;
 }

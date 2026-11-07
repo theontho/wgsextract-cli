@@ -57,6 +57,15 @@ test("manifest validator rejects duplicate ids", () => {
   rejects((manifest) => { manifest.exitCodeReference.push({ code: "3", title: "T", summary: "S" }); }, /Duplicate id '3' at exitCodeReference/);
 });
 
+test("manifest validator checks the result document declaration", () => {
+  const manifest = validManifest();
+  manifest.resultDocument = { format: "wgsextract.result/1", executables: ["tool"], arguments: ["--json"] };
+  assert.doesNotThrow(() => validateManifest(manifest));
+  rejects((manifest) => { manifest.resultDocument = { format: "other/1", executables: ["tool"] }; }, /resultDocument\.format/);
+  rejects((manifest) => { manifest.resultDocument = { format: "wgsextract.result/1", executables: [] }; }, /resultDocument\.executables/);
+  rejects((manifest) => { manifest.resultDocument = { format: "wgsextract.result/1", executables: ["tool"], arguments: [1] }; }, /resultDocument\.arguments/);
+});
+
 test("manifest validator rejects paths that escape the bundle", () => {
   rejects((manifest) => { manifest.setup.steps[0].value = "../outside.sh"; }, /Invalid relative path at setup\.steps\.tool\.value/);
   rejects((manifest) => { manifest.setup.steps[0].value = "C:\\tools\\setup.ps1"; }, /Invalid relative path/);

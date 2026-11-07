@@ -265,6 +265,35 @@ test("POST /api/run/stream renders the referenced manifest action server-side", 
   assert.deepEqual(calls.runProcess.map((call) => [call.executable, call.args]), [["tool", ["HG001"]]]);
 });
 
+test("a declared result document is read from stdout, and only its files can be opened", async (t) => {
+  const { baseURL, calls, context, tempRoot } = await withTestServer(t);
+  context.manifest.resultDocument = { format: "wgsextract.result/1", executables: ["tool"], arguments: ["--json"] };
+  const output = path.join(tempRoot, "sample.cram");
+  await writeFile(output, "cram");
+  const document = { schema: "wgsextract.result/1", status: "ok", outputs: [{ path: output, role: "alignment", size_bytes: 4 }] };
+  context.runProcess = async (executable, args, options = {}) => {
+    calls.runProcess.push({ executable, args });
+    if (executable !== "tool") {
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    await options.onStderr?.("log line\n");
+    return { exitCode: 0, stdout: JSON.stringify(document), stderr: "log line\n" };
+  };
+
+  const events = await readNDJSON(await apiFetch(baseURL, "/api/run/stream", {
+    body: { action: { pageID: "main", sectionID: "run", actionID: "run" }, context: runContext },
+  }));
+  const unlisted = await apiFetch(baseURL, "/api/result/open", { body: { path: path.join(tempRoot, "index.html"), reveal: false } });
+  const listed = await apiFetch(baseURL, "/api/result/open", { body: { path: output, reveal: false } });
+
+  assert.deepEqual(events.map((event) => [event.type, event.stream]), [["start", undefined], ["output", "stderr"], ["complete", undefined]]);
+  assert.match(events[0].command, /tool HG001 --json$/);
+  assert.equal(events[2].result.resultDocument.outputs[0].role, "alignment");
+  assert.equal(unlisted.status, 403);
+  assert.equal(listed.status, 200);
+  assert.deepEqual(calls.runProcess.slice(1).map((call) => call.args), [[output]]);
+});
+
 test("POST /api/run/stream rejects command bodies and unknown actions without running anything", async (t) => {
   const { baseURL, calls } = await withTestServer(t);
 

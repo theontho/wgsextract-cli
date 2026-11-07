@@ -183,6 +183,24 @@ export function bindEvents(bootstrap: Bootstrap) {
             await runAction(action, context, reference);
         });
     });
+    elements("[data-result-open], [data-result-reveal]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const reveal = button.dataset.resultReveal != null;
+            try {
+                await api<void>("/api/result/open", { method: "POST", body: { path: button.dataset.resultReveal ?? button.dataset.resultOpen, reveal } });
+            }
+            catch (error) {
+                appendTerminal("error", state.labels.terminalProcessErrorTitle, errorMessage(error));
+                scheduleRender();
+            }
+        });
+    });
+    elements("[data-result-open-setup]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            state.activePageID = setupPageID();
+            await persistAndRender();
+        });
+    });
     elements("[data-terminal-tab]").forEach((button) => {
         button.addEventListener("click", () => {
             state.activeTerminalIndex = Number(button.dataset.terminalTab);
@@ -391,6 +409,7 @@ function resetBundleClientState() {
     state.loadingFileStates.clear();
     state.actionPrechecks.clear();
     state.actionPrecheckErrors.clear();
+    state.actionResultNotices.clear();
     state.loadingActionPrechecks.clear();
     state.setupRun = null;
     state.setupPreflight = null;

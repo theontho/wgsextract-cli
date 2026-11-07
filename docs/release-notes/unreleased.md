@@ -13,6 +13,12 @@ land; the release PR renames this file to vX.Y.Z.md (see docs/releasing.md). -->
   ([docs/commands.md](../commands.md)) and the site's CLI page start with the
   commands to run, in order, for a BAM/CRAM, FASTQ, VCF or consumer raw-data
   file. Both are generated from the command metadata.
+- **The desktop app reads each run's result manifest:** WGS Extract actions
+  list the files they wrote with **Open** and **Show in Folder**, and show
+  their warnings and key metrics, instead of leaving them in the log. A
+  refused option is shown next to the action, and a missing tool offers
+  **Open Setup**
+  ([#529](https://github.com/WGSExtract/wgsextract-cli/issues/529)).
 - `qc fastqc` fails if FastQC wrote no report, and warns (`no_reads`) when the
   input has no reads.
 

@@ -1231,6 +1231,83 @@ tbody tr + tr {
   font-style: italic;
 }
 
+.result-summary {
+  margin: 0 12px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.84rem;
+}
+
+.result-summary.failed {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
+.result-summary h3,
+.result-summary h4 {
+  margin: 8px 0 4px;
+  font-size: 0.9rem;
+}
+
+.result-summary h3 {
+  margin-top: 0;
+}
+
+.result-summary ul {
+  margin: 0;
+  padding-inline-start: 0;
+  list-style: none;
+}
+
+.result-summary li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.result-summary .result-error {
+  color: var(--danger);
+}
+
+.result-summary .result-role {
+  font-weight: 600;
+}
+
+.result-summary .result-path {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.result-summary .result-size {
+  color: var(--muted);
+}
+
+.result-summary .result-path-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.result-metrics {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.result-metrics dd {
+  margin: 0;
+}
+
+.result-summary details pre {
+  padding: 6px 0;
+}
+
+.result-notice button {
+  margin-top: 4px;
+}
+
 .terminal-log[dir="ltr"] pre {
   direction: ltr;
   text-align: left;

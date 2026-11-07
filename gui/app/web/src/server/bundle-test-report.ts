@@ -1,5 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { ResultDocument } from "../../../shared/result-document.js";
+import type { LooseRecord } from "../../../shared/types.js";
 import type { BundleTestEmit, BundleTestStep, BundleTestStepReport, BundleTestStepStatus } from "./bundle-test-types.js";
 
 type ReportValues = {
@@ -8,6 +10,7 @@ type ReportValues = {
     exitCode?: number | null;
     timedOut?: boolean;
     output?: string;
+    result?: LooseRecord | undefined;
     error?: string | null;
 };
 
@@ -33,6 +36,42 @@ export function outputExpectationFailure(output: string, step: BundleTestStep): 
     return failures.length ? failures.join(" ") : null;
 }
 
+/** Checks `expectedResult`: the status, the error kind, and that each output role exists on disk with its recorded size. */
+export async function resultExpectationFailure(document: ResultDocument | null | undefined, step: BundleTestStep, cwd: string): Promise<string | null> {
+    const expected = step.expectedResult;
+    if (!expected) {
+        return null;
+    }
+    if (document === undefined) {
+        return "expectedResult needs an action covered by the manifest's resultDocument.";
+    }
+    if (document === null) {
+        return "The action did not print a result document.";
+    }
+    const failures: string[] = [];
+    if (expected.status != null && document.status !== expected.status) {
+        failures.push(`Expected result status ${expected.status} but got ${document.status}.`);
+    }
+    if (expected.errorKind != null && document.error?.kind !== expected.errorKind) {
+        failures.push(`Expected result error kind ${expected.errorKind} but got ${document.error?.kind ?? "none"}.`);
+    }
+    for (const role of expected.outputs ?? []) {
+        const output = document.outputs.find((candidate) => candidate.role === role);
+        if (!output) {
+            failures.push(`Result lists no output with role ${role}.`);
+            continue;
+        }
+        const size = await stat(path.resolve(cwd, output.path)).then((info) => info.size, () => null);
+        if (size == null) {
+            failures.push(`Output ${role} is missing on disk: ${output.path}`);
+        }
+        else if (output.sizeBytes != null && size !== output.sizeBytes) {
+            failures.push(`Output ${role} is ${size} bytes on disk but the result recorded ${output.sizeBytes}: ${output.path}`);
+        }
+    }
+    return failures.length ? failures.join(" ") : null;
+}
+
 export function makeReport(step: BundleTestStep, index: number, started: Date, status: BundleTestStepStatus, values: ReportValues = {}): BundleTestStepReport {
     const finished = new Date();
     return {
@@ -48,6 +87,7 @@ export function makeReport(step: BundleTestStep, index: number, started: Date, s
         finishedAt: finished.toISOString(),
         durationSeconds: (finished.getTime() - started.getTime()) / 1000,
         output: String(values.output ?? ""),
+        ...(values.result ? { result: values.result } : {}),
         error: values.error == null ? null : String(values.error),
     };
 }
