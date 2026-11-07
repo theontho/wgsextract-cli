@@ -321,9 +321,10 @@ Data attribution/copyright: **CC-BY-SA Thomas Krahn YSEQ (2022).**
 The exact statement and source attribution are retained in the local manifest
 and output VCF header. The upstream grant does not specify a CC-BY-SA version:
 clarify it before redistributing adapted data. These commands perform local
-processing, not a licensed-data mirror. (The YFull tree pack for
-`lineage y-haplogroup` does redistribute YBrowse-derived positions, with this
-attribution and a share-alike notice; see the Yleaf module README.)
+processing, not a licensed-data mirror. (The `yfull-ybrowse-positions` data
+module for `lineage y-haplogroup` does redistribute YBrowse-derived positions,
+separately from the program, with this attribution and a share-alike notice;
+see [Data licences](#data-licences).)
 
 Calling never downloads or refreshes resources. It validates installed
 samtools/bcftools/bgzip/tabix, checks an indexed matching GRCh38 FASTA and rejects
@@ -693,6 +694,25 @@ Options include `--real-input`, `--real-ref`, `--real-vcf`, `--real-region`, `--
 
 To cut a release, and get it into the WGS Extract app, see [docs/releasing.md](docs/releasing.md).
 
+## Data licences
+
+WGS Extract is GPL-3.0 software. The reference data it downloads at run time
+comes as separate data modules, each carrying its own licence. Data modules
+are not part of the program, and their licences don't apply to it. Each is
+pinned by SHA-256 and fetched into the reference library only when a command
+needs it.
+
+| Data module | Used by | Licence |
+|---|---|---|
+| `yfull-tree` | `lineage y-haplogroup --tree yfull` (default) | CC-BY-4.0, YFull |
+| `yfull-ybrowse-positions` | the same, unless `--pos-file` is given | CC-BY-SA (version not stated), Thomas Krahn YSEQ (2022) |
+| Yleaf data `v4.1.6` | `lineage y-haplogroup` QC tables and the other trees | GPL-3.0-or-later, Yleaf |
+| YBrowse SNP VCF | `ref ybrowse --install`, `extract ydna-vcf --ybrowse` | CC-BY-SA, Thomas Krahn YSEQ; downloaded from ybrowse.org, not redistributed |
+
+The YFull modules print a one-line licence notice when first downloaded; see
+the [native Yleaf README](src/wgsextract_cli/ydna/yleaf_native/README.md#trees).
+
 ## License
 
-Distributed under the GPL-3.0 License. See `LICENSE`.
+Distributed under the GPL-3.0 License. See `LICENSE`. Downloaded data modules
+have their own licences; see [Data licences](#data-licences).
