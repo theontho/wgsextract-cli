@@ -85,23 +85,62 @@ The batches, the threads' buffers and the sort's buffers fill only as reads
 arrive, so each is capped at 96 bytes per byte of read file (at least one
 thread's buffers stay): a read file smaller than about 30 MB fills one smaller
 batch, and a few-MB FASTQ at many threads is not budgeted gigabytes of sort
-memory. It was calibrated with minimap2 2.31 on hs38 (3.10 Gbases),
-4 threads:
+memory.
+
+Long-read presets (every preset but `sr`) are budgeted as the larger of two
+phases. While the index builds, no reads reach the sort and the decoder waits
+on its pipe, so that phase is the build's peak plus the fixed overhead. While
+mapping, the index, the batches, 0.85 GiB of buffers per thread at a 20 kb mean
+read length (scaled up for longer reads; the mean is sampled from the input),
+samtools sort's 1.75 × `--memory` per thread, the fixed overhead and 1 GiB for
+the CRAM/FASTQ decoder are summed, plus 10%: the whole-genome peaks below were
+measured in a full cgroup, so they are lower bounds. It was calibrated with
+minimap2 2.31 on hs38 (3.10 Gbases):
 
 | Measurement | Measured peak | Estimate |
 | --- | ---: | ---: |
 | Index build, `map-ont` / `map-hifi` and `lr:hq` / `map-pb` / `sr` | 11.17 / 11.11 / 8.62 / 11.31 GiB | 11.40 / 11.40 / 9.75 / 12.58 GiB |
-| Mapping 40k HG002 ONT reads (20 kb mean) from the `map-ont` index | 10.93 GiB | 11.40 GiB |
-| ONT chr20 `realign`, `--memory 512M` (#299, whole pipeline) | 14.8 GB | 14.40 GiB (15.5 GB) |
+| Mapping 40k HG002 ONT reads (20 kb mean) from the `map-ont` index, 4 threads | 10.93 GiB | 12.68 GiB |
+| ONT chr20 `realign`, 4 threads, `--memory 512M` (#299, whole pipeline) | 14.8 GB | 19.45 GiB (20.9 GB) |
+| Whole-genome HG002 ONT `realign` (#475, 103.7 GB CRAM), 5 threads, `--memory 256M` | ≥ 15.46 GiB (killed for lack of memory) | 18.94 GiB |
+| The same, 4 threads, `--memory 192M` | ≥ 15.26 GiB | 17.05 GiB |
+
+Before #475 the whole-genome run at 5 threads was estimated at 13.85 GiB,
+reported to fit in 15.46 GiB, and was killed for lack of memory after 5 hours:
+minimap2 alone peaked 5.8 GiB above its index, samtools sort held 1.65–1.7 ×
+`--memory` per thread, and `samtools fastq` peaked at 1.0 GiB. Short slices
+peak lower, so their estimates are conservative.
 
 When the estimate exceeds the available memory (the cgroup limit included),
 `align` and `realign` log a structured `alignment_memory` warning before
 minimap2 starts. It suggests the most threads, then the largest per-thread
 `--memory` (down to 256M), that fit, or says that even one thread does not. The
 run then continues as requested. minimap2's index takes the same memory however
-few threads it has, so on hs38 no setting fits in less than about 12 GiB.
+few threads it has, so on hs38 no setting fits in less than about 12–13 GiB.
 WGSExtract does not offer minimap2's `-I` (split index): a split index of hs38
 needs `--split-prefix` and a merge pass, and maps more slowly.
+
+### Long-read disk
+
+Long-read `align` and `realign` scale their disk estimates with the input's
+size, not a per-read size. minimap2's `-Y` keeps every supplementary alignment's
+full read, quality and tags, and HG002 ONT has many: chromosomes 1, 2, 5, 12
+and X carried 1.42–1.70 bases of mapped records per input base (about 1.55
+genome-wide). The figures are bytes per byte of input CRAM (BAM inputs count
+1.76 CRAM bytes per byte, bgzipped FASTQ 1.39 and plain FASTQ 3.3):
+
+| Item | Estimate | Measured (#474) |
+| --- | ---: | ---: |
+| samtools sort spills | 3.0 | whole-genome run 2.65–2.8 when stopped at 12% of the input; full-hs38 slice 3.35 |
+| Extra spill while sort merges 32 spill files into one | 33 × 0.65 × `--memory` per thread, up to the spills | samtools 1.24's merge |
+| Output CRAM / BAM | 1.7 / 2.6 | slice CRAM 1.90 (1.91 bases per base); genome-wide about 1.5 |
+| Tagged bgzipped FASTQ (`realign`) | 1.45 | 1.39 |
+
+`realign --tmp-dir` on another volume needs the spills there, and the output and
+FASTQ in the output directory. For the 103.7 GB HG002 ONT CRAM at `--threads 5
+--memory 256M` that is about 316 GiB of scratch and 164 GiB of output plus 141
+GiB of FASTQ. Before #474 the guard asked for 376 GiB of scratch; the
+whole-genome run stopped at 12% of its input had already spilled 33.6 GB.
 
 ## NVIDIA GPUs (Parabricks)
 

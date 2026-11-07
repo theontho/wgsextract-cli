@@ -56,6 +56,35 @@ def test_alignment_sample_reports_the_largest_bam_record_of_any_kind(tmp_path):
     assert sample.max_record_bytes == 4 + 4 + 15 + 504 + 7 + 20
 
 
+def test_fasta_read_length_samples_wrapped_and_gzipped_reads(tmp_path):
+    """#484 review: long-read FASTA inputs fell back to a 20 kb mean."""
+    reads = "".join(
+        f">r{i}\n" + "\n".join(["A" * 60] * (n // 60)) + "\n"
+        for i, n in enumerate((60_000, 120_000))
+    )
+    path = tmp_path / "reads.fa.gz"
+    path.write_bytes(gzip.compress(reads.encode()))
+    assert read_counts.fasta_read_length(path) == 90_000
+
+
+@needs_tools("samtools")
+def test_single_end_sample_averages_long_reads_but_not_their_supplementaries(
+    tmp_path,
+):
+    """#475: minimap2's long-read buffers scale with the input's read length,
+    which the paired-only sample never saw."""
+    records = ["@HD\tVN:1.6\tSO:unsorted", "@SQ\tSN:c\tLN:100000"]
+    records += [
+        f"r{i}\t4\t*\t0\t0\t*\t*\t0\t0\t{'A' * n}\t{'5' * n}"
+        for i, n in enumerate((20_000, 40_000))
+    ]
+    records.append(f"r0\t2048\tc\t1\t0\t9M\t*\t0\t0\t{'A' * 9}\t{'5' * 9}")
+    source = sam_to_bam(records, tmp_path / "ont.bam")
+    assert read_counts.alignment_sample(source).read_length is None
+    sample = read_counts.alignment_sample(source, single_end=True)
+    assert sample.read_length == 30_000
+
+
 @needs_tools("samtools")
 def test_alignment_length_sampling_bounds_unpaired_input_scanning(tmp_path):
     records = ["@HD\tVN:1.6\tSO:unsorted"]

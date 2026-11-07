@@ -204,7 +204,7 @@ def print_warning(
         logging.warning(f"!!! {MESSAGES[action_key]} !!!")
 
 
-def check_free_space(path: PathInput, required_gb: int) -> bool:
+def check_free_space(path: PathInput, required_gb: float) -> bool:
     """Helper to check if a path has enough free space."""
     if not Path(path).exists():
         return True  # Can't check if path doesn't exist yet
@@ -214,7 +214,7 @@ def check_free_space(path: PathInput, required_gb: int) -> bool:
     if free_gb < required_gb:
         logging.warning(f"!!! {MESSAGES['insufficient_disk_title']} !!!")
         msg = MESSAGES["insufficient_disk_msg"].format(
-            detected=f"{free_gb:.1f}", path=path, needed=required_gb
+            detected=f"{free_gb:.1f}", path=path, needed=math.ceil(required_gb)
         )
         for line in msg.split("\n"):
             logging.warning(f"!!! {line} !!!")

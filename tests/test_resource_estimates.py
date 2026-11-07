@@ -1,7 +1,9 @@
 import argparse
+import gzip
 import json
 import logging
 import platform as host_platform
+import random
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -593,3 +595,57 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
                 "1",
                 "--no-preflight",
             )
+
+
+def test_long_read_disk_reads_compression_from_the_file_and_counts_fastqs(tmp_path):
+    """#484 review: a gzipped FASTQ named reads.fq was sized as plain text, and
+    a long-read realign's extracted FASTQs made the disk estimate unknown."""
+    rng = random.Random(484)
+    fastq = "".join(
+        f"@r{i}\n{''.join(rng.choices('ACGT', k=5000))}\n+\n{'5' * 5000}\n"
+        for i in range(50)
+    )
+    disks = []
+    for name in ("reads.fq.gz", "reads.fq"):
+        path = tmp_path / name
+        path.write_bytes(gzip.compress(fastq.encode()))
+        estimate = resources.estimate_resources(
+            "align", input_paths=[str(path)], output_dir=str(tmp_path),
+            aligner="minimap2", preset="map-ont", output_format="CRAM",
+        )  # fmt: skip
+        [disk] = [disk for disk in estimate.resources[1:] if disk.paths]
+        disks.append(disk.estimated_bytes)
+    assert disks[0] is not None and disks[0] == disks[1]
+
+    cram = tmp_path / "ont.cram"
+    cram.write_bytes(b"\0" * 10**6)
+    estimate = resources.estimate_resources(
+        "realign", input_paths=[str(cram)], output_dir=str(tmp_path),
+        aligner="minimap2", preset="map-ont", extract_fastq=True,
+    )  # fmt: skip
+    [disk] = [disk for disk in estimate.resources[1:] if disk.paths]
+    assert disk.estimated_bytes is not None
+    assert 10**6 < disk.components["extracted_fastqs"] < 3 * 10**6
+
+
+def test_long_read_disk_covers_the_measured_spills_and_cram_output():
+    """#474: the long-read CRAM -> CRAM realign disk budget must not fall below
+    what samtools sort and the CRAM writer were measured to use."""
+    mib = 1024**2
+    # measured: out/474-475/spill-hs38/result.txt, HG002 ONT chr20 slice onto
+    # hs38, samtools sort -@1 -m 8M: 70,339,983 B of CRAM in, a 310,407,552 B
+    # spill peak and 133,758,318 B of CRAM out.
+    small = resources.long_read_disk("chr20.cram", 70_339_983, "CRAM", 8 * mib)
+    assert small.spill >= 310_407_552
+    # measured: out/474-475/supplementary_inflation.txt, minimap2 -Y adds 1.91x
+    # the bases as supplementary records in that slice but at most 1.70x in the
+    # genome regions sampled; the CRAM output grows with them.
+    assert small.output >= 133_758_318 * 1.70 / 1.91
+
+    # measured: out/474-475/attempt2_spill_progress.txt, #431 attempt 2
+    # (--threads 4 --memory 192M, so a 4 x 192 MiB sort buffer): 42,570,898,460
+    # B of spills mid-merge once 10,728,434,251 B of the CRAM had been read.
+    genome = resources.long_read_disk(
+        "PAO83395.pass.cram", 10_728_434_251, "CRAM", 4 * 192 * mib
+    )
+    assert genome.spill > 42_570_898_460
