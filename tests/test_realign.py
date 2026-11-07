@@ -7,7 +7,6 @@ import random
 import re
 import shutil
 import sys
-from argparse import Namespace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -15,7 +14,9 @@ import pytest
 
 from tests.fake_tools import FakeParabricks
 from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
+from wgsextract_cli.api.align import RealignParams
 from wgsextract_cli.commands import realign
+from wgsextract_cli.commands.realign import RealignJob
 from wgsextract_cli.core import alignment_memory, parabricks
 from wgsextract_cli.core.alignment_memory import MappingMemory
 from wgsextract_cli.core.config import settings
@@ -27,27 +28,14 @@ FRAG = 300
 
 def _args(source, **overrides):
     values = {
-        "input": str(source),
-        "ref": None,
-        "outdir": None,
-        "threads": "2",
+        "input": source,
+        "threads": 2,
         "memory": "100M",
-        "r1": None,
-        "r2": None,
-        "input_ref": None,
-        "force_extract": False,
         "no_preflight": True,
-        "keep_fastq": False,
-        "aligner": "auto",
         "platform": "illumina",
-        "long_read": False,
-        "preset": None,
-        "gpu": False,
-        "sample": None,
-        "format": "BAM",
     }
     values.update(overrides)
-    return Namespace(**values)
+    return RealignParams(**values)
 
 
 def _view(*args):
@@ -153,7 +141,7 @@ def test_realign_cram_decoded_with_library_reference_and_fastqs_kept(
 
 def test_realign_requires_existing_input(tmp_path):
     with pytest.raises(WGSExtractError, match="--input <BAM|CRAM> is required"):
-        realign.run(_args(None, input=None))
+        _args(None, input=None)
     with pytest.raises(WGSExtractError, match="--input"):
         realign.run(_args(tmp_path / "missing.bam"))
 
@@ -161,11 +149,11 @@ def test_realign_requires_existing_input(tmp_path):
 def test_cram_input_ref_must_exist(tmp_path):
     with pytest.raises(WGSExtractError, match="--input-ref"):
         realign._input_cram_reference(
-            Namespace(input="in.cram", input_ref=str(tmp_path / "gone.fa"))
+            RealignJob(input="in.cram", input_ref=str(tmp_path / "gone.fa"))
         )
     (tmp_path / "old.fa").write_text(">c\nA\n")
     opt = realign._input_cram_reference(
-        Namespace(input="in.CRAM", input_ref=str(tmp_path / "old.fa"))
+        RealignJob(input="in.CRAM", input_ref=str(tmp_path / "old.fa"))
     )
     assert opt == ["-T", str(tmp_path / "old.fa")]
 
@@ -704,7 +692,7 @@ def test_stream_overlap_without_ram_uses_files_without_changing_aligner(
         fakes.align(args)
         chosen.append(
             realign.align_cmd.short_read_aligner(
-                args.aligner, str(ref), reads=args._input_read_count
+                args.aligner, str(ref), reads=args.read_count
             )
         )
 
@@ -750,7 +738,7 @@ def test_whole_genome_input_streams_when_its_collate_bucket_fits_ram(
     monkeypatch.setattr(realign, "resolve_reference", lambda *_a: None)
     monkeypatch.setattr(realign.align_cmd, "available_memory", lambda: gib * 1024**3)
     monkeypatch.setattr(realign, "available_memory", lambda: gib * 1024**3)
-    realign.run(_args(source, aligner="bwa", threads="8", memory="2G"))
+    realign.run(_args(source, aligner="bwa", threads=8, memory="2G"))
     if gib == 64:
         assert fakes.streamed and not fakes.extracted
     else:
@@ -799,7 +787,7 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
     )
 
     def align(args, **_kwargs):
-        budgets.append(("align", args._input_read_count))
+        budgets.append(("align", args.read_count))
         _write_alignment(args)
 
     monkeypatch.setattr(realign.align_cmd, "run", align)
@@ -835,7 +823,7 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
     monkeypatch.setattr(realign, "indexed_read_count", count)
 
     def align_ultima(args, *_a):
-        calls.append(("align", args._input_read_count))
+        calls.append(("align", args.read_count))
         Path(tmp_path, "x_aligned.bam").write_text("aligned")
         Path(tmp_path, "x_aligned.bam.bai").write_text("index")
 
@@ -877,7 +865,7 @@ def test_force_step_index_reindexes_an_alignment_its_aligner_indexed(
     realign.run(_args(source, **args))
     assert calls == ["align"]
 
-    realign.run(_args(source, **{**args, "force_steps": ["index"]}))
+    realign.run(_args(source, **{**args, "force_steps": ("index",)}))
     assert calls == ["align"]
     assert Path(f"{out}.bai").read_bytes().startswith(b"BAI\x01")
 

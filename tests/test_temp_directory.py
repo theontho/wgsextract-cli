@@ -4,7 +4,6 @@ import random
 import re
 import shutil
 import threading
-from argparse import Namespace
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -352,10 +351,10 @@ def test_gatk_workspace_uses_the_selected_volume(tmp_path):
 
 
 def test_native_pbmm2_rejects_an_unsupported_internal_sort_override(tmp_path):
-    from wgsextract_cli.commands.align import align_pbmm2
+    from wgsextract_cli.commands.align import AlignJob, align_pbmm2
 
     with (
         run_temporary_directory(tmp_path),
         pytest.raises(WGSExtractError, match="internal sorter"),
     ):
-        align_pbmm2(Namespace(gpu=False))
+        align_pbmm2(AlignJob(gpu=False))

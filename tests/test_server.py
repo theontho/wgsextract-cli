@@ -1,18 +1,22 @@
 """`wgsextract serve` (#351): the typed API over local HTTP/JSON and MCP."""
 
 import contextlib
+import gzip
 import http.client
+import importlib.util
 import json
 import ntpath
 import os
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
 import typing
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -331,6 +335,25 @@ def test_hla_typing_building_its_library_index_waits_for_a_busy_library(
                 "ref": str(library / "genomes" / "ref.fa"),
                 "outdir": str(other),
             },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_a_methylation_run_waits_while_its_reference_folder_is_busy(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #493 review: an unindexed reference is indexed beside itself.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    shutil.copy(ref, work / "ref.fa")
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        request = {"input": str(bam), "ref": str(work / "ref.fa")}
+        status, second = client.request(
+            "POST", "/ops/methylation/pileup", {**request, "outdir": str(other)}
         )
         assert status == 202, second
         assert (first["status"], second["status"]) == ("running", "queued")
@@ -1167,6 +1190,33 @@ def test_caller_paths_cover_every_file():
     )
 
 
+_METHYLATION_PATHS = [
+    item
+    for item in find("methylation/pileup").fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize("field", [item.name for item in _METHYLATION_PATHS])
+@pytest.mark.parametrize(
+    "value", ["D:evil.bam", r"D:\evil.bam", r"\\host\share\evil.bam", r"sub\evil.bam"]
+)
+def test_path_guard_covers_every_methylation_path(field, value):
+    # #478: `methylation pileup` became a server operation; every file or
+    # folder it reads or writes must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    op = find("methylation/pileup")
+    guard.check(params_from_json(op, {**allowed, "region": "chr20:1-9,chr21"}))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(op, {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_methylation_paths_cover_every_file():
+    assert {item.name for item in _METHYLATION_PATHS} == {"input", "ref", "outdir"}
+
+
 # Each backend's region list: DeepVariant splits on whitespace, Parabricks
 # (deepvariant/gatk --gpu) and GATK on commas.
 _REGION_LISTS = [
@@ -1686,6 +1736,40 @@ def test_mcp_offers_deleting_tools_only_with_allow_destructive(work):
     assert allowed.close() == 0
 
 
+def _pharmcat_run(sample: Path, folder: Path) -> None:
+    """A `vcf pharmcat` manifest in ``sample`` whose phenotypes are in ``folder``."""
+    phenotypes = {
+        "geneReports": {
+            "CYP2C19": {
+                "recommendationDiplotypes": [
+                    {
+                        "allele1": {"name": "*1"},
+                        "allele2": {"name": "*17"},
+                        "phenotypes": ["Rapid Metabolizer"],
+                    }
+                ]
+            }
+        }
+    }
+    evidence = folder / "HG002.phenotype.json"
+    evidence.write_text(json.dumps(phenotypes))
+    manifest = sample / "HG002.phenotype.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "wgsextract.result/1",
+                "command": "vcf pharmcat",
+                "status": "ok",
+                "exit_code": 0,
+                "inputs": [{"path": str(sample / "HG002.vcf.gz"), "role": "input"}],
+                "outputs": [{"path": str(evidence), "role": "pharmcat_phenotypes"}],
+                "manifest": str(manifest),
+                "provenance": {"finished": "2025-01-01T00:00:00+00:00"},
+            }
+        )
+    )
+
+
 @pytest.mark.parametrize("through_link", [False, True])
 def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
     tmp_path, work, through_link
@@ -1705,38 +1789,6 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
     sample.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    phenotypes = {
-        "geneReports": {
-            "CYP2C19": {
-                "recommendationDiplotypes": [
-                    {
-                        "allele1": {"name": "*1"},
-                        "allele2": {"name": "*17"},
-                        "phenotypes": ["Rapid Metabolizer"],
-                    }
-                ]
-            }
-        }
-    }
-
-    def pharmcat_run(folder: Path) -> None:
-        evidence = folder / "HG002.phenotype.json"
-        evidence.write_text(json.dumps(phenotypes))
-        manifest = sample / "HG002.phenotype.manifest.json"
-        manifest.write_text(
-            json.dumps(
-                {
-                    "schema": "wgsextract.result/1",
-                    "command": "vcf pharmcat",
-                    "status": "ok",
-                    "exit_code": 0,
-                    "inputs": [{"path": str(sample / "HG002.vcf.gz"), "role": "input"}],
-                    "outputs": [{"path": str(evidence), "role": "pharmcat_phenotypes"}],
-                    "manifest": str(manifest),
-                    "provenance": {"finished": "2025-01-01T00:00:00+00:00"},
-                }
-            )
-        )
 
     def genes(job: dict[str, Any]) -> set[str]:
         assert job["status"] == "succeeded", job
@@ -1751,9 +1803,9 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
         return genes(client.request("POST", "/ops/report?wait=120", body)[1])
 
     with _serve(tmp_path, [allowed]) as client:
-        pharmcat_run(sample)
+        _pharmcat_run(sample, sample)
         assert over_http(client) == {"CYP2C19"}
-        pharmcat_run(outside)
+        _pharmcat_run(sample, outside)
         assert over_http(client) == set()
     mcp = Mcp("--allow", str(allowed), "--allow-jobs")
 
@@ -1763,7 +1815,7 @@ def test_a_server_report_reads_no_evidence_outside_the_allowed_folders(
         return genes(job["structuredContent"])
 
     assert over_mcp() == set()
-    pharmcat_run(sample)
+    _pharmcat_run(sample, sample)
     assert over_mcp() == {"CYP2C19"}
     assert mcp.close() == 0
 
@@ -1813,3 +1865,283 @@ def test_a_server_report_never_touches_a_refused_recorded_path(
     report = json.loads((sample / "HG002_personal_report.json").read_text())
     assert report["sections"]["pharmacogenomics"]["findings"] == []
     assert [f["exists"] for f in report["sections"]["microarray"]["files"]] == [False]
+
+
+_TABLE_HEADER = """##fileformat=VCFv4.2
+##contig=<ID=chr1,length=1000>
+##contig=<ID=chr2,length=1000>
+##INFO=<ID=CLNSIG,Number=.,Type=String,Description="ClinVar significance">
+##INFO=<ID=WGSE_CONF,Number=A,Type=String,Description="Confidence">
+##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Allele|Consequence|IMPACT|SYMBOL">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1
+"""
+# (chrom, pos, id, ref, alt, gene, ClinVar, confidence)
+_TABLE_RECORDS = [
+    ("chr1", 100, "rs1", "A", "G", "GENEA", "Pathogenic", "high"),
+    ("chr1", 200, "rs2", "C", "T", "GENEA", "Likely_pathogenic", "moderate"),
+    ("chr1", 300, "rs22", "G", "A", "GENEB", "Benign", "low"),
+    ("chr1", 400, "rs4", "T", "C", "GENEB", "Pathogenic/Likely_pathogenic", "high"),
+    ("chr2", 50, "rs5", "A", "T", "GENEC", None, "high"),
+]
+
+
+@pytest.fixture
+def variant_tables(work: Path) -> dict[str, Path]:
+    from tests.htslib_helpers import bgzip_index, run_wgsextract
+
+    lines = [
+        "\t".join(
+            [
+                chrom,
+                str(pos),
+                rsid,
+                ref,
+                alt,
+                "50",
+                "PASS",
+                ";".join(
+                    ([f"CLNSIG={clnsig}"] if clnsig else [])
+                    + [
+                        f"WGSE_CONF={conf}",
+                        f"CSQ={alt}|missense_variant|MODERATE|{gene}",
+                    ]
+                ),
+                "GT",
+                "0/1",
+            ]
+        )  # fmt: skip
+        for chrom, pos, rsid, ref, alt, gene, clnsig, conf in _TABLE_RECORDS
+    ]
+    plain = work / "sample.vcf"
+    plain.write_text(_TABLE_HEADER + "\n".join(lines) + "\n")
+    vcf = bgzip_index(plain)
+    run_wgsextract("vcf", "table", "--vcf-input", vcf, "--outdir", str(work))
+    tables = {
+        "sqlite": work / "sample_variants.sqlite",
+        "tsv": work / "sample_variants.tsv",
+    }
+    if importlib.util.find_spec("pyarrow"):
+        run_wgsextract(
+            "vcf", "table", "--vcf-input", vcf, "--outdir", str(work),
+            "--no-sqlite", "--format", "parquet",
+        )  # fmt: skip
+        tables["parquet"] = work / "sample_variants.parquet"
+    return tables
+
+
+@pytest.mark.parametrize("kind", ["sqlite", "tsv", "parquet"])
+def test_variant_lookups_filter_and_page_every_table_format(
+    tmp_path, work, variant_tables, kind
+):
+    if kind not in variant_tables:
+        pytest.skip("pyarrow not installed")
+    table = variant_tables[kind]
+
+    def lookup(**query: Any) -> tuple[int, Any]:
+        text = urllib.parse.urlencode({"path": str(table), **query})
+        return client.request("GET", f"/variants?{text}")
+
+    def positions(**query: Any) -> list[tuple[str, int]]:
+        status, answer = lookup(**query)
+        assert status == 200, answer
+        return [(row["chrom"], row["pos"]) for row in answer["rows"]]
+
+    with _serve(tmp_path, [work]) as client:
+        assert positions(gene="GENEA") == [("chr1", 100), ("chr1", 200)]
+        # rs2 is not rs22.
+        assert positions(rsid="rs2") == [("chr1", 200)]
+        assert positions(region="chr1:150-350") == [("chr1", 200), ("chr1", 300)]
+        assert positions(region="chr1:300") == [("chr1", 300)]
+        assert positions(region="chr2") == [("chr2", 50)]
+        assert positions(clinvar="likely_pathogenic") == [("chr1", 200), ("chr1", 400)]
+        assert positions(min_confidence="moderate", gene="GENEB") == [("chr1", 400)]
+        status, answer = lookup(gene="GENEB", columns="pos,clinvar_significance")
+        assert answer["rows"] == [
+            {"pos": 300, "clinvar_significance": "Benign"},
+            {"pos": 400, "clinvar_significance": "Pathogenic/Likely_pathogenic"},
+        ]
+
+        # Review of #351 PR B: OpenAPI clients repeat array parameters, and
+        # a region past SQLite's integers was a 500.
+        status, answer = client.request(
+            "GET",
+            f"/variants?path={urllib.parse.quote(str(table))}&rsid=rs4"
+            "&columns=pos&columns=gene",
+        )
+        assert answer["rows"] == [{"pos": 400, "gene": "GENEB"}]
+        assert positions(region=f"chr1:{10**20}-{10**21}") == []
+
+        pages: list[list[int]] = []
+        cursor = ""
+        while cursor is not None:
+            status, answer = lookup(limit=2, **({"cursor": cursor} if cursor else {}))
+            pages.append([row["pos"] for row in answer["rows"]])
+            cursor = answer["next_cursor"]
+        assert pages == [[100, 200], [300, 400], [50]]
+        status, answer = lookup(gene="GENEB", limit=1)
+        assert [row["pos"] for row in answer["rows"]] == [300]
+        status, answer = lookup(gene="GENEB", limit=1, cursor=answer["next_cursor"])
+        assert ([row["pos"] for row in answer["rows"]], answer["next_cursor"]) == (
+            [400],
+            None,
+        )
+
+        # Review of #487: an empty start or end, a non-ASCII digit and a
+        # cursor past SQLite's integers were 500s.
+        for bad in (
+            {"limit": 0}, {"rsid": "2"}, {"region": "chr1:9-1"}, {"x": 1},
+            {"region": "chr1:,"}, {"region": "chr1:1-,"}, {"cursor": "\u00b2"},
+            {"cursor": str(2**63)}, {"cursor": "-1"},
+        ):  # fmt: skip
+            status, answer = lookup(**bad)
+            assert (status, answer["error"]["code"]) == (400, "usage"), bad
+        outside = tmp_path / table.name
+        shutil.copy(table, outside)
+        status, answer = client.request(
+            "GET", f"/variants?{urllib.parse.urlencode({'path': str(outside)})}"
+        )
+        assert (status, answer["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_unreadable_variant_tables_are_refused_not_failed(
+    tmp_path, work, variant_tables, monkeypatch
+):
+    # Review of #351 PR B: a truncated download and a missing pyarrow were
+    # internal errors (500) instead of saying what's wrong.
+    whole = gzip.compress(variant_tables["tsv"].read_bytes() * 200)
+    truncated = work / "cut_variants.tsv.gz"
+    truncated.write_bytes(whole[: len(whole) // 2])
+    parquet = work / "sample_variants.parquet"
+    parquet.touch()
+    monkeypatch.setitem(sys.modules, "pyarrow.parquet", None)
+    with _serve(tmp_path, [work]) as client:
+        for table in (truncated, parquet):
+            text = urllib.parse.urlencode({"path": str(table), "limit": 1000})
+            status, answer = client.request("GET", f"/variants?{text}")
+            assert (status, answer["error"]["code"]) == (400, "usage"), table
+        assert "pyarrow" in answer["error"]["message"]
+
+
+def test_report_lookup_reads_a_samples_newest_report(tmp_path, work):
+    from tests.htslib_helpers import run_wgsextract
+
+    sample = work / "HG002"
+    sample.mkdir()
+    _pharmcat_run(sample, sample)
+    run_wgsextract("report", "--workspace", str(sample))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    def lookup(path: Path, **query: Any) -> tuple[int, Any]:
+        text = urllib.parse.urlencode({"path": str(path), **query})
+        return client.request("GET", f"/report?{text}")
+
+    with _serve(tmp_path, [work]) as client:
+        status, answer = lookup(sample)
+        assert status == 200, answer
+        assert answer["sample"]["name"] == "HG002" and answer["disclaimer"]
+        overview = answer["sections"]["pharmacogenomics"]
+        assert overview["summary"] and "findings" not in overview
+        status, answer = lookup(sample, section="pharmacogenomics")
+        assert [f["gene"] for f in answer["findings"]] == ["CYP2C19"]
+        assert lookup(sample, section="nope")[0] == 400
+        assert lookup(work)[1]["error"]["code"] == "no_report"
+        assert lookup(outside)[1]["error"]["code"] == "path_not_allowed"
+
+        # Review of #487: a dangling report link was a 500; it is skipped.
+        try:
+            (sample / "HG004_personal_report.json").symlink_to(work / "gone.json")
+        except OSError:
+            pass
+        else:
+            status, answer = lookup(sample)
+            assert (status, answer["sample"]["name"]) == (200, "HG002"), answer
+
+        # Review of #487: a report whose sections aren't a mapping was a 500.
+        report = sample / "HG002_personal_report.json"
+        broken = work / "broken_personal_report.json"
+        for sections in (["pharmacogenomics"], {"pgx": "text"}):
+            document = json.loads(report.read_text())
+            broken.write_text(json.dumps({**document, "sections": sections}))
+            status, answer = lookup(broken)
+            assert (status, answer["error"]["code"]) == (400, "usage"), sections
+
+        # A newer report reached through a link must still be inside.
+        report = sample / "HG002_personal_report.json"
+        elsewhere = outside / "HG003_personal_report.json"
+        shutil.copy(report, elsewhere)
+        try:
+            (sample / elsewhere.name).symlink_to(elsewhere)
+        except OSError:
+            return
+        os.utime(elsewhere, (time.time() + 60, time.time() + 60))
+        status, answer = lookup(sample)
+        assert (status, answer["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_a_lookup_refuses_a_boolean_it_cannot_read(tmp_path, work):
+    # Review of #487: full=maybe quietly meant false.
+    manifest = work / "snps.vcf.manifest.json"
+    with _serve(tmp_path, [work]) as client:
+        for value in ("maybe", "2", "Yes", "0"):
+            text = urllib.parse.urlencode({"path": str(manifest), "full": value})
+            status, answer = client.request("GET", f"/manifest?{text}")
+            # A readable value gets as far as looking for the (absent) file.
+            expected = (400, "usage") if value in ("maybe", "2") else (404,)
+            assert (status, answer["error"]["code"])[: len(expected)] == expected
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permissions that bind the user",
+)
+def test_an_unreadable_variant_database_is_a_usage_error(
+    tmp_path, work, variant_tables
+):
+    # Review of #487: opening it raised outside the error handling (a 500).
+    db = work / "locked_variants.sqlite"
+    shutil.copy(variant_tables["sqlite"], db)
+    db.chmod(0)
+    try:
+        with _serve(tmp_path, [work]) as client:
+            text = urllib.parse.urlencode({"path": str(db)})
+            status, answer = client.request("GET", f"/variants?{text}")
+    finally:
+        db.chmod(0o600)
+    assert (status, answer["error"]["code"]) == (400, "usage"), answer
+
+
+def test_a_blob_in_a_variant_database_is_returned_as_text(
+    tmp_path, work, variant_tables
+):
+    # Review of #487: SQLite stores any type in any column; a BLOB made the
+    # MCP query_variants call hang with no reply, and HTTP fail.
+    db = work / "blob_variants.sqlite"
+    shutil.copy(variant_tables["sqlite"], db)
+    with contextlib.closing(sqlite3.connect(db)) as con, con:
+        con.execute("UPDATE variants SET gene = ? WHERE rsid = 'rs4'", (b"GENEB",))
+    mcp = Mcp("--allow", str(work))
+    result = mcp.call("query_variants", path=str(db), rsid="rs4")
+    assert result["isError"] is False
+    assert [r["gene"] for r in result["structuredContent"]["rows"]] == ["GENEB"]
+    assert mcp.close() == 0
+    with _serve(tmp_path, [work]) as client:
+        text = urllib.parse.urlencode({"path": str(db), "rsid": "rs4"})
+        status, answer = client.request("GET", f"/variants?{text}")
+    assert (status, [r["gene"] for r in answer["rows"]]) == (200, ["GENEB"])
+
+
+def test_mcp_offers_lookups_without_allow_jobs(work, variant_tables):
+    mcp = Mcp("--allow", str(work))
+    tools = {t["name"]: t for t in mcp.request("tools/list", {})["result"]["tools"]}
+    for name in ("read_manifest", "query_variants", "report_section"):
+        assert tools[name]["annotations"]["readOnlyHint"] is True
+    result = mcp.call("query_variants", path=str(variant_tables["sqlite"]), rsid="rs4")
+    assert result["isError"] is False
+    assert [r["gene"] for r in result["structuredContent"]["rows"]] == ["GENEB"]
+    result = mcp.call("query_variants", path=str(variant_tables["tsv"]), limit="2")
+    assert result["structuredContent"]["error"]["code"] == "usage"
+    result = mcp.call("report_section", path=str(work.parent))
+    assert result["structuredContent"]["error"]["code"] == "path_not_allowed"
+    assert mcp.close() == 0

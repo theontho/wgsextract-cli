@@ -24,11 +24,11 @@ import argparse
 import logging
 import math
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import cast
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
-from wgsextract_cli.api._params import to_namespace
 from wgsextract_cli.api.align import RealignParams
 from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import available_memory, check_mapping_memory
@@ -90,6 +90,7 @@ from ._extract_helpers import (
     collate_working_memory,
     paired_fastq_stream,
 )
+from .align import InputReads
 
 # Patterns used to locate previously extracted FASTQ files next to a BAM/CRAM.
 # Each entry is (suffix_for_r1, suffix_for_r2). Order is preference.
@@ -118,10 +119,21 @@ def register(
     parser.set_defaults(func=cli_handler(RealignParams, run_realign))
 
 
+@dataclass(kw_only=True)
+class RealignJob(align_cmd.AlignJob):
+    """A realignment: the alignment's settings, the BAM/CRAM whose reads it
+    realigns, and how those reach the aligner."""
+
+    input: str
+    keep_fastq: bool = False
+    force_extract: bool = False
+    no_preflight: bool = False
+
+
 def run_realign(params: RealignParams) -> None:
     """The ``realign`` operation (``api.align.realign``)."""
     align_cmd.add_read_inputs(params.r1, params.r2)
-    run(to_namespace(params))
+    run(params)
 
 
 def _find_existing_fastqs(input_path: str, outdir: str) -> tuple[str, str] | None:
@@ -245,18 +257,18 @@ def _preflight_long_read_disk_space(
             )
 
 
-def _input_cram_reference(args: argparse.Namespace) -> list[str]:
+def _input_cram_reference(job: RealignJob) -> list[str]:
     """samtools -T option for decoding a CRAM input; empty for BAM."""
-    if not args.input.lower().endswith(".cram"):
+    if not job.input.lower().endswith(".cram"):
         return []
-    if args.input_ref:
-        verify_paths_exist({"--input-ref": args.input_ref})
-        return ["-T", args.input_ref]
+    if job.input_ref:
+        verify_paths_exist({"--input-ref": job.input_ref})
+        return ["-T", job.input_ref]
     reflib = resolve_reference_library()
-    signature = calculate_bam_md5(args.input)
-    target = getattr(args, "ref", None)
+    signature = calculate_bam_md5(job.input)
+    target = job.ref
     # Re-mapping to the same build (e.g. with a newer aligner) decodes with --ref.
-    if target and Path(target).is_file() and cram_encoded_with(target, args.input):
+    if target and Path(target).is_file() and cram_encoded_with(target, job.input):
         fasta: str | None = target
     else:
         fasta = find_fasta_by_signature(
@@ -287,16 +299,16 @@ def _refuse_unpaired_reads(path: str, cram_opt: list[str]) -> None:
         )
 
 
-def _single_end_pacbio(args: argparse.Namespace, cram_opt: list[str]) -> str | None:
+def _single_end_pacbio(input_path: str, cram_opt: list[str]) -> str | None:
     """ "pacbio" (or "clr" for subreads) when every sampled primary read of a
     PacBio input is single-end, as PacBio reads are: realign then takes the
     long-read path instead of refusing them. Paired PacBio-labelled input keeps
     the short-read defaults."""
-    sample = unpaired_sample(args.input, cram_opt=cram_opt)
+    sample = unpaired_sample(input_path, cram_opt=cram_opt)
     if not sample.records or sample.unpaired != sample.records:
         return None
     platform = align_cmd.pacbio_platform(
-        get_bam_header(args.input, cram_opt[1] if cram_opt else None)
+        get_bam_header(input_path, cram_opt[1] if cram_opt else None)
     )
     logging.info(
         "Detected single-end PacBio reads: realigning them as long reads "
@@ -306,72 +318,63 @@ def _single_end_pacbio(args: argparse.Namespace, cram_opt: list[str]) -> str | N
     return platform
 
 
-def run(args: argparse.Namespace) -> None:
-    if not args.input:
-        raise UsageError(
-            "--input <BAM|CRAM> is required for realign. Pass it before the "
-            "subcommand or via --input."
-        )
-    verify_paths_exist({"--input": args.input})
-    platform_args = args
+def run(params: RealignParams) -> None:
+    job = RealignJob.of(params)
+    verify_paths_exist({"--input": job.input})
+    # The FASTA that decodes the CRAM, found to detect the platform.
+    input_ref = job.input_ref
     input_cram_opt = None
-    if not args.platform and not args.r1 and args.input.lower().endswith(".cram"):
-        header = get_bam_header(args.input, getattr(args, "input_ref", None))
+    if not job.platform and not job.r1 and job.input.lower().endswith(".cram"):
+        header = get_bam_header(job.input, job.input_ref)
         if not any(group.get("PL") for group in ultima.read_groups(header)):
-            input_cram_opt = _input_cram_reference(args)
-            platform_args = argparse.Namespace(**vars(args))
-            platform_args.input_ref = input_cram_opt[1]
+            input_cram_opt = _input_cram_reference(job)
+            input_ref = input_cram_opt[1]
     detected = None
-    if not args.platform and not args.r1:
-        input_ref = getattr(platform_args, "input_ref", None)
-        if input_platform(args.input, input_ref, strict=True) == "pacbio":
+    if not job.platform and not job.r1:
+        if input_platform(job.input, input_ref, strict=True) == "pacbio":
             detected = _single_end_pacbio(
-                args, input_cram_opt or _input_cram_reference(platform_args)
+                job.input, input_cram_opt or _input_cram_reference(job)
             )
-    args.platform = detected or align_cmd.resolve_platform(
-        platform_args, args.r1 or args.input
+    job.platform = detected or align_cmd.resolve_platform(
+        job.platform, job.r1 or job.input, input_ref
     )
-    if align_cmd.is_long_read(args) and not args.r1:
-        _check_long_read_options(args)
+    if align_cmd.is_long_read(job) and not job.r1:
+        _check_long_read_options(job)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
-    selected_aligner = align_cmd.select_aligner(args)
-    if (
-        selected_aligner == "pbmm2"
-        and configured_temp_directory()
-        and not getattr(args, "gpu", False)
-    ):
+    selected_aligner = align_cmd.select_aligner(job)
+    if selected_aligner == "pbmm2" and configured_temp_directory() and not job.gpu:
         raise UsageError(
             "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
         )
     signature = None
     if selected_aligner in {"bwa", "bwa-mem2"} and not (
-        args.ref and Path(args.ref).is_file()
+        job.ref and Path(job.ref).is_file()
     ):
-        signature = calculate_bam_md5(args.input, None)
-    target = resolve_reference(args.ref, signature) if args.ref or signature else None
-    if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+        signature = calculate_bam_md5(job.input, None)
+    target = resolve_reference(job.ref, signature) if job.ref or signature else None
+    if job.aligner == "bwa-mem2" and target and Path(target).is_file():
         align_cmd.ensure_fasta_index(target)
         bwa_mem2.check_index(target)
 
-    threads, memory = get_resource_defaults(args.threads, args.memory)
-    outdir = args.outdir or str(absolute_path(args.input).parent)
+    threads, memory = get_resource_defaults(job.threads, job.memory)
+    outdir = job.outdir or str(absolute_path(job.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
-    policy = resume_policy(args)
-    if args.r1:
-        logical_r1, logical_r2 = args.r1, args.r2
-    elif args.platform == "ultima" or align_cmd.is_long_read(args):
-        logical_r1, logical_r2 = args.input, None
+    policy = resume_policy(params)
+    if job.r1:
+        logical_r1, logical_r2 = job.r1, job.r2
+    elif job.platform == "ultima" or align_cmd.is_long_read(job):
+        logical_r1, logical_r2 = job.input, None
     else:
-        base = input_stem(args.input)
+        base = input_stem(job.input)
         logical_r1 = f"{base}_R1.fastq.gz"
         logical_r2 = f"{base}_R2.fastq.gz"
     journal_output = align_cmd.aligned_output_path(
-        outdir, logical_r1, logical_r2, getattr(args, "format", "BAM"), selected_aligner
+        outdir, logical_r1, logical_r2, job.format, selected_aligner
     )
     with StepJournal.for_output(journal_output, "realign", policy) as journal:
         _run_steps(
-            args,
+            job,
             journal,
             selected_aligner=selected_aligner,
             target=target,
@@ -382,24 +385,24 @@ def run(args: argparse.Namespace) -> None:
         )
 
 
-def _check_gpu(args: argparse.Namespace) -> None:
+def _check_gpu(job: RealignJob) -> None:
     """Refuse a GPU setup or GPU memory that can't run the alignment before
     the FASTQs are extracted; alignment plans its options when it starts."""
     from wgsextract_cli.core.parabricks import plan_gpu_memory, verify_parabricks
 
     verify_parabricks()
     plan_gpu_memory(
-        "minimap2" if align_cmd.is_long_read(args) else "fq2bam",
+        "minimap2" if align_cmd.is_long_read(job) else "fq2bam",
         "realign",
-        check=not getattr(args, "no_gpu_memory_check", False),
+        check=not job.no_gpu_memory_check,
         report=False,
     )
 
 
-def _check_long_read_options(args: argparse.Namespace) -> None:
+def _check_long_read_options(job: RealignJob) -> None:
     """realign streams long reads from the BAM/CRAM into CPU minimap2."""
-    if args.aligner == "pbmm2":
-        if args.platform not in align_cmd.PACBIO_PLATFORMS:
+    if job.aligner == "pbmm2":
+        if job.platform not in align_cmd.PACBIO_PLATFORMS:
             raise UsageError(
                 "pbmm2 aligns PacBio reads only; realign maps ONT reads with "
                 "minimap2 (--aligner minimap2 or auto)."
@@ -411,13 +414,13 @@ def _check_long_read_options(args: argparse.Namespace) -> None:
             "<BAM> --aligner pbmm2' (convert a CRAM with 'wgsextract bam "
             "to-bam' first)."
         )
-    if getattr(args, "gpu", False):
+    if job.gpu:
         raise UsageError(
             "realign aligns long reads on the CPU with minimap2, keeping their "
             "MM/ML tags; drop --gpu."
         )
-    if args.aligner == "auto":
-        args.aligner = "minimap2"
+    if job.aligner == "auto":
+        job.aligner = "minimap2"
 
 
 def _align_tools(aligner: str, platform: str | None, gpu: bool) -> list[str]:
@@ -434,7 +437,7 @@ def _align_tools(aligner: str, platform: str | None, gpu: bool) -> list[str]:
 
 
 def _align_step(
-    args: argparse.Namespace,
+    job: RealignJob,
     aligner: str,
     target: str | None,
     out_path: str,
@@ -449,20 +452,20 @@ def _align_step(
         inputs={
             **reads,
             "reference": reference,
-            "input_reference": getattr(args, "input_ref", None),
+            "input_reference": job.input_ref,
         },
         outputs=[out_path],
         params={
             "aligner": aligner,
-            "platform": args.platform,
-            "preset": args.preset,
-            "long_read": bool(args.long_read),
-            "format": getattr(args, "format", "BAM"),
-            "sample": getattr(args, "sample", None),
-            "gpu": bool(getattr(args, "gpu", False)),
-            "ref": None if reference else args.ref,
+            "platform": job.platform,
+            "preset": job.preset,
+            "long_read": bool(job.long_read),
+            "format": job.format,
+            "sample": job.sample,
+            "gpu": bool(job.gpu),
+            "ref": None if reference else job.ref,
         },
-        tools=_align_tools(aligner, args.platform, bool(getattr(args, "gpu", False))),
+        tools=_align_tools(aligner, job.platform, bool(job.gpu)),
     )
 
 
@@ -482,7 +485,7 @@ def _index_step(out_path: str) -> Step:
 def _align(
     journal: StepJournal,
     decision: Decision,
-    align_args: argparse.Namespace,
+    align_job: align_cmd.AlignJob,
     run: Callable[[], None],
 ) -> None:
     """Run the align step. Aligners that report when their sorted output is
@@ -499,7 +502,7 @@ def _align(
         journal.finish(aligning)
         indexing = journal.start(journal.decide(_index_step(out_path)))
 
-    align_args._on_written = written
+    align_job.on_written = written
     run()
     if indexing is not None:
         journal.finish(indexing)
@@ -532,7 +535,7 @@ def _resume_alignment(
 
 
 def _realign_long_reads(
-    args: argparse.Namespace,
+    job: RealignJob,
     journal: StepJournal,
     *,
     selected_aligner: str,
@@ -546,27 +549,27 @@ def _realign_long_reads(
     each read's primary record, tags included, streams into minimap2. With
     --keep-fastq they are extracted to a tagged <input stem>.fastq.gz first."""
     out_path = align_cmd.aligned_output_path(
-        outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
+        outdir, job.input, None, job.format, selected_aligner
     )
     # The aligner names its output after the FASTQ, so it takes the stem that
     # names out_path (movie.ccs.bam -> movie.fastq.gz -> movie_aligned.bam).
     fastq = str(
-        absolute_path(Path(outdir, f"{align_cmd.reads_stem(args.input)}.fastq.gz"))
+        absolute_path(Path(outdir, f"{align_cmd.reads_stem(job.input)}.fastq.gz"))
     )
     extract_step = Step(
         "extract",
         inputs={
-            "alignment": args.input,
-            "input_reference": getattr(args, "input_ref", None),
+            "alignment": job.input,
+            "input_reference": job.input_ref,
         },
         outputs=[fastq],
         params={"tags": align_cmd.LONG_READ_TAGS},
         tools=["samtools", "bgzip"],
     )
     align_step = _align_step(
-        args, selected_aligner, target, out_path, {"alignment": args.input}
+        job, selected_aligner, target, out_path, {"alignment": job.input}
     )
-    if args.keep_fastq and args.force_extract:
+    if job.keep_fastq and job.force_extract:
         journal.policy = replace(
             journal.policy, force_steps=journal.policy.force_steps | {"extract"}
         )
@@ -575,7 +578,7 @@ def _realign_long_reads(
         _resume_alignment(
             journal, journal.decide(align_step), out_path, target, threads
         )
-        if args.keep_fastq and not journal.dry_run:
+        if job.keep_fastq and not journal.dry_run:
             if Path(fastq).is_file():
                 current_result().add_output(fastq, "fastq_r1")
             else:
@@ -584,32 +587,30 @@ def _realign_long_reads(
                     "--force-extract writes one and realigns."
                 )
         return
-    extract_decision = journal.decide(extract_step) if args.keep_fastq else None
+    extract_decision = journal.decide(extract_step) if job.keep_fastq else None
     decision = journal.decide(
         align_step, after=[extract_decision] if extract_decision else []
     )
     if journal.dry_run:
         journal.decide(_index_step(out_path))
         return
-    cram_opt = input_cram_opt or _input_cram_reference(args)
-    if not args.no_preflight:
+    cram_opt = input_cram_opt or _input_cram_reference(job)
+    if not job.no_preflight:
         _preflight_long_read_disk_space(
-            args.input,
+            job.input,
             outdir,
-            output_format=getattr(args, "format", "BAM"),
+            output_format=job.format,
             extract=bool(extract_decision and extract_decision.run),
             threads=threads,
             memory=memory,
         )
-    align_args = argparse.Namespace(**vars(args))
-    align_args.r1 = args.input
     # samtools fastq's -T lists tags; the reference needs --reference.
     decode = ["--reference", cram_opt[1]] if cram_opt else []
-    align_args._input_cram_opt = decode
+    align_job = replace(job, r1=job.input, input_cram_opt=decode)
     if extract_decision is not None:
         if extract_decision.run:
             verify_dependencies(["samtools", "bgzip"])
-            logging.info("Extracting tagged single-end FASTQ from %s ...", args.input)
+            logging.info("Extracting tagged single-end FASTQ from %s ...", job.input)
             with (
                 journal.running(extract_decision),
                 atomic_output(fastq) as staged,
@@ -617,24 +618,24 @@ def _realign_long_reads(
             ):
                 run_pipeline(
                     [
-                        align_cmd.long_read_fastq_command(args.input, decode),
+                        align_cmd.long_read_fastq_command(job.input, decode),
                         ["bgzip", "-@", threads, "-c"],
                     ],
                     stdout=handle,
                     description="FASTQ extraction",
                     heartbeat=True,
                 )
-        align_args.r1 = fastq
-        align_args._read_group_description = align_cmd.read_group_descriptions(
-            args.input, getattr(args, "input_ref", None)
+        align_job.r1 = fastq
+        align_job.read_group_description = align_cmd.read_group_descriptions(
+            job.input, job.input_ref
         )
-    _align(journal, decision, align_args, lambda: align_cmd.run(align_args))
-    if args.keep_fastq:
+    _align(journal, decision, align_job, lambda: align_cmd.run(align_job))
+    if job.keep_fastq:
         current_result().add_output(fastq, "fastq_r1")
 
 
 def _run_steps(
-    args: argparse.Namespace,
+    job: RealignJob,
     journal: StepJournal,
     *,
     selected_aligner: str,
@@ -646,9 +647,9 @@ def _run_steps(
 ) -> None:
     """Realign as steps: extract FASTQs (when they're written to files), then
     align. A completed alignment skips everything before it."""
-    if align_cmd.is_long_read(args) and not args.r1:
+    if align_cmd.is_long_read(job) and not job.r1:
         _realign_long_reads(
-            args,
+            job,
             journal,
             selected_aligner=selected_aligner,
             target=target,
@@ -659,12 +660,12 @@ def _run_steps(
         )
         return
 
-    if args.platform == "ultima" and not args.r1:
+    if job.platform == "ultima" and not job.r1:
         out_path = align_cmd.aligned_output_path(
-            outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
+            outdir, job.input, None, job.format, selected_aligner
         )
         step = _align_step(
-            args, selected_aligner, target, out_path, {"alignment": args.input}
+            job, selected_aligner, target, out_path, {"alignment": job.input}
         )
         decision = journal.decide(step)
         if not decision.run:
@@ -674,41 +675,39 @@ def _run_steps(
             journal.decide(_index_step(out_path))
             return
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
-        reads = indexed_read_count(args.input, threads)
+        reads = indexed_read_count(job.input, threads)
         _report_resource_estimates(
-            args,
+            job,
             target,
             outdir,
             threads,
             memory,
             reads,
-            input_paths=[args.input],
+            input_paths=[job.input],
             need_extract=False,
             paired=False,
         )
-        if not args.no_preflight:
+        if not job.no_preflight:
             _preflight_disk_space(
-                args.input,
+                job.input,
                 outdir,
                 need_extract=False,
                 reads=reads,
             )
-        align_args = argparse.Namespace(**vars(args))
-        align_args.r1 = args.input
-        align_args._input_read_count = reads
-        cram_reference = _input_cram_reference(args)
+        align_job = replace(job, r1=job.input, input_reads=InputReads(reads))
+        cram_reference = _input_cram_reference(job)
         _align(
             journal,
             decision,
-            align_args,
-            lambda: align_cmd.align_ultima(align_args, args.input, cram_reference),
+            align_job,
+            lambda: align_cmd.align_ultima(align_job, cram_reference),
         )
         return
 
     # 1. Resolve FASTQs: the user's, an earlier run's extraction, a pair found
     # beside the input, or a new extraction (or stream).
-    base = input_stem(args.input)
-    staging = outdir if args.keep_fastq else configured_temp_directory() or outdir
+    base = input_stem(job.input)
+    staging = outdir if job.keep_fastq else configured_temp_directory() or outdir
     staged = (
         str(absolute_path(Path(staging, f"{base}_R1.fastq.gz"))),
         str(absolute_path(Path(staging, f"{base}_R2.fastq.gz"))),
@@ -716,28 +715,26 @@ def _run_steps(
     extract_step = Step(
         "extract",
         inputs={
-            "alignment": args.input,
-            "input_reference": getattr(args, "input_ref", None),
+            "alignment": job.input,
+            "input_reference": job.input_ref,
         },
         outputs=staged,
         tools=["samtools"],
     )
     reads_inputs: dict[str, str | None] = (
-        {"fastq_r1": args.r1, "fastq_r2": args.r2}
-        if args.r1
-        else {"alignment": args.input}
+        {"fastq_r1": job.r1, "fastq_r2": job.r2} if job.r1 else {"alignment": job.input}
     )
     out_path = align_cmd.aligned_output_path(
         outdir,
-        args.r1 or staged[0],
-        args.r2 if args.r1 else staged[1],
-        getattr(args, "format", "BAM"),
+        job.r1 or staged[0],
+        job.r2 if job.r1 else staged[1],
+        job.format,
         selected_aligner,
     )
-    align_step = _align_step(args, selected_aligner, target, out_path, reads_inputs)
+    align_step = _align_step(job, selected_aligner, target, out_path, reads_inputs)
     if (
-        not args.r1
-        and not args.force_extract
+        not job.r1
+        and not job.force_extract
         and not journal.policy.forced("extract")
         and not journal.check(align_step).run
     ):
@@ -748,20 +745,21 @@ def _run_steps(
         return
 
     extract_decision: Decision | None = None
-    if args.r1:
-        verify_paths_exist({"--r1": args.r1})
-        if args.r2:
-            verify_paths_exist({"--r2": args.r2})
-        r1_path, r2_path = args.r1, args.r2
+    if job.r1:
+        verify_paths_exist({"--r1": job.r1})
+        if job.r2:
+            verify_paths_exist({"--r2": job.r2})
+        # A single-end --r1 leaves r2_path None, as before.
+        r1_path, r2_path = job.r1, cast(str, job.r2)
         need_extract = False
-    elif not args.force_extract and not journal.check(extract_step).run:
+    elif not job.force_extract and not journal.check(extract_step).run:
         extract_decision = journal.decide(extract_step)
         r1_path, r2_path = staged
         need_extract = False
     elif (
-        not args.force_extract
+        not job.force_extract
         and not journal.policy.forced("extract")
-        and (existing := _find_existing_fastqs(args.input, outdir))
+        and (existing := _find_existing_fastqs(job.input, outdir))
         # This run's own extraction, when its record doesn't vouch for it.
         and not (existing == staged and journal.recorded("extract"))
     ):
@@ -771,14 +769,14 @@ def _run_steps(
         current_result().add_input(r1_path, "fastq_r1")
         current_result().add_input(r2_path, "fastq_r2")
         out_path = align_cmd.aligned_output_path(
-            outdir, r1_path, r2_path, getattr(args, "format", "BAM"), selected_aligner
+            outdir, r1_path, r2_path, job.format, selected_aligner
         )
         align_step = _align_step(
-            args,
+            job,
             selected_aligner,
             target,
             out_path,
-            {"alignment": args.input, "fastq_r1": r1_path, "fastq_r2": r2_path},
+            {"alignment": job.input, "fastq_r1": r1_path, "fastq_r2": r2_path},
         )
     else:
         r1_path, r2_path = staged
@@ -786,14 +784,14 @@ def _run_steps(
 
     refresh_cached_fastqs = (
         need_extract
-        and args.force_extract
+        and job.force_extract
         and any(Path(path).is_file() for path in (r1_path, r2_path) if path)
     )
     streaming = (
         need_extract
         and selected_aligner in {"bwa", "bwa-mem2"}
-        and not getattr(args, "keep_fastq", False)
-        and not getattr(args, "gpu", False)
+        and not job.keep_fastq
+        and not job.gpu
         and not refresh_cached_fastqs
     )
     align_decision: Decision | None = None
@@ -809,12 +807,12 @@ def _run_steps(
         if journal.dry_run:
             journal.decide(_index_step(out_path))
             return
-    if getattr(args, "gpu", False):
+    if job.gpu:
         # Only once the alignment will run: a dry run or a finished one needs no GPU.
-        _check_gpu(args)
+        _check_gpu(job)
     statistics = None if need_extract else fastq_input_statistics(r1_path, r2_path)
     reads = (
-        indexed_read_count(args.input, threads)
+        indexed_read_count(job.input, threads)
         if need_extract
         else statistics.reads
         if statistics is not None
@@ -826,17 +824,15 @@ def _run_steps(
     if need_extract:
         verify_dependencies(["samtools"])
         cram_opt = (
-            input_cram_opt
-            if input_cram_opt is not None
-            else _input_cram_reference(args)
+            input_cram_opt if input_cram_opt is not None else _input_cram_reference(job)
         )
-        _refuse_unpaired_reads(args.input, cram_opt)
+        _refuse_unpaired_reads(job.input, cram_opt)
     if streaming:
-        sample = alignment_sample(args.input, cram_opt=cram_opt)
+        sample = alignment_sample(job.input, cram_opt=cram_opt)
         read_length = sample.read_length
         # One collate bucket is resident while BWA maps; reserve it alongside.
         additional_ram_bytes = collate_working_memory(
-            args.input,
+            job.input,
             threads,
             memory,
             records=reads,
@@ -848,7 +844,7 @@ def _run_steps(
                 align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster"
             )
             tool = align_cmd.short_read_aligner(
-                args.aligner,
+                job.aligner,
                 target,
                 threads=threads,
                 memory=memory,
@@ -862,7 +858,7 @@ def _run_steps(
                 memory=memory,
                 samblaster=samblaster,
                 reads=reads,
-                platform=args.platform,
+                platform=job.platform,
                 read_length=read_length,
                 additional_ram_bytes=additional_ram_bytes,
             )
@@ -875,21 +871,21 @@ def _run_steps(
             )
             streaming = False
             additional_ram_bytes = 0
-    if selected_aligner in {"bwa", "bwa-mem2"} and not getattr(args, "gpu", False):
+    if selected_aligner in {"bwa", "bwa-mem2"} and not job.gpu:
         _report_resource_estimates(
-            args,
+            job,
             target,
             outdir,
             threads,
             memory,
             reads,
-            input_paths=[args.input] if need_extract else [r1_path, r2_path],
+            input_paths=[job.input] if need_extract else [r1_path, r2_path],
             need_extract=need_extract and not streaming,
             paired=bool(r2_path),
             read_length=read_length,
             additional_ram_bytes=additional_ram_bytes,
         )
-    if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+    if job.aligner == "bwa-mem2" and target and Path(target).is_file():
         check_mapping_memory(
             target,
             "bwa-mem2",
@@ -898,28 +894,28 @@ def _run_steps(
             samblaster=align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster",
             reads=reads,
             read_length=read_length,
-            platform=args.platform,
+            platform=job.platform,
             additional_ram_bytes=0,
         )
 
     # 2. Disk-space pre-flight.
-    if not args.no_preflight and align_cmd.is_long_read(args) and args.r1:
+    if not job.no_preflight and align_cmd.is_long_read(job) and job.r1:
         _preflight_long_read_disk_space(
-            args.r1,
+            job.r1,
             outdir,
-            output_format=getattr(args, "format", "BAM"),
+            output_format=job.format,
             extract=False,
             threads=threads,
             memory=memory,
         )
-    elif not args.no_preflight:
+    elif not job.no_preflight:
         try:
             _preflight_disk_space(
-                args.input,
+                job.input,
                 outdir,
                 need_extract=need_extract and not streaming,
                 reads=reads,
-                keep_fastq=args.keep_fastq,
+                keep_fastq=job.keep_fastq,
                 streaming=streaming,
             )
         except WGSExtractError:
@@ -932,39 +928,41 @@ def _run_steps(
             streaming = False
             additional_ram_bytes = 0
             _report_resource_estimates(
-                args,
+                job,
                 target,
                 outdir,
                 threads,
                 memory,
                 reads,
-                input_paths=[args.input],
+                input_paths=[job.input],
                 need_extract=True,
                 paired=bool(r2_path),
                 read_length=read_length,
             )
             _preflight_disk_space(
-                args.input,
+                job.input,
                 outdir,
                 need_extract=True,
                 reads=reads,
-                keep_fastq=args.keep_fastq,
+                keep_fastq=job.keep_fastq,
             )
 
     if streaming:
         logging.info(
             "Streaming paired FASTQ from %s into BWA; no gzipped FASTQ files.",
-            args.input,
+            job.input,
         )
-        align_args = argparse.Namespace(**vars(args))
         # Logical mate names preserve existing output stems/read groups, not read paths.
-        align_args.r1, align_args.r2 = r1_path, r2_path
-        align_args._input_read_count = reads
-        align_args._input_read_length = read_length
+        align_job = replace(
+            job,
+            r1=r1_path,
+            r2=r2_path,
+            input_reads=InputReads(reads, read_length),
+        )
         align_decision = journal.decide(align_step)
         try:
             with paired_fastq_stream(
-                args.input,
+                job.input,
                 threads=threads,
                 memory=memory,
                 temp_parent=outdir,
@@ -973,11 +971,11 @@ def _run_steps(
                 _align(
                     journal,
                     align_decision,
-                    align_args,
+                    align_job,
                     lambda: align_cmd.align_bwa(
-                        align_args,
+                        align_job,
                         upstream=stages,
-                        read_paths=[args.input],
+                        read_paths=[job.input],
                         additional_ram_bytes=additional_ram_bytes,
                     ),
                 )
@@ -987,24 +985,24 @@ def _run_steps(
                 "FASTQs without changing the aligner."
             )
             _report_resource_estimates(
-                args,
+                job,
                 target,
                 outdir,
                 threads,
                 memory,
                 reads,
-                input_paths=[args.input],
+                input_paths=[job.input],
                 need_extract=True,
                 paired=bool(r2_path),
                 read_length=read_length,
             )
-            if not args.no_preflight:
+            if not job.no_preflight:
                 _preflight_disk_space(
-                    args.input,
+                    job.input,
                     outdir,
                     need_extract=True,
                     reads=reads,
-                    keep_fastq=args.keep_fastq,
+                    keep_fastq=job.keep_fastq,
                 )
         else:
             return
@@ -1014,15 +1012,15 @@ def _run_steps(
         verify_dependencies(["samtools"])
         log_dependency_info(["samtools"])
         extract_decision = journal.decide(extract_step)
-        logging.info("Extracting FASTQs from %s ...", args.input)
+        logging.info("Extracting FASTQs from %s ...", job.input)
         with (
             journal.running(extract_decision) as extracting,
             atomic_output(r1_path) as staged_r1,
             atomic_output(r2_path) as staged_r2,
         ):
-            extracting.metrics["temporary"] = not args.keep_fastq
+            extracting.metrics["temporary"] = not job.keep_fastq
             alignments_to_fastq(
-                args.input,
+                job.input,
                 staged_r1,
                 staged_r2,
                 threads=threads,
@@ -1034,22 +1032,20 @@ def _run_steps(
             )
 
     # 4. Delegate to align.
-    align_args = argparse.Namespace(**vars(args))
-    align_args.r1 = r1_path
-    align_args.r2 = r2_path
-    align_args._input_read_count = reads
     if need_extract:
         statistics = fastq_input_statistics(r1_path, r2_path)
         read_length = statistics.read_length if statistics is not None else None
-    align_args._input_read_length = read_length
+    align_job = replace(
+        job, r1=r1_path, r2=r2_path, input_reads=InputReads(reads, read_length)
+    )
     if align_decision is None:
         align_decision = journal.decide(
             align_step, after=[extract_decision] if extract_decision else []
         )
     try:
-        _align(journal, align_decision, align_args, lambda: align_cmd.run(align_args))
+        _align(journal, align_decision, align_job, lambda: align_cmd.run(align_job))
     except BaseException:
-        if need_extract and not args.keep_fastq:
+        if need_extract and not job.keep_fastq:
             from wgsextract_cli.core.temp_directory import retain_temporary_directory
 
             directory = retain_temporary_directory()
@@ -1070,14 +1066,14 @@ def _run_steps(
     if extract_decision is None:
         return
     temporary = extract_decision.run or extract_decision.metrics.get("temporary")
-    if temporary and not args.keep_fastq:
+    if temporary and not job.keep_fastq:
         for path in (r1_path, r2_path):
             try:
                 Path(path).unlink()
             except OSError as exc:
                 logging.warning("Could not remove %s: %s", path, exc)
         journal.retire("extract", [r1_path, r2_path])
-    elif args.keep_fastq:
+    elif job.keep_fastq:
         current_result().add_output(r1_path, "fastq_r1")
         current_result().add_output(r2_path, "fastq_r2")
     else:  # kept by the --keep-fastq run that extracted them
@@ -1086,7 +1082,7 @@ def _run_steps(
 
 
 def _report_resource_estimates(
-    args: argparse.Namespace,
+    job: RealignJob,
     reference: str | None,
     outdir: str,
     threads: str,
@@ -1102,10 +1098,10 @@ def _report_resource_estimates(
     def estimate() -> PreflightEstimate:
         samblaster = align_cmd.duplicate_marker(paired=paired) == "samblaster"
         resolved = reference if reference and Path(reference).is_file() else None
-        tool = "bwa" if args.aligner == "auto" else args.aligner
+        tool = "bwa" if job.aligner == "auto" else job.aligner
         if resolved:
             tool = align_cmd.short_read_aligner(
-                args.aligner,
+                job.aligner,
                 resolved,
                 threads=threads,
                 memory=memory,
@@ -1123,15 +1119,15 @@ def _report_resource_estimates(
             aligner=tool,
             samblaster=samblaster,
             reads=reads,
-            platform=getattr(args, "platform", None),
+            platform=job.platform,
             read_length=read_length,
             additional_ram_bytes=additional_ram_bytes,
-            output_format=getattr(args, "format", "BAM"),
+            output_format=job.format,
             extract_fastq=need_extract,
-            fastq_dir=outdir if args.keep_fastq else configured_temp_directory(),
+            fastq_dir=outdir if job.keep_fastq else configured_temp_directory(),
             duplicate_marking=(
                 "gatk-flow"
-                if getattr(args, "platform", None) == "ultima"
+                if job.platform == "ultima"
                 and align_cmd.get_tool_path("gatk") is not None
                 else None
             ),
