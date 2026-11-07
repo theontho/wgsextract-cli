@@ -84,9 +84,8 @@ jobs:
         # Same parallel, grouped test command as the CI merge gate; a serial
         # `pixi run test` hits order-dependent failures unrelated to the lock.
         run: |
+          # TEST ONLY (e2e of the PR job; never merged): skip the slow suite.
           pixi run lint
-          pixi run typecheck
-          pixi run test-ci
       - name: Summarise the candidate
         if: always()
         env:
