@@ -24890,6 +24890,1315 @@
     "prog": "wgsextract report"
    }
   },
+  "typing": {
+   "help": "usage: wgsextract typing [-h] <command> ...\n\npositional arguments:\n  <command>\n    cyp2d6    Call CYP2D6 star alleles, including copy-number and hybrid alleles, with Cyrius, and\n              write a PharmCAT outside call. Cyrius is for noncommercial use only.\n    hla       Call HLA class I and II alleles with T1K from reads in the MHC, and write a PharmCAT\n              outside call for HLA-A/HLA-B. The first run downloads 45 MB.\n    str       Size the disease-causing repeats of ExpansionHunter's catalog (HTT, FMR1, C9ORF72,\n              ...) and flag those outside STRchive's normal range.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "cyp2d6",
+       "hla",
+       "str"
+      ],
+      "help": [
+       [
+        "cyp2d6",
+        "Call CYP2D6 star alleles, including copy-number and hybrid alleles, with Cyrius, and write a PharmCAT outside call. Cyrius is for noncommercial use only."
+       ],
+       [
+        "hla",
+        "Call HLA class I and II alleles with T1K from reads in the MHC, and write a PharmCAT outside call for HLA-A/HLA-B. The first run downloads 45 MB."
+       ],
+       [
+        "str",
+        "Size the disease-causing repeats of ExpansionHunter's catalog (HTT, FMR1, C9ORF72, ...) and flag those outside STRchive's normal range."
+       ]
+      ],
+      "required": true,
+      "subparsers": "typing_cmd"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "typing"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract typing"
+   }
+  },
+  "typing cyp2d6": {
+   "help": "usage: wgsextract typing cyp2d6 [-h]\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract typing cyp2d6 --input sample.cram\n\noutputs (in the output directory unless noted):\n  Cyrius's <stem>.json/.tsv and <stem>.cyp2d6.pharmcat.tsv.\n\nneeds:\n  cyrius, minimap2, samtools; depending on options and inputs, also: bcftools;\n  minutes on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "typing cyp2d6",
+     "func": "cmd_cyp2d6"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract typing cyp2d6"
+   }
+  },
+  "typing hla": {
+   "help": "usage: wgsextract typing hla [-h] [--hla-index FASTA]\n\noptions:\n  -h, --help         show this help message and exit\n  --hla-index FASTA  T1K allele index (hla_dna_seq.fa). Default: <reference library>/ref/t1k_hla,\n                     built from IPD-IMGT/HLA on first use.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract typing hla --input sample.cram\n\noutputs (in the output directory unless noted):\n  <stem>.t1k_genotype.tsv (and T1K's other files) and <stem>.hla.pharmcat.tsv.\n\nneeds:\n  run-t1k, samtools, t1k-build.pl; depending on options and inputs, also:\n  bcftools; minutes on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "hla_index",
+      "exclusive_group": null,
+      "help": "T1K allele index (hla_dna_seq.fa). Default: <reference library>/ref/t1k_hla, built from IPD-IMGT/HLA on first use.",
+      "metavar": "FASTA",
+      "nargs": null,
+      "option_strings": [
+       "--hla-index"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "typing hla",
+     "func": "cmd_hla"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract typing hla"
+   }
+  },
+  "typing str": {
+   "help": "usage: wgsextract typing str [-h] [--catalog JSON] [--sex {male,female}]\n\noptions:\n  -h, --help           show this help message and exit\n  --catalog JSON       ExpansionHunter variant catalog. Default: the one it ships for the input's\n                       build.\n  --sex {male,female}  Sample sex (the number of chrX alleles). Default: inferred from chrX/chrY\n                       coverage.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract typing str --input sample.cram\n\noutputs (in the output directory unless noted):\n  ExpansionHunter's <stem>.str.vcf/.json and a flagged-repeat summary.\n\nneeds:\n  ExpansionHunter, samtools; depending on options and inputs, also: bcftools;\n  minutes on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "catalog",
+      "exclusive_group": null,
+      "help": "ExpansionHunter variant catalog. Default: the one it ships for the input's build.",
+      "metavar": "JSON",
+      "nargs": null,
+      "option_strings": [
+       "--catalog"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "male",
+       "female"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "sex",
+      "exclusive_group": null,
+      "help": "Sample sex (the number of chrX alleles). Default: inferred from chrX/chrY coverage.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--sex"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "typing str",
+     "func": "cmd_str"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract typing str"
+   }
+  },
   "vcf": {
    "help": "usage: wgsextract vcf [-h] <command> ...\n\npositional arguments:\n  <command>\n    snp             Call Single Nucleotide Polymorphisms (SNPs) using bcftools. Best for standard\n                    ancestry analysis and finding simple point mutations.\n    indel           Call Small Insertions and Deletions (InDels) using bcftools. Used to find\n                    small gaps or extra bases in the DNA sequence.\n    annotate        Add external metadata (like population frequencies or disease risk) to your\n                    VCF file.\n    filter          Filter your results. Use this to focus on specific genes of interest or to\n                    remove low-quality 'noisy' variant calls.\n    table           Export variants and their annotations (gene, consequence, ClinVar, gnomAD,\n                    genotype, depth, ...) as one row per variant, in a TSV (or Parquet) table and\n                    an SQLite database to query.\n    clinvar         Annotate VCF with ClinVar pathogenicity data.\n    revel           Annotate VCF with REVEL pathogenicity scores.\n    gnomad          Annotate VCF with gnomAD population frequencies.\n    pharmgkb        Annotate VCF with PharmGKB drug metabolism data.\n    to-fasta        (advanced) Build your personal consensus genome: the reference FASTA with your\n                    variants applied (heterozygous SNVs as IUPAC codes by default), and N where a\n                    gVCF has no call.\n    trio            (advanced) Analyze inheritance patterns. Compares a child's VCF with their\n                    parents to identify de novo (new) mutations or inherited conditions.\n    cnv             (advanced) Call Copy Number Variants (CNVs) using Delly. Detects large regions\n                    of DNA that have been duplicated or deleted, affecting gene dosage. (Not\n                    tested on macOS.)\n    sv              (advanced) Call Structural Variants (SVs) using Delly for short reads,\n                    Sniffles for Nanopore (ONT, auto-detected) or other long reads, or\n                    pbsv/Sniffles for PacBio. Identifies large-scale DNA changes (over 50bp).\n    freebayes       (advanced) A Bayesian genetic variant detector. Excellent for finding small\n                    variants in complex regions or when you have variable sequencing depth.\n    gatk            (advanced) Industry-standard GATK HaplotypeCaller. Best for high-accuracy\n                    clinical-grade SNP and InDel calling using local de novo assembly.\n    deepvariant     (advanced) Google's Deep Variant variant caller. Supports WGS/WES and PacBio\n                    HiFi models; uses a neural network to achieve superior accuracy by 'looking'\n                    at read alignments as images. (Not tested on macOS.)\n    clair3          (advanced) Clair3 small-variant caller for Oxford Nanopore reads (optional;\n                    Linux x86-64 only, install with `pixi install -e clair3`). DeepVariant remains\n                    the default ONT caller.\n    phase           (advanced) Phase a sample's heterozygous calls with its reads (WhatsHap, or\n                    LongPhase for Nanopore and PacBio), and optionally tag the reads by haplotype.\n                    Optional; Linux and macOS, install with `pixi install -e phasing`.\n    phylop          (advanced) Annotate VCF with PhyloP conservation scores.\n    cadd            (advanced) Annotate VCF with CADD deleteriousness scores (CADD_RAW,\n                    CADD_PHRED).\n    gerp            (advanced) Annotate VCF with GERP++ conservation scores (GERP).\n    spliceai        (advanced) Annotate VCF with SpliceAI splicing scores.\n    alphamissense   (advanced) Annotate VCF with AlphaMissense pathogenicity scores.\n    pharmcat        (advanced) Call star-allele diplotypes and drug-response phenotypes (CYP2C19,\n                    CYP2C9, DPYD, ...) with PharmCAT, and write its prescribing report.\n    chain-annotate  (advanced) Sequentially apply multiple annotations to a single VCF.\n\noptions:\n  -h, --help        show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
    "parser": {
@@ -39056,6 +40365,90 @@
    "threads": null,
    "tmp_dir": null,
    "workspace": null
+  },
+  "typing cyp2d6 -i x.bam --ref r.fa -t 4": {
+   "_command": "typing cyp2d6",
+   "_explicit_dests": [
+    "input",
+    "ref",
+    "threads"
+   ],
+   "atomic_output": false,
+   "command": "typing",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_cyp2d6",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": "r.fa",
+   "threads": 4,
+   "tmp_dir": null,
+   "typing_cmd": "cyp2d6"
+  },
+  "typing hla -i x.cram --hla-index h.fa -o out": {
+   "_command": "typing hla",
+   "_explicit_dests": [
+    "hla_index",
+    "input",
+    "outdir"
+   ],
+   "atomic_output": false,
+   "command": "typing",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_hla",
+   "genome": null,
+   "hla_index": "h.fa",
+   "input": "x.cram",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": "out",
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "threads": null,
+   "tmp_dir": null,
+   "typing_cmd": "hla"
+  },
+  "typing str -i x.bam --catalog c.json --sex male": {
+   "_command": "typing str",
+   "_explicit_dests": [
+    "catalog",
+    "input",
+    "sex"
+   ],
+   "atomic_output": false,
+   "catalog": "c.json",
+   "command": "typing",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_str",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "sex": "male",
+   "threads": null,
+   "tmp_dir": null,
+   "typing_cmd": "str"
   },
   "vcf alphamissense -i x.vcf.gz --am-file a.tsv.gz": {
    "_command": "vcf alphamissense",

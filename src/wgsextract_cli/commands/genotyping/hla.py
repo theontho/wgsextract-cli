@@ -11,7 +11,6 @@ The allele index is built on first use from the current IPD-IMGT/HLA release
 
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import re
@@ -22,7 +21,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.genotyping import TypingHlaParams
+from wgsextract_cli.core.paths import PathInput, expand_path
+from wgsextract_cli.core.read_scope import may_follow
+from wgsextract_cli.core.reference_resolver import library_roots
 from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
@@ -130,28 +133,38 @@ def _build_index(directory: str) -> None:
     logging.info(f"T1K HLA index (IPD-IMGT/HLA {release}): {directory}")
 
 
-def hla_index(args: argparse.Namespace) -> str:
-    """--hla-index, or the library's index (built when missing)."""
-    if args.hla_index:
-        if not Path(args.hla_index).is_file():
-            raise WGSExtractError(f"HLA index not found: {args.hla_index}")
-        return str(args.hla_index)
-    lib = ReferenceLibrary(args.ref, skip_full_search=True)
-    root = lib.resource_root(str(Path(INDEX_DIR, INDEX_FASTA)))
+def index_folder(ref: PathInput | None) -> str | None:
+    """The reference library folder holding (or to hold) the T1K index."""
+    root = library_roots(ref).resource_root(str(Path(INDEX_DIR, INDEX_FASTA)))
     if not root or not Path(root).is_dir():
+        return None
+    return str(Path(root, INDEX_DIR))
+
+
+def hla_index(params: TypingHlaParams) -> str:
+    """``hla_index``, or the library's index (built when missing)."""
+    if params.hla_index:
+        index = expand_path(params.hla_index)
+        if not Path(index).is_file():
+            raise WGSExtractError(f"HLA index not found: {index}")
+        return index
+    directory = index_folder(params.ref)
+    if not directory:
         raise WGSExtractError(
             "No reference library to keep the T1K HLA index in: set "
             "reference_library in config.toml, or pass --hla-index."
         )
-    directory = str(Path(root, INDEX_DIR))
     if not Path(directory, INDEX_FASTA).is_file():
         _build_index(directory)
     return str(Path(directory, INDEX_FASTA))
 
 
 def _index_release(index: str) -> str | None:
+    release = Path(index).parent / RELEASE_FILE
+    if not may_follow(release):
+        return None
     try:
-        with (Path(index).parent / RELEASE_FILE).open() as f:
+        with release.open() as f:
             return f.read().strip()
     except OSError:
         return None
@@ -219,10 +232,10 @@ def extract_reads(aln: Alignment, work: str) -> tuple[str, str]:
     return r1, r2
 
 
-def cmd_hla(args: argparse.Namespace) -> None:
-    aln = open_alignment(args)
+def run_hla(params: TypingHlaParams, *, debug: bool = False) -> None:
+    aln = open_alignment(params)
     run_t1k = env_tool("run-t1k", "t1k")
-    index = hla_index(args)
+    index = hla_index(params)
 
     outputs = {
         "_genotype.tsv": f"{aln.stem}.t1k_genotype.tsv",
@@ -236,7 +249,7 @@ def cmd_hla(args: argparse.Namespace) -> None:
             run_command(
                 [*run_t1k, "-1", r1, "-2", r2, "-f", index, "--preset", "hla-wgs",
                  "-t", aln.threads, "-o", "t1k", "--od", work],
-                capture_output=not getattr(args, "debug", False),
+                capture_output=not debug,
             )  # fmt: skip
         except subprocess.CalledProcessError as e:
             detail = (e.stderr or "").strip()[-500:]
@@ -278,3 +291,6 @@ def cmd_hla(args: argparse.Namespace) -> None:
             )
     write_outside_calls(str(Path(aln.outdir, f"{aln.stem}.hla.pharmcat.tsv")), pharmcat)
     logging.info(f"T1K genotypes: {genotype_tsv}")
+
+
+cmd_hla = cli_handler(TypingHlaParams, run_hla, debug="debug")
