@@ -19,7 +19,7 @@ export function parseArgs(argv: readonly string[]): Record<string, string | unde
         if (arg === "--bundle")
             parsed.bundle = readValue("--bundle", ++index);
         else if (arg === "--port")
-            parsed.port = readValue("--port", ++index);
+            parsed.port = validatePort(readValue("--port", ++index));
         else if (arg === "--host")
             parsed.host = readValue("--host", ++index);
         else if (arg === "--locale")
@@ -40,6 +40,12 @@ export function parseArgs(argv: readonly string[]): Record<string, string | unde
             parsed.bundle = arg;
     }
     return parsed;
+}
+function validatePort(value: string): string {
+    if (!/^\d+$/.test(value) || Number(value) > 65535) {
+        throw new Error(`Invalid value for --port: ${JSON.stringify(value)}. Expected a decimal integer from 0 to 65535.`);
+    }
+    return value;
 }
 export function applicationSupportDirectory() {
     if (platform() === "darwin") {
