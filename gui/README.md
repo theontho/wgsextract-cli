@@ -67,7 +67,6 @@ make dev BUNDLE=examples/GitHelper PORT=9000
 | `make package` | Build Tauri distributables for this host into `out/release/tauri/`. |
 | `make package-windows-cross` | Cross-build the Windows installer from macOS or Linux. |
 | `make site` | Regenerate the static project site into `site/` from `site_src/`. |
-| `make worktree-teardown BRANCH=my-feature` | Remove that worktree. Dirty worktrees are refused unless `FORCE=1` is set. |
 
 Development targets run through `tools/tasks.py`, so `uv run python tools/tasks.py <action> [target]` works too.
 
