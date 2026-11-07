@@ -2102,7 +2102,7 @@ unpacked; an unpacked cache replaces the same release's old one.
 | `assembly` | `str` | `'GRCh38'` | `--assembly` | Assembly (default: GRCh38) One of: `GRCh37`, `GRCh38` |
 | `vep_version` | `str` | `'116'` | `--vep-version` | Ensembl release version (default: 116) |
 | `vep_cache` | `Path \| None` | `None` (config `vep_cache_directory`) | `--vep-cache` | VEP cache folder (default: config vep_cache_directory, else the vep folder of the reference library ref names, else ~/.vep). |
-| `ref` | `Path \| None` | `None` | `--ref` | Reference library folder, or a FASTA in one, whose vep folder holds the cache when vep_cache isn't set (default: config reference_library). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference library folder, or a FASTA in one, whose vep folder holds the cache when vep_cache isn't set (default: config reference_fasta's library, else reference_library). |
 | `mirror` | `str` | `'uk'` | `--mirror` | Ensembl FTP mirror to use (default: uk) One of: `ebi`, `uk` |
 
 ### `api.vep.verify(VepVerifyParams)`
@@ -2122,4 +2122,4 @@ missing.
 | `assembly` | `str` | `'GRCh38'` | `--assembly` | Assembly (default: GRCh38) One of: `GRCh37`, `GRCh38` |
 | `vep_version` | `str` | `'116'` | `--vep-version` | Ensembl release version (default: 116) |
 | `vep_cache` | `Path \| None` | `None` (config `vep_cache_directory`) | `--vep-cache` | VEP cache folder (default: config vep_cache_directory, else the vep folder of the reference library ref names, else ~/.vep). |
-| `ref` | `Path \| None` | `None` | `--ref` | Reference library folder, or a FASTA in one, whose vep folder holds the cache when vep_cache isn't set (default: config reference_library). |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference library folder, or a FASTA in one, whose vep folder holds the cache when vep_cache isn't set (default: config reference_fasta's library, else reference_library). |

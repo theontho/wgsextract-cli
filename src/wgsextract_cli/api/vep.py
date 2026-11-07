@@ -155,10 +155,11 @@ class _VepCacheParams(Params):
         None,
         doc="Reference library folder, or a FASTA in one, whose vep folder "
         "holds the cache when vep_cache isn't set (default: config "
-        "reference_library).",
+        "reference_fasta's library, else reference_library).",
         flags=("--ref",),
         path="file_or_directory",
         shared=True,
+        config_key="reference_fasta",
     )
 
     def __post_init__(self) -> None:
@@ -175,7 +176,11 @@ class _VepCacheParams(Params):
         """The cache folder (see the module docstring), ``~`` expanded."""
         from wgsextract_cli.commands._vep_resources import vep_cache_root
 
-        return Path(vep_cache_root(self.vep_cache, self.ref))
+        from ._params import with_config_defaults
+
+        # A server request's Params aren't filled from config; this is.
+        filled = with_config_defaults(self)
+        return Path(vep_cache_root(filled.vep_cache, filled.ref))
 
     def version_dir(self) -> Path:
         """The folder of this species, release and assembly in the cache."""

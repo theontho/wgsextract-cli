@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from wgsextract_cli.api._runtime import cancel_event, checkpoint
+from wgsextract_cli.core import read_scope
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
@@ -150,18 +151,21 @@ def run_vep_download(params: VepDownloadParams) -> None:
     target_path = str(cache_root / filename)
     cancel = cancel_event()
 
-    logging.info(LOG_MESSAGES["vep_downloading"].format(host=base_url))
-    if not download_file(f"{base_url}/{filename}", target_path, None, cancel):
-        checkpoint()
-        raise WGSExtractError(f"VEP cache download failed: {base_url}/{filename}")
+    for path in (target_path, target_path + ".partial", target_path + ".CHECKSUMS"):
+        _require_in_scope(path)
 
+    logging.info(LOG_MESSAGES["vep_downloading"].format(host=base_url))
     try:
+        if not download_file(f"{base_url}/{filename}", target_path, None, cancel):
+            checkpoint()
+            raise WGSExtractError(f"VEP cache download failed: {base_url}/{filename}")
         _verify_vep_tarball(base_url, target_path, filename)
         checkpoint()
         logging.info(LOG_MESSAGES["vep_extracting"].format(filename=filename))
         _extract_cache(target_path, cache_root)
     except BaseException:
-        # A cancelled tool fails as any other; the token tells them apart.
+        # A cancelled tool fails as any other; the token tells them apart. An
+        # unfinished download's .partial stays, so the next run resumes it.
         if cancel is not None and cancel.is_set():
             Path(target_path).unlink(missing_ok=True)
         raise
@@ -173,11 +177,35 @@ def run_vep_download(params: VepDownloadParams) -> None:
     current_result().set_manifest_stem(version_dir)
 
 
+def _require_in_scope(path: PathInput) -> None:
+    """Refuse a cache path a server job may not use: a link inside the cache
+    to a folder elsewhere. On the command line every path may be used."""
+    if not read_scope.may_follow(path):
+        raise WGSExtractError(
+            f"{path} leads outside the folders this server may use; not writing there."
+        )
+
+
 def _extract_cache(tarball: str, cache_root: Path) -> None:
     """Unpack ``tarball`` (``<species>/<release>_<assembly>/...``) into
     ``cache_root``. It is unpacked beside, then each release folder replaces
-    the old one, so a failed or cancelled run leaves no half-unpacked cache."""
+    the old one, which is kept aside until all are in place and put back if
+    any fails, so a failed or cancelled run leaves the cache as it was."""
     staging = Path(tempfile.mkdtemp(prefix=".vep-unpack-", dir=cache_root))
+    backup = Path(tempfile.mkdtemp(prefix=".vep-old-", dir=cache_root))
+    saved: list[tuple[Path, Path]] = []
+    placed: list[Path] = []
+    restored = True
+
+    def place(item: Path, dest: Path) -> None:
+        _require_in_scope(dest)
+        if dest.exists() or dest.is_symlink():
+            aside = backup / str(len(saved))
+            os.replace(dest, aside)
+            saved.append((dest, aside))
+        os.replace(item, dest)
+        placed.append(dest)
+
     try:
         try:
             run_command(["tar", "-xzf", tarball, "-C", str(staging)])
@@ -187,16 +215,38 @@ def _extract_cache(tarball: str, cache_root: Path) -> None:
         for top in sorted(staging.iterdir()):
             dest_top = cache_root / top.name
             if not top.is_dir() or top.is_symlink():
-                os.replace(top, dest_top)
+                place(top, dest_top)
                 continue
+            _require_in_scope(dest_top)
             dest_top.mkdir(exist_ok=True)
             for item in sorted(top.iterdir()):
-                dest = dest_top / item.name
-                if dest.is_dir() and not dest.is_symlink():
-                    shutil.rmtree(dest)
-                os.replace(item, dest)
+                place(item, dest_top / item.name)
+    except BaseException:
+        restored = _restore(placed, saved)
+        raise
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+        if restored:
+            shutil.rmtree(backup, ignore_errors=True)
+        else:
+            logging.error(f"The previous VEP cache folders are kept in {backup}.")
+
+
+def _restore(placed: list[Path], saved: list[tuple[Path, Path]]) -> bool:
+    """Remove what was put in place and move the old folders back; whether
+    every one went back."""
+    try:
+        for dest in reversed(placed):
+            if dest.is_dir() and not dest.is_symlink():
+                shutil.rmtree(dest)
+            else:
+                dest.unlink()
+        for dest, aside in reversed(saved):
+            os.replace(aside, dest)
+    except OSError as e:
+        logging.error(f"Could not restore the previous VEP cache: {e}")
+        return False
+    return True
 
 
 def _chr_prefixed_standard_chrom(chrom: str) -> str | None:

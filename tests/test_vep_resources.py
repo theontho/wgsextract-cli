@@ -1,5 +1,6 @@
 import gzip
 import logging
+import os
 import shutil
 import sys
 import tarfile
@@ -252,6 +253,108 @@ def test_download_honours_configured_cache_directory(tmp_path, ensembl):
     assert (configured / "homo_sapiens" / "116_GRCh38").is_dir()
 
 
+@needs_curl_tar
+def test_download_defaults_to_the_configured_fasta_library(tmp_path, ensembl):
+    # PR #498 review: the API used ~/.vep where the CLI used reference_fasta's
+    # library.
+    from wgsextract_cli.core.config import settings
+
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    (genomes / "hg38.fa").write_text(">chr1\nA\n")
+    settings["reference_fasta"] = str(genomes / "hg38.fa")
+
+    api.vep.download(VepDownloadParams())
+
+    assert (tmp_path / "lib" / "vep" / "homo_sapiens" / "116_GRCh38").is_dir()
+    assert not (Path.home() / ".vep").exists()
+
+
+class _CancelOnGet(dict):
+    """The mirror's files; serving ``path`` cancels ``token``."""
+
+    def __init__(self, files, path, token):
+        super().__init__(files)
+        self.path, self.token = path, token
+
+    def get(self, key, default=None):
+        if key == self.path:
+            self.token.cancel()
+        return super().get(key, default)
+
+
+@needs_curl_tar
+def test_download_cancelled_while_fetching_leaves_no_tarball(tmp_path, ensembl):
+    # PR #498 review: a cancel during the download skipped the cleanup.
+    old = _version_dir(tmp_path, ["1", "2"])
+    token = api.CancelToken()
+    ensembl.files = _CancelOnGet(ensembl.files, _CACHE_PATH, token)
+
+    result = api.vep.download(
+        VepDownloadParams(vep_cache=tmp_path), cancel=token, check=False
+    )
+
+    assert result.status == "cancelled"
+    assert not (tmp_path / _CACHE_FILE).exists()
+    assert sorted(p.name for p in old.iterdir()) == ["1", "2", "info.txt"]
+
+
+@needs_curl_tar
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs a folder whose entries can't be moved",
+)
+def test_download_that_fails_partway_puts_the_old_cache_back(tmp_path, ensembl):
+    # PR #498 review: the old release was deleted before the new one was in
+    # place, so a failure part-way lost it.
+    served = tmp_path / "served.tar.gz"
+    _cache_tarball(served)
+    src = tmp_path / "src"
+    with tarfile.open(served) as tar:
+        tar.extractall(src, filter="data")
+    shutil.copytree(src / "homo_sapiens", src / "zz_species")
+    with tarfile.open(served, "w:gz") as tar:
+        for top in ("homo_sapiens", "zz_species"):
+            tar.add(src / top, arcname=top)
+    ensembl.files[_CACHE_PATH] = served.read_bytes()
+    del ensembl.files[_CHECKSUMS_PATH]
+    cache = tmp_path / "cache"
+    old = _version_dir(cache, ["1", "2"])
+    locked = _version_dir(cache, ["1"], species="zz_species").parent
+    locked.chmod(0o555)  # its old release can't be moved aside
+    try:
+        result = api.vep.download(VepDownloadParams(vep_cache=cache), check=False)
+    finally:
+        locked.chmod(0o755)
+
+    assert result.status == "failed"
+    assert sorted(p.name for p in old.iterdir()) == ["1", "2", "info.txt"]
+    assert sorted(p.name for p in cache.iterdir()) == sorted(
+        [_CACHE_FILE, "homo_sapiens", "zz_species"]
+    )
+
+
+@needs_curl_tar
+def test_a_server_download_refuses_a_cache_link_leading_elsewhere(tmp_path, ensembl):
+    # PR #498 review: the guard checks the cache folder, not a link in it.
+    from wgsextract_cli.core import read_scope
+    from wgsextract_cli.server.operations import PathGuard
+
+    cache, outside = tmp_path / "cache", tmp_path / "outside"
+    cache.mkdir()
+    outside.mkdir()
+    try:
+        (cache / "homo_sapiens").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links need privileges here")
+
+    with read_scope.limited_to(PathGuard([cache]).allows):
+        result = api.vep.download(VepDownloadParams(vep_cache=cache), check=False)
+
+    assert result.error is not None and "leads outside" in result.error.message
+    assert list(outside.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "field", [{"species": "../../evil"}, {"vep_version": "116/../../x"}]
 )
@@ -263,9 +366,13 @@ def test_a_species_or_release_cannot_leave_the_cache(tmp_path, field):
 
 
 def _version_dir(
-    cache: Path, chroms, info: bool = True, version: str = "116_GRCh38"
+    cache: Path,
+    chroms,
+    info: bool = True,
+    version: str = "116_GRCh38",
+    species: str = "homo_sapiens",
 ) -> Path:
-    version_dir = cache / "homo_sapiens" / version
+    version_dir = cache / species / version
     version_dir.mkdir(parents=True)
     if info:
         (version_dir / "info.txt").write_text("")

@@ -379,9 +379,26 @@ def test_a_vep_cache_request_checks_the_cache_it_falls_back_to(
     with _serve(tmp_path, [work]) as client:
         status, body = client.request("POST", f"/ops/{op}", {})
         assert (status, body["error"]["code"]) == (403, "path_not_allowed"), body
-        status, body = client.request("POST", f"/ops/{op}", {"vep_cache": str(work)})
-        assert status == 202, body
     assert not outside.exists()
+    # Naming an allowed cache passes (checked directly: a job would download).
+    PathGuard([work]).check(params_from_json(find(op), {"vep_cache": str(work)}))
+
+
+@pytest.mark.parametrize("op", ["vep/download", "vep/verify"])
+def test_a_vep_cache_request_checks_the_configured_fasta_library_cache(
+    tmp_path, work, monkeypatch, op
+):
+    # PR #498 review: with only reference_fasta configured, the cache is in
+    # that FASTA's library, as on the CLI, so that is the folder checked.
+    from wgsextract_cli.core.config import settings
+
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    (genomes / "hg38.fa").write_text(">chr1\nA\n")
+    monkeypatch.setitem(settings, "reference_fasta", str(genomes / "hg38.fa"))
+    with pytest.raises(RequestError, match="outside the folders"):
+        PathGuard([work]).check(params_from_json(find(op), {}))
+    PathGuard([tmp_path / "lib"]).check(params_from_json(find(op), {}))
 
 
 def test_a_vep_folder_run_refuses_a_link_out_of_the_allowed_folders(tmp_path, work):
