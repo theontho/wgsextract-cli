@@ -676,9 +676,9 @@ The weekly **Pixi refresh** workflow resolves updates within the declared
 manifest pins, restores declared direct-archive digests, and validates the
 lockfile candidate with a read-only token. A validated change is force-pushed to
 the fixed `automation/pixi-refresh` branch and opens or updates a single PR; a
-run with no change opens none and closes a superseded one. Because pushes made
-with `GITHUB_TOKEN` start no `pull_request` workflows, the refresh dispatches CI
-on that branch so the checks attach to the PR head. It never merges
+run with no change opens none and closes a superseded one. GitHub holds that
+PR's CI until a maintainer approves it ("Approve workflows to run", or the
+command in the PR body); the runs are then ordinary PR checks. It never merges
 dependencies automatically. Numerical-tool
 changes still need public small/full-genome byte-parity validation before merge.
 

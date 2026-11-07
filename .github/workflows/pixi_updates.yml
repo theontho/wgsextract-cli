@@ -4,10 +4,13 @@ name: Weekly Pixi refresh
 # token. Only after it passes does the pull-request job, the sole job with write
 # permissions, force-update one fixed branch and open or update one PR.
 #
-# Pushes and PRs made with GITHUB_TOKEN do not start push/pull_request
-# workflows, so the PR job dispatches the CI workflows on the refresh branch.
-# workflow_dispatch is the one event GITHUB_TOKEN may start; the dispatched runs
-# check out the branch head, so their check runs attach to the PR's head SHA.
+# CI on the refresh PR: GitHub records the pull_request runs of a PR opened or
+# pushed with GITHUB_TOKEN as "action_required" instead of running them. A
+# maintainer approves them (the PR body gives the command), and they then run as
+# ordinary pull_request checks on the PR head. Dispatching CI with
+# workflow_dispatch is not an alternative: its checks attach to the head SHA but
+# GitHub neither shows them on the PR nor counts them for required checks
+# (docs.github.com, "Troubleshooting required status checks").
 
 on:
   schedule:
@@ -101,19 +104,12 @@ jobs:
     permissions:
       contents: write # force-push the fixed refresh branch
       pull-requests: write # open, update or close the refresh PR
-      actions: write # dispatch CI on the refresh branch (see the header)
     env:
       GH_TOKEN: ${{ github.token }}
       BRANCH: automation/pixi-refresh
       BASE: ${{ github.event.repository.default_branch }}
       CHANGED: ${{ needs.refresh.outputs.changed }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      # Workflows whose pull_request triggers cover a pixi.lock-only change.
-      # CodeQL is omitted: it has no workflow_dispatch and scans no lockfile.
-      CI_WORKFLOWS: >-
-        ubuntu_ci.yml macos_ci.yml windows_ci.yml linux_arm64.yml
-        gatk_windows.yml gkl_windows.yml dev_setup.yml gitleaks.yml
-        install_lab.yml
     steps:
       - name: Close a refresh PR that no change supersedes
         if: needs.refresh.outputs.changed != 'true'
@@ -145,18 +141,19 @@ jobs:
           git apply --index "$PATCH_DIR/pixi-lock.patch"
           git commit --quiet -m 'chore(deps): refresh pixi.lock within the declared pins' \
             -m "Resolved and validated by $RUN_URL"
-          # An identical tree is already on the branch, with CI already run.
+          # The branch already holds this tree; keep its head and CI approval.
           if git fetch --quiet origin "refs/heads/$BRANCH" 2>/dev/null &&
              git diff --quiet FETCH_HEAD HEAD; then
-            echo pushed=false >> "$GITHUB_OUTPUT"
+            echo "head=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_OUTPUT"
           else
             git push --force origin "HEAD:refs/heads/$BRANCH"
-            echo pushed=true >> "$GITHUB_OUTPUT"
+            echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           fi
       - name: Open or update the refresh PR
         if: needs.refresh.outputs.changed == 'true'
         env:
           PATCH_DIR: ${{ runner.temp }}/pixi-update
+          HEAD_SHA: ${{ steps.push.outputs.head }}
         run: |
           body="$RUNNER_TEMP/pr-body.md"
           {
@@ -167,8 +164,17 @@ jobs:
           NOTE
             echo "Lint, typecheck and tests passed on the candidate in $RUN_URL."
             cat <<'NOTE'
-          CI on this branch is started by `workflow_dispatch`, because PRs opened with
-          `GITHUB_TOKEN` start no `pull_request` workflows.
+
+          GitHub holds CI for PRs pushed with `GITHUB_TOKEN` until a maintainer approves
+          it. Approve with "Approve workflows to run" on this PR, or:
+
+          ```sh
+          NOTE
+            echo "gh run list -R $GITHUB_REPOSITORY --commit $HEAD_SHA --status action_required \\"
+            echo "  --json databaseId --jq '.[].databaseId' |"
+            echo "  xargs -I{} gh api -X POST repos/$GITHUB_REPOSITORY/actions/runs/{}/approve"
+            cat <<'NOTE'
+          ```
 
           Review numerical-tool changes against the public small/full-genome byte-parity
           gates before merging.
@@ -187,18 +193,3 @@ jobs:
               --title 'chore(deps): weekly Pixi lockfile refresh' \
               --body-file "$body" --label dependencies
           fi
-      - name: Dispatch CI on the refresh branch
-        if: steps.push.outputs.pushed == 'true'
-        run: |
-          sha=$(git rev-parse HEAD)
-          echo "## CI dispatched on \`$BRANCH\` at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
-          failed=0
-          for workflow in $CI_WORKFLOWS; do
-            if gh workflow run "$workflow" -R "$GITHUB_REPOSITORY" --ref "$BRANCH"; then
-              echo "- $workflow" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "- $workflow: **dispatch failed**" >> "$GITHUB_STEP_SUMMARY"
-              failed=1
-            fi
-          done
-          exit "$failed"
