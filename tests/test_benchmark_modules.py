@@ -29,6 +29,7 @@ from tests.htslib_helpers import (
     sam_to_bam,
     write_fasta,
 )
+from tests.smoke_utils import isolate_home
 from wgsextract_cli.api import CancelToken, Result
 from wgsextract_cli.api.benchmark import BenchmarkParams, benchmark
 from wgsextract_cli.commands import benchmark as benchmark_entry
@@ -952,7 +953,7 @@ def test_cli_run_ignores_the_configured_output_directory(tmp_path, monkeypatch, 
     configured = tmp_path / "configured"
     own = tmp_path / "own.toml"
     own.write_text(f"output_directory = {str(configured)!r}\n")
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    isolate_home(monkeypatch, tmp_path / "home")
     monkeypatch.chdir(tmp_path)
     _steps(monkeypatch, tmp_path, noop=True)
     argv = ["--config", str(own), "benchmark", "--profile", "smoke"]
