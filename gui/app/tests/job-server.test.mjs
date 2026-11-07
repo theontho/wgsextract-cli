@@ -9,7 +9,8 @@ const { createJobServer } = await import("../dist/web/src/server/job-server.js")
 const { runActionPreferringServer } = await import("../dist/web/src/server/job-server-action.js");
 
 // A job server speaking the protocol in docs/job-server.md. `slow` runs until cancelled;
-// `quick` finishes at once and logs the parameters it received; anything else is refused.
+// `quick` finishes at once and logs the parameters it received, `noisy` the same with a 2 MiB log;
+// anything else is refused.
 const fakeServer = String.raw`
 import { createServer } from "node:http";
 const token = "secret-" + process.pid;
@@ -36,7 +37,7 @@ const server = createServer(async (request, response) => {
   const [, kind, ...rest] = new URL(request.url, "http://x").pathname.replace(/^\/v1/, "").split("/");
   if (request.method === "POST" && kind === "ops") {
     const operation = rest.join("/");
-    if (!["slow", "quick"].includes(operation)) {
+    if (!["slow", "quick", "noisy"].includes(operation)) {
       response.writeHead(400, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { code: "path_not_allowed", message: "not allowed" } }));
       return;
@@ -46,7 +47,8 @@ const server = createServer(async (request, response) => {
     response.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify(job));
     send(job, "status", { status: "running" });
     send(job, "progress", { stage: "reading", message: "chr1", fraction: 0.5 });
-    if (operation === "quick") setTimeout(() => finish(job, "succeeded", 0), 50);
+    if (operation === "noisy") job.log = "x".repeat(2 * 1024 * 1024) + "\nlast line\n";
+    if (operation !== "slow") setTimeout(() => finish(job, "succeeded", 0), 50);
     return;
   }
   const job = jobs.get(rest[0]);
@@ -113,6 +115,17 @@ test("an action with a serverOperation runs as a job, with its progress in the o
   // An empty placeholder leaves its parameter out; non-string values are sent as written.
   assert.match(output, /params \{"input":"\/data\/sample\.bam","bins":true\}/);
   assert.doesNotMatch(output, /ran the command/);
+});
+
+test("a job's result keeps the end of a large log, and streams all of it", async (t) => {
+  const bundle = await withBundle(t);
+  const { result, output } = await run(bundle, action("noisy"), bundle.startServer());
+
+  assert.equal(result.exitCode, 0);
+  assert.ok(output.length > 2 * 1024 * 1024);
+  assert.ok(result.stdout.length <= 1_048_576);
+  assert.equal(result.stdoutTruncated, true);
+  assert.match(result.stdout, /last line\n$/);
 });
 
 test("cancelling a server action cancels its job", async (t) => {

@@ -4,9 +4,13 @@ import { contextWithFileState, runAction, type ActionEmit, type ActionRunResult 
 import { errorMessage } from "./errors.js";
 import { cancelJob, followJob, getJob, jobLog, startJob, type JobEvent, type JobServerAddress } from "./job-server-client.js";
 import type { JobServer } from "./job-server.js";
+import { TailBuffer } from "./tail-buffer.js";
 
 /** How long a cancelled job may take to finish before the run stops waiting for it. */
 const cancelWaitMs = 60_000;
+
+/** The result keeps the end of a job's output, as it does for a command; all of it is still streamed. */
+const maxOutputBytes = 1_048_576;
 
 /**
  * Runs an action with a `serverOperation` as a job on the bundle's job server, and every
@@ -72,9 +76,9 @@ export function renderedParameters(operation: ServerOperationSpec, context: Comm
 async function runJob(address: JobServerAddress, id: string, command: string, signal: AbortSignal | undefined, emit: ActionEmit): Promise<ActionRunResult> {
     const startedAt = new Date().toISOString();
     await emit({ type: "start", command, startedAt });
-    let stdout = "";
+    const stdout = new TailBuffer(maxOutputBytes);
     const write = (text: string) => {
-        stdout += text;
+        stdout.push(Buffer.from(text));
         void emit({ type: "output", stream: "stdout", text });
     };
     const stopFollowing = new AbortController();
@@ -125,8 +129,9 @@ async function runJob(address: JobServerAddress, id: string, command: string, si
     const result: ActionRunResult = {
         exitCode: typeof job.exit_code === "number" ? job.exit_code : job.status === "succeeded" ? 0 : 1,
         signal: null,
-        stdout,
+        stdout: stdout.text(),
         stderr,
+        stdoutTruncated: stdout.truncated,
         startedAt,
         finishedAt: new Date().toISOString(),
         command,
