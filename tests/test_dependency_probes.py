@@ -374,6 +374,31 @@ def test_check_all_dependencies_marks_crashing_tools_missing(host):
     assert "install --locked" in by_name["minimap2"]["version"]
 
 
+def test_a_slow_lockfile_query_still_gives_the_install_hint(
+    host, fake_pixi, tmp_path, monkeypatch
+):
+    """#518: a pixi query that stalled past its limit on a cold Windows start
+    dropped minimap2's install hint from `deps check`; it is retried."""
+    log = tmp_path / "runs.log"
+    slow = python_tool(
+        tmp_path / "slow-pixi",
+        "pixi",
+        _logging_runs(log) + "import subprocess, sys, time\ntime.sleep(4)\n"
+        f"sys.exit(subprocess.call([{str(fake_pixi.exe)!r}, *sys.argv[1:]]))\n",
+    )
+    monkeypatch.setenv("PIXI_EXE", str(slow))
+    # The clock: the real limits are a minute, then three.
+    monkeypatch.setattr(pixi_tools, "PIXI_QUERY_TIMEOUTS", (2, 60))
+
+    results = check_all_dependencies([], ["minimap2"])
+
+    (minimap2,) = results["optional"]
+    assert minimap2["path"] is None
+    assert minimap2["version"].startswith("Run: ")
+    assert "install --locked" in minimap2["version"]
+    assert _runs(log) >= 2
+
+
 def test_log_dependency_info(host, caplog):
     samtools = _tool(host, "samtools", 'print("samtools 1.21")')
     caplog.set_level(logging.DEBUG)

@@ -107,19 +107,43 @@ def _pixi_manifest_args() -> list[str]:
     return []
 
 
+# A cold first start on Windows can stall a process for about a minute, so a
+# query that times out is retried once with a longer limit, as tool version
+# probes are, rather than read as a missing package or environment.
+PIXI_QUERY_TIMEOUTS = (60, 180)
+
+
+def _pixi_query(command: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a quick pixi query, retrying once on a timeout."""
+    for timeout in PIXI_QUERY_TIMEOUTS[:-1]:
+        try:
+            return subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            pass
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=PIXI_QUERY_TIMEOUTS[-1],
+    )
+
+
 def _locked_package_available(pixi_cmd: str, env: str, tool: str) -> bool:
     """Whether the lockfile gives this platform's `env` the package providing `tool`.
 
     Reads the lockfile only, so nothing is downloaded just to answer `deps check`.
     """
     try:
-        result = subprocess.run(
+        result = _pixi_query(
             [pixi_cmd, "list", *_pixi_manifest_args(), "-e", env, "--no-install"]
-            + ["--json"],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=60,
+            + ["--json"]
         )
         packages = json.loads(result.stdout) if result.returncode == 0 else []
     except (OSError, subprocess.SubprocessError, ValueError):
@@ -258,7 +282,7 @@ def _probe_environment_with_pixi(
         + "raise SystemExit(0 if found else 1)\n"
     )
     try:
-        return subprocess.run(
+        return _pixi_query(
             [
                 pixi_cmd,
                 "run",
@@ -271,12 +295,7 @@ def _probe_environment_with_pixi(
                 "-c",
                 script,
                 *tool_names,
-            ],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            # A cold first start on Windows takes far longer than later ones.
-            timeout=60,
+            ]
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -375,13 +394,7 @@ def pixi_env_prefix(env: str) -> Path | None:
     if not pixi_cmd:
         return None
     try:
-        result = subprocess.run(
-            [pixi_cmd, "info", *_pixi_manifest_args(), "--json"],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=60,
-        )
+        result = _pixi_query([pixi_cmd, "info", *_pixi_manifest_args(), "--json"])
         envs = json.loads(result.stdout)["environments_info"]
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
         return None
