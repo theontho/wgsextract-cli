@@ -212,6 +212,16 @@ multiqc = ">=1.32,<2"
 [feature.parquet.pypi-dependencies]
 pyarrow = ">=14"
 
+# Optional MCP over streamable HTTP (`serve --mcp-http`): the official MCP
+# Python SDK; never installed by command invocation.
+# conda-forge's build: PyPI has no cryptography wheel for Intel macOS, and
+# building it from source needs Rust.
+[feature.mcp.dependencies]
+cryptography = "*"
+
+[feature.mcp.pypi-dependencies]
+mcp = ">=2.3,<3"
+
 # Developer tooling (tests, lint, type checking, packaging, site/CI checks).
 # Kept out of the default environment that end-user installers set up; tasks
 # defined here run in the `dev` environment automatically.
@@ -270,10 +280,11 @@ pytest = "==9.1.1"
 
 [environments]
 default = { features = ["bio-tools", "pysam"], solve-group = "default" }
-dev = { features = ["bio-tools", "pysam", "dev", "lint", "multiqc", "parquet"], solve-group = "default" }
+dev = { features = ["bio-tools", "pysam", "dev", "lint", "multiqc", "parquet", "mcp"], solve-group = "default" }
 lint = { features = ["lint"], no-default-feature = true }
 multiqc = { features = ["multiqc"], solve-group = "default" }
 parquet = { features = ["bio-tools", "pysam", "parquet"], solve-group = "default" }
+mcp = { features = ["bio-tools", "pysam", "mcp"], solve-group = "default" }
 gatk = { features = ["gatk"], no-default-feature = true }
 freebayes = { features = ["freebayes"], no-default-feature = true }
 t1k = { features = ["t1k"], no-default-feature = true }
