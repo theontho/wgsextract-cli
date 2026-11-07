@@ -99,8 +99,8 @@ def compile_cache_advice(home: Path, root: Path, config: Path) -> str | None:
     if wrapper and "sccache" not in Path(wrapper).name:
         return None
     basedir = (
-        f"add {str(root)!r} to 'basedirs' in {config} (each worktree's root; "
-        "sccache strips them from its cache keys)"
+        f"add this worktree's root, {root}, to 'basedirs' in {config} (sccache "
+        "strips those roots from its cache keys)"
     )
     if wrapper:
         if os.path.normcase(str(root)) in sccache_basedirs(config):

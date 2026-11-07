@@ -202,7 +202,7 @@ class CompileCacheAdviceTests(unittest.TestCase):
                 (home / name).write_text(text, encoding="utf-8")
             config = home / "sccache-config"
             if basedirs is not None:
-                quoted = ", ".join(f"{d!r}" for d in basedirs)
+                quoted = ", ".join(json.dumps(d) for d in basedirs)
                 config.write_text(f"basedirs = [{quoted}]\n", encoding="utf-8")
             return setup.compile_cache_advice(home, self.ROOT, config)
 
