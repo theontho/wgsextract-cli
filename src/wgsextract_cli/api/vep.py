@@ -6,12 +6,19 @@ gets ``<input stem>_vep.vcf.gz`` (or ``.txt``/``.json`` with ``format``) and
 VEP's summary in ``outdir``, else beside the input; an input whose output
 already exists is skipped unless ``force``. The result's metrics count the
 inputs and how many succeeded, were skipped or failed; any failure fails the
-run. Downloading and checking the VEP cache (``vep download``/``verify``)
-stay CLI-only.
+run.
+
+``download`` fetches Ensembl's indexed cache for ``species``, ``vep_version``
+and ``assembly``, checks it against Ensembl's CHECKSUMS and unpacks it into
+the cache folder; ``verify`` checks that an unpacked cache has its
+``info.txt`` and chromosome folders. The cache folder is ``vep_cache``, else
+config ``vep_cache_directory``, else the ``vep`` folder of the reference
+library ``ref`` names, else ``~/.vep``.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,4 +136,125 @@ def run(
     return execute(params, run_vep, progress=progress, cancel=cancel, check=check)
 
 
-__all__ = ["VepRunParams", "run"]
+@dataclass(frozen=True, kw_only=True)
+class _VepCacheParams(Params):
+    species: str = param("homo_sapiens", help="Species name (default: homo_sapiens)")
+    assembly: str = param(
+        "GRCh38", help="Assembly (default: GRCh38)", choices=("GRCh37", "GRCh38")
+    )
+    vep_version: str = param("116", help="Ensembl release version (default: 116)")
+    vep_cache: Path | None = param(
+        None,
+        help="Path to VEP cache directory",
+        doc="VEP cache folder (default: config vep_cache_directory, else the "
+        "vep folder of the reference library ref names, else ~/.vep).",
+        path="directory",
+        config_key="vep_cache_directory",
+    )
+    ref: Path | None = param(
+        None,
+        doc="Reference library folder, or a FASTA in one, whose vep folder "
+        "holds the cache when vep_cache isn't set (default: config "
+        "reference_fasta's library, else reference_library).",
+        flags=("--ref",),
+        path="file_or_directory",
+        shared=True,
+        config_key="reference_fasta",
+    )
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from wgsextract_cli.core.utils import UsageError
+
+        # They name the cache's file and folders, which must stay in it.
+        if not re.fullmatch(r"[A-Za-z0-9_]+", self.species):
+            raise UsageError(f"Invalid --species {self.species!r}.")
+        if not re.fullmatch(r"[0-9]+", self.vep_version):
+            raise UsageError(f"Invalid --vep-version {self.vep_version!r}.")
+
+    def cache_root(self) -> Path:
+        """The cache folder (see the module docstring), ``~`` expanded."""
+        from wgsextract_cli.commands._vep_resources import vep_cache_root
+
+        from ._params import with_config_defaults
+
+        # A server request's Params aren't filled from config; this is.
+        filled = with_config_defaults(self)
+        return Path(vep_cache_root(filled.vep_cache, filled.ref))
+
+    def version_dir(self) -> Path:
+        """The folder of this species, release and assembly in the cache."""
+        return self.cache_root() / self.species / f"{self.vep_version}_{self.assembly}"
+
+    def implied_paths(self) -> Iterator[tuple[str, Path]]:
+        yield "vep_cache", self.cache_root()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VepDownloadParams(_VepCacheParams):
+    """Download and unpack Ensembl's VEP cache (see the module docstring).
+
+    The download resumes after an interruption or cancellation; a checksum
+    mismatch deletes it. A cancelled run removes the tarball and what it
+    unpacked; an unpacked cache replaces the same release's old one."""
+
+    COMMAND = "vep download"
+
+    mirror: str = param(
+        "uk",
+        help="Ensembl FTP mirror to use (default: uk)",
+        choices=("ebi", "uk"),
+    )
+
+    def write_folders(self) -> Iterator[Path]:
+        yield self.cache_root()
+
+
+@dataclass(frozen=True, kw_only=True)
+class VepVerifyParams(_VepCacheParams):
+    """Check an unpacked VEP cache (see the module docstring). Warns about a
+    missing ``info.txt`` or chromosome folder (metric ``missing_chromosomes``)
+    and fails when the folder, its ``info.txt`` or every chromosome is
+    missing."""
+
+    COMMAND = "vep verify"
+
+
+def download(
+    params: VepDownloadParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Download and unpack the VEP cache (see ``VepDownloadParams``)."""
+    from wgsextract_cli.commands._vep_resources import run_vep_download
+
+    return execute(
+        params, run_vep_download, progress=progress, cancel=cancel, check=check
+    )
+
+
+def verify(
+    params: VepVerifyParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """Check an unpacked VEP cache (see ``VepVerifyParams``)."""
+    from wgsextract_cli.commands._vep_resources import run_vep_verify
+
+    return execute(
+        params, run_vep_verify, progress=progress, cancel=cancel, check=check
+    )
+
+
+__all__ = [
+    "VepDownloadParams",
+    "VepRunParams",
+    "VepVerifyParams",
+    "download",
+    "run",
+    "verify",
+]
