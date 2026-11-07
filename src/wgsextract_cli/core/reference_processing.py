@@ -361,11 +361,11 @@ def extract_archive_keep_existing(archive_path: str, dest_dir: str) -> None:
 # Written once a bootstrap is fully extracted, e.g. ``.bootstrap-0.2.0``.
 BOOTSTRAP_MARKER_PREFIX = ".bootstrap-"
 # Libraries extracted before the marker existed: files spread across the
-# archive, so an interrupted extraction is not taken for a finished one.
+# archive, so an interrupted extraction is not taken for a finished one, and
+# that no command deletes (unlike genomes/*_ncnt.csv, removed with a genome).
 _LEGACY_BOOTSTRAP_SENTINELS = (
     "chm13v2-grch38.chain",
     "hg19-chm13v2.chain",
-    "genomes/hs38_ncnt.csv",
     "microarray/raw_file_templates/head/MyHeritage_V2.csv",
     "xgen_plus_spikein.GRCh38num.bed",
 )
@@ -373,12 +373,16 @@ _LEGACY_BOOTSTRAP_SENTINELS = (
 
 def bootstrap_has_support_assets(reflib_dir: str) -> bool:
     """Whether the bootstrap is completely installed in ``reflib_dir``."""
+    from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME
+
     root = Path(reflib_dir)
     if not root.is_dir():
         return False
-    # An archive (or partial download) left in the library means a run was
-    # interrupted before extraction finished.
-    if any(root.glob("wgsextract-reference-bootstrap*.tar.gz*")):
+    # The archive (or partial download) download_bootstrap leaves in the
+    # library means a run was interrupted before extraction finished.
+    archive = root / BOOTSTRAP_FILENAME
+    leftovers = ("", ".partial", ".partial.segments", ".partial.source")
+    if any(Path(f"{archive}{suffix}").exists() for suffix in leftovers):
         return False
     if any(root.glob(BOOTSTRAP_MARKER_PREFIX + "*")):
         return True

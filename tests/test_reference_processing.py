@@ -438,7 +438,6 @@ def test_flattening_keeps_conflicting_duplicates_in_place(tmp_path, caplog):
 # chains come first).
 _BOOTSTRAP = {
     "chm13v2-grch38.chain": b"chain",
-    "genomes/hs38_ncnt.csv": b"ncnt",
     "hg19-chm13v2.chain": b"chain",
     "microarray/raw_file_templates/head/MyHeritage_V2.csv": b"template",
     "xgen_plus_spikein.GRCh38num.bed": b"bed",
@@ -455,8 +454,28 @@ def test_an_old_bootstrap_is_recognized_only_when_complete(tmp_path):
         (tmp_path / name).rename(tmp_path / "aside")
         assert not rp.bootstrap_has_support_assets(str(tmp_path)), name
         (tmp_path / "aside").rename(tmp_path / name)
-    _touch(tmp_path / BOOTSTRAP_FILENAME)  # left by an interrupted run
-    assert not rp.bootstrap_has_support_assets(str(tmp_path))
+    for leftover in ("", ".partial", ".partial.segments", ".partial.source"):
+        _touch(tmp_path / f"{BOOTSTRAP_FILENAME}{leftover}")  # interrupted run
+        assert not rp.bootstrap_has_support_assets(str(tmp_path)), leftover
+        (tmp_path / f"{BOOTSTRAP_FILENAME}{leftover}").unlink()
+
+
+def test_deleting_a_genome_keeps_an_old_bootstrap_installed_review_514(tmp_path):
+    """Deleting hs38 removes genomes/hs38_ncnt.csv, which a v0.1.0 bootstrap
+    also shipped; the library must stay bootstrapped."""
+    for name in [*_BOOTSTRAP, "genomes/hs38_ncnt.csv", "genomes/hs38.fa.gz"]:
+        _touch(tmp_path / name)
+    assert rp.delete_genome("hs38.fa.gz", str(tmp_path))
+    assert not (tmp_path / "genomes" / "hs38_ncnt.csv").exists()
+    assert rp.bootstrap_has_support_assets(str(tmp_path))
+
+
+def test_a_hand_downloaded_bootstrap_asset_is_not_a_leftover_review_514(tmp_path):
+    """Only the file ref bootstrap writes marks an unfinished run, not the
+    release asset a user saved into the library."""
+    _touch(tmp_path / ".bootstrap-0.2.0")
+    _touch(tmp_path / "wgsextract-reference-bootstrap-0.2.0.tar.gz")
+    assert rp.bootstrap_has_support_assets(str(tmp_path))
 
 
 def test_a_leftover_ybrowse_vcf_is_not_a_bootstrap_issue_509(tmp_path):
