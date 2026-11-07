@@ -174,5 +174,44 @@ class DesktopPrerequisiteTests(unittest.TestCase):
             )
 
 
+class CompileCacheAdviceTests(unittest.TestCase):
+    """New worktrees rebuild every Tauri crate unless Cargo has a shared compile cache."""
+
+    def advice(self, config: str | None, *, sccache: bool) -> str | None:
+        (setup.ROOT / "tmp").mkdir(exist_ok=True)
+        with (
+            tempfile.TemporaryDirectory(dir=setup.ROOT / "tmp") as directory,
+            patch.dict(setup.os.environ, clear=False) as environ,
+            patch.object(
+                setup.shutil, "which", return_value="/bin/sccache" if sccache else None
+            ),
+        ):
+            environ.pop("RUSTC_WRAPPER", None)
+            environ.pop("CARGO_BUILD_RUSTC_WRAPPER", None)
+            home = Path(directory)
+            if config is not None:
+                (home / "config.toml").write_text(config, encoding="utf-8")
+            return setup.compile_cache_advice(home)
+
+    def test_no_advice_once_cargo_uses_a_rustc_wrapper(self) -> None:
+        self.assertIsNone(
+            self.advice('[build]\nrustc-wrapper = "sccache"\n', sccache=True)
+        )
+
+    def test_advises_installing_sccache_when_missing(self) -> None:
+        advice = self.advice(None, sccache=False)
+        assert advice is not None
+        self.assertIn("cargo install sccache", advice)
+        self.assertIn("config.toml", advice)
+
+    def test_advises_only_configuring_when_sccache_is_installed(self) -> None:
+        for config in (None, "[net]\nretry = 3\n", "not = [valid toml"):
+            with self.subTest(config=config):
+                advice = self.advice(config, sccache=True)
+                assert advice is not None
+                self.assertIn('rustc-wrapper = "sccache"', advice)
+                self.assertNotIn("cargo install", advice)
+
+
 if __name__ == "__main__":
     unittest.main()

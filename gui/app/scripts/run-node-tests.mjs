@@ -21,6 +21,7 @@ const defaultTests = [
   "tests/routes.test.mjs",
   "tests/setup-runner.test.mjs",
   "tests/tauri-updater.test.mjs",
+  "tests/developer-cache.test.mjs",
   "tests/terminal.test.mjs",
   "tests/conformance.test.mjs",
 ];

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -34,6 +35,44 @@ def succeeds(*args: str) -> bool:
             [executable, *args[1:]], capture_output=True, check=False
         ).returncode
         == 0
+    )
+
+
+def cargo_home() -> Path:
+    configured = os.environ.get("CARGO_HOME")
+    return Path(configured).expanduser() if configured else Path.home() / ".cargo"
+
+
+def rustc_wrapper_configured(home: Path) -> bool:
+    """Whether Cargo already runs rustc through a wrapper such as sccache."""
+    if os.environ.get("RUSTC_WRAPPER") or os.environ.get("CARGO_BUILD_RUSTC_WRAPPER"):
+        return True
+    for name in ("config.toml", "config"):
+        try:
+            config = tomllib.loads((home / name).read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        build = config.get("build")
+        if isinstance(build, dict) and build.get("rustc-wrapper"):
+            return True
+    return False
+
+
+def compile_cache_advice(home: Path) -> str | None:
+    """Advice for sharing Rust build output across worktrees, or None if already set up."""
+    if rustc_wrapper_configured(home):
+        return None
+    config = home / "config.toml"
+    enable = f"add 'rustc-wrapper = \"sccache\"' under [build] in {config}"
+    if shutil.which("sccache"):
+        return (
+            f"Advisory: {enable} so every worktree reuses compiled Tauri crates "
+            "instead of rebuilding them."
+        )
+    return (
+        "Advisory: each worktree rebuilds the Tauri shell from scratch. To share "
+        "compiled crates, install sccache ('cargo install sccache --locked') and "
+        f"{enable}."
     )
 
 
@@ -242,6 +281,9 @@ def main() -> int:
     )
     if not args.skip_smoke:
         smoke()
+    advice = compile_cache_advice(cargo_home())
+    if advice:
+        print(advice)
     if not succeeds("gh", "auth", "status"):
         print("Advisory: install GitHub CLI and run 'gh auth login' to open PRs.")
     if not any(shutil.which(tool) for tool in ("copilot", "claude", "codex")):

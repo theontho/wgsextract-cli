@@ -51,6 +51,45 @@ For browser-only work, add `--web-only` / `-WebOnly` to waive desktop prerequisi
 checks (Rust is still installed). Default setup exits nonzero if desktop system
 prerequisites are missing, after preparing the Web UI.
 
+## Several worktrees on one machine
+
+Each branch can have its own worktree (`make worktree-setup BRANCH=my-change`), so
+work in progress on one branch never spills into another. Setup in a new worktree
+reuses the per-user toolchains and does not reinstall them. What each worktree does
+repeat:
+
+- `npm ci` into its own `app/node_modules`, from npm's shared download cache.
+- The first `make build-tauri` or `make tauri`, which compiles the Rust shell and
+  its several hundred crates into that worktree's `target/` directory.
+
+The bundled Node runtime the desktop build ships is downloaded once per user, to
+`~/Library/Caches/gui-for-cli-dev` (macOS), `%LOCALAPPDATA%\gui-for-cli-dev\Cache`
+(Windows), or `$XDG_CACHE_HOME/gui-for-cli-dev` (Linux, default `~/.cache`).
+
+To avoid recompiling the same crates in every worktree, set up
+[sccache](https://github.com/mozilla/sccache) once. It caches compiled crates per
+user, so a new worktree's first desktop build reuses them:
+
+```sh
+cargo install sccache --locked
+```
+
+Then add this to `~/.cargo/config.toml` (`%USERPROFILE%\.cargo\config.toml` on Windows):
+
+```toml
+[build]
+rustc-wrapper = "sccache"
+```
+
+Setup prints an advisory until this is configured. Pointing every worktree at one
+shared `target-dir` instead is not recommended: Cargo locks the directory, so
+builds in different worktrees wait on each other, and alternating branches with
+different dependencies rebuilds them anyway.
+
+Most changes don't need a desktop build at all. Changes to TypeScript, bundles, and
+localized strings are checked with `make lint`, `make test`, and `make dev`; build the
+desktop app only after changing the Tauri shell or packaging.
+
 ## Manual prerequisites
 
 Setup never runs sudo, elevates, or installs system packages.
