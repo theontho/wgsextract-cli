@@ -121,6 +121,8 @@ MIGRATED = (
     ("typing", "cyp2d6"),
     ("typing", "hla"),
     ("typing", "str"),
+    ("vep",),
+    ("vep", "run"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -458,6 +460,28 @@ ARGVS = (
     ["typing", "cyp2d6", "-i", "x.bam", "--ref", "r.fa", "-t", "4"],
     ["typing", "hla", "-i", "x.cram", "--hla-index", "h.fa", "-o", "out"],
     ["typing", "str", "-i", "x.bam", "--catalog", "c.json", "--sex", "male"],
+    ["vep", "-i", "x.vcf.gz"],
+    ["vep", "run", "-i", "x.vcf.gz", "--assembly", "GRCh37", "--format", "tab"],
+    ["vep", "run", "-i", "d", "--vep-assembly", "GRCh38", "--force", "--add-chr"],
+    ["vep", "-i", "x.bam", "--ref", "r.fa", "-r", "chrM", "--ploidy", "1"],
+    [
+        "vep",
+        "run",
+        "-i",
+        "x.bam",
+        "--ploidy-file",
+        "p.txt",
+        "--vep-cache",
+        "c",
+        "--vep-cache-version",
+        "115",
+        "--vcf-type",
+        "sv",
+        "--preset",
+        "fast",
+        "--vep-args",
+        "--pick --no_stats",
+    ],
 )
 
 

@@ -35621,6 +35621,1101 @@
     "formatter_class": "HelpFormatter",
     "prog": "wgsextract vcf trio"
    }
+  },
+  "vep": {
+   "help": "usage: wgsextract vep [-h] [--vep-cache VEP_CACHE] [--assembly {GRCh37,GRCh38}] [--force]\n                      [--preset {everything,fast}] [--format {vcf,tab,json}] [-r REGION]\n                      [--help-all]\n                      <command> ...\n\npositional arguments:\n  <command>\n    download            Download the VEP cache (standard GRCh37/38) to your local machine for\n                        faster, offline annotation.\n    verify              Check your existing VEP cache for missing files or corruption.\n    run                 Ensembl Variant Effect Predictor. Predicts the functional impact of your\n                        variants (e.g., if a mutation likely breaks a gene or causes a specific\n                        disease).\n\noptions:\n  -h, --help            show this help message and exit\n  --vep-cache VEP_CACHE\n                        Path to VEP cache directory (e.g., $HOME/.vep)\n  --assembly {GRCh37,GRCh38}\n                        Reference assembly for VEP (GRCh37 or GRCh38)\n  --force               Force re-run even if output exists\n  --preset {everything,fast}\n                        What VEP annotates: 'everything' (default), or 'fast' (about twice as\n                        fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no\n                        population frequencies, for which use 'vcf gnomad', and no HGVS)\n  --format {vcf,tab,json}\n                        Output format (default: vcf)\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n6 advanced options not shown; 'wgsextract vep --help-all' lists them.\n\nexamples:\n  wgsextract vep --input sample.vcf.gz\n\noutputs (in the output directory unless noted):\n  Same as 'vep run'.\n\nneeds:\n  bcftools, tabix, vep; depending on options and inputs, also: samtools; hours\n  on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_cache",
+      "exclusive_group": null,
+      "help": "Path to VEP cache directory (e.g., $HOME/.vep)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-cache"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "GRCh37",
+       "GRCh38"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_assembly",
+      "exclusive_group": null,
+      "help": "Reference assembly for VEP (GRCh37 or GRCh38)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--assembly"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "GRCh37",
+       "GRCh38"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_assembly",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-assembly"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": "116",
+      "dest": "vep_cache_version",
+      "exclusive_group": null,
+      "help": "VEP cache version (default: 116)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-cache-version"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "auto",
+       "snp-indel",
+       "sv",
+       "cnv"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "auto",
+      "dest": "vcf_type",
+      "exclusive_group": null,
+      "help": "Type of variants (affects VEP args)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vcf-type"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "add_chr",
+      "exclusive_group": null,
+      "help": "Add 'chr' prefix to chromosomes",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--add-chr"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "force",
+      "exclusive_group": null,
+      "help": "Force re-run even if output exists",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--force"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "everything",
+       "fast"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "everything",
+      "dest": "preset",
+      "exclusive_group": null,
+      "help": "What VEP annotates: 'everything' (default), or 'fast' (about twice as fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no population frequencies, for which use 'vcf gnomad', and no HGVS)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--preset"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_args",
+      "exclusive_group": null,
+      "help": "Additional raw arguments to pass to VEP (e.g., '--everything --pick')",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-args"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "vcf",
+       "tab",
+       "json"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "vcf",
+      "dest": "format",
+      "exclusive_group": null,
+      "help": "Output format (default: vcf)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--format"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "ploidy_file",
+      "exclusive_group": null,
+      "help": "File defining ploidy per chromosome (auto-resolved if possible)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ploidy-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "ploidy",
+      "exclusive_group": null,
+      "help": "Predefined ploidy name or value (e.g., 'human')",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ploidy"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region (e.g. chrM, chrY:10000-20000)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "download",
+       "verify",
+       "run"
+      ],
+      "help": [
+       [
+        "download",
+        "Download the VEP cache (standard GRCh37/38) to your local machine for faster, offline annotation."
+       ],
+       [
+        "verify",
+        "Check your existing VEP cache for missing files or corruption."
+       ],
+       [
+        "run",
+        "Ensembl Variant Effect Predictor. Predicts the functional impact of your variants (e.g., if a mutation likely breaks a gene or causes a specific disease)."
+       ]
+      ],
+      "required": false,
+      "subparsers": "vep_cmd"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vep",
+     "func": "cli_VepRunParams"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vep"
+   }
+  },
+  "vep run": {
+   "help": "usage: wgsextract vep run [-h] [--vep-cache VEP_CACHE] [--assembly {GRCh37,GRCh38}] [--force]\n                          [--preset {everything,fast}] [--format {vcf,tab,json}] [-r REGION]\n                          [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --vep-cache VEP_CACHE\n                        Path to VEP cache directory (e.g., $HOME/.vep)\n  --assembly {GRCh37,GRCh38}\n                        Reference assembly for VEP (GRCh37 or GRCh38)\n  --force               Force re-run even if output exists\n  --preset {everything,fast}\n                        What VEP annotates: 'everything' (default), or 'fast' (about twice as\n                        fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no\n                        population frequencies, for which use 'vcf gnomad', and no HGVS)\n  --format {vcf,tab,json}\n                        Output format (default: vcf)\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n6 advanced options not shown; 'wgsextract vep run --help-all' lists them.\n\nexamples:\n  wgsextract vep run --input sample.vcf.gz\n  wgsextract vep run --input sample.vcf.gz --assembly GRCh37 --format tab\n\noutputs (in the output directory unless noted):\n  <input stem>_vep.vcf.gz (or .tsv/.json with --format), with VEP's summary.\n\nneeds:\n  bcftools, tabix, vep; depending on options and inputs, also: samtools; hours\n  on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_cache",
+      "exclusive_group": null,
+      "help": "Path to VEP cache directory (e.g., $HOME/.vep)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-cache"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "GRCh37",
+       "GRCh38"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_assembly",
+      "exclusive_group": null,
+      "help": "Reference assembly for VEP (GRCh37 or GRCh38)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--assembly"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "GRCh37",
+       "GRCh38"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_assembly",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-assembly"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": "116",
+      "dest": "vep_cache_version",
+      "exclusive_group": null,
+      "help": "VEP cache version (default: 116)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-cache-version"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "auto",
+       "snp-indel",
+       "sv",
+       "cnv"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "auto",
+      "dest": "vcf_type",
+      "exclusive_group": null,
+      "help": "Type of variants (affects VEP args)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vcf-type"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "add_chr",
+      "exclusive_group": null,
+      "help": "Add 'chr' prefix to chromosomes",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--add-chr"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "force",
+      "exclusive_group": null,
+      "help": "Force re-run even if output exists",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--force"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "everything",
+       "fast"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "everything",
+      "dest": "preset",
+      "exclusive_group": null,
+      "help": "What VEP annotates: 'everything' (default), or 'fast' (about twice as fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no population frequencies, for which use 'vcf gnomad', and no HGVS)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--preset"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "vep_args",
+      "exclusive_group": null,
+      "help": "Additional raw arguments to pass to VEP (e.g., '--everything --pick')",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--vep-args"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "vcf",
+       "tab",
+       "json"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "vcf",
+      "dest": "format",
+      "exclusive_group": null,
+      "help": "Output format (default: vcf)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--format"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "ploidy_file",
+      "exclusive_group": null,
+      "help": "File defining ploidy per chromosome (auto-resolved if possible)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ploidy-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "ploidy",
+      "exclusive_group": null,
+      "help": "Predefined ploidy name or value (e.g., 'human')",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ploidy"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Chromosomal region (e.g. chrM, chrY:10000-20000)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "vep run",
+     "func": "cli_VepRunParams"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract vep run"
+   }
   }
  },
  "namespaces": {
@@ -39888,6 +40983,205 @@
    "tmp_dir": null,
    "vcf_cmd": "trio",
    "vcf_input": null
+  },
+  "vep -i x.bam --ref r.fa -r chrM --ploidy 1": {
+   "_command": "vep",
+   "_explicit_dests": [
+    "input",
+    "ploidy",
+    "ref",
+    "region"
+   ],
+   "add_chr": false,
+   "atomic_output": false,
+   "command": "vep",
+   "debug": false,
+   "force": false,
+   "format": "vcf",
+   "full_help": false,
+   "func": "cli_VepRunParams",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "ploidy": "1",
+   "ploidy_file": null,
+   "preset": "everything",
+   "quiet": false,
+   "ref": "r.fa",
+   "region": "chrM",
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_type": "auto",
+   "vep_args": null,
+   "vep_assembly": null,
+   "vep_cache": null,
+   "vep_cache_version": "116",
+   "vep_cmd": null
+  },
+  "vep -i x.vcf.gz": {
+   "_command": "vep",
+   "_explicit_dests": [
+    "input"
+   ],
+   "add_chr": false,
+   "atomic_output": false,
+   "command": "vep",
+   "debug": false,
+   "force": false,
+   "format": "vcf",
+   "full_help": false,
+   "func": "cli_VepRunParams",
+   "genome": null,
+   "input": "x.vcf.gz",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "ploidy": null,
+   "ploidy_file": null,
+   "preset": "everything",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_type": "auto",
+   "vep_args": null,
+   "vep_assembly": null,
+   "vep_cache": null,
+   "vep_cache_version": "116",
+   "vep_cmd": null
+  },
+  "vep run -i d --vep-assembly GRCh38 --force --add-chr": {
+   "_command": "vep run",
+   "_explicit_dests": [
+    "add_chr",
+    "force",
+    "input",
+    "vep_assembly"
+   ],
+   "add_chr": true,
+   "atomic_output": false,
+   "command": "vep",
+   "debug": false,
+   "force": true,
+   "format": "vcf",
+   "full_help": false,
+   "func": "cli_VepRunParams",
+   "genome": null,
+   "input": "d",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "ploidy": null,
+   "ploidy_file": null,
+   "preset": "everything",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_type": "auto",
+   "vep_args": null,
+   "vep_assembly": "GRCh38",
+   "vep_cache": null,
+   "vep_cache_version": "116",
+   "vep_cmd": "run"
+  },
+  "vep run -i x.bam --ploidy-file p.txt --vep-cache c --vep-cache-version 115 --vcf-type sv --preset fast --vep-args --pick --no_stats": {
+   "_command": "vep run",
+   "_explicit_dests": [
+    "input",
+    "ploidy_file",
+    "preset",
+    "vcf_type",
+    "vep_args",
+    "vep_cache",
+    "vep_cache_version"
+   ],
+   "add_chr": false,
+   "atomic_output": false,
+   "command": "vep",
+   "debug": false,
+   "force": false,
+   "format": "vcf",
+   "full_help": false,
+   "func": "cli_VepRunParams",
+   "genome": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "ploidy": null,
+   "ploidy_file": "p.txt",
+   "preset": "fast",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_type": "sv",
+   "vep_args": "--pick --no_stats",
+   "vep_assembly": null,
+   "vep_cache": "c",
+   "vep_cache_version": "115",
+   "vep_cmd": "run"
+  },
+  "vep run -i x.vcf.gz --assembly GRCh37 --format tab": {
+   "_command": "vep run",
+   "_explicit_dests": [
+    "format",
+    "input",
+    "vep_assembly"
+   ],
+   "add_chr": false,
+   "atomic_output": false,
+   "command": "vep",
+   "debug": false,
+   "force": false,
+   "format": "tab",
+   "full_help": false,
+   "func": "cli_VepRunParams",
+   "genome": null,
+   "input": "x.vcf.gz",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "ploidy": null,
+   "ploidy_file": null,
+   "preset": "everything",
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "threads": null,
+   "tmp_dir": null,
+   "vcf_type": "auto",
+   "vep_args": null,
+   "vep_assembly": "GRCh37",
+   "vep_cache": null,
+   "vep_cache_version": "116",
+   "vep_cmd": "run"
   }
  }
 }

@@ -336,6 +336,53 @@ def test_hla_typing_building_its_library_index_waits_for_a_busy_library(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_vep_run_on_a_vcf_in_a_busy_folder_waits(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: VEP indexes an unindexed VCF beside itself, outside its outdir.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    vcf = work / "s.vcf.gz"
+    shutil.copy(FAKE_DIR / "fake.vcf.gz", vcf)
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST", "/ops/vep/run", {"input": str(vcf), "outdir": str(other)}
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_a_vep_folder_run_refuses_a_link_out_of_the_allowed_folders(tmp_path, work):
+    # Copilot review of #491: the guard checks the folder, not the files
+    # VEP finds in it.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    shutil.copy(FAKE_DIR / "fake.vcf.gz", outside / "secret.vcf.gz")
+    batch = work / "batch"
+    batch.mkdir()
+    shutil.copy(FAKE_DIR / "fake.vcf.gz", batch / "a.vcf.gz")
+    try:
+        (batch / "b.vcf.gz").symlink_to(outside / "secret.vcf.gz")
+    except OSError:
+        pytest.skip("symlinks are not available")
+    request = {"input": str(batch), "outdir": str(work)}
+    with _serve(tmp_path, [work]) as client:
+        status, job = client.request("POST", "/ops/vep/run?wait=120", request)
+    assert (status, job["status"], job["exit_code"]) == (200, "failed", 1), job
+    assert "b.vcf.gz leads outside" in job["error"]["message"]
+    assert not list(work.glob("*_vep*"))
+
+
+def test_a_server_request_cannot_pass_raw_vep_arguments():
+    # #478: --vep-args can name files VEP reads or writes (--custom, -o),
+    # which the path guard can't see.
+    with pytest.raises(RequestError, match="can't be set by a server request"):
+        params_from_json(find("vep/run"), {"input": "a.vcf.gz", "vep_args": "-o x"})
+
+
 def test_home_relative_paths_reach_the_job_expanded(tmp_path, work, monkeypatch):
     # PR #463 review: the guard approved ~/x as the home folder's; the job
     # must write there too, not in a `~` folder in its working folder.
@@ -991,6 +1038,13 @@ _TYPING_PATHS = [
 ]
 
 
+_VEP_PATHS = [
+    item
+    for item in find("vep/run").fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
 @pytest.mark.parametrize(
     ("op", "field"),
     [(op, item.name) for op, item in _TYPING_PATHS],
@@ -1071,6 +1125,27 @@ def test_path_guard_checks_where_hla_typing_would_build_its_index(
     with pytest.raises(RequestError) as refused:
         PathGuard([library]).check(params_from_json(find("typing/hla"), request))
     assert refused.value.code == "path_not_allowed"
+
+
+@pytest.mark.parametrize("field", [item.name for item in _VEP_PATHS])
+@pytest.mark.parametrize(
+    "value", ["D:evil.vcf", r"D:\evil.vcf", r"\\host\share\evil.vcf", r"sub\evil.vcf"]
+)
+def test_path_guard_covers_every_vep_path(field, value):
+    # #478: `vep run` became a server operation; every file or folder it
+    # reads or writes must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.vcf.gz", "outdir": r"C:\data"}
+    guard.check(params_from_json(find("vep/run"), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find("vep/run"), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_vep_paths_cover_every_file():
+    assert {item.name for item in _VEP_PATHS} == {
+        "input", "ref", "outdir", "vep_cache", "ploidy_file"
+    }  # fmt: skip
 
 
 def test_caller_paths_cover_every_file():

@@ -27,7 +27,8 @@ from its Params fields, so the API and ``--help`` cannot drift.
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.microarray``, ``api.panel``, ``api.ref``,
-``api.repair``, ``api.genotyping``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``) follow
+``api.repair``, ``api.genotyping``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``,
+``api.vep``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -65,6 +66,7 @@ from . import (
     sample,
     support,
     vcf,
+    vep,
 )
 from ._params import Params, json_schema
 from ._runtime import (
@@ -166,6 +168,7 @@ from .vcf import (
     VcfToFastaParams,
     VcfTrioParams,
 )
+from .vep import VepRunParams
 
 __all__ = [
     "AlignParams",
@@ -269,6 +272,7 @@ __all__ = [
     "VcfTableParams",
     "VcfToFastaParams",
     "VcfTrioParams",
+    "VepRunParams",
     "WGSExtractError",
     "YHaplogroupParams",
     "YMtExtractParams",
@@ -294,4 +298,5 @@ __all__ = [
     "support",
     "use_config",
     "vcf",
+    "vep",
 ]
