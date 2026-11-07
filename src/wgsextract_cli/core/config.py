@@ -120,6 +120,12 @@ KNOWN_SETTINGS = {
         "DeepVariant Docker image with the ULTIMA model, for Ultima reads "
         "(default google/deepvariant:gh1100-ultima)",
     ),
+    "deepvariant_ultima_gpu_image": (
+        None,
+        "DeepVariant GPU Docker image with the ULTIMA model, for `vcf "
+        "deepvariant --gpu` on Ultima reads (default "
+        "google/deepvariant:gh1100-ultima-gpu, pinned by digest)",
+    ),
     "clair3_model": (
         None,
         "Clair3 ONT model for `vcf clair3`: a model directory or the name of one "

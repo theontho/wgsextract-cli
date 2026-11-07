@@ -1,0 +1,55 @@
+/* wgse: mem_process_seqs() in its two halves, so that with Metal the pipeline
+ * can map chunk i + 1 (mostly CPU work) while it pairs chunk i (mostly GPU
+ * mate rescue). wgse_mem_map() runs everything up to and including the
+ * insert-size estimate; wgse_mem_pair() runs the rest. Each half is upstream's
+ * code, so a chunk's output does not depend on what runs beside it. */
+typedef struct {
+	worker_t w;
+	mem_pestat_t pes[4];
+	double ctime, rtime;
+	int n;
+} wgse_mapped_t;
+
+void *wgse_mem_map(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int64_t n_processed, int n, bseq1_t *seqs, const mem_pestat_t *pes0)
+{
+	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
+	wgse_mapped_t *m = calloc(1, sizeof(wgse_mapped_t));
+	worker_t *w = &m->w;
+	int i;
+
+	m->ctime = cputime(); m->rtime = realtime(); m->n = n;
+	if (global_bns != bns) global_bns = bns; // read while another chunk pairs
+	w->regs = malloc(n * sizeof(mem_alnreg_v));
+	w->opt = opt; w->bwt = bwt; w->bns = bns; w->pac = pac;
+	w->seqs = seqs; w->n_processed = n_processed;
+	w->pes = &m->pes[0];
+	w->aux = malloc(opt->n_threads * sizeof(smem_aux_t*));
+	for (i = 0; i < opt->n_threads; ++i)
+		w->aux[i] = smem_aux_init();
+	if (!wgse_metal_map(opt, bwt, n, seqs, worker1, w))
+		kt_for(opt->n_threads, worker1, w, (opt->flag&MEM_F_PE)? n>>1 : n); // find mapping positions
+	for (i = 0; i < opt->n_threads; ++i)
+		smem_aux_destroy(w->aux[i]);
+	free(w->aux);
+	if (opt->flag&MEM_F_PE) { // infer insert sizes if not provided
+		if (pes0) memcpy(m->pes, pes0, 4 * sizeof(mem_pestat_t)); // if pes0 != NULL, set the insert-size distribution as pes0
+		else mem_pestat(opt, bns->l_pac, n, w->regs, m->pes); // otherwise, infer the insert size distribution from data
+	}
+	return m;
+}
+
+void wgse_mem_pair(void *mapped)
+{
+	extern void kt_for(int n_threads, void (*func)(void*,long,int), void *data, long n);
+	wgse_mapped_t *m = (wgse_mapped_t*)mapped;
+	worker_t *w = &m->w;
+	const mem_opt_t *opt = w->opt;
+	int n = m->n;
+
+	if (!wgse_metal_pair(opt, w->bns, w->pac, m->pes, n, w->seqs, w->regs, worker2, w))
+		kt_for(opt->n_threads, worker2, w, (opt->flag&MEM_F_PE)? n>>1 : n); // generate alignment
+	free(w->regs);
+	if (bwa_verbose >= 3)
+		fprintf(stderr, "[M::%s] Processed %d reads in %.3f CPU sec, %.3f real sec\n", "mem_process_seqs", n, cputime() - m->ctime, realtime() - m->rtime);
+	free(m);
+}

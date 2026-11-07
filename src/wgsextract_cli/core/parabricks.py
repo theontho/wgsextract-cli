@@ -62,22 +62,48 @@ def verify_parabricks() -> None:
     setup = _SETUP.format(image=image)
     if not sys.platform.startswith("linux"):
         raise UsageError(f"Parabricks runs on Linux only. {setup}")
+    verify_gpu_docker(setup)
+    require_image(
+        image,
+        f"The Parabricks image isn't downloaded: docker pull {image} "
+        "(set parabricks_image in config.toml for another version).",
+    )
+
+
+def verify_gpu_docker(setup: str) -> None:
+    """Docker, an NVIDIA driver and Docker's NVIDIA runtime, which --gpus needs."""
     docker(setup)
-    if not get_tool_path("nvidia-smi"):
+    smi = get_tool_path("nvidia-smi")
+    if not smi:
         raise MissingDependencyError(
             f"No NVIDIA GPU driver found (nvidia-smi). {setup}"
         )
+    try:
+        listed = subprocess.run(
+            [smi, "--query-gpu=index", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=True,
+            timeout=60,
+        ).stdout.split()
+    except subprocess.CalledProcessError as e:
+        detail = (e.stderr or e.stdout or "").strip().splitlines()
+        raise MissingDependencyError(
+            "The NVIDIA driver isn't working: nvidia-smi failed"
+            + (f" ({detail[-1]})" if detail else "")
+            + f". {setup}"
+        ) from e
+    except (OSError, subprocess.SubprocessError) as e:
+        raise MissingDependencyError(f"nvidia-smi didn't run: {e}. {setup}") from e
+    if not listed:
+        raise MissingDependencyError(f"nvidia-smi lists no NVIDIA GPU. {setup}")
     if "nvidia" not in docker_info(setup, "{{json .Runtimes}}"):
         raise MissingDependencyError(
             "Docker has no NVIDIA runtime: install the NVIDIA Container Toolkit, "
             "then run 'sudo nvidia-ctk runtime configure --runtime=docker' and "
             "restart Docker."
         )
-    require_image(
-        image,
-        f"The Parabricks image isn't downloaded: docker pull {image} "
-        "(set parabricks_image in config.toml for another version).",
-    )
 
 
 def gpu_memory() -> tuple[GpuMemory, ...]:

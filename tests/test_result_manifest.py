@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator
 from tests.htslib_helpers import needs_htslib
 from tests.smoke_utils import ensure_fake_data, run_cli
 from tests.test_trio_vcfs import _trio
+from wgsextract_cli.api import VepRunParams
 from wgsextract_cli.cli.dispatch import dispatch_command
 from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.core import results
@@ -867,10 +868,10 @@ def test_vep_records_an_existing_output_it_skips(tmp_path):
     vcf.write_bytes(b"")
     _, final = _vep_run.vep_output_paths(str(vcf), str(tmp_path), "tab")
     Path(final).write_text("annotated\n")
-    args = argparse.Namespace(outdir=str(tmp_path), format="tab", force=False)
+    params = VepRunParams(input=vcf, outdir=tmp_path, format="tab")
     result = results.CommandResult("vep run")
     with results.collecting(result):
-        status, _ = _vep_run._run_vep_on_input(args, str(vcf), "1")
+        status, _ = _vep_run._run_vep_on_input(params, str(vcf), "1")
     assert status == "SKIPPED"
     assert [(o.path, o.role) for o in result.outputs] == [(final, "vep_annotated")]
     assert [w.code for w in result.warnings] == ["output_exists"]

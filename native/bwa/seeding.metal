@@ -22,53 +22,43 @@ struct SeedVector {
     }
 };
 
-// Four independent 8-bit counts, as in upstream's cnt_table, without dependent
-// table loads. Each block has only 128 symbols, so summation cannot carry.
-uint seed_count4(uint word) {
-    uint lo = word & 0x55555555u, hi = (word >> 1) & 0x55555555u;
-    return popcount(~lo & ~hi & 0x55555555u)
-        | (popcount(lo & ~hi) << 8)
-        | (popcount(~lo & hi) << 16)
-        | (popcount(lo & hi) << 24);
+// Occurrences within a 128-symbol block, read as four 64-bit lanes (words 2i and
+// 2i + 1). Symbol j of a 32-bit word is bits 31 - 2j (high) and 30 - 2j (low).
+// Every lane is counted, with a mask of the kept symbols' low bits: on the GPU
+// this branchless form is faster than looping over the words before k.
+ulong seed_keep(uint lane, ulong k) {
+    uint word = uint(k & 127) >> 4;
+    uint partial = ~((1u << ((~uint(k) & 15) * 2)) - 1) & 0x55555555u;
+    uint lo = 2 * lane < word ? 0x55555555u : 2 * lane == word ? partial : 0u;
+    uint hi = 2 * lane + 1 < word ? 0x55555555u : 2 * lane + 1 == word ? partial : 0u;
+    return ulong(lo) | (ulong(hi) << 32);
 }
 
-ulong4 seed_unpack(uint count) {
-    return ulong4(count & 255, (count >> 8) & 255, (count >> 16) & 255, count >> 24);
+// Counts of A, C, G and T up to and including symbol k & 127 of its block;
+// masked-out symbols read as A, so A is derived from the kept total.
+ulong4 seed_count(device const ulong *data, ulong k) {
+    ulong c = 0, g = 0, t = 0;
+    for (uint lane = 0; lane < 4; ++lane) {
+        ulong keep = seed_keep(lane, k), lo = data[lane] & keep, hi = (data[lane] >> 1) & keep;
+        c += popcount(lo & ~hi);
+        g += popcount(hi & ~lo);
+        t += popcount(lo & hi);
+    }
+    return ulong4((k & 127) + 1 - c - g - t, c, g, t);
 }
 
 ulong4 seed_occ4(device const uint *bwt, ulong k, constant SeedParameters &p) {
     if (k == ulong(-1)) return ulong4(0);
     k -= k >= p.primary;
     device const uint *block = bwt + (k >> 7) * 16;
-    ulong4 checkpoint = *reinterpret_cast<device const ulong4 *>(block);
-    uint end = uint(k & 127) >> 4, count = 0;
-    for (uint i = 0; i < end; ++i) count += seed_count4(block[8 + i]);
-    uint masked = uint(~k & 15);
-    count += seed_count4(block[8 + end] & ~((1u << (masked * 2)) - 1)) - masked;
-    return checkpoint + seed_unpack(count);
+    return *reinterpret_cast<device const ulong4 *>(block)
+        + seed_count(reinterpret_cast<device const ulong *>(block + 8), k);
 }
 
 void seed_2occ4(device const uint *bwt, ulong k, ulong l,
     constant SeedParameters &p, thread ulong4 &left, thread ulong4 &right) {
-    ulong a = k - (k >= p.primary), b = l - (l >= p.primary);
-    if ((a >> 7) != (b >> 7) || k == ulong(-1) || l == ulong(-1)) {
-        left = seed_occ4(bwt, k, p);
-        right = seed_occ4(bwt, l, p);
-        return;
-    }
-    device const uint *block = bwt + (a >> 7) * 16;
-    ulong4 checkpoint = *reinterpret_cast<device const ulong4 *>(block);
-    uint end_a = uint(a & 127) >> 4, end_b = uint(b & 127) >> 4;
-    uint count = 0, i = 0;
-    for (; i < end_a; ++i) count += seed_count4(block[8 + i]);
-    uint masked = uint(~a & 15);
-    uint partial = count
-        + seed_count4(block[8 + i] & ~((1u << (masked * 2)) - 1)) - masked;
-    left = checkpoint + seed_unpack(partial);
-    for (; i < end_b; ++i) count += seed_count4(block[8 + i]);
-    masked = uint(~b & 15);
-    count += seed_count4(block[8 + i] & ~((1u << (masked * 2)) - 1)) - masked;
-    right = checkpoint + seed_unpack(count);
+    left = seed_occ4(bwt, k, p);
+    right = seed_occ4(bwt, l, p);
 }
 
 SeedInterval seed_initial(uint c, constant SeedParameters &p) {
@@ -237,25 +227,19 @@ ulong locate_occ(device const uint *bwt, ulong k, uint c, constant LocateParamet
     if (k == p.seq_len) return p.l2[c + 1] - p.l2[c];
     k -= k >= p.primary;
     device const uint *block = bwt + (k >> 7) * 16;
-    ulong count = reinterpret_cast<device const ulong *>(block)[c];
-    uint pattern = c * 0x55555555u, end = uint(k & 127) >> 4;
-    for (uint i = 0; i < end; ++i) {
-        uint x = block[8 + i] ^ pattern;
-        count += popcount(~(x | (x >> 1)) & 0x55555555u);
+    device const ulong *data = reinterpret_cast<device const ulong *>(block + 8);
+    ulong pattern = ulong(c) * 0x5555555555555555ul, count = 0;
+    for (uint lane = 0; lane < 4; ++lane) {
+        ulong x = data[lane] ^ pattern;
+        count += popcount(~(x | (x >> 1)) & seed_keep(lane, k));
     }
-    uint x = block[8 + end] ^ pattern;
-    uint keep = ~((1u << ((~uint(k) & 15) * 2)) - 1);
-    return count + popcount(~(x | (x >> 1)) & 0x55555555u & keep);
+    return reinterpret_cast<device const ulong *>(block)[c] + count;
 }
 
-kernel void locate_rows(device const uint *bwt [[buffer(0)]],
-    device const ulong *sa [[buffer(1)]],
-    constant LocateParameters &p [[buffer(2)]],
-    device const ulong *rows [[buffer(3)]],
-    device ulong *positions [[buffer(4)]],
-    uint id [[thread_position_in_grid]]) {
-    if (id >= p.count) return;
-    ulong k = rows[id], steps = 0, mask = p.sa_intv - 1;
+// Walks LF from row k until (k & mask) == 0 and returns the number of steps.
+ulong locate_walk(device const uint *bwt, thread ulong &k, ulong mask,
+    constant LocateParameters &p) {
+    ulong steps = 0;
     while (k & mask) {
         ++steps;
         if (k == p.primary) {
@@ -266,5 +250,63 @@ kernel void locate_rows(device const uint *bwt [[buffer(0)]],
         uint c = (bwt[(x >> 7 << 4) + 8 + ((x & 127) >> 4)] >> ((~uint(x) & 15) << 1)) & 3;
         k = p.l2[c] + locate_occ(bwt, k, c, p);
     }
+    return steps;
+}
+
+kernel void locate_rows(device const uint *bwt [[buffer(0)]],
+    device const ulong *sa [[buffer(1)]],
+    constant LocateParameters &p [[buffer(2)]],
+    device const ulong *rows [[buffer(3)]],
+    device ulong *positions [[buffer(4)]],
+    uint id [[thread_position_in_grid]]) {
+    if (id >= p.count) return;
+    ulong k = rows[id];
+    ulong steps = locate_walk(bwt, k, p.sa_intv - 1, p);
     positions[id] = steps + sa[k >> p.sa_shift];
+}
+
+// Denser suffix-array samples, derived from the index: the rows that are
+// multiples of 1 << dense_shift but not of sa_intv, (sa_intv >> dense_shift) - 1
+// per index sample. Values (< 2^33) are stored as low words plus a bit vector
+// of high bits. LF walks stop at the first sample of either kind.
+kernel void locate_rows_dense(device const uint *bwt [[buffer(0)]],
+    device const ulong *sa [[buffer(1)]],
+    constant LocateParameters &p [[buffer(2)]],
+    device const ulong *rows [[buffer(3)]],
+    device ulong *positions [[buffer(4)]],
+    device const uint *low [[buffer(5)]],
+    device const uint *high [[buffer(6)]],
+    uint id [[thread_position_in_grid]]) {
+    if (id >= p.count) return;
+    ulong k = rows[id], base = p.sa_intv - 1;
+    ulong steps = locate_walk(bwt, k, (1ul << p.dense_shift) - 1, p);
+    if (!(k & base)) {
+        positions[id] = steps + sa[k >> p.sa_shift];
+        return;
+    }
+    ulong per = (p.sa_intv >> p.dense_shift) - 1;
+    ulong i = (k >> p.sa_shift) * per + ((k & base) >> p.dense_shift) - 1;
+    positions[id] = steps + (low[i] | (ulong((high[i >> 5] >> (i & 31)) & 1) << 32));
+}
+
+// Builds the dense samples, one per thread, in dispatches of count threads
+// from entry dense_offset (a multiple of 32, so each SIMD group owns one word of
+// high bits). Entries for rows past seq_len do not exist and are left zero.
+kernel void locate_dense_build(device const uint *bwt [[buffer(0)]],
+    device const ulong *sa [[buffer(1)]],
+    constant LocateParameters &p [[buffer(2)]],
+    device uint *low [[buffer(3)]],
+    device uint *high [[buffer(4)]],
+    uint id [[thread_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]]) {
+    ulong i = ulong(id) + p.dense_offset, per = (p.sa_intv >> p.dense_shift) - 1;
+    ulong k = (i / per) * p.sa_intv + ((i % per + 1) << p.dense_shift), value = 0;
+    bool present = id < p.count && i < p.dense_entries;
+    if (present && k <= p.seq_len) {
+        ulong steps = locate_walk(bwt, k, p.sa_intv - 1, p);
+        value = steps + sa[k >> p.sa_shift];
+    }
+    if (present) low[i] = uint(value);
+    uint bits = simd_or(uint(value >> 32) << (i & 31));
+    if (lane == 0 && i < p.dense_entries) high[i >> 5] = bits;
 }

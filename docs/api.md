@@ -34,7 +34,7 @@ Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
 `api.lineage`, `api.microarray`, `api.panel`, `api.ref`,
 `api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`,
-`api.examples`) follow
+`api.examples`, `api.vep`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with `_` are private and may change at any time.
@@ -693,7 +693,7 @@ workspace.
 | `platform` | `str \| None` | `None` | `--platform` | Sequencing platform; selects platform-specific alignment tooling (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
 | `aligner` | `str` | `'auto'` | `--aligner` | Aligner to use. Auto uses bwa-mem2 for short reads when the reference has its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio when installed, otherwise minimap2. One of: `auto`, `bwa`, `bwa-mem2`, `minimap2`, `pbmm2` |
 | `gpu` | `bool` | `False` | `--gpu` | Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags. |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `sample` | `str \| None` | `None` | `--sample` | Sample name for the read group (default: the reads' file name). |
 | `long_read` | `bool` | `False` | `--long-read` | Treat the reads as long reads (PacBio/ONT) and align them with pbmm2 or minimap2. |
 | `format` | `str` | `'BAM'` | `--format` | Output format: BAM or CRAM (written with the target reference). One of: `BAM`, `CRAM` |
@@ -728,7 +728,7 @@ settings and tools are unchanged.
 | `r2` | `Path \| None` | `None` | `--r2` | Read 2 FASTQ, with r1. |
 | `aligner` | `str` | `'auto'` | `--aligner` | Aligner: auto, bwa, bwa-mem2, minimap2 or pbmm2, chosen as for align. One of: `auto`, `bwa`, `bwa-mem2`, `minimap2`, `pbmm2` |
 | `gpu` | `bool` | `False` | `--gpu` | Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags. |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `platform` | `str \| None` | `None` | `--platform` | Sequencing platform (default: detected from read groups or read names, else illumina). One of: `illumina`, `dnbseq`, `ultima`, `pacbio`, `hifi`, `clr`, `ont`, `nanopore` |
 | `preset` | `str \| None` | `None` | `--preset` | minimap2/pbmm2 preset. One of: `sr`, `map-pb`, `map-hifi`, `map-ont`, `ccs`, `subread` |
 | `input_ref` | `Path \| None` | `None` | `--input-ref` | Reference FASTA the input CRAM was encoded with (default: --ref when its sequence names, lengths and MD5s match the CRAM, else the FASTA in the reference library whose sequence dictionary matches). --ref is the reference to realign to. |
@@ -1244,7 +1244,7 @@ Call with GATK; output role `variants`.
 | `region` | `str \| None` | `None` | `-r`, `--region` | Comma-separated region(s) to call (e.g. chrM); with gpu, an item may be a BED file of them. |
 | `scatter` | `bool` | `False` | `--scatter` | Opt-in Ultima flow-mode interval scattering, bounded by --threads and available RAM (6 GiB per worker, 4 GiB Java heap). Can change genotypes/annotations away from interval boundaries; default: one unscattered process. |
 | `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README). |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 
 ### `api.vcf.deepvariant(VcfDeepvariantParams)`
@@ -1257,8 +1257,9 @@ Call with DeepVariant; output role `variants`.
 
 The model follows `ont`, `pacbio`, `model_type` and `wes`, else the
 reads (ONT_R104 for ONT, ULTIMA for flow-tagged Ultima reads, else WGS).
-The CPU version runs in stages that a rerun resumes; `gpu` runs
-Parabricks in one step.
+DeepVariant's own pipeline runs in stages that a rerun resumes. `gpu`
+runs Parabricks in one step, except for ULTIMA, which Parabricks lacks:
+Google's ULTIMA GPU image runs the stages with call_variants on the GPU.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
@@ -1272,9 +1273,9 @@ Parabricks in one step.
 | `ont` | `bool` | `False` | `--ont` | Alias for --model-type ONT_R104 (R10.4.1 only; x86-64). |
 | `pacbio` | `bool` | `False` | `--pacbio` | Alias for --model-type PACBIO. |
 | `checkpoint` | `Path \| None` | `None` | `--checkpoint` | A custom model: its directory, or a checkpoint prefix. |
-| `batch_size` | `int \| None` | `None` | `--batch-size` | CPU inference batch size (upstream default: 1024). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch. |
-| `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README). |
-| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run Parabricks despite too little GPU or host memory; the low-memory options are still chosen to fit. |
+| `batch_size` | `int \| None` | `None` | `--batch-size` | call_variants batch size (upstream default: 1024; not Parabricks). Use 256 to lower TensorFlow peak RAM without changing models or precision; --threads controls make_examples shards, not this batch. |
+| `gpu` | `bool` | `False` | `--gpu` | Call on an NVIDIA GPU: Parabricks, or Google's ULTIMA GPU image for Ultima reads (x86-64 Linux, Docker; see README). |
+| `no_gpu_memory_check` | `bool` | `False` | `--no-gpu-memory-check` | Run on the GPU despite too little GPU or host memory; Parabricks' low-memory options are still chosen to fit. |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA) |
 | `restart` | `bool` | `False` | `--force`, `--no-resume` | Rerun every step, ignoring the steps an earlier run completed. |
 | `force_steps` | `tuple[str, ...] \| None` | `None` | `--force-step` | Steps to rerun with the steps that use their outputs; None reruns none. Steps: stage_reads, make_examples, call_variants, postprocess_variants. One of: `stage_reads`, `make_examples`, `call_variants`, `postprocess_variants` |
@@ -2049,3 +2050,43 @@ starter set (a chrMT VCF and a chr20 BAM) is downloaded.
 | `target_root` | `Path \| None` | `None` | `--target-root` | Genome library folder holding the test-1000genomes collection (default: config genome_library, else the genomes folder of the checkout or user data folder). |
 | `force` | `bool` | `False` | `--force` | Discard existing and partially downloaded files and download again. Without it, completed files are kept and interrupted downloads resume. |
 | `dry_run` | `bool` | `False` | `--dry-run` | Plan the downloads (the result's details) without creating files. |
+
+## `api.vep`
+
+`vep`: annotate variants with the Ensembl Variant Effect Predictor (VEP).
+
+`run` annotates a VCF, BCF, BAM or CRAM, or every such file in a folder.
+A BAM or CRAM is first called with bcftools against `ref`. Each input
+gets `<input stem>_vep.vcf.gz` (or `.txt`/`.json` with `format`) and
+VEP's summary in `outdir`, else beside the input; an input whose output
+already exists is skipped unless `force`. The result's metrics count the
+inputs and how many succeeded, were skipped or failed; any failure fails the
+run. Downloading and checking the VEP cache (`vep download`/`verify`)
+stay CLI-only.
+
+### `api.vep.run(VepRunParams)`
+
+CLI: `wgsextract vep run`.
+
+Annotate variants with VEP (see `VepRunParams`).
+
+`VepRunParams`: Annotate variants with VEP (see the module docstring).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | VCF, BCF, BAM or CRAM to annotate, or a folder: every such file in it except earlier VEP outputs. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `vep_cache` | `Path \| None` | `None` (config `vep_cache_directory`) | `--vep-cache` | VEP cache folder (default: config vep_cache_directory, else the reference library's, else ~/.vep). VEP runs offline when it exists, else queries Ensembl's database. |
+| `vep_assembly` | `str \| None` | `None` | `--assembly` | Assembly VEP annotates against (default: the reference's build); a resolved FASTA of the other build is not used. One of: `GRCh37`, `GRCh38` |
+| `vep_cache_version` | `str` | `'116'` | `--vep-cache-version` | VEP cache version (default: 116) |
+| `vcf_type` | `str` | `'auto'` | `--vcf-type` | Variant type: 'sv' and 'cnv' add VEP's structural-variant options; 'auto' detects it from the input. One of: `auto`, `snp-indel`, `sv`, `cnv` |
+| `add_chr` | `bool` | `False` | `--add-chr` | Give VEP the input with a 'chr' prefix on chromosome names. |
+| `force` | `bool` | `False` | `--force` | Force re-run even if output exists |
+| `preset` | `str` | `'everything'` | `--preset` | What VEP annotates: 'everything' (default), or 'fast' (about twice as fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no population frequencies, for which use 'vcf gnomad', and no HGVS) One of: `everything`, `fast` |
+| `vep_args` | `str \| None` | `None` | `--vep-args` | Additional raw arguments to pass to VEP (e.g., '--everything --pick') |
+| `format` | `str` | `'vcf'` | `--format` | Output format (default: vcf) One of: `vcf`, `tab`, `json` |
+| `ploidy_file` | `Path \| None` | `None` | `--ploidy-file` | Ploidy file for calling a BAM or CRAM (default: the reference library's); wins over ploidy. |
+| `ploidy` | `str \| None` | `None` | `--ploidy` | bcftools ploidy name or value for calling a BAM or CRAM (default: the build's). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |

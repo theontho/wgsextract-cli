@@ -120,6 +120,8 @@ MIGRATED = (
     ("example-genome",),
     ("example-genome", "list"),
     ("example-genome", "download"),
+    ("vep",),
+    ("vep", "run"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -458,6 +460,28 @@ ARGVS = (
     ["example-genome", "download", "a", "b", "--method", "https", "--force"],
     ["example-genome", "download", "--all", "--dry-run", "--target-root", "lib"],
     ["example-genome", "download", "--aspera-key", "k", "--", "--debug"],
+    ["vep", "-i", "x.vcf.gz"],
+    ["vep", "run", "-i", "x.vcf.gz", "--assembly", "GRCh37", "--format", "tab"],
+    ["vep", "run", "-i", "d", "--vep-assembly", "GRCh38", "--force", "--add-chr"],
+    ["vep", "-i", "x.bam", "--ref", "r.fa", "-r", "chrM", "--ploidy", "1"],
+    [
+        "vep",
+        "run",
+        "-i",
+        "x.bam",
+        "--ploidy-file",
+        "p.txt",
+        "--vep-cache",
+        "c",
+        "--vep-cache-version",
+        "115",
+        "--vcf-type",
+        "sv",
+        "--preset",
+        "fast",
+        "--vep-args",
+        "--pick --no_stats",
+    ],
 )
 
 
