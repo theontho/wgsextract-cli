@@ -14,6 +14,8 @@ from pathlib import Path, PurePath
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
 from wgsextract_cli.api.sign import MANIFEST_NAME, SignCreateParams, SignVerifyParams
+from wgsextract_cli.core import read_scope
+from wgsextract_cli.core.atomic_output import atomic_output
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import PathInput, absolute_path, append_suffix
@@ -150,11 +152,10 @@ def create_manifest(params: SignCreateParams) -> None:
     base.mkdir(parents=True, exist_ok=True)
     if signature.exists():
         signature.unlink()  # it would no longer match the new manifest
-    tmp = append_suffix(manifest, ".tmp")
-    with tmp.open("w", newline="\n") as f:
-        # GNU coreutils format, so `sha256sum -c SHA256SUMS` verifies it too.
-        f.writelines(f"{d}  {n}\n" for d, n in zip(digests, names, strict=True))
-    tmp.replace(manifest)
+    with atomic_output(manifest, retire_indexes=False) as staged:
+        with open(staged, "x", newline="\n") as f:
+            # GNU coreutils format, so `sha256sum -c SHA256SUMS` verifies it too.
+            f.writelines(f"{d}  {n}\n" for d, n in zip(digests, names, strict=True))
     logging.info(f"Checksum manifest written to {manifest}")
     result = current_result()
     result.add_output(manifest, "checksums")
@@ -235,13 +236,25 @@ def _verify_signature(
     match = _FINGERPRINT.search(message)
     signer = f"{match.group(1)} key {match.group(2)}" if match else "the signer's key"
     if trust[0] == "check-novalidate":
-        logging.warning(
+        warn(
+            "signature_not_trusted",
             f"The signature is intact and was made with {signer}, but it was not "
             "checked against a trusted key; pass --public-key or "
-            "--allowed-signers to confirm who signed it."
+            "--allowed-signers to confirm who signed it.",
         )
     else:
         logging.info(f"Good signature from {signer}.")
+
+
+def _refuse_unreadable(paths: Sequence[Path]) -> None:
+    """A server may read only its allowed folders: refuse before any stat or hash."""
+    refused = [str(p) for p in paths if not read_scope.may_follow(p)]
+    if refused:
+        raise WGSExtractError(
+            "Outside the folders this server may read: "
+            + ", ".join(refused[:5])
+            + (f" and {len(refused) - 5} more" if len(refused) > 5 else "")
+        )
 
 
 def verify_manifest(params: SignVerifyParams) -> None:
@@ -251,6 +264,7 @@ def verify_manifest(params: SignVerifyParams) -> None:
     signature = (
         Path(params.signature) if params.signature else append_suffix(manifest, ".sig")
     )
+    _refuse_unreadable([signature])
     if signature.is_file():
         _verify_signature(params, manifest, signature)
     elif params.signature or params.public_key or params.allowed_signers:
@@ -261,6 +275,8 @@ def verify_manifest(params: SignVerifyParams) -> None:
     entries = _read_manifest(manifest)
     base = manifest.parent
     paths = [base.joinpath(*name.split("/")) for _, name in entries]
+    _refuse_unreadable(paths)
+
     missing = [
         name for (_, name), p in zip(entries, paths, strict=True) if not p.is_file()
     ]

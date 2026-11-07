@@ -1034,6 +1034,34 @@ def test_a_manifest_written_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_sign_requests_are_checked_before_a_job_is_queued():
+    # PR #495 review: threads is an integer as elsewhere; conflicting trust
+    # options and an empty path list are usage errors, not a dropped option
+    # or a server error from a queued job.
+    request = {"manifest": r"C:\data\SHA256SUMS", "threads": 4}
+    assert params_from_json(find("sign/verify"), request).threads == 4
+    for op, bad in (
+        ("sign/verify", {**request, "public_key": "/k.pub", "allowed_signers": "/a"}),
+        ("sign/create", {"paths": [], "outdir": r"C:\data"}),
+    ):
+        with pytest.raises(RequestError) as refused:
+            params_from_json(find(op), bad)
+        assert refused.value.code == "usage"
+
+
+@pytest.mark.parametrize(
+    "tool", ["D:evil", r"D:\evil", r"\\host\share\evil", r"sub\evil", "~/evil"]
+)
+def test_path_guard_covers_the_deps_check_tool(tool):
+    # PR #495 review: shutil.which() probes a path-shaped tool name, which
+    # could reach outside the allowed folders or a network share.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    guard.check(params_from_json(find("deps/check"), {"tool": "samtools"}))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find("deps/check"), {"tool": tool}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
 def test_deps_check_answers_with_the_tool_path(tmp_path, work):
     with _serve(tmp_path, [work]) as client:
         status, body = client.request(

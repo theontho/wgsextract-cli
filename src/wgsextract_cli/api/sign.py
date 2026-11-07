@@ -18,8 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wgsextract_cli.core.results import CommandResult
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
-from ._params import Params, param
+from ._params import Params, param, with_config_defaults
 from ._runtime import CancelToken, ProgressCallback, execute
 from ._shared import outdir_param, threads_param
 
@@ -57,15 +58,24 @@ class SignCreateParams(Params):
         local_only=True,
     )
     outdir: Path | None = outdir_param("the inputs' common folder")
-    threads: str | None = threads_param()
+    threads: int | None = threads_param()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not self.paths:
+            raise UsageError("Name at least one file or directory to sign.")
 
     def write_folders(self) -> Iterator[Path]:
         if self.output is not None:
             yield self.output.parent
-        elif self.outdir is None:
+        elif with_config_defaults(self).outdir is None:
+            # Not the outdir the server locks anyway: the inputs' common folder.
             from wgsextract_cli.commands.sign import manifest_path
 
-            yield manifest_path(self).parent
+            try:
+                yield manifest_path(self).parent
+            except WGSExtractError:
+                pass  # inputs on different drives; the job fails before writing
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -101,7 +111,12 @@ class SignVerifyParams(Params):
         exclusive="trust",
     )
     identity: str | None = param(None, help="Signer identity in --allowed-signers.")
-    threads: str | None = threads_param()
+    threads: int | None = threads_param()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.public_key is not None and self.allowed_signers is not None:
+            raise UsageError("Give --public-key or --allowed-signers, not both.")
 
 
 def create(

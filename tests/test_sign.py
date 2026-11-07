@@ -7,7 +7,7 @@ import pytest
 
 from wgsextract_cli import api
 from wgsextract_cli.commands.sign import _manifest_name, _read_manifest
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("ssh-keygen"), reason="ssh-keygen not installed"
@@ -117,6 +117,69 @@ def test_unsigned_manifest_checks_hashes_only(outputs):
         _verify(manifest, public_key=Path("x.pub"))
 
 
+def test_unvalidated_signature_is_a_result_warning(tmp_path, outputs):
+    # PR #495 review: API clients couldn't tell an intact signature from one
+    # checked against a trusted key.
+    _create(outputs, key=_key(tmp_path / "id"))
+    verified = _verify(outputs / "SHA256SUMS")
+    assert verified.metrics["signed"] is True
+    assert [w.code for w in verified.warnings] == ["signature_not_trusted"]
+
+
+def test_verify_reads_nothing_outside_the_read_scope(tmp_path, outputs):
+    # PR #495 review: a manifest in an allowed folder could list
+    # ../private/file, and <manifest>.sig could link outside, so a server
+    # hashed or read files outside its allowed folders.
+    from wgsextract_cli.core.read_scope import limited_to
+
+    private = tmp_path / "private"
+    private.mkdir()
+    (private / "secret").write_text("secret\n")
+    _create(outputs / "a.txt", private / "secret", outdir=outputs)
+    manifest = outputs / "SHA256SUMS"
+
+    def inside():
+        return limited_to(lambda p: Path(p).resolve().is_relative_to(outputs))
+
+    with inside(), pytest.raises(api.CommandFailed, match="Outside the folders"):
+        _verify(manifest)
+
+    _create(outputs / "a.txt", outdir=outputs, key=_key(tmp_path / "id"))
+    signature = outputs / "SHA256SUMS.sig"
+    signature.replace(private / "SHA256SUMS.sig")
+    try:
+        signature.symlink_to(private / "SHA256SUMS.sig")
+    except OSError:
+        pytest.skip("can't create symlinks here")
+    with inside(), pytest.raises(api.CommandFailed, match="Outside the folders"):
+        _verify(manifest)
+    assert _verify(manifest).metrics["signed"] is True  # outside a server
+
+
+def test_create_never_writes_through_a_planted_staging_file(tmp_path, outputs):
+    # PR #495 review: a SHA256SUMS.tmp symlink in the output folder made
+    # create truncate the file it pointed to.
+    victim = tmp_path / "victim"
+    victim.write_text("keep\n")
+    staging = outputs / "SHA256SUMS.tmp"
+    try:
+        staging.symlink_to(victim)
+    except OSError:
+        pytest.skip("can't create symlinks here")
+    _create(outputs / "a.txt", outdir=outputs)
+    assert victim.read_text() == "keep\n"
+    assert "a.txt" in (outputs / "SHA256SUMS").read_text()
+
+
+def test_verify_refuses_two_trust_sources(tmp_path):
+    with pytest.raises(UsageError, match="not both"):
+        api.SignVerifyParams(
+            manifest=tmp_path / "SHA256SUMS",
+            public_key=tmp_path / "k.pub",
+            allowed_signers=tmp_path / "allowed",
+        )
+
+
 def test_manifest_outside_inputs_keeps_portable_parent_paths(tmp_path, outputs):
     outdir = tmp_path / "manifests"
     _create(outputs, outdir=outdir)
@@ -189,3 +252,14 @@ def test_manifest_creation_accepts_mixed_case_windows_drives(
     manifest = destination / "SHA256SUMS"
     assert len(_read_manifest(manifest)) == 2
     _verify(manifest)
+
+
+def test_create_locks_only_the_folder_it_writes(tmp_path, outputs, monkeypatch):
+    # PR #495 review: with a configured output folder the job writes there,
+    # not into the inputs' common folder.
+    from wgsextract_cli.core.config import settings
+
+    params = api.SignCreateParams(paths=(outputs / "a.txt",))
+    assert list(params.write_folders()) == [outputs]
+    monkeypatch.setitem(settings, "output_directory", str(tmp_path / "results"))
+    assert list(params.write_folders()) == []

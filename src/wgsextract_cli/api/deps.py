@@ -30,6 +30,7 @@ class DepsCheckParams(Params):
         None,
         help="Check for a specific tool; exit code 3 if it is missing.",
         doc="The one tool to check (e.g. samtools); fails if it is missing.",
+        may_name_file=True,
     )
 
 

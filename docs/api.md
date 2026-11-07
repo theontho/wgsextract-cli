@@ -1856,7 +1856,7 @@ Write (and sign) a checksum manifest (see `SignCreateParams`).
 | `output` | `Path \| None` | `None` | `--output` | Manifest path. Defaults to <outdir>/SHA256SUMS, or SHA256SUMS in the inputs' common directory. |
 | `key` | `Path \| None` | `None` | `--key` | OpenSSH private key (or public key held by ssh-agent) to sign with (default: config signing_key; with neither, the manifest is not signed). Never taken from a server request. |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the inputs' common folder). |
-| `threads` | `str \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 
 ### `api.sign.verify(SignVerifyParams)`
 
@@ -1876,7 +1876,7 @@ key); with no signature file, only the hashes are checked.
 | `public_key` | `Path \| None` | `None` | `--public-key` | The signer's OpenSSH public key. |
 | `allowed_signers` | `Path \| None` | `None` | `--allowed-signers` | OpenSSH allowed_signers file (needs --identity). |
 | `identity` | `str \| None` | `None` | `--identity` | Signer identity in --allowed-signers. |
-| `threads` | `str \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 
 ## `api.report`
 
