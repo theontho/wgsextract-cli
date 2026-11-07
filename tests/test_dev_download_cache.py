@@ -1,10 +1,10 @@
 import hashlib
 import os
 import time
-from argparse import Namespace
 from pathlib import Path
 
 from wgsextract_cli.commands.benchmark.datasets import _real_dataset_cache_dir
+from wgsextract_cli.commands.benchmark.models import BenchmarkJob
 from wgsextract_cli.core import dev_download_cache, ref_library
 from wgsextract_cli.core.config import settings
 
@@ -113,7 +113,7 @@ def test_real_benchmark_dataset_cache_defaults_to_xdg_for_devs(tmp_path, monkeyp
     monkeypatch.setitem(settings, "dev_download_cache", True)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
 
-    args = Namespace(dataset_cache_dir=None)
+    args = BenchmarkJob()
 
     assert _real_dataset_cache_dir(args, tmp_path / "out") == (
         tmp_path / "xdg-cache" / "wgsextract" / "benchmark-datasets"

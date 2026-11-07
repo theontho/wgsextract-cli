@@ -1,9 +1,7 @@
-import argparse
 from collections.abc import Callable
 from pathlib import Path
 
 from wgsextract_cli.core.reference_assets import input_stem
-from wgsextract_cli.core.runtime import default_thread_tuning_profile
 
 from .bam_helpers import (
     _assert_bam_unindexed,
@@ -24,8 +22,8 @@ from .fixtures import (
     _trio_benchmark_region,
 )
 from .models import (
+    BenchmarkJob,
     BenchmarkResult,
-    BenchmarkThreadPlan,
     _chrom_only_region,
     _command_region,
     _default_heavy_region,
@@ -38,7 +36,7 @@ from .qc import (
 
 def _run_heavy_reference_and_bam_steps(
     *,
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     ref_path: Path,
@@ -48,7 +46,7 @@ def _run_heavy_reference_and_bam_steps(
     ref_count_dir = steps_dir / "ref-count-ns"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Reference N-base counting",
             slug="12a-ref-count-ns",
             command_args=[
@@ -68,7 +66,7 @@ def _run_heavy_reference_and_bam_steps(
     ref_verify_dir = steps_dir / "ref-verify"
     record(
         _run_cli_step(
-            args,
+            job,
             name="Reference integrity verification",
             slug="12b-ref-verify",
             command_args=[
@@ -88,7 +86,7 @@ def _run_heavy_reference_and_bam_steps(
     identify_dir = steps_dir / "bam-identify"
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM reference identification",
             slug="12c-bam-identify",
             command_args=[
@@ -123,7 +121,7 @@ def _run_heavy_reference_and_bam_steps(
     )
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM index removal",
             slug="12e-bam-unindex",
             command_args=[
@@ -150,7 +148,7 @@ def _run_heavy_reference_and_bam_steps(
     )
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM index creation",
             slug="12g-bam-index",
             command_args=[
@@ -170,7 +168,7 @@ def _run_heavy_reference_and_bam_steps(
     unsort_dir = steps_dir / "bam-unsort"
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM header unsort conversion",
             slug="12h-bam-unsort",
             command_args=[
@@ -192,7 +190,7 @@ def _run_heavy_reference_and_bam_steps(
 
 def _run_heavy_vcf_analysis_and_repair_steps(
     *,
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     ref_path: Path,
@@ -220,7 +218,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
         filter_cmd += ["--region", command_region]
     record(
         _run_cli_step(
-            args,
+            job,
             name="VCF expression filtering",
             slug="16a-vcf-filter",
             command_args=filter_cmd,
@@ -236,7 +234,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
     annotate_dir = steps_dir / "vcf-annotate"
     record(
         _run_cli_step(
-            args,
+            job,
             name="VCF annotation transfer",
             slug="16b-vcf-annotate",
             command_args=[
@@ -311,7 +309,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
     if trio_prep.success:
         record(
             _run_cli_step(
-                args,
+                job,
                 name="VCF trio inheritance filtering",
                 slug="16d-vcf-trio",
                 command_args=trio_cmd,
@@ -349,7 +347,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
             freebayes_cmd += ["--region", command_region]
         record(
             _run_cli_step(
-                args,
+                job,
                 name="VCF generation with FreeBayes",
                 slug="16e-vcf-freebayes",
                 command_args=freebayes_cmd,
@@ -384,7 +382,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
     )
     record(
         _run_cli_step(
-            args,
+            job,
             name="Analyze batch file generation",
             slug="17b-analyze-batch-gen",
             command_args=[
@@ -417,7 +415,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
     )
     record(
         _run_cli_pipe_step(
-            args,
+            job,
             name="FTDNA BAM text repair",
             slug="18b-repair-ftdna-bam",
             command_args=["repair", "ftdna-bam"],
@@ -430,7 +428,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
     )
     record(
         _run_cli_pipe_step(
-            args,
+            job,
             name="FTDNA VCF text repair",
             slug="18c-repair-ftdna-vcf",
             command_args=["repair", "ftdna-vcf"],
@@ -445,7 +443,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
 
 def _run_heavy_processing_steps(
     *,
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     ref_path: Path,
@@ -464,7 +462,7 @@ def _run_heavy_processing_steps(
     command_chrom = _chrom_only_region(command_region)
 
     _run_heavy_reference_and_bam_steps(
-        args=args,
+        job=job,
         record=record,
         analysis_bam=analysis_bam,
         ref_path=ref_path,
@@ -472,7 +470,7 @@ def _run_heavy_processing_steps(
         logs_dir=logs_dir,
     )
     _run_heavy_coverage_extract_and_qc_steps(
-        args=args,
+        job=job,
         record=record,
         analysis_bam=analysis_bam,
         ref_path=ref_path,
@@ -486,7 +484,7 @@ def _run_heavy_processing_steps(
         command_chrom=command_chrom,
     )
     _run_heavy_vcf_analysis_and_repair_steps(
-        args=args,
+        job=job,
         record=record,
         analysis_bam=analysis_bam,
         ref_path=ref_path,
@@ -497,20 +495,3 @@ def _run_heavy_processing_steps(
         command_region=command_region,
         heavy_region=heavy_region,
     )
-
-
-def _benchmark_root(args: argparse.Namespace) -> Path:
-    explicit_dests: set[str] = getattr(args, "_explicit_dests", set())
-    if "outdir" in explicit_dests and args.outdir:
-        return Path(args.outdir).expanduser().resolve()
-    return (Path.cwd() / "out" / "benchmark").resolve()
-
-
-def _benchmark_thread_plan(args: argparse.Namespace) -> BenchmarkThreadPlan:
-    if getattr(args, "threads", None) is not None:
-        return BenchmarkThreadPlan(
-            str(args.threads), int(args.threads), "explicit --threads override"
-        )
-
-    tuning = default_thread_tuning_profile()
-    return BenchmarkThreadPlan(tuning.label, tuning.threads, tuning.reason)

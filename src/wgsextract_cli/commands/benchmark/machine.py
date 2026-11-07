@@ -16,6 +16,7 @@ from .environment import (
     _ram_speed,
     _windows_cim_values,
 )
+from .models import _say
 
 MACHINE_STAT_FIELDS = (
     ("OS", "os"),
@@ -154,12 +155,12 @@ def _machine_stat_display_value(
 
 
 def _print_machine_stats(stats: dict[str, str | int | None]) -> None:
-    print("Machine stats:", flush=True)
+    _say("Machine stats:")
     for label, key in MACHINE_STAT_FIELDS:
         value = _machine_stat_display_value(stats, key)
         if value:
-            print(f"  {label}: {value}", flush=True)
-    print("", flush=True)
+            _say(f"  {label}: {value}")
+    _say()
 
 
 def _record_base_file_size(metadata: dict[str, Any], base_file: Path) -> None:

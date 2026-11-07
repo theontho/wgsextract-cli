@@ -1,4 +1,3 @@
-import argparse
 import contextlib
 import dataclasses
 import json
@@ -41,6 +40,30 @@ def _safe_console_text(value: object) -> str:
 
 def _print(value: object = "") -> None:
     human_output(_safe_console_text(value))
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class AnalyzeJob:
+    """One ``analyze comprehensive`` run, or one sample of a batch: its
+    settings, with paths as strings. ``debug`` and ``keep_awake`` pass on to
+    the steps' subcommands."""
+
+    input: str | None = None
+    vcf_inputs: tuple[str, ...] | None = None
+    ref: str | None = None
+    outdir: str | None = None
+    threads: int | None = None
+    batch: str | None = None
+    skip_calling: bool = False
+    confidence_depth: tuple[float, float] | None = None
+    confidence_gq: tuple[float, float] | None = None
+    restart: bool = False
+    force_steps: tuple[str, ...] | None = None
+    dry_run: bool = False
+    debug: bool = False
+    keep_awake: bool | None = None
+    # A batch's sample: the configured batch file and VCFs don't apply.
+    batch_sample: bool = False
 
 
 class AnalyzeResult(TypedDict):
@@ -128,20 +151,18 @@ def run_step(
     return decision, handle.metrics
 
 
-def subcommand_action(
-    command: list[str], args: argparse.Namespace
-) -> Callable[[StepRun], None]:
+def subcommand_action(command: list[str], job: AnalyzeJob) -> Callable[[StepRun], None]:
     """A step action that runs the wgsextract subcommand ``command``."""
 
     def action(handle: StepRun) -> None:
-        run_cli_subcommand(command, args)
+        run_cli_subcommand(command, job)
 
     return action
 
 
-def _step_params(args: argparse.Namespace, command: Sequence[str]) -> dict[str, Any]:
+def _step_params(job: AnalyzeJob, command: Sequence[str]) -> dict[str, Any]:
     """What shapes a subcommand step's output: its command line and --ref."""
-    return {"command": list(command), "ref": args.ref}
+    return {"command": list(command), "ref": job.ref}
 
 
 _SV_NAME_TOKENS = {"sv", "svs", "pbsv", "sniffles"}
@@ -279,21 +300,21 @@ def run_discovery_filter(
     return count
 
 
-def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
+def run_cli_subcommand(cmd_args: list[str], job: AnalyzeJob) -> None:
     """Helper to run a wgsextract subcommand."""
     cmd = [
         sys.executable,
         "-m",
         "wgsextract_cli.main",
-        *config_args(keep_awake=getattr(args, "keep_awake", None)),
+        *config_args(keep_awake=job.keep_awake),
         *cmd_args,
     ]
 
     # Use explicit ref if provided, otherwise resolve from env/defaults
-    ref_path = args.ref
+    ref_path = job.ref
     if not ref_path:
         # Try to resolve for BAM/CRAM inputs
-        input_path = args.input
+        input_path = job.input
         md5_sig = (
             calculate_bam_md5(input_path, None)
             if input_path and input_path.lower().endswith((".bam", ".cram"))
@@ -305,9 +326,9 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     if ref_path:
         cmd.extend(["--ref", ref_path])
 
-    if args.threads:
-        cmd.extend(["--threads", str(args.threads)])
-    if args.debug:
+    if job.threads:
+        cmd.extend(["--threads", str(job.threads)])
+    if job.debug:
         cmd.append("--debug")
 
     # The step writes its result document to a file rather than with --json,
@@ -399,7 +420,7 @@ def record_step_result(document: Path) -> None:
 
 
 def run_vcf_workflow(
-    args: argparse.Namespace,
+    job: AnalyzeJob,
     vcf_path: str,
     v_type: str,
     outdir: str,
@@ -427,7 +448,7 @@ def run_vcf_workflow(
     # Imported here: vcf.chain -> _vep_run imports detect_vcf_type from this module.
     from wgsextract_cli.commands.vcf.chain import dataset, skip_reason
 
-    lib = ReferenceLibrary(args.ref, None, input_path=vcf_path)
+    lib = ReferenceLibrary(job.ref, None, input_path=vcf_path)
     available = [a for a in anns.split(",") if not skip_reason(a, lib)]
     if not available:
         # A discovery filter over unannotated variants would report a misleading 0.
@@ -450,7 +471,7 @@ def run_vcf_workflow(
 
     def annotate(handle: StepRun) -> None:
         work_dir.mkdir(parents=True, exist_ok=True)
-        run_cli_subcommand(command, args)
+        run_cli_subcommand(command, job)
         if Path(actual_ann_vcf).exists():
             handle.add_output(actual_ann_vcf)
 
@@ -470,7 +491,7 @@ def run_vcf_workflow(
     annotate_step = Step(
         f"annotate:{tag}",
         inputs=inputs,
-        params={**_step_params(args, command), "caches": caches},
+        params={**_step_params(job, command), "caches": caches},
         tools=["bcftools", *(["vep"] if "vep" in available else [])],
     )
     annotated, _ = run_step(
@@ -478,7 +499,7 @@ def run_vcf_workflow(
     )
 
     discovery_vcf = str(Path(outdir, f"significant_{v_type}_{base_name}.vcf.gz"))
-    thresholds = variant_confidence.thresholds_from(args)
+    thresholds = variant_confidence.thresholds_from(job)
     discovery_step = Step(
         f"discovery:{tag}",
         inputs={"annotated": actual_ann_vcf},
@@ -542,7 +563,7 @@ def _cached_gender(cache_file: str) -> str:
 
 
 def run_bam_chain(
-    args: argparse.Namespace, input_file: str, outdir: str, journal: StepJournal
+    job: AnalyzeJob, input_file: str, outdir: str, journal: StepJournal
 ) -> str:
     """Runs the info and lineage steps. Returns detected gender."""
     _print("\nSTAGE: BAM/CRAM Metrics & Lineage")
@@ -555,7 +576,7 @@ def run_bam_chain(
         **extra: Any,
     ) -> Step:
         return Step(name, inputs={"input": input_file, **(inputs or {})},
-                    params=_step_params(args, command) | (params or {}),
+                    params=_step_params(job, command) | (params or {}),
                     **extra)  # fmt: skip
 
     # 1. Info (detailed: shows the table and detects the sex)
@@ -563,7 +584,7 @@ def run_bam_chain(
     cache_file = str(Path(outdir, f"{Path(input_file).name}.wgse_info.json"))
 
     def run_info(handle: StepRun) -> None:
-        run_cli_subcommand(info, args)
+        run_cli_subcommand(info, job)
         # 2. The detected sex drives the lineage steps.
         handle.metrics["gender"] = _cached_gender(cache_file)
 
@@ -600,7 +621,7 @@ def run_bam_chain(
         run_step(
             journal,
             subcommand_step(name, command, params, tools=tools, inputs=tree_inputs),
-            subcommand_action(command, args),
+            subcommand_action(command, job),
         )
 
     return gender

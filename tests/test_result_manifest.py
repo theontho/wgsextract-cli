@@ -879,13 +879,14 @@ def test_vep_records_an_existing_output_it_skips(tmp_path):
 
 @needs_htslib
 def test_analyze_carries_each_steps_manifest_outputs_and_warnings(tmp_path):
-    from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand
+    from wgsextract_cli.commands._analyze_workflows import (
+        AnalyzeJob,
+        run_cli_subcommand,
+    )
 
     ensure_fake_data(str(FAKE_DIR))
     step_dir = tmp_path / "qc"
-    args = argparse.Namespace(
-        ref=str(FAKE_DIR / "fake_ref.fa"), input=None, threads=1, debug=False
-    )
+    args = AnalyzeJob(ref=str(FAKE_DIR / "fake_ref.fa"), threads=1)
     result = results.CommandResult("analyze comprehensive")
     with results.collecting(result):
         run_cli_subcommand(
@@ -903,12 +904,15 @@ def test_analyze_carries_each_steps_manifest_outputs_and_warnings(tmp_path):
 
 @needs_htslib
 def test_analyze_steps_show_their_output_and_keep_their_results(tmp_path, capfd):
-    from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand
+    from wgsextract_cli.commands._analyze_workflows import (
+        AnalyzeJob,
+        run_cli_subcommand,
+    )
 
     ensure_fake_data(str(FAKE_DIR))
     bam = _write_small_bam(tmp_path, "a", reads_per_contig=3)
     out = tmp_path / "out"
-    args = argparse.Namespace(ref=None, input=None, threads=1, debug=False)
+    args = AnalyzeJob(threads=1)
     result = results.CommandResult("analyze comprehensive")
     with results.collecting(result):
         run_cli_subcommand(
