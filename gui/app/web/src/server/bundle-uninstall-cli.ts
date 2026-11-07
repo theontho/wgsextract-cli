@@ -15,9 +15,10 @@ import { rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadManifestFromRoot } from "./bundle-loader.js";
 import { errorMessage } from "./errors.js";
-import { appSupportDirectory, safePathComponent } from "./paths.js";
+import { appSupportDirectory } from "./paths.js";
 import { createProcessManager } from "./process-runner.js";
 import { runUninstall, type SetupSummary } from "./setup-runner.js";
+import { isManagedWorkspace, resolveWorkspacesDirectory, workspaceRootIn } from "./workspace-location.js";
 
 type UninstallResult = SetupSummary & { log: string[] };
 
@@ -41,9 +42,9 @@ async function main(argv: string[]): Promise<number> {
     const { appSupportName, removeAppData, bundle } = parseArgs(argv);
     process.env.GUI_FOR_CLI_APP_SUPPORT_NAME = appSupportName;
     const manifest = await loadManifestFromRoot(path.resolve(bundle));
-    // The app's data folder, where it keeps the bundle's workspace (prepareBundleWorkspace's default).
     const appData = appSupportDirectory();
-    const workspace = path.join(appData, "BundleWorkspaces", safePathComponent(manifest.id));
+    // Where prepareBundleWorkspace keeps the bundle's workspace; it can be outside the app's data folder.
+    const workspace = workspaceRootIn((await resolveWorkspacesDirectory()).directory, manifest.id);
     const result: UninstallResult = { status: "ok", results: [], log: [] };
     const note = (line: string) => {
         console.log(line);
@@ -69,6 +70,10 @@ async function main(argv: string[]): Promise<number> {
     }
     if (removeAppData) {
         if (result.status === "ok") {
+            if (await isManagedWorkspace(workspace)) {
+                await rm(workspace, { recursive: true, force: true });
+                note(`Removed ${workspace}`);
+            }
             await rm(appData, { recursive: true, force: true });
             note(`Removed ${appData}`);
         }

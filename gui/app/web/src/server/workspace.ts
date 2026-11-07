@@ -1,7 +1,8 @@
 import type { Dirent } from "node:fs";
 import { chmod, cp, mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { appSupportDirectory, relativeTopLevelName, resolveUserPath, safePathComponent } from "./paths.js";
+import { relativeTopLevelName, resolveUserPath } from "./paths.js";
+import { assertAdoptableWorkspaceRoot, resolveWorkspacesDirectory, workspaceRootIn, workspaceSentinelContents, workspaceSentinelFileName } from "./workspace-location.js";
 import { configEditorControls } from "../../../shared/rendering.js";
 import type { BundleManifest } from "../../../shared/types.js";
 import { errnoCode } from "./errors.js";
@@ -23,16 +24,16 @@ interface WorkspaceFingerprint {
 }
 
 const syncMetadataFileName = ".workspace-sync.json";
-const workspaceSentinelFileName = ".bundle-workspace";
-const workspaceSentinelContents = "GUI for CLI bundle workspace\n";
 const syncMetadataVersion = 1;
 
 export async function prepareBundleWorkspace(manifest: BundleManifest, sourceRoot: string, explicitWorkspaceRoot: string | undefined = undefined) {
-    const workspaceRoot = explicitWorkspaceRoot
-        ? path.resolve(explicitWorkspaceRoot)
-        : path.join(appSupportDirectory(), "BundleWorkspaces", safePathComponent(manifest.id));
+    const location = explicitWorkspaceRoot ? null : await resolveWorkspacesDirectory();
+    const workspaceRoot = location ? workspaceRootIn(location.directory, manifest.id) : path.resolve(explicitWorkspaceRoot ?? "");
     if (explicitWorkspaceRoot) {
         await assertSafeExplicitWorkspaceRoot(workspaceRoot, manifest, sourceRoot);
+    }
+    else if (location?.source !== "default") {
+        await assertAdoptableWorkspaceRoot(workspaceRoot);
     }
     await mkdir(workspaceRoot, { recursive: true });
     await writeWorkspaceSentinel(workspaceRoot);

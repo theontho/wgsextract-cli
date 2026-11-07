@@ -94,6 +94,8 @@ npm --prefix app run bundle:test -- --help
 
 Configuration and bundle workspaces are stored in the platform Application Support directory (`~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` on Linux). Set `GUI_FOR_CLI_APP_SUPPORT_NAME` to use a different folder name under that directory for isolated tests or scripts.
 
+To keep bundle workspaces somewhere else, such as a larger drive, choose a **Workspaces Folder** on the Settings page or set `GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR`, which takes precedence. The change applies at the next launch, existing files are not moved, and setup runs again in the new folder.
+
 ## Distribution
 
 `make package` builds the macOS `.app`/`.dmg`, the Linux `.deb`/`.rpm`/`.pkg.tar.zst`/`.AppImage`, or the Windows NSIS installer, depending on the host. Packaging defaults to the bundled WGSExtract app; set `packaging.embedded_bundle_path` and `packaging.app_name` in `.devconfig.toml` to package a different bundle.

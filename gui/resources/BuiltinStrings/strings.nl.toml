@@ -41,6 +41,13 @@
 "app.iconSet.sfSymbols" = "SF-symbolen"  # i18n-source-hash:38617e24
 "app.iconSet.bootstrapIcons" = "Bootstrap-pictogrammen"  # i18n-source-hash:02165c87
 "app.iconSet.emoji" = "Emoji’s"  # i18n-source-hash:5090a9e7
+"app.workspaceLocation.title" = "Locatie van bundelwerkruimte"  # i18n-source-hash:c02cd15f
+"app.workspaceLocation.folder.label" = "Map voor werkruimten"  # i18n-source-hash:2163b3f1
+"app.workspaceLocation.current.label" = "Huidige werkruimte"  # i18n-source-hash:35ff0b48
+"app.workspaceLocation.useDefault.title" = "Standaard gebruiken"  # i18n-source-hash:e145072a
+"app.workspaceLocation.note" = "Bestanden in de huidige werkruimte worden niet verplaatst en de installatie wordt opnieuw uitgevoerd in de nieuwe map."  # i18n-source-hash:367d4f76
+"app.workspaceLocation.restart.note" = "Start de app opnieuw om deze map te gebruiken."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.environment.note" = "Deze map is ingesteld door de omgevingsvariabele GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Thema"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Systeem"  # i18n-source-hash:bc0792d8
 "app.colorTheme.light" = "Licht"  # i18n-source-hash:a36ef8ab

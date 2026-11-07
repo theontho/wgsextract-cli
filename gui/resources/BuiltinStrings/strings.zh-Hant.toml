@@ -41,6 +41,13 @@
 "app.iconSet.sfSymbols" = "SF 符號"  # i18n-source-hash:38617e24
 "app.iconSet.bootstrapIcons" = "Bootstrap 圖示"  # i18n-source-hash:02165c87
 "app.iconSet.emoji" = "表情符號"  # i18n-source-hash:5090a9e7
+"app.workspaceLocation.title" = "套件工作區位置"  # i18n-source-hash:c02cd15f
+"app.workspaceLocation.folder.label" = "工作區資料夾"  # i18n-source-hash:2163b3f1
+"app.workspaceLocation.current.label" = "目前的工作區"  # i18n-source-hash:35ff0b48
+"app.workspaceLocation.useDefault.title" = "使用預設值"  # i18n-source-hash:e145072a
+"app.workspaceLocation.note" = "目前工作區中的檔案不會被移動,並且會在新資料夾中重新執行設定。"  # i18n-source-hash:367d4f76
+"app.workspaceLocation.restart.note" = "重新啟動應用程式以使用此資料夾。"  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.environment.note" = "此資料夾由環境變數 GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR 設定。"  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "主題"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "系統"  # i18n-source-hash:bc0792d8
 "app.colorTheme.light" = "淺色"  # i18n-source-hash:a36ef8ab

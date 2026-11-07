@@ -41,6 +41,13 @@
 "app.iconSet.sfSymbols" = "Символи SF"  # i18n-source-hash:38617e24
 "app.iconSet.bootstrapIcons" = "Піктограми Bootstrap"  # i18n-source-hash:02165c87
 "app.iconSet.emoji" = "Емодзі"  # i18n-source-hash:5090a9e7
+"app.workspaceLocation.title" = "Розташування робочої області пакета"  # i18n-source-hash:c02cd15f
+"app.workspaceLocation.folder.label" = "Папка робочих областей"  # i18n-source-hash:2163b3f1
+"app.workspaceLocation.current.label" = "Поточна робоча область"  # i18n-source-hash:35ff0b48
+"app.workspaceLocation.useDefault.title" = "За замовчуванням"  # i18n-source-hash:e145072a
+"app.workspaceLocation.note" = "Файли поточної робочої області не переміщуються, а налаштування запускається знову в новій папці."  # i18n-source-hash:367d4f76
+"app.workspaceLocation.restart.note" = "Перезапустіть застосунок, щоб використовувати цю папку."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.environment.note" = "Цю папку задано змінною середовища GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Тема"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Системна"  # i18n-source-hash:bc0792d8
 "app.colorTheme.light" = "Світла"  # i18n-source-hash:a36ef8ab

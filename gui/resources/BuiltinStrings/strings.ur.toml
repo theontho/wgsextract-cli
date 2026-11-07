@@ -41,6 +41,13 @@
 "app.iconSet.sfSymbols" = "SF علامتیں"  # i18n-source-hash:38617e24
 "app.iconSet.bootstrapIcons" = "Bootstrap آئیکنز"  # i18n-source-hash:02165c87
 "app.iconSet.emoji" = "ایموجی"  # i18n-source-hash:5090a9e7
+"app.workspaceLocation.title" = "بنڈل ورک اسپیس کا مقام"  # i18n-source-hash:c02cd15f
+"app.workspaceLocation.folder.label" = "ورک اسپیس فولڈر"  # i18n-source-hash:2163b3f1
+"app.workspaceLocation.current.label" = "موجودہ ورک اسپیس"  # i18n-source-hash:35ff0b48
+"app.workspaceLocation.useDefault.title" = "ڈیفالٹ استعمال کریں"  # i18n-source-hash:e145072a
+"app.workspaceLocation.note" = "موجودہ ورک اسپیس کی فائلیں منتقل نہیں ہوتیں، اور نئے فولڈر میں سیٹ اپ دوبارہ چلتا ہے۔"  # i18n-source-hash:367d4f76
+"app.workspaceLocation.restart.note" = "یہ فولڈر استعمال کرنے کے لیے ایپ دوبارہ شروع کریں۔"  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.environment.note" = "یہ فولڈر GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR ماحولیاتی متغیر سے سیٹ کیا گیا ہے۔"  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "تھیم"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "سسٹم"  # i18n-source-hash:bc0792d8
 "app.colorTheme.light" = "ہلکا"  # i18n-source-hash:a36ef8ab

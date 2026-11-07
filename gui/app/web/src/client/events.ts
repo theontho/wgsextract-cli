@@ -11,6 +11,7 @@ import { state } from "./state.js";
 import { dismissUpdatePopover, downloadUpdate, installUpdate, toggleUpdatePopover } from "./tauri-updater.js";
 import { appendTerminal, closeTerminalTab, resetTerminalEntries, terminalTabs } from "./terminal.js";
 import { bindTooltipEvents } from "./tooltips.js";
+import { bindWorkspaceLocationEvents } from "./workspace-location.js";
 import { setupPageID } from "./view.js";
 import type { ConfigSetting, ControlSpec, PathPickResponse } from "../../../shared/types.js";
 export { bindTooltipEvents } from "./tooltips.js";
@@ -88,6 +89,7 @@ export function bindEvents(bootstrap: Bootstrap) {
     app.querySelector("[data-open-bundle-workspace]")?.addEventListener("click", async () => {
         await openBundleWorkspace();
     });
+    bindWorkspaceLocationEvents(app);
     app.querySelector("[data-load-bundle]")?.addEventListener("click", async () => {
         await loadBundleFromPicker(bootstrap);
     });

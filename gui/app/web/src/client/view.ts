@@ -7,6 +7,7 @@ export { renderActions, renderPrecheckBanner } from "./view/actions.js";
 import { renderActions } from "./view/actions.js";
 export { renderSetupStatusSection, renderStandardOptionsAccessory } from "./view/settings.js";
 import { renderSetupStatusSection, renderStandardOptionsAccessory } from "./view/settings.js";
+import { renderWorkspaceLocationSection } from "./view/workspace-location.js";
 export { renderSetupGlobalStatusBar, renderSetupPromptDialog, setupHasNeverRun, setupNeedsAttention, setupPageID, setupPromptMessage, } from "./view/setup.js";
 import { renderUpdateNavigationItem } from "./view/update.js";
 import type { BundleManifest, BundlePage, CommandContext, LocalizedOption, ControlOption, ControlSpec, ManifestLocation, PageSection, PendingConfirmation, RowColumnSpec, RowSpec, ConfigSetting } from "../../../shared/types.js";
@@ -99,7 +100,7 @@ export function renderPage(page: BundlePage) {
         <h2>${renderIconTitle(page.title, page.iconName, page.textIcon, "📄")}</h2>
         <p>${escapeHTML(page.summary)}</p>
       </header>
-      ${page.id === "settings" ? `${renderSetupStatusSection()}${renderStandardOptionsAccessory()}` : ""}
+      ${page.id === "settings" ? `${renderSetupStatusSection()}${renderWorkspaceLocationSection()}${renderStandardOptionsAccessory()}` : ""}
       <div class="sections">
         ${(page.sections ?? []).map((section) => renderSection(section, page)).join("")}
       </div>

@@ -41,6 +41,13 @@
 "app.iconSet.sfSymbols" = "SF 심볼"  # i18n-source-hash:38617e24
 "app.iconSet.bootstrapIcons" = "Bootstrap 아이콘"  # i18n-source-hash:02165c87
 "app.iconSet.emoji" = "이모지"  # i18n-source-hash:5090a9e7
+"app.workspaceLocation.title" = "번들 작업 공간 위치"  # i18n-source-hash:c02cd15f
+"app.workspaceLocation.folder.label" = "작업 공간 폴더"  # i18n-source-hash:2163b3f1
+"app.workspaceLocation.current.label" = "현재 작업 공간"  # i18n-source-hash:35ff0b48
+"app.workspaceLocation.useDefault.title" = "기본값 사용"  # i18n-source-hash:e145072a
+"app.workspaceLocation.note" = "현재 작업 공간의 파일은 이동되지 않으며, 새 폴더에서 설정이 다시 실행됩니다."  # i18n-source-hash:367d4f76
+"app.workspaceLocation.restart.note" = "이 폴더를 사용하려면 앱을 다시 시작하세요."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.environment.note" = "이 폴더는 GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR 환경 변수로 설정되어 있습니다."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "테마"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "시스템"  # i18n-source-hash:bc0792d8
 "app.colorTheme.light" = "라이트"  # i18n-source-hash:a36ef8ab

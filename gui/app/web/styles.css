@@ -773,6 +773,10 @@ input[type="checkbox"] {
   align-items: center;
 }
 
+.workspace-location-row {
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+}
+
 .secondary-button {
   white-space: nowrap;
 }

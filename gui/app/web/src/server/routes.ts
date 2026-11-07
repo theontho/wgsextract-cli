@@ -18,6 +18,7 @@ import { applySecurityHeaders, guardRequest } from "./request-guard.js";
 import { runSetup, runUninstall } from "./setup-runner.js";
 import { wrapEmitWithEventLog } from "./setup-event-log.js";
 import { bundleArchiveFormat } from "./bundle-archive.js";
+import { saveWorkspacesDirectory, workspaceLocationInfo } from "./workspace-location.js";
 
 type ManifestResponse = Record<string, unknown> & { appVersion?: string; autoRunSetup?: boolean };
 
@@ -127,6 +128,10 @@ export function createRequestHandler(context: RequestHandlerContext) {
             await openPath(context.bundleRoot, context.runProcess);
             return { ok: true };
         }),
+        "/api/workspace-location/save": jsonRoute(context, async (body) => {
+            await saveWorkspacesDirectory(optionalString(body, "directory")?.trim() || null, context.manifest.id, context.sourceBundleRoot, context.bundleRoot);
+            return workspaceLocationInfo(context.manifest.id, context.bundleRoot);
+        }),
         "/api/config/load": jsonRoute(context, async (body) => {
             const control = findConfigEditorControl(context.manifest, requiredString(body, "controlID"));
             return loadConfig(control, optionalString(body, "path"), context.bundleRoot);
@@ -201,7 +206,10 @@ async function handleGet(url: URL, request: IncomingMessage, response: ServerRes
     if (url.pathname === "/api/manifest") {
         const locale = url.searchParams.has("locale") ? url.searchParams.get("locale") || undefined : context.defaultLocale;
         const loaded = await context.localizedBundleLoader.load(locale, preferredLocales(request.headers["accept-language"]));
-        const body = withAutoRunSetup(withAppVersion(loaded, context.appVersion));
+        const body = {
+            ...withAutoRunSetup(withAppVersion(loaded, context.appVersion)),
+            workspaceLocation: await workspaceLocationInfo(context.manifest.id, context.bundleRoot),
+        };
         json(response, context.enableDevReload ? { ...body, devReload: true } : body);
         return;
     }

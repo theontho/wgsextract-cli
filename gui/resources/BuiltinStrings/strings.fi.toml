@@ -41,6 +41,13 @@
 "app.iconSet.sfSymbols" = "SF-symbolit"  # i18n-source-hash:38617e24
 "app.iconSet.bootstrapIcons" = "Bootstrap-kuvakkeet"  # i18n-source-hash:02165c87
 "app.iconSet.emoji" = "Emojit"  # i18n-source-hash:5090a9e7
+"app.workspaceLocation.title" = "Paketin työtilan sijainti"  # i18n-source-hash:c02cd15f
+"app.workspaceLocation.folder.label" = "Työtilojen kansio"  # i18n-source-hash:2163b3f1
+"app.workspaceLocation.current.label" = "Nykyinen työtila"  # i18n-source-hash:35ff0b48
+"app.workspaceLocation.useDefault.title" = "Käytä oletusta"  # i18n-source-hash:e145072a
+"app.workspaceLocation.note" = "Nykyisen työtilan tiedostoja ei siirretä, ja asennus suoritetaan uudelleen uudessa kansiossa."  # i18n-source-hash:367d4f76
+"app.workspaceLocation.restart.note" = "Käynnistä sovellus uudelleen, jotta tämä kansio otetaan käyttöön."  # i18n-source-hash:3ee3ee58
+"app.workspaceLocation.environment.note" = "Tämän kansion määrittää ympäristömuuttuja GUI_FOR_CLI_BUNDLE_WORKSPACES_DIR."  # i18n-source-hash:4589bf20
 "app.colorTheme.label" = "Teema"  # i18n-source-hash:a797e309
 "app.colorTheme.system" = "Järjestelmä"  # i18n-source-hash:bc0792d8
 "app.colorTheme.light" = "Vaalea"  # i18n-source-hash:a36ef8ab

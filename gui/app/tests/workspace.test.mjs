@@ -248,10 +248,12 @@ async function withTemporaryHome(prefix, callback) {
   const originalHome = process.env.HOME;
   const originalUserProfile = process.env.USERPROFILE;
   const originalXdgDataHome = process.env.XDG_DATA_HOME;
+  const originalLocalAppData = process.env.LOCALAPPDATA;
 
   process.env.HOME = tempRoot;
   process.env.USERPROFILE = tempRoot;
   process.env.XDG_DATA_HOME = path.join(tempRoot, ".local", "share");
+  process.env.LOCALAPPDATA = path.join(tempRoot, "AppData", "Local");
 
   try {
     return await callback(tempRoot);
@@ -259,6 +261,7 @@ async function withTemporaryHome(prefix, callback) {
     restoreEnv("HOME", originalHome);
     restoreEnv("USERPROFILE", originalUserProfile);
     restoreEnv("XDG_DATA_HOME", originalXdgDataHome);
+    restoreEnv("LOCALAPPDATA", originalLocalAppData);
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
