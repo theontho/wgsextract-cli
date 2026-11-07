@@ -24,7 +24,8 @@ from pathlib import Path
 from wgsextract_cli.api._cli import cli_handler
 from wgsextract_cli.api.genotyping import TypingHlaParams
 from wgsextract_cli.core.paths import PathInput, expand_path
-from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.read_scope import may_follow
+from wgsextract_cli.core.reference_resolver import library_roots
 from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
@@ -134,8 +135,7 @@ def _build_index(directory: str) -> None:
 
 def index_folder(ref: PathInput | None) -> str | None:
     """The reference library folder holding (or to hold) the T1K index."""
-    lib = ReferenceLibrary(ref, skip_full_search=True)
-    root = lib.resource_root(str(Path(INDEX_DIR, INDEX_FASTA)))
+    root = library_roots(ref).resource_root(str(Path(INDEX_DIR, INDEX_FASTA)))
     if not root or not Path(root).is_dir():
         return None
     return str(Path(root, INDEX_DIR))
@@ -160,8 +160,11 @@ def hla_index(params: TypingHlaParams) -> str:
 
 
 def _index_release(index: str) -> str | None:
+    release = Path(index).parent / RELEASE_FILE
+    if not may_follow(release):
+        return None
     try:
-        with (Path(index).parent / RELEASE_FILE).open() as f:
+        with release.open() as f:
             return f.read().strip()
     except OSError:
         return None
@@ -229,7 +232,7 @@ def extract_reads(aln: Alignment, work: str) -> tuple[str, str]:
     return r1, r2
 
 
-def run_hla(params: TypingHlaParams) -> None:
+def run_hla(params: TypingHlaParams, *, debug: bool = False) -> None:
     aln = open_alignment(params)
     run_t1k = env_tool("run-t1k", "t1k")
     index = hla_index(params)
@@ -246,7 +249,7 @@ def run_hla(params: TypingHlaParams) -> None:
             run_command(
                 [*run_t1k, "-1", r1, "-2", r2, "-f", index, "--preset", "hla-wgs",
                  "-t", aln.threads, "-o", "t1k", "--od", work],
-                capture_output=not logging.getLogger().isEnabledFor(logging.DEBUG),
+                capture_output=not debug,
             )  # fmt: skip
         except subprocess.CalledProcessError as e:
             detail = (e.stderr or "").strip()[-500:]
@@ -290,4 +293,4 @@ def run_hla(params: TypingHlaParams) -> None:
     logging.info(f"T1K genotypes: {genotype_tsv}")
 
 
-cmd_hla = cli_handler(TypingHlaParams, run_hla)
+cmd_hla = cli_handler(TypingHlaParams, run_hla, debug="debug")

@@ -239,7 +239,7 @@ def write_summary(path: str, calls: list[RepeatCall]) -> list[tuple[str, str]]:
     return flagged
 
 
-def run_str(params: TypingStrParams) -> None:
+def run_str(params: TypingStrParams, *, debug: bool = False) -> None:
     aln = open_alignment(params)
     reference = aln.require_reference()
     expansion_hunter = env_tool("ExpansionHunter", "expansionhunter")
@@ -253,7 +253,7 @@ def run_str(params: TypingStrParams) -> None:
             [*expansion_hunter, "--reads", aln.path, "--reference", reference,
              "--variant-catalog", catalog, "--output-prefix", prefix,
              "--sex", sex, "--threads", aln.threads],
-            capture_output=not logging.getLogger().isEnabledFor(logging.DEBUG),
+            capture_output=not debug,
         )  # fmt: skip
     except subprocess.CalledProcessError as e:
         detail = (e.stderr or "").strip().splitlines()[-1:] if e.stderr else []
@@ -291,4 +291,4 @@ def run_str(params: TypingStrParams) -> None:
     )
 
 
-cmd_str = cli_handler(TypingStrParams, run_str)
+cmd_str = cli_handler(TypingStrParams, run_str, debug="debug")

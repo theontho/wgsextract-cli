@@ -27,7 +27,7 @@ from tests.fake_tools import python_tool
 from tests.smoke_utils import ensure_fake_data, get_cli_command
 from wgsextract_cli.api._params import json_schema
 from wgsextract_cli.core import results
-from wgsextract_cli.core.config import get_config_path
+from wgsextract_cli.core.config import get_config_path, settings
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.server.http_api import Server
 from wgsextract_cli.server.jobs import JobManager
@@ -1039,6 +1039,38 @@ def test_path_guard_checks_the_library_hla_typing_builds_its_index_in(tmp_path):
     PathGuard([tmp_path / "library"]).check(
         params_from_json(find("typing/hla"), request)
     )
+
+
+def test_path_guard_checks_where_hla_typing_would_build_its_index(
+    tmp_path, monkeypatch
+):
+    # PR #492 review: the guard checked the library, not the index folder
+    # hla_index() picks, so a symlinked <library>/ref sent the build outside;
+    # and a ref filled from config was not checked at all.
+    library = tmp_path / "library"
+    (library / "genomes").mkdir(parents=True)
+    fasta = library / "genomes" / "hg38.fa"
+    fasta.write_text(">chr1\nA\n")
+    request = {"input": str(library / "a.bam"), "ref": str(fasta)}
+    PathGuard([library]).check(params_from_json(find("typing/hla"), request))
+
+    monkeypatch.setitem(settings, "reference_fasta", str(fasta))
+    without_ref = {"input": str(library / "a.bam")}
+    with pytest.raises(RequestError) as refused:
+        PathGuard([library / "genomes"]).check(
+            params_from_json(find("typing/hla"), without_ref)
+        )
+    assert refused.value.code == "path_not_allowed"
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (library / "ref").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("can't create symlinks here")
+    with pytest.raises(RequestError) as refused:
+        PathGuard([library]).check(params_from_json(find("typing/hla"), request))
+    assert refused.value.code == "path_not_allowed"
 
 
 def test_caller_paths_cover_every_file():

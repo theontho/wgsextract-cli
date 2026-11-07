@@ -307,6 +307,69 @@ def test_hla_extracts_mhc_pairs_and_writes_pharmcat_calls(
     }
 
 
+def test_hla_release_is_not_read_through_a_symlink_out_of_the_read_scope(
+    tmp_path, mhc_bam, hla_setup
+):
+    # PR #492 review: the index's release.txt was read without the server's
+    # read scope, so a symlink returned an outside file as a metric.
+    from wgsextract_cli.core.read_scope import limited_to
+
+    secret = tmp_path / "secret.txt"
+    secret.write_text("outside\n")
+    release = hla_setup.index.parent / "release.txt"
+    release.unlink()
+    try:
+        release.symlink_to(secret)
+    except OSError:
+        pytest.skip("can't create symlinks here")
+    params = api.TypingHlaParams(
+        input=Path(mhc_bam), hla_index=hla_setup.index, outdir=tmp_path / "out"
+    )
+    with limited_to(lambda path: Path(path).resolve() != secret):
+        result = api.genotyping.hla(params)
+    assert result.metrics.get("ipd_imgt_hla_release") != "outside"
+
+
+def test_hla_streams_t1k_output_only_with_debug(
+    tmp_path, mhc_bam, hla_setup, monkeypatch, capfd
+):
+    # PR #492 review: a persistent run log sets the root logger to DEBUG, which
+    # streamed T1K's output into ordinary (even --quiet) runs.
+    fake_tools(
+        monkeypatch,
+        tmp_path,
+        {
+            "run-t1k": FAKE_T1K.format(
+                reads=str(hla_setup.reads), genotype=str(hla_setup.genotype)
+            )
+            + 'print("T1K chatter")\n'
+        },
+    )
+    argv = ["typing", "hla", "-i", str(mhc_bam), "--hla-index", str(hla_setup.index),
+            "-o", str(tmp_path / "out"), "--config", str(tmp_path / "config.toml")]  # fmt: skip
+    main([*argv, "--log-file", str(tmp_path / "run1.log")])
+    assert "T1K chatter" not in capfd.readouterr().out
+    main(["--debug", *argv, "--log-file", str(tmp_path / "run2.log")])
+    assert "T1K chatter" in capfd.readouterr().out
+
+
+def test_hla_accepts_home_relative_paths(tmp_path, mhc_bam, hla_setup, monkeypatch):
+    # PR #492 review: the alignment check ran before ~ was expanded, so an
+    # existing ~/sample.bam was refused as missing.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    relative = Path(mhc_bam).relative_to(tmp_path)
+    result = api.genotyping.hla(
+        api.TypingHlaParams(
+            input=Path("~", relative),
+            hla_index=hla_setup.index,
+            outdir=Path("~/home_out"),
+        )
+    )
+    assert result.exit_code == 0
+    assert (tmp_path / "home_out" / "NA12878.t1k_genotype.tsv").is_file()
+
+
 def test_hla_log_agrees_with_the_pharmcat_call(tmp_path, mhc_bam, hla_setup, caplog):
     caplog.set_level(logging.INFO)
     run_wgsextract("typing", "hla", "-i", mhc_bam, "--hla-index",

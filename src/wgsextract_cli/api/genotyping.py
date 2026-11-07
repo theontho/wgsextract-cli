@@ -79,19 +79,27 @@ class TypingHlaParams(_TypingParams):
         return self.hla_index is None
 
     def implied_paths(self) -> Iterator[tuple[str, Path]]:
-        # Without an index, it is built in the library ``ref`` names.
-        if self._builds_index() and self.ref is not None:
-            from wgsextract_cli.core.reference_assets import reference_library_of
-
-            yield "ref", Path(reference_library_of(self.ref))
+        # Without an index, it is built in the library ``ref`` (or config)
+        # names, staged beside it; either may be a symlink elsewhere.
+        folder = self._index_folder()
+        if folder is not None:
+            yield "ref", folder
+            yield "ref", folder.parent
 
     def write_folders(self) -> Iterator[Path]:
-        if self._builds_index():
-            from wgsextract_cli.commands.genotyping.hla import index_folder
+        folder = self._index_folder()
+        if folder is not None:
+            yield folder
 
-            folder = index_folder(self.ref)
-            if folder:
-                yield Path(folder)
+    def _index_folder(self) -> Path | None:
+        if not self._builds_index():
+            return None
+        from wgsextract_cli.commands.genotyping.hla import index_folder
+
+        from ._params import with_config_defaults
+
+        folder = index_folder(with_config_defaults(self).ref)
+        return Path(folder) if folder else None
 
 
 @dataclass(frozen=True, kw_only=True)
