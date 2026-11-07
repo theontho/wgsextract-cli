@@ -39,6 +39,7 @@ GROUPS = (
     api.vcf,
     api.analyze,
     api.lineage,
+    api.methylation,
     api.microarray,
     api.ref,
     api.repair,

@@ -5,7 +5,6 @@ import os
 import random
 import re
 import sys
-from argparse import Namespace
 from pathlib import Path
 
 import pytest
@@ -399,9 +398,7 @@ def test_h2_read_count_calibration_is_about_18_gib_for_bwa(tmp_path):
 
 
 def test_select_aligner_accepts_bwa_mem2_for_short_reads():
-    args = Namespace(
-        aligner="bwa-mem2", platform="dnbseq", long_read=False, preset=None
-    )
+    args = align.AlignJob(aligner="bwa-mem2", platform="dnbseq")
     assert align.select_aligner(args) == "bwa-mem2"
 
 

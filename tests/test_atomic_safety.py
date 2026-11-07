@@ -128,15 +128,15 @@ def test_atomic_special_alignment_failure_preserves_the_existing_bam(
     tmp_path, monkeypatch, backend
 ):
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
-    from argparse import Namespace
-
     from wgsextract_cli.commands import align
     from wgsextract_cli.core import parabricks
     from wgsextract_cli.core.atomic_output import atomic_output_mode
 
     output = tmp_path / "sample_aligned.bam"
     output.write_bytes(b"previous BAM")
-    setup = align._AlignSetup("1", "256M", str(tmp_path), "reference", "sample")
+    setup = align._AlignSetup(
+        "1", "256M", str(tmp_path), "reference", "sample", "reads"
+    )
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     monkeypatch.setattr(align, "run_pipeline", lambda *args, **kwargs: None)
     monkeypatch.setattr(parabricks, "host_path", str)
@@ -152,7 +152,7 @@ def test_atomic_special_alignment_failure_preserves_the_existing_bam(
     with atomic_output_mode(True), pytest.raises(RuntimeError):
         if backend == "parabricks":
             align._gpu_align(
-                Namespace(format="BAM", r1="reads"), setup, "fq2bam", [], []
+                align.AlignJob(format="BAM", r1="reads"), setup, "fq2bam", [], []
             )
         else:
             align._sort_and_mark_ultima([], str(output), setup, "BAM", str(tmp_path))

@@ -32,7 +32,7 @@ from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.extract`,
 `api.info`, `api.bam`, `api.qc`, `api.align`, `api.vcf`,
-`api.lineage`, `api.microarray`, `api.panel`, `api.ref`,
+`api.lineage`, `api.methylation`, `api.microarray`, `api.panel`, `api.ref`,
 `api.repair`, `api.report`, `api.sample`, `api.support`, `api.pet`, `api.analyze`,
 `api.examples`, `api.vep`) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
@@ -1465,6 +1465,43 @@ FamilyTreeDNA-order CSV).
 | `min_reads` | `int` | `2` | `--min-reads` | Spanning reads needed to support a repeat count (default: 2). |
 | `min_fraction` | `float` | `0.6` | `--min-fraction` | Share of spanning reads that must agree (default: 0.6). |
 | `min_mapq` | `int` | `20` | `--min-mapq` | Minimum mapping quality for single-copy markers (default: 20). |
+
+## `api.methylation`
+
+`methylation`: base modifications (5mC/5hmC) from long-read MM/ML tags.
+
+`pileup` runs ONT's modkit over a coordinate-sorted, indexed Nanopore or
+PacBio BAM/CRAM whose reads carry MM/ML tags, against the reference they
+were aligned to. It writes `<input stem>.<context>.bedmethyl.gz` (+ .tbi)
+and a `.methylation.tsv` (or `.parquet`) summary in `outdir`, else
+beside the input; with `table_format="parquet"` the sites are also written
+as `.bedmethyl.parquet`. The result's metrics give the platform, context
+and, per modification, the sites, median coverage and weighted percentage
+modified. modkit is optional (`pixi install -e modkit`) and unavailable on
+Windows.
+
+### `api.methylation.pileup(MethylationPileupParams)`
+
+CLI: `wgsextract methylation pileup`.
+
+Tabulate base modifications (see `MethylationPileupParams`).
+
+`MethylationPileupParams`: Tabulate 5mC (and optionally 5hmC) per site with modkit (see the
+module docstring). `context`, `hydroxymethyl` and `combine_strands`
+default to config methylation_context, methylation_5hmc and
+methylation_combine_strands, else CpG, 5mC only and strands combined.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path` | required | `--input`, `-i` | Coordinate-sorted, indexed BAM or CRAM with MM/ML tags. |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+| `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
+| `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
+| `region` | `str \| None` | `None` | `-r`, `--region` | Region(s), 1-based and inclusive: chr20:10000000-11000000 or chr1,chr2 (default: the whole genome) |
+| `context` | `str \| None` | `None` | `--context` | cpg: CpG sites only; all: every cytosine (CHG/CHH too). Overrides methylation_context in config.toml (default: cpg). One of: `cpg`, `all` |
+| `hydroxymethyl` | `bool \| None` | `None` | `--5hmc` | Also report 5-hydroxymethylcytosine (Nanopore 5mCG_5hmCG models). Overrides methylation_5hmc in config.toml (default: 5mC only). |
+| `combine_strands` | `bool \| None` | `None` | `--combine-strands` | Sum both strands of each CpG into one row on its C. True with context 'all' is an error; the config default quietly gives way. |
+| `table_format` | `str` | `'tsv'` | `--format` | Summary table format: tsv, or parquet (needs pyarrow), which also writes the sites as <stem>.<context>.bedmethyl.parquet (default: tsv) One of: `tsv`, `parquet` |
 
 ## `api.microarray`
 

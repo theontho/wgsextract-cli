@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import argparse
 import logging
 import os
 import subprocess
 import tempfile
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, TypeVar
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
-from wgsextract_cli.api._params import to_namespace
 from wgsextract_cli.api.align import ALIGNERS as ALIGNERS
 from wgsextract_cli.api.align import PLATFORMS as PLATFORMS
 from wgsextract_cli.api.align import AlignParams
@@ -68,6 +70,9 @@ from wgsextract_cli.core.warnings import (
 
 from ._extract_helpers import cleanup_files
 
+if TYPE_CHECKING:
+    from wgsextract_cli.api._params import Params
+
 PACBIO_PLATFORMS = {"pacbio", "hifi", "clr"}
 _LONG_READ_PLATFORMS = PACBIO_PLATFORMS | {"ont", "nanopore"}
 # Base-modification tags (and ONT's MN), and the parent read ID (pi) of a read
@@ -95,8 +100,69 @@ _READ_FILE_SUFFIXES = (
 )
 
 
+class InputReads(NamedTuple):
+    """What an earlier stage measured of the reads: their number and mean
+    length (each None when unknown)."""
+
+    reads: int | None
+    read_length: float | None = None
+
+
+_Job = TypeVar("_Job", bound="AlignJob")
+
+
+@dataclass(kw_only=True)
+class AlignJob:
+    """One alignment: its settings, with paths as strings, and what earlier
+    stages learnt about its reads. ``align`` builds one from ``AlignParams``;
+    realign one from ``RealignParams``, pointing ``r1``/``r2`` at the reads it
+    extracted or streams."""
+
+    r1: str | None = None
+    r2: str | None = None
+    input: str | None = None
+    ref: str | None = None
+    input_ref: str | None = None
+    outdir: str | None = None
+    threads: int | None = None
+    memory: str | None = None
+    platform: str | None = None
+    aligner: str = "auto"
+    preset: str | None = None
+    gpu: bool = False
+    no_gpu_memory_check: bool = False
+    sample: str | None = None
+    long_read: bool = False
+    format: str = "BAM"
+    # samtools options decoding a CRAM r1 (realign's, or _cram_reference's).
+    input_cram_opt: list[str] | None = None
+    # Set once measured, so later stages don't read the reads again.
+    input_reads: InputReads | None = None
+    # Told the aligner's name once the sorted output is complete (realign's
+    # step journal), before indexing starts.
+    on_written: Callable[[str], None] | None = None
+    # The source BAM/CRAM's read-group DS, when realign aligns its FASTQ.
+    read_group_description: str = ""
+
+    @classmethod
+    def of(cls: type[_Job], params: Params) -> _Job:
+        """The job of ``params``' fields that it shares."""
+        values = {}
+        for item in fields(cls):
+            if hasattr(params, item.name):
+                value = getattr(params, item.name)
+                values[item.name] = (
+                    os.fspath(value) if isinstance(value, os.PathLike) else value
+                )
+        return cls(**values)
+
+    @property
+    def read_count(self) -> int | None:
+        return self.input_reads.reads if self.input_reads else None
+
+
 def register(
-    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser(
@@ -109,7 +175,7 @@ def register(
 def run_align(params: AlignParams) -> None:
     """The ``align`` operation (``api.align.align``)."""
     add_read_inputs(params.r1, params.r2)
-    run(to_namespace(params))
+    run(AlignJob.of(params))
 
 
 def add_read_inputs(r1: Path | None, r2: Path | None) -> None:
@@ -120,19 +186,19 @@ def add_read_inputs(r1: Path | None, r2: Path | None) -> None:
             result.add_input(path, role)
 
 
-def resolve_platform(args: argparse.Namespace, reads: str | None) -> str:
+def resolve_platform(
+    platform: str | None, reads: str | None, input_ref: str | None = None
+) -> str:
     """Keep existing defaults except ONT and the existing Ultima RG case."""
-    if args.platform:
-        return str(args.platform)
+    if platform:
+        return platform
     if reads and reads.lower().endswith((".bam", ".cram")) and Path(reads).is_file():
-        if ultima.is_ultima_header(
-            get_bam_header(reads, getattr(args, "input_ref", None))
-        ):
+        if ultima.is_ultima_header(get_bam_header(reads, input_ref)):
             logging.info(
                 "%s has an Ultima read group: retaining Ultima defaults.", reads
             )
             return "ultima"
-    detected = input_platform(reads, getattr(args, "input_ref", None), strict=True)
+    detected = input_platform(reads, input_ref, strict=True)
     if detected == "ont":
         logging.info(
             "Detected %s reads: selecting platform-specific alignment defaults.",
@@ -148,38 +214,38 @@ def resolve_platform(args: argparse.Namespace, reads: str | None) -> str:
     return "illumina"
 
 
-def select_aligner(args: argparse.Namespace) -> str:
+def select_aligner(job: AlignJob) -> str:
     """Resolve --aligner auto and reject nonsensical aligner/platform/preset combos."""
-    long_read = args.long_read or args.platform in _LONG_READ_PLATFORMS
-    aligner: str = args.aligner
-    if args.platform in {"ont", "nanopore"} and getattr(args, "gpu", False):
+    long_read = job.long_read or job.platform in _LONG_READ_PLATFORMS
+    aligner: str = job.aligner
+    if job.platform in {"ont", "nanopore"} and job.gpu:
         raise UsageError(
             "ONT --gpu alignment is not qualified to preserve MM/ML methylation "
             "tags. Align without --gpu to keep them with samtools/minimap2."
         )
-    if args.platform == "ultima":
+    if job.platform == "ultima":
         require_native_tool("gatk")
-        if aligner not in ("auto", *_BWA_ALIGNERS) or long_read or args.preset:
+        if aligner not in ("auto", *_BWA_ALIGNERS) or long_read or job.preset:
             raise UsageError(
                 "Ultima reads align with BWA-MEM (--aligner auto, bwa or bwa-mem2), "
                 "as Ultima's and Broad's pipelines do."
             )
-        if getattr(args, "gpu", False):
+        if job.gpu:
             raise UsageError(
                 "--gpu (Parabricks) doesn't keep Ultima's flow tags (tp, t0) or "
                 "mark flow-based duplicates; align Ultima reads without --gpu."
             )
-        if getattr(args, "r2", None):
+        if job.r2:
             raise UsageError("Ultima reads are single-end: drop --r2.")
         return "bwa" if aligner == "auto" else aligner
     if aligner == "auto":
         if (
-            args.platform in PACBIO_PLATFORMS
-            and not _needs_read_extraction(getattr(args, "r1", None))
+            job.platform in PACBIO_PLATFORMS
+            and not _needs_read_extraction(job.r1)
             and get_tool_path("pbmm2") is not None
         ):
             aligner = "pbmm2"
-        elif long_read or args.preset:
+        elif long_read or job.preset:
             aligner = "minimap2"
         else:
             aligner = "bwa"
@@ -190,18 +256,18 @@ def select_aligner(args: argparse.Namespace) -> str:
                 "BWA-MEM is a short-read aligner; use --aligner minimap2 "
                 "(or pbmm2 for PacBio) for long reads."
             )
-        if args.preset:
+        if job.preset:
             raise UsageError("--preset applies to minimap2 and pbmm2, not BWA.")
-        if aligner == "bwa-mem2" and getattr(args, "gpu", False):
+        if aligner == "bwa-mem2" and job.gpu:
             raise UsageError(
                 "--gpu aligns with Parabricks' own BWA-MEM; use --aligner bwa or auto."
             )
     elif aligner == "pbmm2":
-        if args.platform in {"ont", "nanopore"}:
+        if job.platform in {"ont", "nanopore"}:
             raise UsageError(
                 "pbmm2 only aligns PacBio reads; use --aligner minimap2 for ONT."
             )
-        if args.preset and args.preset not in _PBMM2_PRESETS:
+        if job.preset and job.preset not in _PBMM2_PRESETS:
             raise UsageError(
                 "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, "
                 "or subread."
@@ -225,13 +291,13 @@ def pacbio_platform(header: str) -> str:
     return "clr" if types == {"SUBREAD"} else "pacbio"
 
 
-def _alignment_file_platform(args: argparse.Namespace) -> str | None:
+def _alignment_file_platform(job: AlignJob) -> str | None:
     """The platform of PacBio reads in a BAM/CRAM/SAM --r1 (such as the
     *.ccs.bam or *.subreads.bam that --genome picks): they align as long reads."""
-    reads = args.r1
-    if args.platform or not _is_alignment_file(reads or ""):
+    reads = job.r1
+    if job.platform or not reads or not _is_alignment_file(reads):
         return None
-    input_ref = getattr(args, "input_ref", None)
+    input_ref = job.input_ref
     if input_platform(reads, input_ref, strict=True) != "pacbio":
         return None
     platform = pacbio_platform(get_bam_header(reads, input_ref))
@@ -253,11 +319,11 @@ def _needs_read_extraction(path: object) -> bool:
     return str(path or "").lower().endswith((".cram", ".sam"))
 
 
-def _refuse_unreadable_reads(args: argparse.Namespace, aligner: str) -> None:
-    reads = args.r1
+def _refuse_unreadable_reads(job: AlignJob, aligner: str) -> None:
+    reads = job.r1
     if not _needs_read_extraction(reads):
         return
-    if getattr(args, "gpu", False):
+    if job.gpu:
         raise UsageError(
             f"{reads} is a CRAM/SAM, and --gpu (Parabricks) reads FASTQ or a BAM. "
             "Align it without --gpu, or convert it to BAM first."
@@ -269,45 +335,47 @@ def _refuse_unreadable_reads(args: argparse.Namespace, aligner: str) -> None:
         )
 
 
-def run(args: argparse.Namespace) -> None:
-    _cram_reference(args)
-    args.platform = _alignment_file_platform(args) or resolve_platform(args, args.r1)
-    aligner = select_aligner(args)
-    if args.platform == "ultima":
-        align_ultima(args, args.r1, getattr(args, "_input_cram_opt", None))
+def run(job: AlignJob) -> None:
+    _cram_reference(job)
+    job.platform = _alignment_file_platform(job) or resolve_platform(
+        job.platform, job.r1, job.input_ref
+    )
+    aligner = select_aligner(job)
+    if job.platform == "ultima":
+        align_ultima(job, job.input_cram_opt)
         return
-    _refuse_unreadable_reads(args, aligner)
+    _refuse_unreadable_reads(job, aligner)
     # pbmm2 reads a PacBio BAM itself, whatever platform was resolved.
-    if not is_long_read(args) and aligner != "pbmm2":
-        _refuse_short_read_alignment_file(args)
-    if getattr(args, "gpu", False):
-        _run_gpu(args, aligner)
+    if not is_long_read(job) and aligner != "pbmm2":
+        _refuse_short_read_alignment_file(job)
+    if job.gpu:
+        _run_gpu(job, aligner)
         return
     if aligner == "pbmm2":
-        align_pbmm2(args)
+        align_pbmm2(job)
     elif aligner == "minimap2":
-        align_minimap2(args)
+        align_minimap2(job)
     else:
-        align_bwa(args)
+        align_bwa(job)
 
 
-def _cram_reference(args: argparse.Namespace) -> None:
+def _cram_reference(job: AlignJob) -> None:
     """The FASTA a CRAM --r1 decodes with: --input-ref, else --ref when it
-    encoded the CRAM. realign passes the one it found as _input_cram_opt."""
-    reads = str(args.r1 or "")
+    encoded the CRAM. realign passes the one it found as input_cram_opt."""
+    reads = str(job.r1 or "")
     if (
         not reads.lower().endswith(".cram")
         or not Path(reads).is_file()
-        or getattr(args, "_input_cram_opt", None)
+        or job.input_cram_opt
     ):
         return
-    fasta = getattr(args, "input_ref", None)
+    fasta = job.input_ref
     if fasta:
         verify_paths_exist({"--input-ref": fasta})
     elif not header_sequences(get_bam_header(reads)):
         return  # Unaligned reads: the CRAM holds every base itself.
-    elif args.ref and Path(args.ref).is_file() and cram_encoded_with(args.ref, reads):
-        fasta = args.ref
+    elif job.ref and Path(job.ref).is_file() and cram_encoded_with(job.ref, reads):
+        fasta = job.ref
     else:
         raise UsageError(
             f"{reads} is a CRAM, and --ref doesn't match the reference it was "
@@ -315,14 +383,14 @@ def _cram_reference(args: argparse.Namespace) -> None:
             f"with 'wgsextract realign --input {reads} --ref <reference>', which "
             "also finds it in the reference library."
         )
-    args.input_ref = str(fasta)
-    args._input_cram_opt = ["--reference", str(fasta)]
+    job.input_ref = str(fasta)
+    job.input_cram_opt = ["--reference", str(fasta)]
 
 
-def _refuse_short_read_alignment_file(args: argparse.Namespace) -> None:
+def _refuse_short_read_alignment_file(job: AlignJob) -> None:
     """Short-read aligners read FASTQ; pairing reads out of a BAM/CRAM is
     realign's job (#447)."""
-    for reads in (args.r1, args.r2):
+    for reads in (job.r1, job.r2):
         if reads and _is_alignment_file(reads):
             raise UsageError(
                 f"{reads} is a BAM/CRAM/SAM file, and short reads align from "
@@ -442,6 +510,7 @@ class _AlignSetup(NamedTuple):
     outdir: str
     ref: str
     stem: str
+    r1: str
 
 
 def _require_unambiguous_library(ref: str | None, task: str) -> None:
@@ -469,7 +538,7 @@ def _require_unambiguous_library(ref: str | None, task: str) -> None:
 
 
 def _prepare_alignment(
-    args: argparse.Namespace,
+    job: AlignJob,
     tools: list[str],
     task: str,
     *,
@@ -477,38 +546,38 @@ def _prepare_alignment(
 ) -> _AlignSetup:
     verify_dependencies(tools)
     log_dependency_info(tools)
-    threads, memory = get_resource_defaults(args.threads, args.memory)
+    threads, memory = get_resource_defaults(job.threads, job.memory)
 
-    if not args.r1:
+    if not job.r1:
         raise UsageError("--r1 is required unless --genome resolves read inputs.")
     paths_to_check = (
         {f"read input {index + 1}": path for index, path in enumerate(read_paths)}
         if read_paths is not None
-        else {"--r1": args.r1}
+        else {"--r1": job.r1}
     )
-    if read_paths is None and args.r2:
-        paths_to_check["--r2"] = args.r2
+    if read_paths is None and job.r2:
+        paths_to_check["--r2"] = job.r2
     verify_paths_exist(paths_to_check)
 
-    input_path = args.input or args.r1
-    outdir = args.outdir or str(absolute_path(input_path).parent)
+    input_path = job.input or job.r1
+    outdir = job.outdir or str(absolute_path(input_path).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Input file: {str(absolute_path(input_path))}")
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
-    md5_sig = calculate_bam_md5(input_path, None) if args.input else None
+    md5_sig = calculate_bam_md5(input_path, None) if job.input else None
     if not md5_sig:
-        _require_unambiguous_library(args.ref, task)
-    resolved_ref = resolve_reference(args.ref, md5_sig)
+        _require_unambiguous_library(job.ref, task)
+    resolved_ref = resolve_reference(job.ref, md5_sig)
     if not resolved_ref or not Path(resolved_ref).is_file():
         raise UsageError(LOG_MESSAGES["ref_required_for"].format(task=task))
     logging.info(f"Aligning to {resolved_ref}")
 
-    stem = reads_stem(args.r1)
-    if getattr(args, "r2", None):
+    stem = reads_stem(job.r1)
+    if job.r2:
         # Both mates go into one output, so it shouldn't be named after R1.
         stem = pair_stem(stem)
-    return _AlignSetup(threads, memory, outdir, resolved_ref, stem)
+    return _AlignSetup(threads, memory, outdir, resolved_ref, stem, job.r1)
 
 
 def record_alignment(out_path: str, aligner: str, ref: str) -> None:
@@ -604,10 +673,10 @@ def _index_output(path: str, threads: str = "1") -> None:
         run_command(command)
 
 
-def _written_hook(args: argparse.Namespace, tool: str) -> Callable[[], None] | None:
-    """The caller's ``_on_written(tool)`` callback (realign's step journal),
+def _written_hook(job: AlignJob, tool: str) -> Callable[[], None] | None:
+    """The caller's ``on_written(tool)`` callback (realign's step journal),
     told when the sorted output is complete and indexing starts."""
-    hook = getattr(args, "_on_written", None)
+    hook = job.on_written
     return (lambda: hook(tool)) if hook else None
 
 
@@ -675,13 +744,18 @@ _RG_PLATFORMS = {
 }
 
 
-def read_group(args: argparse.Namespace, stem: str, description: str = "") -> str:
+def read_group(
+    stem: str,
+    sample: str | None = None,
+    platform: str | None = None,
+    description: str = "",
+) -> str:
     """The @RG line for -R (bwa, minimap2 expand the \\t). Variant callers and
     multi-sample tools need each sample's own SM, and GATK requires a read group
     with a platform. The default sample is the reads' name without its mate
     marker (family.mother_R1 -> family.mother), so different people stay apart."""
-    sample = getattr(args, "sample", None) or pair_stem(stem)
-    platform = _RG_PLATFORMS.get(getattr(args, "platform", None) or "", "ILLUMINA")
+    sample = sample or pair_stem(stem)
+    platform = _RG_PLATFORMS.get(platform or "", "ILLUMINA")
     line = f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}\\tPL:{platform}"
     return line + (f"\\tDS:{description}" if description else "")
 
@@ -699,7 +773,7 @@ def read_group_descriptions(reads: str, input_ref: str | None) -> str:
 
 
 def _bwa_setup(
-    args: argparse.Namespace,
+    job: AlignJob,
     task: str,
     *,
     read_paths: list[str] | None = None,
@@ -707,21 +781,20 @@ def _bwa_setup(
 ) -> tuple[_AlignSetup, str]:
     """The alignment setup and bwa or bwa-mem2 (short_read_aligner's choice),
     with the reference's index and ALT contig list in place."""
-    tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
-    setup = _prepare_alignment(args, [tool, "samtools"], task, read_paths=read_paths)
-    samblaster = bool(args.r2) and get_tool_path("samblaster") is not None
-    if hasattr(args, "_input_read_count"):
-        reads = args._input_read_count
-        read_length = getattr(args, "_input_read_length", None)
-    elif args.r1.lower().endswith((".bam", ".cram")):
-        reads = indexed_read_count(args.r1, setup.threads)
+    tool = "bwa-mem2" if job.aligner == "bwa-mem2" else "bwa"
+    setup = _prepare_alignment(job, [tool, "samtools"], task, read_paths=read_paths)
+    samblaster = bool(job.r2) and get_tool_path("samblaster") is not None
+    if job.input_reads is not None:
+        reads, read_length = job.input_reads
+    elif setup.r1.lower().endswith((".bam", ".cram")):
+        reads = indexed_read_count(setup.r1, setup.threads)
         read_length = None
     else:
-        statistics = fastq_input_statistics(args.r1, args.r2)
+        statistics = fastq_input_statistics(setup.r1, job.r2)
         reads = statistics.reads if statistics is not None else None
         read_length = statistics.read_length if statistics is not None else None
     tool = short_read_aligner(
-        args.aligner,
+        job.aligner,
         setup.ref,
         threads=setup.threads,
         memory=setup.memory,
@@ -738,7 +811,7 @@ def _bwa_setup(
         memory=setup.memory,
         samblaster=samblaster,
         reads=reads,
-        platform=getattr(args, "platform", None),
+        platform=job.platform,
         read_length=read_length,
         additional_ram_bytes=additional_ram_bytes,
     ):
@@ -748,7 +821,7 @@ def _bwa_setup(
             "align",
             input_paths=read_paths
             if read_paths is not None
-            else [path for path in (args.r1, args.r2) if path],
+            else [path for path in (job.r1, job.r2) if path],
             output_dir=setup.outdir,
             temp_dir=configured_temp_directory(),
             reference=setup.ref,
@@ -757,14 +830,13 @@ def _bwa_setup(
             aligner=tool,
             samblaster=samblaster,
             reads=reads,
-            platform=getattr(args, "platform", None),
+            platform=job.platform,
             read_length=read_length,
             additional_ram_bytes=additional_ram_bytes,
-            output_format=getattr(args, "format", "BAM"),
+            output_format=job.format,
             duplicate_marking=(
                 "gatk-flow"
-                if getattr(args, "platform", None) == "ultima"
-                and get_tool_path("gatk") is not None
+                if job.platform == "ultima" and get_tool_path("gatk") is not None
                 else None
             ),
         )
@@ -777,7 +849,7 @@ def _bwa_setup(
             memory=setup.memory,
             samblaster=samblaster,
             reads=reads,
-            platform=getattr(args, "platform", None),
+            platform=job.platform,
             read_length=read_length,
             additional_ram_bytes=additional_ram_bytes,
         )
@@ -786,7 +858,7 @@ def _bwa_setup(
             raise StreamingMemoryUnavailable(str(error)) from error
         raise
     warn_alignment_sort_space(configured_temp_directory() or setup.outdir, reads)
-    args._input_read_count = reads
+    job.input_reads = InputReads(reads, read_length)
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
     else:
@@ -797,7 +869,7 @@ def _bwa_setup(
 
 
 def align_bwa(
-    args: argparse.Namespace,
+    job: AlignJob,
     *,
     upstream: Sequence[Sequence[object]] = (),
     read_paths: list[str] | None = None,
@@ -805,44 +877,44 @@ def align_bwa(
 ) -> None:
     """BWA-MEM alignment with bwa or bwa-mem2 (short_read_aligner's choice)."""
     setup, tool = _bwa_setup(
-        args,
+        job,
         "BWA alignment",
         read_paths=read_paths,
         additional_ram_bytes=additional_ram_bytes,
     )
 
-    ext = ".cram" if args.format == "CRAM" else ".bam"
+    ext = ".cram" if job.format == "CRAM" else ".bam"
     out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(
-            input=read_paths[0] if read_paths else args.r1,
+            input=read_paths[0] if read_paths else job.r1,
             output=out_bam,
             tool=tool,
         )
     )
     align_cmd = [
         tool, "mem", "-K", BWA_BATCH_BASES, "-t", setup.threads,
-        "-R", read_group(args, setup.stem),
+        "-R", read_group(setup.stem, job.sample, job.platform),
     ]  # fmt: skip
-    align_cmd += [setup.ref, args.r1]
+    align_cmd += [setup.ref, setup.r1]
     try:
         command = (
             [*align_cmd[:-2], "-p", setup.ref, "-"]
             if upstream
-            else align_cmd + ([args.r2] if args.r2 else [])
+            else align_cmd + ([job.r2] if job.r2 else [])
         )
         run_streamed_alignment(
             command,
             out_bam,
             threads=setup.threads,
             memory=setup.memory,
-            fmt=args.format,
+            fmt=job.format,
             ref=setup.ref,
-            duplicates=duplicate_marker(paired=bool(args.r2)),
+            duplicates=duplicate_marker(paired=bool(job.r2)),
             upstream=list(upstream) if upstream else None,
-            expected_reads=getattr(args, "_input_read_count", None),
-            on_written=_written_hook(args, tool),
+            expected_reads=job.read_count,
+            on_written=_written_hook(job, tool),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"{tool} alignment failed: {e}") from e
@@ -860,11 +932,10 @@ ULTIMA_DUPLICATE_ARGS = [
 ]  # fmt: skip
 
 
-def ultima_read_groups(header: str, args: argparse.Namespace, stem: str) -> list[str]:
+def ultima_read_groups(header: str, sample: str | None, stem: str) -> list[str]:
     """The @RG lines of an Ultima BAM/CRAM for the realigned output, which keeps
     each read's RG: the flow order (FO) and max homopolymer class (mc) GATK
     needs live there. Output flow tags are in reference orientation (tp:)."""
-    sample = getattr(args, "sample", None)
     lines = []
     for rg in ultima.read_groups(header):
         rg.setdefault("SM", sample or pair_stem(stem))
@@ -876,17 +947,16 @@ def ultima_read_groups(header: str, args: argparse.Namespace, stem: str) -> list
     return lines
 
 
-def align_ultima(
-    args: argparse.Namespace, reads: str, cram_opt: list[str] | None = None
-) -> None:
+def align_ultima(job: AlignJob, cram_opt: list[str] | None = None) -> None:
     """Align Ultima reads (FASTQ, or a BAM/CRAM: unaligned from the sequencer,
     or aligned, to realign) with BWA-MEM as Ultima's pipeline does. The flow
     tags travel through the FASTQ comment (-C) in each read's own orientation;
     -Y soft-clips supplementary alignments, so every record keeps the whole
     read its tp/t0 arrays describe. Duplicates are marked in flow mode."""
     require_native_tool("gatk")
-    setup, tool = _bwa_setup(args, "Ultima alignment")
-    ext = ".cram" if args.format == "CRAM" else ".bam"
+    setup, tool = _bwa_setup(job, "Ultima alignment")
+    reads = setup.r1
+    ext = ".cram" if job.format == "CRAM" else ".bam"
     out_path = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(input=reads, output=out_path, tool=tool)
@@ -899,7 +969,7 @@ def align_ultima(
         if reads.lower().endswith((".bam", ".cram")):
             header = get_bam_header(reads, cram_opt)
             tagged = True
-            rg_lines = ultima_read_groups(header, args, setup.stem)
+            rg_lines = ultima_read_groups(header, job.sample, setup.stem)
             tags = [*ultima.READ_TAGS, *(["RG"] if rg_lines else [])]
             stages += [
                 ["samtools", "view", "-h", "--no-PG", "-F", "0x900"]
@@ -912,11 +982,11 @@ def align_ultima(
                 rg_file.write_text("\n".join(rg_lines) + "\n", newline="\n")
                 bwa += ["-H", str(rg_file)]
             else:
-                bwa += ["-R", _ultima_read_group(args, setup.stem, tagged)]
+                bwa += ["-R", _ultima_read_group(job, setup.stem, tagged)]
             bwa += ["-C", setup.ref, "-"]
         else:
             tagged = ultima.fastq_has_flow_tags(reads)
-            bwa += ["-R", _ultima_read_group(args, setup.stem, tagged)]
+            bwa += ["-R", _ultima_read_group(job, setup.stem, tagged)]
             bwa += [*(["-C"] if tagged else []), setup.ref, reads]
         if not tagged:
             logging.info(
@@ -931,18 +1001,18 @@ def align_ultima(
                 stages,
                 out_path,
                 setup,
-                args.format,
+                job.format,
                 tmp,
-                expected_reads=getattr(args, "_input_read_count", None),
+                expected_reads=job.read_count,
             )
         except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             raise WGSExtractError(f"{tool} alignment failed: {e}") from e
     record_alignment(out_path, tool, setup.ref)
 
 
-def _ultima_read_group(args: argparse.Namespace, stem: str, tagged: bool) -> str:
+def _ultima_read_group(job: AlignJob, stem: str, tagged: bool) -> str:
     """read_group's line, plus the flow order GATK needs for tagged reads."""
-    rg = read_group(args, stem)
+    rg = read_group(stem, job.sample, job.platform)
     return rg + f"\\tFO:{ultima.DEFAULT_FLOW_ORDER}\\ttp:reference" if tagged else rg
 
 
@@ -1019,61 +1089,61 @@ def _sort_and_mark_ultima(
         _index_output(out_path, threads=setup.threads)
 
 
-def _run_gpu(args: argparse.Namespace, aligner: str) -> None:
+def _run_gpu(job: AlignJob, aligner: str) -> None:
     """The same alignment on an NVIDIA GPU: Parabricks fq2bam for BWA, its
     minimap2 for HiFi and ONT reads (map-pbmm2 standing in for pbmm2)."""
     if aligner == "bwa":
-        _align_gpu_bwa(args)
+        _align_gpu_bwa(job)
         return
     if aligner == "pbmm2":
-        if (args.preset or ("subread" if args.platform == "clr" else "ccs")) not in (
+        if (job.preset or ("subread" if job.platform == "clr" else "ccs")) not in (
             "ccs",
             "map-hifi",
         ):
             raise UsageError("--gpu aligns PacBio HiFi/CCS reads, not CLR/subreads.")
-        _align_gpu_minimap2(args, "map-pbmm2")
+        _align_gpu_minimap2(job, "map-pbmm2")
         return
-    preset = _minimap2_preset(args)
+    preset = _minimap2_preset(job)
     if preset not in _GPU_MINIMAP2_PRESETS:
         raise UsageError(
             f"--gpu has no minimap2 preset for {preset}: it aligns HiFi (map-hifi) "
             "and ONT (map-ont) long reads, and short reads with --aligner bwa."
         )
-    _align_gpu_minimap2(args, _GPU_MINIMAP2_PRESETS[preset])
+    _align_gpu_minimap2(job, _GPU_MINIMAP2_PRESETS[preset])
 
 
-def _align_gpu_bwa(args: argparse.Namespace) -> None:
+def _align_gpu_bwa(job: AlignJob) -> None:
     """BWA-MEM, sorting and duplicate marking on the GPU (pbrun fq2bam), with
     the same index, ALT contigs and read group as align_bwa."""
     from wgsextract_cli.core.parabricks import host_path, verify_parabricks
 
-    setup = _prepare_alignment(args, ["samtools"], "GPU alignment")
+    setup = _prepare_alignment(job, ["samtools"], "GPU alignment")
     verify_parabricks()
-    fit = _gpu_memory_options(args, "fq2bam")
+    fit = _gpu_memory_options(job, "fq2bam")
     ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
     # fq2bam requires a PU (platform unit) in the read group.
-    rg = read_group(args, setup.stem) + f"\\tPU:{setup.stem}"
-    reads = [host_path(args.r1)] + ([host_path(args.r2)] if args.r2 else [])
-    fq_arg = "--in-fq" if args.r2 else "--in-se-fq"
-    _gpu_align(args, setup, "fq2bam", [fq_arg, *reads, rg, *fit], reads)
+    rg = read_group(setup.stem, job.sample, job.platform) + f"\\tPU:{setup.stem}"
+    reads = [host_path(setup.r1)] + ([host_path(job.r2)] if job.r2 else [])
+    fq_arg = "--in-fq" if job.r2 else "--in-se-fq"
+    _gpu_align(job, setup, "fq2bam", [fq_arg, *reads, rg, *fit], reads)
 
 
-def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
+def _align_gpu_minimap2(job: AlignJob, preset: str) -> None:
     """Long reads (FASTQ or unaligned BAM) with Parabricks minimap2."""
     from wgsextract_cli.core.parabricks import host_path, verify_parabricks
 
-    if args.r2:
+    if job.r2:
         raise UsageError("Long-read alignment takes single-end input; drop --r2.")
-    setup = _prepare_alignment(args, ["samtools"], "GPU long-read alignment")
+    setup = _prepare_alignment(job, ["samtools"], "GPU long-read alignment")
     verify_parabricks()
-    fit = _gpu_memory_options(args, "minimap2")
-    reads = host_path(args.r1)
+    fit = _gpu_memory_options(job, "minimap2")
+    reads = host_path(setup.r1)
     in_arg = "--in-bam" if reads.lower().endswith(".bam") else "--in-fq"
-    sample = getattr(args, "sample", None) or pair_stem(setup.stem)
-    platform = _RG_PLATFORMS.get(getattr(args, "platform", None) or "", "PACBIO")
+    sample = job.sample or pair_stem(setup.stem)
+    platform = _RG_PLATFORMS.get(job.platform or "", "PACBIO")
     _gpu_align(
-        args,
+        job,
         setup,
         "minimap2",
         [in_arg, reads, "--preset", preset]
@@ -1084,23 +1154,21 @@ def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
     )
     # From an unaligned BAM, Parabricks keeps the BAM's own read groups, which
     # PacBio writes without the sample name callers need.
-    _ensure_read_group_sample(_gpu_output_path(args, setup), sample, setup.ref)
+    _ensure_read_group_sample(_gpu_output_path(job, setup), sample, setup.ref)
 
 
-def _gpu_memory_options(args: argparse.Namespace, tool: str) -> list[str]:
+def _gpu_memory_options(job: AlignJob, tool: str) -> list[str]:
     """Check the GPUs' and the host's memory for Parabricks ``tool``, and the
     options that fit it to them."""
     from wgsextract_cli.core.parabricks import plan_gpu_memory
 
-    return plan_gpu_memory(
-        tool, "align", check=not getattr(args, "no_gpu_memory_check", False)
-    )
+    return plan_gpu_memory(tool, "align", check=not job.no_gpu_memory_check)
 
 
-def _gpu_output_path(args: argparse.Namespace, setup: _AlignSetup) -> str:
+def _gpu_output_path(job: AlignJob, setup: _AlignSetup) -> str:
     from wgsextract_cli.core.parabricks import host_path
 
-    ext = ".cram" if args.format == "CRAM" else ".bam"
+    ext = ".cram" if job.format == "CRAM" else ".bam"
     return host_path(str(Path(setup.outdir, f"{setup.stem}_aligned{ext}")))
 
 
@@ -1138,7 +1206,7 @@ def _ensure_read_group_sample(path: str, sample: str, ref: str) -> None:
 
 
 def _gpu_align(
-    args: argparse.Namespace,
+    job: AlignJob,
     setup: _AlignSetup,
     tool: str,
     tool_args: list[str],
@@ -1149,12 +1217,12 @@ def _gpu_align(
     and samtools converts it."""
     from wgsextract_cli.core.parabricks import host_path, run_pbrun
 
-    out_path = _gpu_output_path(args, setup)
+    out_path = _gpu_output_path(job, setup)
     convert = out_path.endswith(".cram") and setup.ref.lower().endswith(".gz")
     pb_out = out_path.removesuffix(".cram") + ".bam" if convert else out_path
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(
-            input=args.r1, output=out_path, tool=f"Parabricks {tool}"
+            input=job.r1, output=out_path, tool=f"Parabricks {tool}"
         )
     )
     with (
@@ -1191,8 +1259,8 @@ def _gpu_align(
     record_alignment(out_path, f"parabricks {tool}", setup.ref)
 
 
-def is_long_read(args: argparse.Namespace) -> bool:
-    return bool(args.long_read) or args.platform in _LONG_READ_PLATFORMS
+def is_long_read(job: AlignJob) -> bool:
+    return bool(job.long_read) or job.platform in _LONG_READ_PLATFORMS
 
 
 def long_read_fastq_command(path: str, cram_opt: Sequence[str] = ()) -> list[str]:
@@ -1211,15 +1279,15 @@ def long_read_fastq_command(path: str, cram_opt: Sequence[str] = ()) -> list[str
     ]
 
 
-def _minimap2_preset(args: argparse.Namespace) -> str:
-    if args.preset:
-        preset: str = args.preset
+def _minimap2_preset(job: AlignJob) -> str:
+    if job.preset:
+        preset: str = job.preset
         return _MINIMAP2_PRESET_ALIASES.get(preset, preset)
-    if args.platform in {"hifi", "pacbio"}:
+    if job.platform in {"hifi", "pacbio"}:
         return "map-hifi"
-    if args.platform in {"ont", "nanopore"}:
+    if job.platform in {"ont", "nanopore"}:
         return "map-ont"
-    if args.platform == "clr" or args.long_read:
+    if job.platform == "clr" or job.long_read:
         return "map-pb"
     return "sr"
 
@@ -1239,21 +1307,21 @@ def _long_read_length(reads: str, cram_opt: Sequence[str]) -> float | None:
     return mean
 
 
-def align_minimap2(args: argparse.Namespace) -> None:
-    setup = _prepare_alignment(args, ["minimap2", "samtools"], "Minimap2 alignment")
+def align_minimap2(job: AlignJob) -> None:
+    setup = _prepare_alignment(job, ["minimap2", "samtools"], "Minimap2 alignment")
 
-    ext = ".cram" if args.format == "CRAM" else ".bam"
+    ext = ".cram" if job.format == "CRAM" else ".bam"
     out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(
-            input=args.r1, output=out_bam, tool="Minimap2"
+            input=job.r1, output=out_bam, tool="Minimap2"
         )
     )
-    preset = _minimap2_preset(args)
-    logging.info("Using minimap2 preset %s for %s reads.", preset, args.platform)
-    duplicates = duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
-    read_files = [path for path in (args.r1, args.r2) if path]
+    preset = _minimap2_preset(job)
+    logging.info("Using minimap2 preset %s for %s reads.", preset, job.platform)
+    duplicates = duplicate_marker(paired=bool(job.r2)) if preset == "sr" else None
+    read_files = [path for path in (job.r1, job.r2) if path]
     input_bytes: int | None = None
     # Pipes and devices report no size; only regular files bound the batches.
     if all(Path(path).is_file() for path in read_files):
@@ -1261,13 +1329,13 @@ def align_minimap2(args: argparse.Namespace) -> None:
             input_bytes = sum(os.path.getsize(path) for path in read_files)
         except OSError:
             input_bytes = None
-    read_count = getattr(args, "_input_read_count", None)
+    read_count = job.read_count
     if read_count is None and duplicates == "samblaster":
-        statistics = fastq_input_statistics(args.r1, args.r2)
+        statistics = fastq_input_statistics(setup.r1, job.r2)
         read_count = statistics.reads if statistics is not None else None
-    read_length = getattr(args, "_input_read_length", None)
+    read_length = job.input_reads.read_length if job.input_reads else None
     if read_length is None and preset != "sr" and input_bytes:
-        read_length = _long_read_length(args.r1, getattr(args, "_input_cram_opt", []))
+        read_length = _long_read_length(setup.r1, job.input_cram_opt or [])
     preflight_resources(
         lambda: estimate_resources(
             "align",
@@ -1281,9 +1349,9 @@ def align_minimap2(args: argparse.Namespace) -> None:
             preset=preset,
             samblaster=duplicates == "samblaster",
             reads=read_count,
-            platform=args.platform,
+            platform=job.platform,
             read_length=read_length,
-            output_format=args.format,
+            output_format=job.format,
         )
     )
     check_mapping_memory(
@@ -1293,28 +1361,24 @@ def align_minimap2(args: argparse.Namespace) -> None:
         memory=setup.memory,
         samblaster=duplicates == "samblaster",
         reads=read_count,
-        platform=args.platform,
+        platform=job.platform,
         read_length=read_length,
         preset=preset,
         input_bytes=input_bytes,
     )
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
     upstream: list[Sequence[object]] = []
-    reads = args.r1
+    reads = setup.r1
     # realign --keep-fastq aligns a FASTQ, so it passes its BAM/CRAM's.
-    description: str = getattr(args, "_read_group_description", "")
-    if is_long_read(args):
-        if args.r2:
+    description = job.read_group_description
+    if is_long_read(job):
+        if job.r2:
             raise UsageError("Long reads are single-end: drop --r2.")
         # Soft clipping keeps SEQ and the modification coordinates consistent.
         align_cmd += ["-Y"]
         if _is_alignment_file(reads):
-            upstream = [
-                long_read_fastq_command(reads, getattr(args, "_input_cram_opt", []))
-            ]
-            description = read_group_descriptions(
-                reads, getattr(args, "input_ref", None)
-            )
+            upstream = [long_read_fastq_command(reads, job.input_cram_opt or [])]
+            description = read_group_descriptions(reads, job.input_ref)
         elif not is_fasta_path(reads):
             # FASTQ comments can mix ONT runid/ch metadata with SAM tags;
             # minimap2 -y alone would emit invalid SAM for those comments.
@@ -1326,40 +1390,45 @@ def align_minimap2(args: argparse.Namespace) -> None:
         if upstream:
             align_cmd += ["-y"]
             reads = "-"
-    align_cmd += ["-R", read_group(args, setup.stem, description), setup.ref, reads]
+    align_cmd += [
+        "-R",
+        read_group(setup.stem, job.sample, job.platform, description),
+        setup.ref,
+        reads,
+    ]
     try:
         run_streamed_alignment(
-            align_cmd + ([args.r2] if args.r2 else []),
+            align_cmd + ([job.r2] if job.r2 else []),
             out_bam,
             threads=setup.threads,
             memory=setup.memory,
-            fmt=args.format,
+            fmt=job.format,
             ref=setup.ref,
             duplicates=duplicates,
             upstream=upstream or None,
-            on_written=_written_hook(args, "minimap2"),
+            on_written=_written_hook(job, "minimap2"),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e
     record_alignment(out_bam, "minimap2", setup.ref)
 
 
-def align_pbmm2(args: argparse.Namespace) -> None:
-    if configured_temp_directory() and not getattr(args, "gpu", False):
+def align_pbmm2(job: AlignJob) -> None:
+    if configured_temp_directory() and not job.gpu:
         raise UsageError(
             "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
         )
-    if args.r2:
+    if job.r2:
         raise UsageError(
             "PacBio alignment expects single-end BAM/FASTQ input; do not pass --r2."
         )
-    if args.format == "CRAM":
+    if job.format == "CRAM":
         raise UsageError(
             "pbmm2 writes sorted BAM. Convert to CRAM with 'bam to-cram' after alignment."
         )
-    setup = _prepare_alignment(args, ["pbmm2", "samtools"], "PacBio alignment")
+    setup = _prepare_alignment(job, ["pbmm2", "samtools"], "PacBio alignment")
 
-    preset_arg = args.preset or ("subread" if args.platform == "clr" else "ccs")
+    preset_arg = job.preset or ("subread" if job.platform == "clr" else "ccs")
     if preset_arg not in _PBMM2_PRESETS:
         raise UsageError(
             "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, or subread."
@@ -1367,18 +1436,18 @@ def align_pbmm2(args: argparse.Namespace) -> None:
     preset = _PBMM2_PRESETS[preset_arg]
 
     out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned.bam"))
-    sample = args.sample or setup.stem.split(".")[0]
+    sample = job.sample or setup.stem.split(".")[0]
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(
-            input=args.r1, output=out_bam, tool="pbmm2"
+            input=job.r1, output=out_bam, tool="pbmm2"
         )
     )
-    cmd = ["pbmm2", "align", setup.ref, args.r1, out_bam, "--sort"]
+    cmd = ["pbmm2", "align", setup.ref, setup.r1, out_bam, "--sort"]
     cmd += ["--preset", preset, "--sample", sample, "-j", setup.threads]
     if preset == "SUBREAD":
         cmd.append("--median-filter")
-    if args.r1.lower().endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz")):
+    if setup.r1.lower().endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz")):
         cmd.extend(["--rg", f"@RG\\tID:{setup.stem}\\tSM:{sample}"])
     try:
         with safe_output(out_bam) as staged:
