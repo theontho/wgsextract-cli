@@ -21,7 +21,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
-from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -172,10 +172,21 @@ def run_fastqc(params: FastqcParams) -> None:
     stem = Path(outdir, fastqc_stem(input_path))
     report_html = stem.with_name(stem.name + ".html")
     report_zip = stem.with_name(stem.name + ".zip")
+    if not report_html.is_file() or not report_zip.is_file():
+        raise WGSExtractError(
+            f"FastQC wrote no report for {input_path} (expected {report_html})."
+        )
     result = current_result()
     result.add_output(report_html, "fastqc_report_html")
     result.add_output(report_zip, "fastqc_report_zip")
-    result.add_metrics(**_fastqc_summary(report_zip))
+    summary = _fastqc_summary(report_zip)
+    result.add_metrics(**summary)
+    if summary.get("total_sequences") == 0:
+        warn(
+            "no_reads",
+            f"{input_path} has no reads, so the FastQC report is empty.",
+            path=input_path,
+        )
 
 
 def fastqc_stem(path: str) -> str:

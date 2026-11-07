@@ -96,8 +96,7 @@ def register(
         "library-list",
         None,
         cmd_library_list,
-        "Deprecated alias for 'ref library --list': list installed and available "
-        "assets.",
+        "List installed and available reference genomes.",
     )
     status = add(
         "status",

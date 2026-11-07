@@ -128,7 +128,8 @@ class WgsArgumentParser(argparse.ArgumentParser):
         command_help = getattr(self, "command_help", None)
         if command_help is not None:
             needs = getattr(self, "command_needs", None)
-            text += "\n" + contract_text(command_help, use_color(), needs)
+            deprecation = getattr(self, "deprecation", None)
+            text += "\n" + contract_text(command_help, use_color(), needs, deprecation)
         return text
 
     def format_usage(self) -> str:

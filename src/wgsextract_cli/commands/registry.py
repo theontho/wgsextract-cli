@@ -202,6 +202,94 @@ ADVANCED_SUBCOMMANDS = frozenset(
     }
 )
 
+
+@dataclass(frozen=True)
+class Deprecation:
+    """A command that still works but warns, naming its replacement; it is
+    removed in ``remove_in`` (one minor release after it is deprecated)."""
+
+    path: str
+    replacement: str
+    remove_in: str
+
+
+# Commands that duplicate another one exactly (the #352 wrapper audit). Help
+# and the generated docs list them as deprecated, and running one warns.
+DEPRECATIONS: tuple[Deprecation, ...] = (
+    Deprecation("ref library-list", "ref library --list", "0.8.0"),
+    Deprecation("vep", "vep run", "0.8.0"),
+)
+DEPRECATED = {deprecation.path: deprecation for deprecation in DEPRECATIONS}
+
+
+@dataclass(frozen=True)
+class Journey:
+    """A starting point ("I have ...") and the commands to run from it, in
+    order. Each step is (command path, what it gives you)."""
+
+    have: str
+    steps: tuple[tuple[str, str], ...]
+
+
+_THEN_VARIANTS = (
+    ("vcf snp", "call SNPs into a VCF"),
+    ("vep run", "predict each variant's effect on genes"),
+    ("report", "summarise everything in one HTML report"),
+)
+
+# The documentation's "start from what you have" paths: generated into
+# docs/commands.md and the site's CLI page. Steps are core or setup commands.
+JOURNEYS: tuple[Journey, ...] = (
+    Journey(
+        "Nothing yet (a first run)",
+        (
+            ("deps check", "check that the external tools are installed"),
+            ("ref bootstrap", "download the small shared files, e.g. liftover chains"),
+            ("ref library", "download a reference genome"),
+            ("example-genome download", "get a public example genome to practise on"),
+        ),
+    ),
+    Journey(
+        "A BAM or CRAM from a sequencing service (Nebula, Dante Labs, "
+        "Sequencing.com, ...)",
+        (
+            ("info", "check the reference build, file health and coverage"),
+            ("microarray", "make 23andMe/AncestryDNA-style files to upload"),
+            ("lineage y-haplogroup", "find the paternal haplogroup"),
+            ("lineage mt-haplogroup", "find the maternal haplogroup"),
+            *_THEN_VARIANTS,
+        ),
+    ),
+    Journey(
+        "A BAM or CRAM on the wrong build (hg19 when you want hg38, or the reverse)",
+        (
+            ("info", "see which build it is"),
+            ("realign", "re-map it to the other build"),
+            ("info", "check the new file, then continue as above"),
+        ),
+    ),
+    Journey(
+        "FASTQ files (raw reads)",
+        (
+            ("align", "map the reads to a reference, making a BAM/CRAM"),
+            ("info", "check the result, then continue as for a BAM/CRAM"),
+        ),
+    ),
+    Journey(
+        "A VCF (from a provider or another pipeline)",
+        (
+            ("vcf clinvar", "add ClinVar clinical significance"),
+            ("vcf filter", "keep a gene, region or quality range"),
+            ("vep run", "predict each variant's effect on genes"),
+            ("vcf table", "one row per variant, for spreadsheets and SQL"),
+        ),
+    ),
+    Journey(
+        "A consumer raw-data file (23andMe, AncestryDNA, ...)",
+        (("info chip", "identify the vendor, chip and revision"),),
+    ),
+)
+
 _TOP_LEVEL = {command.name: command for command in COMMAND_TIERS}
 
 

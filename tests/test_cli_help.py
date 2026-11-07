@@ -18,7 +18,12 @@ from wgsextract_cli.commands._examples_catalog import EXAMPLES
 from wgsextract_cli.commands._help_catalog import COMMAND_HELP
 from wgsextract_cli.commands._help_topics import HELP_TOPICS
 from wgsextract_cli.commands._next_steps import NEXT_STEPS
-from wgsextract_cli.commands.registry import COMMAND_TIERS, CORE
+from wgsextract_cli.commands.registry import (
+    COMMAND_TIERS,
+    CORE,
+    DEPRECATIONS,
+    JOURNEYS,
+)
 from wgsextract_cli.core.config import KNOWN_SETTINGS
 from wgsextract_cli.core.results import CommandResult, FileRecord
 from wgsextract_cli.main import main
@@ -130,7 +135,8 @@ def test_help_all_prints_one_line_per_runnable_command(capsys, entries):
     main(["help", "--all"])
 
     lines = [line for line in capsys.readouterr().out.splitlines() if line[:2] == "  "]
-    assert [line.split("  ")[1] for line in lines] == [e.path for e in entries]
+    listed = sorted(entries, key=lambda e: e.deprecation is not None)
+    assert [line.split("  ")[1] for line in lines] == [e.path for e in listed]
     assert all(len(line) <= cli_help.INDEX_WIDTH for line in lines)
 
 
@@ -282,9 +288,63 @@ def test_first_sentence_keeps_abbreviations():
     assert cli_help.first_sentence(text) == "Download maps (e.g. GENCODE) for genes."
 
 
-def test_command_reference_doc_is_current(root):
+def test_command_reference_doc_and_site_cards_are_current(root):
     doc = (ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
     assert doc == cli_help.render_markdown(root), "run 'pixi run gen-command-docs'"
+    site = (ROOT / "site_src" / "cli.md").read_text(encoding="utf-8")
+    start = site.index(cli_help.SITE_BLOCK_START)
+    end = site.index(cli_help.SITE_BLOCK_END) + len(cli_help.SITE_BLOCK_END) + 1
+    assert site[start:end] == cli_help.render_site_commands(), (
+        "run 'pixi run gen-command-docs'"
+    )
+
+
+def test_journey_steps_and_deprecation_replacements_are_runnable_commands():
+    # #352: the "start from what you have" paths and the deprecation notices
+    # must name commands a user can actually run.
+    for words in [
+        *(step.split() for journey in JOURNEYS for step, _why in journey.steps),
+        *(d.replacement.split() for d in DEPRECATIONS),
+    ]:
+        flags = [w for w in words if w.startswith("-")]
+        path = " ".join(w for w in words if not w.startswith("-"))
+        args = _parse(words)
+        assert args._command == path and callable(args.func), words
+        assert all(f.lstrip("-").replace("-", "_") in vars(args) for f in flags)
+
+
+def test_deprecated_commands_still_run_and_warn(tmp_path, capsys):
+    # #352: 'ref library-list' keeps working for one minor release and says what
+    # to use instead, in the result and on stderr.
+    main(["--json", "ref", "library-list", "--ref", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["status"] == "ok"
+    assert [w["code"] for w in result["warnings"]] == ["deprecated_command"]
+    assert result["warnings"][0]["details"] == {
+        "replacement": "ref library --list",
+        "remove_in": "0.8.0",
+    }
+    assert "ref library --list" in captured.err
+
+
+def test_help_lists_deprecated_commands_apart(capsys):
+    main(["help", "--all"])
+    deprecated = capsys.readouterr().out.split("Deprecated:", 1)[1]
+    assert "ref library-list" in deprecated and "Use 'ref library --list'" in deprecated
+
+    main(["help", "--all", "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    marked = {c["path"]: c["deprecated"] for c in doc["commands"] if "deprecated" in c}
+    assert marked == {
+        d.path: {"replacement": d.replacement, "remove_in": d.remove_in}
+        for d in DEPRECATIONS
+    }
+
+    with pytest.raises(SystemExit):
+        main(["vep", "--help"])
+    assert "deprecated" in capsys.readouterr().out
 
 
 def _parse(words: list[str]):
