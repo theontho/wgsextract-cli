@@ -301,18 +301,14 @@ def test_forced_example_download_bypasses_cache_read_and_publication(
         lambda *_a: [(server.url, destination, "bam", "https")],
     )
     monkeypatch.setattr(examples.shutil, "which", lambda _name: "/path/to/curl")
-    from argparse import Namespace
+    from wgsextract_cli import api
 
-    examples.cmd_download(
-        Namespace(
-            example_ids=["phase3-chrmt-vcf"],
-            all=False,
-            tag=None,
+    api.examples.download(
+        api.ExampleGenomeDownloadParams(
+            example_ids=("phase3-chrmt-vcf",),
             method="https",
-            aspera_key=None,
-            target_root=str(tmp_path),
+            target_root=tmp_path,
             force=True,
-            dry_run=False,
         )
     )
     assert destination.read_bytes() == DATA
