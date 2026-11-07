@@ -8,10 +8,13 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
+import threading
+import time
 import urllib.error
 import zipfile
-from argparse import Namespace
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,6 +29,8 @@ from tests.htslib_helpers import (
     sam_to_bam,
     write_fasta,
 )
+from wgsextract_cli.api import CancelToken, Result
+from wgsextract_cli.api.benchmark import BenchmarkParams, benchmark
 from wgsextract_cli.commands import benchmark as benchmark_entry
 from wgsextract_cli.commands.benchmark import (
     datasets,
@@ -37,14 +42,15 @@ from wgsextract_cli.commands.benchmark import (
 from wgsextract_cli.commands.benchmark.models import (
     BenchmarkDatasetSpec,
     BenchmarkDerivedAlignment,
+    BenchmarkJob,
     BenchmarkRemoteFile,
-    BenchmarkThreadPlan,
 )
 from wgsextract_cli.core import dev_download_cache
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.ref_library import downloads
 from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.main import main
 
 DATASET_DIR = "wgsextract-benchmark-hg19-mini"
 DATASET_FILES = {
@@ -235,7 +241,7 @@ def test_direct_real_dataset_downloads_into_the_shared_cache_root(
     run_dataset = tmp_path / "run-dataset"
 
     dataset = datasets._prepare_direct_real_benchmark_dataset(
-        Namespace(dataset_cache_dir=None), run_dataset, tmp_path, spec
+        BenchmarkJob(), run_dataset, tmp_path, spec
     )
 
     root = tmp_path / "datasets" / "real-test"
@@ -280,24 +286,22 @@ def test_cached_remote_file_drops_corrupt_dev_cache_copy_and_downloads(
 def test_real_dataset_cache_dir_precedence(tmp_path, monkeypatch):
     out = tmp_path / "out"
     monkeypatch.setitem(settings, "dev_download_cache", False)
-    assert (
-        datasets._real_dataset_cache_dir(Namespace(dataset_cache_dir=None), out)
-        == out / "datasets"
-    )
-    explicit = Namespace(dataset_cache_dir=str(tmp_path / "x" / ".." / "cache"))
+    assert datasets._real_dataset_cache_dir(BenchmarkJob(), out) == out / "datasets"
+    explicit = BenchmarkJob(dataset_cache_dir=tmp_path / "x" / ".." / "cache")
     assert datasets._real_dataset_cache_dir(explicit, out) == tmp_path / "cache"
     monkeypatch.setitem(settings, "dev_download_cache", True)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     assert (
-        datasets._real_dataset_cache_dir(Namespace(), out)
+        datasets._real_dataset_cache_dir(BenchmarkJob(), out)
         == tmp_path / "xdg" / "wgsextract" / "benchmark-datasets"
     )
 
 
 def test_dataset_sha256_and_filename_normalisation():
-    assert datasets._normalized_dataset_sha256(Namespace(dataset_sha256=" AB ")) == "ab"
-    assert datasets._normalized_dataset_sha256(Namespace(dataset_sha256="  ")) is None
-    assert datasets._normalized_dataset_sha256(Namespace()) is None
+    def sha(value):
+        return datasets._normalized_dataset_sha256(BenchmarkJob(dataset_sha256=value))
+
+    assert (sha(" AB "), sha("  "), sha(None)) == ("ab", None, None)
     assert datasets._download_filename("https://h/d/x.zip?sig=1") == "x.zip"
     with pytest.raises(WGSExtractError, match="must end with a filename"):
         datasets._download_filename("")
@@ -400,12 +404,8 @@ def test_real_archive_downloads_once_verifies_and_extracts(
     asset = _dataset_zip(tmp_path / "asset.zip")
     url = "https://example.test/rel/wgsextract-benchmark-hg19-mini.zip?x=1"
     files[url] = asset.read_bytes()
-    args = Namespace(
-        dataset="real",
-        dataset_zip=None,
-        dataset_url=url,
-        dataset_sha256=_sha256(asset).upper(),
-        dataset_cache_dir=None,
+    args = BenchmarkJob(
+        dataset="real", dataset_url=url, dataset_sha256=_sha256(asset).upper()
     )
 
     dataset = environment._prepare_real_benchmark_dataset(
@@ -440,8 +440,8 @@ def test_real_archive_without_checksum_reuses_cached_zip(tmp_path, served):
     files, fetched = served
     url = "https://example.test/d.zip"
     files[url] = _dataset_zip(tmp_path / "a.zip").read_bytes()
-    args = Namespace(
-        dataset_url=url, dataset_sha256="", dataset_cache_dir=str(tmp_path / "c")
+    args = BenchmarkJob(
+        dataset_url=url, dataset_sha256="", dataset_cache_dir=tmp_path / "c"
     )
     first = environment._real_dataset_zip_path(args, tmp_path)
     assert (
@@ -462,8 +462,8 @@ def test_empty_archive_checksum_skips_missing_github_release_digest(
     metadata = "https://api.github.com/repos/example/benchmarks/releases/tags/test"
     files[url] = _dataset_zip(tmp_path / "asset.zip").read_bytes()
     files[metadata] = json.dumps({"assets": [{"name": "fixture.zip"}]}).encode()
-    args = Namespace(
-        dataset_url=url, dataset_sha256=checksum, dataset_cache_dir=str(tmp_path / "c")
+    args = BenchmarkJob(
+        dataset_url=url, dataset_sha256=checksum, dataset_cache_dir=tmp_path / "c"
     )
     if checksum is None:
         with pytest.raises(WGSExtractError, match="Failed to download"):
@@ -483,10 +483,10 @@ def test_real_archive_restores_from_dev_cache_without_downloading(
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     url = "https://example.test/d.zip"
     files[url] = _dataset_zip(tmp_path / "a.zip").read_bytes()
-    args = Namespace(
+    args = BenchmarkJob(
         dataset_url=url,
         dataset_sha256=_sha256(tmp_path / "a.zip"),
-        dataset_cache_dir=str(tmp_path / "c"),
+        dataset_cache_dir=tmp_path / "c",
     )
     zip_path = environment._real_dataset_zip_path(args, tmp_path)
     zip_path.unlink()
@@ -496,12 +496,12 @@ def test_real_archive_restores_from_dev_cache_without_downloading(
 
 def test_local_dataset_zip_is_checked_and_missing_one_rejected(tmp_path):
     asset = _dataset_zip(tmp_path / "local.zip")
-    args = Namespace(dataset="real", dataset_zip=str(asset), dataset_sha256=None)
+    args = BenchmarkJob(dataset="real", dataset_zip=asset, dataset_sha256=None)
     dataset = environment._prepare_real_benchmark_dataset(
         args, tmp_path / "run", tmp_path
     )
     assert dataset.ref.name == DATASET_FILES["ref"]
-    args.dataset_zip = str(tmp_path / "nope.zip")
+    args = replace(args, dataset_zip=tmp_path / "nope.zip")
     with pytest.raises(WGSExtractError, match="zip not found"):
         environment._real_dataset_zip_path(args, tmp_path)
 
@@ -594,13 +594,8 @@ import json, os, sys
 json.dump({{"argv": sys.argv[1:], "pythonpath": os.environ["PYTHONPATH"]}},
           open({str(log)!r}, "w"))
 """)  # fmt: skip
-    args = Namespace(
-        debug=True,
-        quiet=True,
-        memory="2G",
-        _benchmark_thread_plan=BenchmarkThreadPlan("3", 3, "test"),
-        threads=9,
-        keep_awake=keep_awake,
+    args = BenchmarkJob(
+        debug=True, quiet=True, memory="2G", threads=3, keep_awake=keep_awake
     )
     result = execution._run_cli_step(
         args, "Sort", "05-sort", ["bam", "sort"], tmp_path, tmp_path / "logs", []
@@ -611,7 +606,7 @@ json.dump({{"argv": sys.argv[1:], "pythonpath": os.environ["PYTHONPATH"]}},
     argv = child["argv"]
     assert argv[:4] == ["-m", "wgsextract_cli.main", "--parent-pid", str(os.getpid())]
     # contract: each step runs with the parent's config file, its sleep override,
-    # its log level, the planned thread count (not the raw --threads) and memory.
+    # its log level, the planned thread count and memory.
     assert argv[4:] == [
         "--config",
         str(own.resolve()),
@@ -630,7 +625,7 @@ json.dump({{"argv": sys.argv[1:], "pythonpath": os.environ["PYTHONPATH"]}},
     assert child["pythonpath"].split(os.pathsep) == [src, "/elsewhere"]
 
     quiet = execution._run_cli_step(
-        Namespace(quiet=True, threads=None), "Info", "i", ["info"], tmp_path,
+        BenchmarkJob(quiet=True), "Info", "i", ["info"], tmp_path,
         tmp_path / "logs", [],
     )  # fmt: skip
     assert json.loads(log.read_text())["argv"][-2:] == ["--quiet", "info"]
@@ -645,7 +640,7 @@ def test_cli_step_passes_logs_output_and_label(tmp_path, monkeypatch):
         f"import sys; open({str(out)!r}, 'w').write('x'); print('hi'); print('warn', file=sys.stderr)",
     )
     result = execution._run_cli_step(
-        Namespace(),
+        BenchmarkJob(),
         "Sort",
         "05-sort",
         ["bam", "sort", "--x"],
@@ -676,7 +671,7 @@ def test_cli_step_fails_on_exit_status_or_missing_output(
 ):
     _fake_python(monkeypatch, tmp_path / "bin", code)
     result = execution._run_cli_step(
-        Namespace(), "N", "s", [], tmp_path, tmp_path, [tmp_path / "gone"]
+        BenchmarkJob(), "N", "s", [], tmp_path, tmp_path, [tmp_path / "gone"]
     )
     assert result.status == "FAIL" and result.error.startswith(error)
     assert result.name == "N"
@@ -692,7 +687,7 @@ def test_pipe_step_streams_file_through_the_command(tmp_path, monkeypatch):
     src.write_bytes(b"acgt\n")
     dst.parent.mkdir()
     result = fixtures._run_cli_pipe_step(
-        Namespace(),
+        BenchmarkJob(),
         "Up",
         "up",
         ["repair", "x"],
@@ -712,7 +707,7 @@ def test_pipe_step_runs_real_ftdna_vcf_repair_on_benchmark_fixture(tmp_path):
     fixtures._prepare_repair_fixtures(sam, vcf)
     out = tmp_path / "fixed.vcf"
     result = fixtures._run_cli_pipe_step(
-        Namespace(threads=None),
+        BenchmarkJob(),
         "Repair",
         "18c",
         ["repair", "ftdna-vcf"],
@@ -752,33 +747,20 @@ def test_skip_results_and_tool_activity(monkeypatch):
     assert execution._tool_active_for_benchmark("samtools", "/bin/samtools")
 
 
-# --- run(): failure handling and report ------------------------------------
+# --- benchmark(): failure handling and report ------------------------------
 
 
-def _run_args(tmp_path: Path, **overrides) -> Namespace:
+def _run(tmp_path: Path, **overrides) -> Result:
     values = {
         "profile": "smoke",
-        "dataset": "fake",
-        "coverage": None,
-        "full_size": False,
-        "build": "hg38",
         "seed": 1,
-        "target_count": None,
         "suite": "core",
-        "region": None,
-        "keep_going": False,
-        "outdir": str(tmp_path),
-        "_explicit_dests": {"outdir"},
-        "debug": False,
-        "quiet": False,
+        "outdir": tmp_path,
         "threads": 2,
-        "memory": None,
-        "dataset_zip": None,
         "dataset_sha256": None,
-        "dataset_cache_dir": None,
     }
     values.update(overrides)
-    return Namespace(**values)
+    return benchmark(BenchmarkParams(**values), check=False)
 
 
 _STEP_PYTHON = """\
@@ -813,13 +795,14 @@ needs_benchmark_tools = needs_tools("samtools", "bcftools", "bgzip", "tabix", "b
 
 
 @needs_benchmark_tools
-def test_failed_step_stops_run_and_still_writes_report(tmp_path, monkeypatch, capsys):
+def test_failed_step_stops_run_and_still_writes_report(tmp_path, monkeypatch):
     _steps(monkeypatch, tmp_path, "info --detailed")
-    with pytest.raises(
-        WGSExtractError, match=r"BAM metadata .*00a-info-detailed\.stderr\.log"
-    ):
-        benchmark_entry.run(_run_args(tmp_path))
-    out = capsys.readouterr().out
+    result = _run(tmp_path)
+    assert result.exit_code == 1
+    assert re.search(
+        r"BAM metadata .*00a-info-detailed\.stderr\.log", result.error.message
+    )
+    out = result.text
     assert "info --detailed went wrong" in out
     slugs = [r["slug"] for r in _report(tmp_path)["results"]]
     assert slugs == ["00-generate-bam", "00a-info-detailed"]
@@ -829,10 +812,9 @@ def test_failed_step_stops_run_and_still_writes_report(tmp_path, monkeypatch, ca
 @needs_benchmark_tools
 def test_internal_step_failure_message_shows_its_error(tmp_path):
     # A region beyond the end of chrM leaves no contig to place targets on.
-    with pytest.raises(WGSExtractError) as excinfo:
-        benchmark_entry.run(_run_args(tmp_path, region="chrM:17000-18000"))
-    assert "No reference contigs match benchmark region" in str(excinfo.value)
-    assert "See None" not in str(excinfo.value)
+    error = _run(tmp_path, region="chrM:17000-18000").error.message
+    assert "No reference contigs match benchmark region" in error
+    assert "See None" not in error
     assert _report(tmp_path)["results"][-1]["slug"] == "02-microarray-targets"
 
 
@@ -841,9 +823,8 @@ def test_keep_going_runs_remaining_steps_and_reports_failures_at_the_end(
     tmp_path, monkeypatch
 ):
     _steps(monkeypatch, tmp_path, "extract mt-bam", "microarray")
-    with pytest.raises(WGSExtractError) as excinfo:
-        benchmark_entry.run(_run_args(tmp_path, keep_going=True))
-    assert str(excinfo.value) == (
+    result = _run(tmp_path, keep_going=True)
+    assert result.error.message == (
         "2 benchmark step(s) failed: Mitochondrial BAM extraction [extract mt-bam]; "
         "Microarray CombinedKit generation [microarray]"
     )
@@ -857,23 +838,19 @@ def test_keep_going_runs_remaining_steps_and_reports_failures_at_the_end(
     assert list(status.values()).count("PASS") == len(status) - 2
 
 
-def test_real_smoke_run_uses_archive_files_and_records_base_size(
-    tmp_path, monkeypatch, capsys
-):
+def test_real_smoke_run_uses_archive_files_and_records_base_size(tmp_path, monkeypatch):
     _steps(monkeypatch, tmp_path, noop=True)
     asset = _dataset_zip(
         tmp_path / "asset.zip", {"default_region": "chrM:1-500", "region_safe": True}
     )
-    with pytest.raises(WGSExtractError, match="benchmark step"):
-        benchmark_entry.run(
-            _run_args(
-                tmp_path / "o",
-                dataset="real",
-                dataset_zip=str(asset),
-                dataset_sha256=_sha256(asset),
-                keep_going=True,
-            )
-        )
+    result = _run(
+        tmp_path / "o",
+        dataset="real",
+        dataset_zip=asset,
+        dataset_sha256=_sha256(asset),
+        keep_going=True,
+    )
+    assert "benchmark step" in result.error.message
 
     report = _report(tmp_path / "o")
     meta, results = report["metadata"], report["results"]
@@ -903,23 +880,17 @@ def test_real_smoke_run_uses_archive_files_and_records_base_size(
     assert "- Data source: `real` (HG00096 mini)" in md
     assert (
         f"Benchmark base file: {root / DATASET_FILES['bam']} ({len(DATASET_FILES['bam'])} bytes)"
-        in capsys.readouterr().out
+        in result.text
     )
 
 
 def test_unsafe_real_dataset_ignores_region(tmp_path, monkeypatch):
     _steps(monkeypatch, tmp_path, noop=True)
     asset = _dataset_zip(tmp_path / "asset.zip")
-    with pytest.raises(WGSExtractError, match="benchmark step"):
-        benchmark_entry.run(
-            _run_args(
-                tmp_path / "o",
-                dataset="real",
-                dataset_zip=str(asset),
-                region="MT",
-                keep_going=True,
-            )
-        )
+    result = _run(
+        tmp_path / "o", dataset="real", dataset_zip=asset, region="MT", keep_going=True
+    )
+    assert "benchmark step" in result.error.message
     report = _report(tmp_path / "o")
     steps = {r["slug"]: r for r in report["results"]}
     assert report["metadata"]["region"] == "MT"
@@ -929,9 +900,68 @@ def test_unsafe_real_dataset_ignores_region(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(("flag", "value"), [("coverage", 0.0), ("target_count", -1)])
 def test_run_rejects_non_positive_sizes(tmp_path, flag, value):
-    with pytest.raises(WGSExtractError, match="must be greater than zero"):
-        benchmark_entry.run(_run_args(tmp_path, **{flag: value}))
+    result = _run(tmp_path, **{flag: value})
+    assert result.exit_code == 2
+    assert "must be greater than zero" in result.error.message
     assert not (tmp_path / "runs").exists()
+
+
+@needs_benchmark_tools
+def test_cancelling_a_running_step_stops_its_child_and_removes_the_run(
+    tmp_path, monkeypatch
+):
+    """#478: a cancel mid-step kills the step's CLI child and deletes the run."""
+    marker = tmp_path / "child.pid"
+    _fake_python(monkeypatch, tmp_path / "bin", f"""
+import os, sys, time
+if sys.argv[1:3] != ["-m", "wgsextract_cli.main"]:
+    os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
+open({str(marker)!r}, "w").write(str(os.getpid()))
+time.sleep(60)
+""")  # fmt: skip
+    token = CancelToken()
+
+    def cancel_once_the_child_runs() -> None:
+        deadline = time.monotonic() + 30
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        token.cancel()
+
+    watcher = threading.Thread(target=cancel_once_the_child_runs)
+    watcher.start()
+    started = time.monotonic()
+    result = benchmark(
+        BenchmarkParams(outdir=tmp_path / "o", profile="smoke", suite="core"),
+        cancel=token,
+        check=False,
+    )
+    watcher.join()
+
+    assert (result.status, result.exit_code) == ("cancelled", 130)
+    assert time.monotonic() - started < 30
+    assert not psutil.pid_exists(int(marker.read_text()))
+    assert list((tmp_path / "o" / "runs").iterdir()) == []
+
+
+@needs_benchmark_tools
+@pytest.mark.parametrize("outdir", [None, "~/bench"])
+def test_cli_run_ignores_the_configured_output_directory(tmp_path, monkeypatch, outdir):
+    """The CLI's runs go to out/benchmark (or -o, with ~ expanded), never to
+    the config's output_directory."""
+    configured = tmp_path / "configured"
+    own = tmp_path / "own.toml"
+    own.write_text(f"output_directory = {str(configured)!r}\n")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    _steps(monkeypatch, tmp_path, noop=True)
+    argv = ["--config", str(own), "benchmark", "--profile", "smoke"]
+    argv += ["--suite", "core", "-t", "2", "--dataset-sha256", ""]
+    with pytest.raises(SystemExit):
+        main([*argv, *(["-o", outdir] if outdir else [])])
+
+    root = tmp_path / ("home/bench" if outdir else "out/benchmark")
+    assert len(list(root.glob("runs/*/benchmark_results.json"))) == 1
+    assert not list(configured.rglob("*.json"))
 
 
 # --- fixtures --------------------------------------------------------------

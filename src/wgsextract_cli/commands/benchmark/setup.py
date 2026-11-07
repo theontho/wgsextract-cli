@@ -1,4 +1,3 @@
-import argparse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,13 +14,14 @@ from .execution import (
 from .fixtures import _create_target_snp_tab
 from .models import (
     BenchmarkDataset,
+    BenchmarkJob,
     BenchmarkResult,
 )
 
 
 def _run_core_benchmark_setup_steps(
     *,
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     real_dataset: BenchmarkDataset | None,
     dataset_dir: Path,
@@ -50,7 +50,7 @@ def _run_core_benchmark_setup_steps(
     else:
         record(
             _run_cli_step(
-                args,
+                job,
                 name="Generate deterministic BAM foundation",
                 slug="00-generate-bam",
                 command_args=[
@@ -67,7 +67,7 @@ def _run_core_benchmark_setup_steps(
                     "--type",
                     "bam",
                     "--seed",
-                    str(args.seed),
+                    str(job.seed),
                 ]
                 + (["--full-size"] if full_size else []),
                 output_dir=dataset_dir,
@@ -82,7 +82,7 @@ def _run_core_benchmark_setup_steps(
 
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM metadata and sequencing metrics",
             slug="00a-info-detailed",
             command_args=[
@@ -104,7 +104,7 @@ def _run_core_benchmark_setup_steps(
 
     record(
         _run_cli_step(
-            args,
+            job,
             name="Index generated reference for alignment",
             slug="01-reference-index",
             command_args=["ref", "index", "--ref", str(ref_path)],
@@ -164,7 +164,7 @@ def _run_core_benchmark_setup_steps(
         unalign_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
-            args,
+            job,
             name="BAM unalignment to paired FASTQ",
             slug="03-bam-unalign",
             command_args=unalign_cmd,
@@ -184,7 +184,7 @@ def _run_core_benchmark_setup_steps(
     aligned_bam = align_dir / f"{_align_output_stem(align_r1)}_aligned.bam"
     record(
         _run_cli_step(
-            args,
+            job,
             name="FASTQ alignment to BAM",
             slug="04-fastq-align",
             command_args=[

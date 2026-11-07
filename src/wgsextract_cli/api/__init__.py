@@ -28,7 +28,7 @@ Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.methylation``, ``api.microarray``, ``api.panel``, ``api.ref``,
 ``api.repair``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``,
-``api.vep``) follow
+``api.vep``, ``api.benchmark``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -52,6 +52,7 @@ from . import (
     align,
     analyze,
     bam,
+    benchmark,
     extract,
     info,
     lineage,
@@ -91,6 +92,7 @@ from .bam import (
     BamUnindexParams,
     BamUnsortParams,
 )
+from .benchmark import BenchmarkParams
 from .extract import (
     BamSubsetParams,
     CustomParams,
@@ -186,6 +188,7 @@ __all__ = [
     "BamUnalignParams",
     "BamUnindexParams",
     "BamUnsortParams",
+    "BenchmarkParams",
     "CalculateCoverageParams",
     "CancelToken",
     "Cancelled",
@@ -280,6 +283,7 @@ __all__ = [
     "align",
     "analyze",
     "bam",
+    "benchmark",
     "extract",
     "info",
     "json_schema",

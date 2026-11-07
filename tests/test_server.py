@@ -806,6 +806,11 @@ def test_server_offers_no_ref_command_that_fetches_a_url_or_saves_config():
     assert not ref_ops & {"ref/download", "ref/bootstrap"}
 
 
+def test_server_does_not_offer_benchmark():
+    # #478: benchmark downloads any --dataset-url, so it stays local only.
+    assert "benchmark" not in operations()
+
+
 @pytest.mark.parametrize(
     ("op", "field"),
     [(op, item.name) for op, item in _REF_PATHS],

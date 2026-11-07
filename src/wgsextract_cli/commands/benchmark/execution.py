@@ -1,4 +1,3 @@
-import argparse
 import os
 import platform
 import subprocess
@@ -9,42 +8,39 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import IO, TextIO
 
+from wgsextract_cli.api._runtime import checkpoint
 from wgsextract_cli.core.config import config_args
+from wgsextract_cli.core.process_registry import (
+    proc_registry,
+    process_group_kwargs,
+    terminate_trees,
+)
 
 from .models import (
+    BenchmarkJob,
     BenchmarkResult,
-    BenchmarkThreadPlan,
     _name_with_command_label,
 )
 
 
-def _benchmark_threads(args: argparse.Namespace) -> int | None:
-    thread_plan = getattr(args, "_benchmark_thread_plan", None)
-    if isinstance(thread_plan, BenchmarkThreadPlan):
-        return thread_plan.default_threads
-    return getattr(args, "threads", None)
-
-
-def _cli_command(
-    args: argparse.Namespace, command_args: list[str], threads: int | None
-) -> list[str]:
+def _cli_command(job: BenchmarkJob, command_args: list[str]) -> list[str]:
     command = [
         sys.executable,
         "-m",
         "wgsextract_cli.main",
         "--parent-pid",
         str(os.getpid()),
-        *config_args(keep_awake=getattr(args, "keep_awake", None)),
+        *config_args(keep_awake=job.keep_awake),
     ]
-    if getattr(args, "debug", False):
+    if job.debug:
         command.append("--debug")
-    elif getattr(args, "quiet", False):
+    elif job.quiet:
         command.append("--quiet")
     command += command_args
-    if threads is not None:
-        command += ["--threads", str(threads)]
-    if getattr(args, "memory", None) is not None:
-        command += ["--memory", str(args.memory)]
+    if job.threads is not None:
+        command += ["--threads", str(job.threads)]
+    if job.memory is not None:
+        command += ["--memory", str(job.memory)]
     return command
 
 
@@ -57,7 +53,7 @@ def _subprocess_env() -> dict[str, str]:
 
 
 def _cli_step_context(
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     slug: str,
     command_args: list[str],
     output_dir: Path,
@@ -67,7 +63,7 @@ def _cli_step_context(
     logs_dir.mkdir(parents=True, exist_ok=True)
     stdout_log = logs_dir / f"{slug}.stdout.log"
     stderr_log = logs_dir / f"{slug}.stderr.log"
-    command = _cli_command(args, command_args, _benchmark_threads(args))
+    command = _cli_command(job, command_args)
     return stdout_log, stderr_log, command
 
 
@@ -163,19 +159,38 @@ def _run_cli_subprocess(
         stderr = stack.enter_context(
             open(stderr_log, "w", encoding="utf-8", newline="\n")
         )
-        return subprocess.run(
+        checkpoint()
+        process = subprocess.Popen(
             command,
             stdin=stdin,
             stdout=stdout,
             stderr=stderr,
-            check=False,
             text=text,
             env=_subprocess_env(),
+            **process_group_kwargs(),
         )
+        # Registered so a cancelled run stops the step's whole process tree.
+        key = f"benchmark {stderr_log.name}"
+        proc_registry.register_process(key, process)
+        try:
+            # A timed wait: infinite Windows waits defer Ctrl-C handling.
+            while True:
+                try:
+                    returncode = process.wait(timeout=0.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+        except KeyboardInterrupt:
+            terminate_trees([process])
+            raise
+        finally:
+            proc_registry.unregister_process(key, process)
+        checkpoint()
+        return subprocess.CompletedProcess(command, returncode)
 
 
 def _run_cli_step_with_io(
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     name: str,
     slug: str,
     command_args: list[str],
@@ -189,7 +204,7 @@ def _run_cli_step_with_io(
     text: bool = False,
 ) -> BenchmarkResult:
     stdout_log, stderr_log, command = _cli_step_context(
-        args, slug, command_args, output_dir, logs_dir
+        job, slug, command_args, output_dir, logs_dir
     )
     start = time.perf_counter()
     completed = _run_cli_subprocess(
@@ -218,7 +233,7 @@ def _run_cli_step_with_io(
 
 
 def _run_cli_step(
-    args: argparse.Namespace,
+    job: BenchmarkJob,
     name: str,
     slug: str,
     command_args: list[str],
@@ -228,7 +243,7 @@ def _run_cli_step(
     command_label: str | None = None,
 ) -> BenchmarkResult:
     return _run_cli_step_with_io(
-        args,
+        job,
         name,
         slug,
         command_args,

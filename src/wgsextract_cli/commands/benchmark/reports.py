@@ -13,7 +13,7 @@ from .machine import (
     MACHINE_STAT_FIELDS,
     _machine_stat_display_value,
 )
-from .models import BenchmarkResult
+from .models import BenchmarkResult, _say
 
 
 def _system_metadata() -> dict[str, str]:
@@ -218,7 +218,7 @@ def _write_report(
         handle.write(markdown_report)
 
     _write_github_step_summary(metadata, results, report_md)
-    print(stdout_report)
+    _say(stdout_report)
     _record_report(run_dir, report_md, report_json, results)
 
 

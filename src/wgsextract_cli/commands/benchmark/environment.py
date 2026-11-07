@@ -1,4 +1,3 @@
-import argparse
 import os
 import platform
 import subprocess
@@ -40,27 +39,28 @@ from .models import (
     PROGRESS_STEP_WIDTH,
     REAL_BENCHMARK_DATASETS,
     BenchmarkDataset,
+    BenchmarkJob,
     BenchmarkResult,
     BenchmarkThreadPlan,
     _read_fai,
+    _say,
 )
 
 
-def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
+def _real_dataset_zip_path(job: BenchmarkJob, outdir: Path) -> Path:
     """Return the dataset zip, verified against --dataset-sha256 when one is set."""
-    expected_sha256 = _normalized_dataset_sha256(args)
-    local_zip = getattr(args, "dataset_zip", None)
-    if local_zip:
-        path = Path(str(local_zip)).expanduser().resolve()
+    expected_sha256 = _normalized_dataset_sha256(job)
+    if job.dataset_zip:
+        path = job.dataset_zip.expanduser().resolve()
         if not path.is_file():
             raise WGSExtractError(f"Benchmark dataset zip not found: {path}")
         if expected_sha256:
             _verify_digest(path, "sha256", expected_sha256)
         return path
 
-    url = getattr(args, "dataset_url", None) or DEFAULT_REAL_DATASET_URL
+    url = job.dataset_url or DEFAULT_REAL_DATASET_URL
     checksum_hint = f"sha256:{expected_sha256}" if expected_sha256 else None
-    cache_dir = _real_dataset_cache_dir(args, outdir)
+    cache_dir = _real_dataset_cache_dir(job, outdir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     zip_path = cache_dir / _download_filename(url)
     if zip_path.exists() and not expected_sha256:
@@ -80,7 +80,7 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
     ):
         return zip_path
 
-    _download_file(url, zip_path, sha256=getattr(args, "dataset_sha256", None))
+    _download_file(url, zip_path, sha256=job.dataset_sha256)
     if expected_sha256:
         _verify_digest(zip_path, "sha256", expected_sha256)
         store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
@@ -104,16 +104,15 @@ def _extract_zip_safely(zip_path: Path, extract_dir: Path) -> None:
 
 
 def _prepare_real_benchmark_dataset(
-    args: argparse.Namespace, dataset_dir: Path, outdir: Path
+    job: BenchmarkJob, dataset_dir: Path, outdir: Path
 ) -> BenchmarkDataset:
-    selected_dataset = getattr(args, "dataset", "real")
-    spec = REAL_BENCHMARK_DATASETS.get(selected_dataset)
+    spec = REAL_BENCHMARK_DATASETS.get(job.dataset)
     if spec is None:
-        raise WGSExtractError(f"Unknown real benchmark dataset: {selected_dataset}")
+        raise WGSExtractError(f"Unknown real benchmark dataset: {job.dataset}")
     if spec.kind == "direct":
-        return _prepare_direct_real_benchmark_dataset(args, dataset_dir, outdir, spec)
+        return _prepare_direct_real_benchmark_dataset(job, dataset_dir, outdir, spec)
 
-    zip_path = _real_dataset_zip_path(args, outdir)
+    zip_path = _real_dataset_zip_path(job, outdir)
     extract_dir = dataset_dir / "real"
     _extract_zip_safely(zip_path, extract_dir)
     return _load_real_benchmark_dataset(extract_dir)
@@ -146,16 +145,16 @@ def _normalize_region_for_fake_data(region: str | None, build: str) -> str | Non
 
 
 def _print_progress_header() -> None:
-    print("WGSExtract CLI Benchmark Progress", flush=True)
-    print(f"{'Step':<{PROGRESS_STEP_WIDTH}} {'Status':<6} {'Seconds':>10}", flush=True)
-    print("-" * (PROGRESS_STEP_WIDTH + 19), flush=True)
+    _say("WGSExtract CLI Benchmark Progress")
+    _say(f"{'Step':<{PROGRESS_STEP_WIDTH}} {'Status':<6} {'Seconds':>10}")
+    _say("-" * (PROGRESS_STEP_WIDTH + 19))
 
 
 def _print_thread_policy(thread_plan: BenchmarkThreadPlan) -> None:
-    print("Thread policy:", flush=True)
-    print(f"  Threads: {thread_plan.label}", flush=True)
-    print(f"  Policy: {thread_plan.reason}", flush=True)
-    print("", flush=True)
+    _say("Thread policy:")
+    _say(f"  Threads: {thread_plan.label}")
+    _say(f"  Policy: {thread_plan.reason}")
+    _say()
 
 
 def _format_progress_result(result: BenchmarkResult) -> str:
@@ -171,9 +170,9 @@ def _print_failure_log_excerpt(result: BenchmarkResult) -> None:
     lines = stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()
     if not lines:
         return
-    print(f"Failure stderr excerpt ({stderr_path}):", flush=True)
+    _say(f"Failure stderr excerpt ({stderr_path}):")
     for line in lines[-40:]:
-        print(f"  {line}", flush=True)
+        _say(f"  {line}")
 
 
 def _tool_status(required: bool, active: bool, path: str | None) -> str:
@@ -219,10 +218,10 @@ def _format_tool_line(tool: dict[str, str | bool | None]) -> str:
 
 
 def _print_external_tools(tools: list[dict[str, str | bool | None]]) -> None:
-    print("External tools used or checked by this benchmark:", flush=True)
+    _say("External tools used or checked by this benchmark:")
     for tool in tools:
-        print(f"  {_format_tool_line(tool)}", flush=True)
-    print("", flush=True)
+        _say(f"  {_format_tool_line(tool)}")
+    _say()
 
 
 def _format_cpu_frequency(mhz: float) -> str:
