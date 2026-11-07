@@ -121,6 +121,8 @@ MIGRATED = (
     ("methylation", "pileup"),
     ("vep",),
     ("vep", "run"),
+    ("vep", "download"),
+    ("vep", "verify"),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -483,6 +485,11 @@ ARGVS = (
         "--vep-args",
         "--pick --no_stats",
     ],
+    ["vep", "download"],
+    ["vep", "download", "--mirror", "ebi", "--assembly", "GRCh37", "--vep-cache", "c"],
+    ["vep", "download", "--species", "mus_musculus", "--vep-version", "110"],
+    ["vep", "verify", "--ref", "lib", "--vep-version", "115"],
+    ["vep", "verify", "--vep-cache", "c", "--assembly", "GRCh37"],
 )
 
 

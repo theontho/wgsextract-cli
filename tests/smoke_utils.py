@@ -40,11 +40,9 @@ def check_tool(tool_name: str) -> bool:
 
 def vep_cache_dir(ref: str | Path | None) -> Path:
     """Where the CLI looks for the VEP cache when --vep-cache isn't given."""
-    from argparse import Namespace
+    from wgsextract_cli.api.vep import VepVerifyParams
 
-    from wgsextract_cli.commands._vep_resources import _resolve_vep_cache_root
-
-    return Path(_resolve_vep_cache_root(Namespace(ref=ref and str(ref))))
+    return VepVerifyParams(ref=ref and Path(ref)).cache_root()
 
 
 def yleaf_tables_cached(build: str, tree: str = "yfull") -> bool:

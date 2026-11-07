@@ -2048,8 +2048,14 @@ gets `<input stem>_vep.vcf.gz` (or `.txt`/`.json` with `format`) and
 VEP's summary in `outdir`, else beside the input; an input whose output
 already exists is skipped unless `force`. The result's metrics count the
 inputs and how many succeeded, were skipped or failed; any failure fails the
-run. Downloading and checking the VEP cache (`vep download`/`verify`)
-stay CLI-only.
+run.
+
+`download` fetches Ensembl's indexed cache for `species`, `vep_version`
+and `assembly`, checks it against Ensembl's CHECKSUMS and unpacks it into
+the cache folder; `verify` checks that an unpacked cache has its
+`info.txt` and chromosome folders. The cache folder is `vep_cache`, else
+config `vep_cache_directory`, else the `vep` folder of the reference
+library `ref` names, else `~/.vep`.
 
 ### `api.vep.run(VepRunParams)`
 
@@ -2077,3 +2083,43 @@ Annotate variants with VEP (see `VepRunParams`).
 | `ploidy_file` | `Path \| None` | `None` | `--ploidy-file` | Ploidy file for calling a BAM or CRAM (default: the reference library's); wins over ploidy. |
 | `ploidy` | `str \| None` | `None` | `--ploidy` | bcftools ploidy name or value for calling a BAM or CRAM (default: the build's). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
+
+### `api.vep.download(VepDownloadParams)`
+
+CLI: `wgsextract vep download`.
+
+Download and unpack the VEP cache (see `VepDownloadParams`).
+
+`VepDownloadParams`: Download and unpack Ensembl's VEP cache (see the module docstring).
+
+The download resumes after an interruption or cancellation; a checksum
+mismatch deletes it. A cancelled run removes the tarball and what it
+unpacked; an unpacked cache replaces the same release's old one.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `species` | `str` | `'homo_sapiens'` | `--species` | Species name (default: homo_sapiens) |
+| `assembly` | `str` | `'GRCh38'` | `--assembly` | Assembly (default: GRCh38) One of: `GRCh37`, `GRCh38` |
+| `vep_version` | `str` | `'116'` | `--vep-version` | Ensembl release version (default: 116) |
+| `vep_cache` | `Path \| None` | `None` (config `vep_cache_directory`) | `--vep-cache` | VEP cache folder (default: config vep_cache_directory, else the vep folder of the reference library ref names, else ~/.vep). |
+| `ref` | `Path \| None` | `None` | `--ref` | Reference library folder, or a FASTA in one, whose vep folder holds the cache when vep_cache isn't set (default: config reference_library). |
+| `mirror` | `str` | `'uk'` | `--mirror` | Ensembl FTP mirror to use (default: uk) One of: `ebi`, `uk` |
+
+### `api.vep.verify(VepVerifyParams)`
+
+CLI: `wgsextract vep verify`.
+
+Check an unpacked VEP cache (see `VepVerifyParams`).
+
+`VepVerifyParams`: Check an unpacked VEP cache (see the module docstring). Warns about a
+missing `info.txt` or chromosome folder (metric `missing_chromosomes`)
+and fails when the folder, its `info.txt` or every chromosome is
+missing.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `species` | `str` | `'homo_sapiens'` | `--species` | Species name (default: homo_sapiens) |
+| `assembly` | `str` | `'GRCh38'` | `--assembly` | Assembly (default: GRCh38) One of: `GRCh37`, `GRCh38` |
+| `vep_version` | `str` | `'116'` | `--vep-version` | Ensembl release version (default: 116) |
+| `vep_cache` | `Path \| None` | `None` (config `vep_cache_directory`) | `--vep-cache` | VEP cache folder (default: config vep_cache_directory, else the vep folder of the reference library ref names, else ~/.vep). |
+| `ref` | `Path \| None` | `None` | `--ref` | Reference library folder, or a FASTA in one, whose vep folder holds the cache when vep_cache isn't set (default: config reference_library). |

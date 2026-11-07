@@ -1,18 +1,18 @@
-import argparse
 import gzip
 import logging
 import shutil
-import subprocess
+import sys
 import tarfile
-import threading
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from tests.htslib_helpers import run_wgsextract
+from tests.htslib_helpers import needs_tools, run_wgsextract
+from tests.http_server import serving
+from wgsextract_cli import api
+from wgsextract_cli.api.vep import VepDownloadParams, VepVerifyParams
 from wgsextract_cli.commands._vep_resources import preprocess_vcf_chr_prefix
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 
 def test_preprocess_vcf_chr_prefix_keeps_mito_header_and_records_consistent(tmp_path):
@@ -61,17 +61,20 @@ def test_preprocess_vcf_chr_prefix_reads_gzip_input(tmp_path):
 
 
 # --- vep download / verify ------------------------------------------------------
+# The cache downloads for real (download_file, curl, tar) from a local HTTP
+# server; only the mirror table is pointed at it.
 
 _CACHE_FILE = "homo_sapiens_vep_116_GRCh38.tar.gz"
-_EBI_BASE = (
-    "https://ftp.ebi.ac.uk/ensemblorg/pub/release-116/variation/indexed_vep_cache"
-)
+_CACHE_PATH = f"release-116/variation/indexed_vep_cache/{_CACHE_FILE}"
+_CHECKSUMS_PATH = "release-116/variation/indexed_vep_cache/CHECKSUMS"
+
+needs_curl_tar = needs_tools("curl", "tar")
 
 
-def _cache_tarball(path: Path, chroms=("1", "MT")) -> bytes:
-    """A tar.gz shaped like Ensembl's: homo_sapiens/116_GRCh38/{info.txt,<chr>/}."""
+def _cache_tarball(path: Path, chroms=("1", "MT"), version="116_GRCh38") -> bytes:
+    """A tar.gz shaped like Ensembl's: homo_sapiens/<version>/{info.txt,<chr>/}."""
     src = path.parent / "tar_src"
-    version_dir = src / "homo_sapiens" / "116_GRCh38"
+    version_dir = src / "homo_sapiens" / version
     version_dir.mkdir(parents=True)
     (version_dir / "info.txt").write_text("species\thomo_sapiens\n")
     for chrom in chroms:
@@ -84,124 +87,150 @@ def _cache_tarball(path: Path, chroms=("1", "MT")) -> bytes:
 
 
 @pytest.fixture
-def fake_ensembl(tmp_path, monkeypatch):
-    """Serve the cache tarball and its CHECKSUMS line without the network.
-
-    Set ``.checksums`` to the CHECKSUMS text (default: the tarball's true BSD sum)
-    or to None to make the curl fetch fail."""
+def ensembl(tmp_path_factory, monkeypatch):
+    """A local Ensembl mirror serving the GRCh38 cache tarball and a CHECKSUMS
+    file with its true BSD sum; both mirrors point at it."""
     from wgsextract_cli.commands import _vep_resources as vr
 
-    data = _cache_tarball(tmp_path / "served.tar.gz")
-    true_sum = vr.calculate_bsd_sum(str(tmp_path / "served.tar.gz"))
-    state = SimpleNamespace(
-        data=data,
-        checksums=f"{true_sum[0]:05d} {true_sum[1]} {_CACHE_FILE}\n",
-        urls=[],
-        cancel_after=None,
-    )
-    real_run_command = vr.run_command
-
-    def fake_download(url, dest, progress_callback=None, cancel_event=None):
-        state.urls.append(url)
-        Path(dest).write_bytes(state.data)
-        if state.cancel_after is not None:
-            state.cancel_after.set()
-        return True
-
-    def fake_run_command(cmd, *args, **kwargs):
-        if cmd[0] != "curl":
-            return real_run_command(cmd, *args, **kwargs)
-        state.urls.append(cmd[-1])
-        if state.checksums is None:
-            raise subprocess.CalledProcessError(22, cmd, "", "404")
-        Path(cmd[cmd.index("-o") + 1]).write_text(state.checksums)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(vr, "download_file", fake_download)
-    monkeypatch.setattr(vr, "run_command", fake_run_command)
-    monkeypatch.setattr(vr, "verify_dependencies", lambda tools: None)
-    return state
+    tarball = tmp_path_factory.mktemp("ensembl") / "served.tar.gz"
+    data = _cache_tarball(tarball)
+    total, blocks = vr.calculate_bsd_sum(str(tarball))
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    with serving(None) as srv:
+        srv.files[_CACHE_PATH] = data
+        srv.files[_CHECKSUMS_PATH] = f"{total:05d} {blocks} {_CACHE_FILE}\n".encode()
+        for mirror in vr.VEP_MIRRORS:
+            monkeypatch.setitem(vr.VEP_MIRRORS, mirror, srv.base)
+        yield srv
 
 
-def test_download_fetches_verifies_and_extracts_cache(tmp_path, fake_ensembl):
+@needs_curl_tar
+def test_download_fetches_verifies_and_extracts_cache(tmp_path, ensembl):
     cache = tmp_path / "vep_cache"
 
-    run_wgsextract("vep", "download", "--mirror", "ebi", "--vep-cache", str(cache))
+    result = api.vep.download(VepDownloadParams(vep_cache=cache, mirror="ebi"))
 
-    assert fake_ensembl.urls == [f"{_EBI_BASE}/{_CACHE_FILE}", f"{_EBI_BASE}/CHECKSUMS"]
-    assert (cache / "homo_sapiens" / "116_GRCh38" / "info.txt").exists()
-    assert sorted(p.name for p in cache.iterdir()) == ["homo_sapiens"]
+    version_dir = cache / "homo_sapiens" / "116_GRCh38"
+    assert (version_dir / "info.txt").exists()
+    assert sorted(p.name for p in version_dir.iterdir()) == ["1", "MT", "info.txt"]
+    assert [o.path for o in result.outputs] == [str(version_dir)]
+    # The tarball is gone; the manifest is the only thing beside the cache.
+    assert [p.name for p in cache.iterdir()] == ["homo_sapiens"]
+    assert sorted(p.name for p in version_dir.parent.iterdir()) == [
+        "116_GRCh38",
+        "116_GRCh38.manifest.json",
+    ]
 
 
-def test_download_keeps_tarball_it_cannot_extract(tmp_path, fake_ensembl):
-    fake_ensembl.checksums = ""
-    fake_ensembl.data = b"not a tarball"
-    with pytest.raises(WGSExtractError, match="Failed to extract"):
-        run_wgsextract(
-            "vep", "download", "--species", "mus_musculus", "--assembly", "GRCh37",
-            "--vep-version", "110", "--vep-cache", str(tmp_path),
-        )  # fmt: skip
-    assert fake_ensembl.urls[0] == (
-        "https://ftp.ensembl.org/pub/release-110/variation/indexed_vep_cache/"
-        "mus_musculus_vep_110_GRCh37.tar.gz"
+@needs_curl_tar
+def test_download_asks_the_mirror_for_the_release_and_assembly(tmp_path, ensembl):
+    result = api.vep.download(
+        VepDownloadParams(
+            vep_cache=tmp_path, species="mus_musculus", assembly="GRCh37",
+            vep_version="110",
+        ),
+        check=False,
+    )  # fmt: skip
+
+    assert result.error is not None and "download failed" in result.error.message
+    assert (
+        "release-110/variation/indexed_vep_cache/mus_musculus_vep_110_GRCh37.tar.gz"
+        in result.error.message
     )
-    assert (tmp_path / "mus_musculus_vep_110_GRCh37.tar.gz").exists()
 
 
-def test_download_checksum_mismatch_deletes_tarball(tmp_path, fake_ensembl):
-    fake_ensembl.checksums = f"12345 1 {_CACHE_FILE}\n"
+@needs_curl_tar
+def test_download_keeps_tarball_it_cannot_extract(tmp_path, ensembl):
+    ensembl.files[_CACHE_PATH] = b"not a tarball"
+    del ensembl.files[_CHECKSUMS_PATH]
 
-    with pytest.raises(WGSExtractError, match="Checksum verification FAILED"):
-        run_wgsextract("vep", "download", "--vep-cache", str(tmp_path))
+    result = api.vep.download(VepDownloadParams(vep_cache=tmp_path), check=False)
 
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["served.tar.gz"]
+    assert result.error is not None and "Failed to extract" in result.error.message
+    assert sorted(p.name for p in tmp_path.iterdir()) == [_CACHE_FILE]
 
 
-@pytest.mark.parametrize("checksums", [f"1 1 other_{_CACHE_FILE}\n", None])
+@needs_curl_tar
+def test_download_checksum_mismatch_deletes_tarball(tmp_path, ensembl):
+    ensembl.files[_CHECKSUMS_PATH] = f"12345 1 {_CACHE_FILE}\n".encode()
+
+    result = api.vep.download(VepDownloadParams(vep_cache=tmp_path), check=False)
+
+    assert result.error is not None
+    assert "Checksum verification FAILED" in result.error.message
+    assert list(tmp_path.iterdir()) == []
+
+
+@needs_curl_tar
+@pytest.mark.parametrize("checksums", [f"1 1 other_{_CACHE_FILE}\n".encode(), None])
 def test_download_without_a_checksum_still_extracts(
-    tmp_path, fake_ensembl, checksums, caplog
+    tmp_path, ensembl, checksums, caplog
 ):
-    fake_ensembl.checksums = checksums
+    if checksums is None:
+        del ensembl.files[_CHECKSUMS_PATH]
+    else:
+        ensembl.files[_CHECKSUMS_PATH] = checksums
     cache = tmp_path / "c"
 
-    run_wgsextract("vep", "download", "--vep-cache", str(cache))
+    api.vep.download(VepDownloadParams(vep_cache=cache))
 
     assert (cache / "homo_sapiens" / "116_GRCh38" / "info.txt").exists()
     assert not list(cache.glob("*.CHECKSUMS"))
     assert "not verified" in caplog.text or "could not be completed" in caplog.text
 
 
-def test_download_cancelled_after_fetch_stops_before_extraction(tmp_path, fake_ensembl):
-    from wgsextract_cli.commands import _vep_resources as vr
+def _cancel_at(tool: str, token: api.CancelToken):
+    def progress(event: api.ProgressEvent) -> None:
+        if event.stage == "tool" and f"Running {tool}" in event.message:
+            token.cancel()
 
-    cancel = threading.Event()
-    fake_ensembl.cancel_after = cancel
-    args = argparse.Namespace(
-        species="homo_sapiens", assembly="GRCh38", vep_version="116",
-        mirror="uk", vep_cache=str(tmp_path / "c"), cancel_event=cancel,
-    )  # fmt: skip
-
-    with pytest.raises(WGSExtractError, match="cancelled before extraction"):
-        vr.cmd_vep_download(args)
-    assert not (tmp_path / "c" / "homo_sapiens").exists()
+    return progress
 
 
-def test_download_reports_cancellation(tmp_path, monkeypatch):
-    from wgsextract_cli.commands import _vep_resources as vr
+@needs_curl_tar
+@pytest.mark.parametrize("tool", ["curl", "tar"])
+def test_cancelled_download_removes_the_tarball_and_keeps_the_old_cache(
+    tmp_path, ensembl, tool
+):
+    """Cancelled while checking the checksum or unpacking: no tarball, no
+    half-unpacked cache, and the release's old cache untouched."""
+    old = _version_dir(tmp_path, ["1", "2"])
+    token = api.CancelToken()
 
-    cancel = threading.Event()
-    cancel.set()
-    monkeypatch.setattr(vr, "verify_dependencies", lambda tools: None)
-    monkeypatch.setattr(vr, "download_file", lambda *a: False)
-    args = argparse.Namespace(
-        species="homo_sapiens", assembly="GRCh38", vep_version="116",
-        mirror="uk", vep_cache=str(tmp_path), cancel_event=cancel,
-    )  # fmt: skip
-    with pytest.raises(WGSExtractError, match="download cancelled"):
-        vr.cmd_vep_download(args)
+    result = api.vep.download(
+        VepDownloadParams(vep_cache=tmp_path),
+        progress=_cancel_at(tool, token),
+        cancel=token,
+        check=False,
+    )
+
+    assert result.status == "cancelled"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["homo_sapiens"]
+    assert sorted(p.name for p in old.iterdir()) == ["1", "2", "info.txt"]
 
 
-def test_download_defaults_to_reference_library_then_home(tmp_path, fake_ensembl):
+@needs_curl_tar
+def test_download_replaces_the_release_old_cache(tmp_path, ensembl):
+    old = _version_dir(tmp_path, ["1", "2"])
+    other = _version_dir(tmp_path, ["1"], version="115_GRCh38")
+
+    api.vep.download(VepDownloadParams(vep_cache=tmp_path))
+
+    assert sorted(p.name for p in old.iterdir()) == ["1", "MT", "info.txt"]
+    assert sorted(p.name for p in other.iterdir()) == ["1", "info.txt"]
+
+
+@needs_curl_tar
+def test_download_expands_a_home_relative_cache(tmp_path, monkeypatch, ensembl):
+    monkeypatch.chdir(tmp_path)
+    api.vep.download(VepDownloadParams(vep_cache=Path("~/vc")))
+
+    assert (Path.home() / "vc" / "homo_sapiens" / "116_GRCh38").is_dir()
+    assert not (tmp_path / "~").exists()
+
+
+@needs_curl_tar
+def test_download_defaults_to_reference_library_then_home(tmp_path, ensembl):
     lib = tmp_path / "lib"
     lib.mkdir()
     run_wgsextract("vep", "download", "--ref", str(lib))
@@ -211,7 +240,8 @@ def test_download_defaults_to_reference_library_then_home(tmp_path, fake_ensembl
     assert (Path.home() / ".vep" / "homo_sapiens" / "116_GRCh38").is_dir()
 
 
-def test_download_honours_configured_cache_directory(tmp_path, fake_ensembl):
+@needs_curl_tar
+def test_download_honours_configured_cache_directory(tmp_path, ensembl):
     from wgsextract_cli.core.config import settings
 
     configured = tmp_path / "configured"
@@ -222,8 +252,20 @@ def test_download_honours_configured_cache_directory(tmp_path, fake_ensembl):
     assert (configured / "homo_sapiens" / "116_GRCh38").is_dir()
 
 
-def _version_dir(cache: Path, chroms, info: bool = True) -> Path:
-    version_dir = cache / "homo_sapiens" / "116_GRCh38"
+@pytest.mark.parametrize(
+    "field", [{"species": "../../evil"}, {"vep_version": "116/../../x"}]
+)
+def test_a_species_or_release_cannot_leave_the_cache(tmp_path, field):
+    with pytest.raises(UsageError, match="Invalid"):
+        VepDownloadParams(vep_cache=tmp_path, **field)
+    with pytest.raises(UsageError, match="Invalid"):
+        VepVerifyParams(vep_cache=tmp_path, **field)
+
+
+def _version_dir(
+    cache: Path, chroms, info: bool = True, version: str = "116_GRCh38"
+) -> Path:
+    version_dir = cache / "homo_sapiens" / version
     version_dir.mkdir(parents=True)
     if info:
         (version_dir / "info.txt").write_text("")
@@ -244,12 +286,25 @@ def test_verify_complete_cache(tmp_path, caplog):
     assert "Missing" not in caplog.text
 
 
-def test_verify_warns_about_missing_chromosomes(tmp_path, caplog):
+def test_verify_warns_about_missing_chromosomes(tmp_path):
     _version_dir(tmp_path, [str(c) for c in range(1, 22)] + ["X"])
 
-    run_wgsextract("vep", "verify", "--vep-cache", str(tmp_path))
+    result = api.vep.verify(VepVerifyParams(vep_cache=tmp_path))
 
-    assert "Missing chromosomal data for: 22, Y, MT" in caplog.text
+    assert result.metrics["missing_chromosomes"] == 3
+    assert [(w.code, w.details) for w in result.warnings] == [
+        ("chromosomes_missing", {"chromosomes": "22,Y,MT"})
+    ]
+
+
+def test_verify_reads_the_reference_library_cache(tmp_path):
+    lib = tmp_path / "lib"
+    (lib / "genomes").mkdir(parents=True)
+    _version_dir(lib / "vep", ["1"])
+
+    result = api.vep.verify(VepVerifyParams(ref=lib))
+
+    assert result.metrics["missing_chromosomes"] == 24
 
 
 @pytest.mark.parametrize(("chroms", "info"), [(["1"], False), ([], True)])

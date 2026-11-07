@@ -349,6 +349,41 @@ def test_a_vep_run_on_a_vcf_in_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_vep_download_into_a_busy_cache_folder_waits(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: `vep download` unpacks into its cache folder, not an outdir.
+    bam, ref = fake_data
+    cache = work / "vep"
+    cache.mkdir()
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(cache)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST", "/ops/vep/download", {"vep_cache": str(cache)}
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+@pytest.mark.parametrize("op", ["vep/download", "vep/verify"])
+def test_a_vep_cache_request_checks_the_cache_it_falls_back_to(
+    tmp_path, work, monkeypatch, op
+):
+    # #478: with no vep_cache, the configured cache (else ~/.vep) is the one
+    # read or written, so it must be an allowed folder too.
+    from wgsextract_cli.core.config import settings
+
+    outside = tmp_path / "outside"
+    monkeypatch.setitem(settings, "vep_cache_directory", str(outside))
+    with _serve(tmp_path, [work]) as client:
+        status, body = client.request("POST", f"/ops/{op}", {})
+        assert (status, body["error"]["code"]) == (403, "path_not_allowed"), body
+        status, body = client.request("POST", f"/ops/{op}", {"vep_cache": str(work)})
+        assert status == 202, body
+    assert not outside.exists()
+
+
 def test_a_vep_folder_run_refuses_a_link_out_of_the_allowed_folders(tmp_path, work):
     # Copilot review of #491: the guard checks the folder, not the files
     # VEP finds in it.
@@ -1071,6 +1106,28 @@ def test_caller_paths_cover_every_file():
     )
 
 
+@pytest.mark.parametrize("op", ["vep/download", "vep/verify"])
+@pytest.mark.parametrize("field", ["vep_cache", "ref"])
+@pytest.mark.parametrize(
+    "value", ["D:evil", r"D:\evil", r"\\host\share\evil", r"sub\evil"]
+)
+def test_path_guard_covers_every_vep_cache_path(op, field, value):
+    # #478: `vep download` and `vep verify` became server operations; the
+    # cache folder and the library naming it must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"vep_cache": r"C:\data\vep", "ref": r"C:\data\lib"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+@pytest.mark.parametrize("op", ["vep/download", "vep/verify"])
+def test_vep_cache_paths_cover_every_file(op):
+    guarded = {f.name for f in find(op).fields() if f.spec.path or f.spec.may_name_file}
+    assert guarded == {"vep_cache", "ref"}
+
+
 _METHYLATION_PATHS = [
     item
     for item in find("methylation/pileup").fields()
@@ -1483,6 +1540,9 @@ _BASE_REQUESTS: dict[str, dict[str, Any]] = {
     "sample/show": {"input": _FILE},
     "sample/set": {"input": _FILE, "sex": "female"},
     "sample/unset": {"input": _FILE, "sex": True},
+    # With no cache folder, the default one (~/.vep) is checked too.
+    "vep/download": {"vep_cache": _DATA},
+    "vep/verify": {"vep_cache": _DATA},
 }
 _COMPANIONS: dict[tuple[str, str], dict[str, Any]] = {
     ("basecall", "regions_bed"): {"alignment": _FILE, "regions_bed": _FILE},
