@@ -1801,6 +1801,15 @@ def test_report_lookup_reads_a_samples_newest_report(tmp_path, work):
         assert lookup(work)[1]["error"]["code"] == "no_report"
         assert lookup(outside)[1]["error"]["code"] == "path_not_allowed"
 
+        # Review of #487: a dangling report link was a 500; it is skipped.
+        try:
+            (sample / "HG004_personal_report.json").symlink_to(work / "gone.json")
+        except OSError:
+            pass
+        else:
+            status, answer = lookup(sample)
+            assert (status, answer["sample"]["name"]) == (200, "HG002"), answer
+
         # Review of #487: a report whose sections aren't a mapping was a 500.
         report = sample / "HG002_personal_report.json"
         broken = work / "broken_personal_report.json"
@@ -1833,6 +1842,26 @@ def test_a_lookup_refuses_a_boolean_it_cannot_read(tmp_path, work):
             # A readable value gets as far as looking for the (absent) file.
             expected = (400, "usage") if value in ("maybe", "2") else (404,)
             assert (status, answer["error"]["code"])[: len(expected)] == expected
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permissions that bind the user",
+)
+def test_an_unreadable_variant_database_is_a_usage_error(
+    tmp_path, work, variant_tables
+):
+    # Review of #487: opening it raised outside the error handling (a 500).
+    db = work / "locked_variants.sqlite"
+    shutil.copy(variant_tables["sqlite"], db)
+    db.chmod(0)
+    try:
+        with _serve(tmp_path, [work]) as client:
+            text = urllib.parse.urlencode({"path": str(db)})
+            status, answer = client.request("GET", f"/variants?{text}")
+    finally:
+        db.chmod(0o600)
+    assert (status, answer["error"]["code"]) == (400, "usage"), answer
 
 
 def test_a_blob_in_a_variant_database_is_returned_as_text(

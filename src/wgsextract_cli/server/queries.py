@@ -234,7 +234,10 @@ def _json_value(value: Any) -> Any:
 def _sqlite_rows(
     path: Path, after: int, where: list[str], values: list[Any]
 ) -> Iterator[tuple[int, dict[str, Any]]]:
-    db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    except sqlite3.Error as e:
+        raise RequestError(400, "usage", f"Can't open {path}: {e}") from None
     try:
         db.row_factory = sqlite3.Row
         sql = " AND ".join(["rowid > ?", *where])
@@ -346,7 +349,14 @@ _REPORT_SUFFIX = "_personal_report.json"
 
 def _report_file(guard: PathGuard, path: Path) -> Path:
     if path.is_dir():
-        found = sorted(path.glob(f"*{_REPORT_SUFFIX}"), key=lambda p: p.stat().st_mtime)
+        # A dangling link, or a report deleted since the glob, is skipped.
+        dated = []
+        for candidate in path.glob(f"*{_REPORT_SUFFIX}"):
+            try:
+                dated.append((candidate.stat().st_mtime, candidate))
+            except OSError:
+                continue
+        found = [p for _, p in sorted(dated)]
         if not found:
             raise RequestError(
                 404,
