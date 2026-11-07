@@ -1,14 +1,14 @@
 import argparse
-import copy
 import csv
 import logging
 import os
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
-from wgsextract_cli.api._params import to_namespace
+from wgsextract_cli.api._params import job_values
 from wgsextract_cli.api.analyze import AnalyzeBatchGenParams, AnalyzeComprehensiveParams
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -24,6 +24,7 @@ from wgsextract_cli.core.variant_files import verify_paths_exist
 
 from ._analyze_workflows import (
     JOURNAL,
+    AnalyzeJob,
     AnalyzeResult,
     _print,
     _step_params,
@@ -48,30 +49,30 @@ def run_comprehensive(
 ) -> None:
     """The ``analyze comprehensive`` operation (``api.analyze.comprehensive``).
     ``debug`` and ``keep_awake`` are passed on to the steps' subcommands."""
-    args = to_namespace(params)
-    args.debug = debug
-    args.keep_awake = keep_awake
-    cmd_comprehensive(args)
+    job = AnalyzeJob(
+        **job_values(params, AnalyzeJob), debug=debug, keep_awake=keep_awake
+    )
+    cmd_comprehensive(job)
 
 
-def cmd_comprehensive(args: argparse.Namespace) -> None:
+def cmd_comprehensive(job: AnalyzeJob) -> None:
     from wgsextract_cli.core.config import settings
 
     verify_dependencies(["bcftools", "samtools", "tabix"])
     log_dependency_info(["bcftools", "samtools", "tabix"])
-    thresholds_from(args)  # reject crossed thresholds from config before any work
+    thresholds_from(job)  # reject crossed thresholds from config before any work
 
     # The configured batch file and VCFs are defaults for a run given no inputs;
     # never for a batch's own samples, or each would re-run the batch.
-    batch_sample = getattr(args, "batch_sample", False)
-    explicit = args.input or args.vcf_inputs or batch_sample
-    batch_file = args.batch or (None if explicit else settings.get("batch_file_path"))
+    batch_sample = job.batch_sample
+    explicit = job.input or job.vcf_inputs or batch_sample
+    batch_file = job.batch or (None if explicit else settings.get("batch_file_path"))
     if batch_file:
-        run_batch_comprehensive(args, batch_file)
+        run_batch_comprehensive(job, batch_file)
         return
 
-    input_file = args.input
-    vcf_inputs = args.vcf_inputs if args.vcf_inputs else []
+    input_file = job.input
+    vcf_inputs = list(job.vcf_inputs or ())
     env_vcf = None if batch_sample else settings.get("vcf_input_paths")
     if not vcf_inputs and env_vcf:
         if isinstance(env_vcf, list):
@@ -91,7 +92,7 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 
     verify_paths_exist(paths_to_verify)
 
-    outdir = args.outdir if args.outdir else os.getcwd()
+    outdir = job.outdir if job.outdir else os.getcwd()
     Path(outdir).mkdir(parents=True, exist_ok=True)
     result = current_result()
     for vcf in vcf_inputs:
@@ -106,8 +107,8 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
     _print("-" * 60)
 
     with StepJournal(Path(outdir, JOURNAL), "analyze comprehensive",
-                     resume_policy(args)) as journal:  # fmt: skip
-        results = _run_comprehensive(args, journal, input_file, vcf_inputs, outdir)
+                     resume_policy(job)) as journal:  # fmt: skip
+        results = _run_comprehensive(job, journal, input_file, vcf_inputs, outdir)
     if journal.dry_run:
         return
 
@@ -121,7 +122,7 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 
 
 def _run_comprehensive(
-    args: argparse.Namespace,
+    job: AnalyzeJob,
     journal: StepJournal,
     input_file: str | None,
     vcf_inputs: list[str],
@@ -131,8 +132,8 @@ def _run_comprehensive(
     # 1. BAM/CRAM Analysis (Info, QC, Lineage)
     if input_file:
         result.add_input(input_file)
-        sex = run_bam_chain(args, input_file, outdir, journal)
-        if not getattr(args, "batch_sample", False):
+        sex = run_bam_chain(job, input_file, outdir, journal)
+        if not job.batch_sample:
             result.add_metrics(sex=sex)
 
     # 2. VCF Processing (Independently per type)
@@ -141,10 +142,10 @@ def _run_comprehensive(
         _print(f"\nSTAGE: Processing Input VCFs ({len(vcf_inputs)} files)")
         for vcf in vcf_inputs:
             v_type = detect_vcf_type(vcf)
-            res = run_vcf_workflow(args, vcf, v_type, outdir, journal)
+            res = run_vcf_workflow(job, vcf, v_type, outdir, journal)
             if res:
                 results.append(res)
-    elif input_file and not args.skip_calling:
+    elif input_file and not job.skip_calling:
         _print("\nSTAGE: Variant Calling (No input VCFs provided)")
         # Call SNV and InDels if nothing else provided
         called = []
@@ -154,21 +155,21 @@ def _run_comprehensive(
             decision, _ = run_step(
                 journal,
                 Step(name, inputs={"input": input_file}, outputs=[vcf],
-                     params=_step_params(args, command), tools=["bcftools"]),
-                subcommand_action(command, args),
+                     params=_step_params(job, command), tools=["bcftools"]),
+                subcommand_action(command, job),
             )  # fmt: skip
             called.append((vcf, decision))
         for vcf, decision in called:
             if journal.dry_run or Path(vcf).exists():
                 res = run_vcf_workflow(
-                    args, vcf, "snp-indel", outdir, journal, after=[decision]
+                    job, vcf, "snp-indel", outdir, journal, after=[decision]
                 )
                 if res:
                     results.append(res)
     return results
 
 
-def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
+def run_batch_comprehensive(job: AnalyzeJob, batch_file: str) -> None:
     """Runs comprehensive analysis for multiple samples defined in batch_file."""
 
     if not Path(batch_file).exists():
@@ -193,7 +194,7 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
         failed_samples: list[str] = []
         samples = 0
         current_result().set_manifest_stem(
-            Path(args.outdir if args.outdir else os.getcwd(), "analyze")
+            Path(job.outdir if job.outdir else os.getcwd(), "analyze")
         )
 
         for row_number, row in enumerate(reader, 1):
@@ -222,19 +223,19 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
             _print("#" * 80)
 
             # Create sample-specific outdir
-            sample_outdir = str(Path(args.outdir if args.outdir else os.getcwd(), name))
+            sample_outdir = str(Path(job.outdir if job.outdir else os.getcwd(), name))
             Path(sample_outdir).mkdir(parents=True, exist_ok=True)
 
-            # Build dummy args for this sample
-            sample_args = copy.deepcopy(args)
-            sample_args.input = input_path
-            sample_args.vcf_inputs = vcf_list
-            sample_args.outdir = sample_outdir
-            sample_args.batch = None
-            sample_args.batch_sample = True
-
+            sample = replace(
+                job,
+                input=input_path,
+                vcf_inputs=tuple(vcf_list),
+                outdir=sample_outdir,
+                batch=None,
+                batch_sample=True,
+            )
             try:
-                cmd_comprehensive(sample_args)
+                cmd_comprehensive(sample)
             except (OSError, WGSExtractError) as e:
                 logging.error(f"Failed to process sample {name}: {e}")
                 failed_samples.append(name)

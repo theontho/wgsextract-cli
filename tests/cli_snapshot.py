@@ -128,6 +128,7 @@ MIGRATED = (
     ("methylation", "pileup"),
     ("vep",),
     ("vep", "run"),
+    ("benchmark",),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -497,6 +498,15 @@ ARGVS = (
         "--vep-args",
         "--pick --no_stats",
     ],
+    ["benchmark"],
+    ["benchmark", "--profile", "smoke", "--suite", "core", "-o", "o"],
+    ["benchmark", "-r", "chrM", "--coverage", "2", "--target-count", "5"],
+    ["benchmark", "--seed", "7", "--region", "chr20:1-9"],
+    ["benchmark", "--full-size", "--build", "hg19", "--keep-going", "-t", "2"],
+    ["benchmark", "--dataset", "real", "--dataset-sha256", ""],
+    ["benchmark", "--dataset", "real", "--dataset-zip", "z.zip"],
+    ["benchmark", "--dataset", "real", "--dataset-url", "https://h/x.zip"],
+    ["-o", "o", "--debug", "benchmark", "--dataset-cache-dir", "c", "--quiet"],
 )
 
 

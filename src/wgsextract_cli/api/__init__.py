@@ -28,8 +28,8 @@ Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.methylation``, ``api.microarray``, ``api.panel``, ``api.ref``,
 ``api.repair``, ``api.genotyping``, ``api.report``, ``api.sample``,
-``api.support``, ``api.pet``, ``api.analyze``, ``api.examples``, ``api.vep``)
-follow
+``api.support``, ``api.pet``, ``api.analyze``, ``api.examples``, ``api.vep``,
+``api.benchmark``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -53,6 +53,7 @@ from . import (
     align,
     analyze,
     bam,
+    benchmark,
     examples,
     extract,
     genotyping,
@@ -94,6 +95,7 @@ from .bam import (
     BamUnindexParams,
     BamUnsortParams,
 )
+from .benchmark import BenchmarkParams
 from .examples import ExampleGenomeDownloadParams, ExampleGenomeListParams
 from .extract import (
     BamSubsetParams,
@@ -133,6 +135,7 @@ from .ref import (
     RefGerpParams,
     RefGnomadParams,
     RefIndexParams,
+    RefLibraryListParams,
     RefLibraryParams,
     RefPharmgkbParams,
     RefPhylopParams,
@@ -191,6 +194,7 @@ __all__ = [
     "BamUnalignParams",
     "BamUnindexParams",
     "BamUnsortParams",
+    "BenchmarkParams",
     "CalculateCoverageParams",
     "CancelToken",
     "Cancelled",
@@ -233,6 +237,7 @@ __all__ = [
     "RefGerpParams",
     "RefGnomadParams",
     "RefIndexParams",
+    "RefLibraryListParams",
     "RefLibraryParams",
     "RefPharmgkbParams",
     "RefPhylopParams",
@@ -290,6 +295,7 @@ __all__ = [
     "align",
     "analyze",
     "bam",
+    "benchmark",
     "examples",
     "extract",
     "genotyping",
