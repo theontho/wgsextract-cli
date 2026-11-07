@@ -22,6 +22,8 @@ dependencies = [
 [project.optional-dependencies]
 # `--format parquet` table output; commands check for it when asked for Parquet.
 parquet = ["pyarrow>=14"]
+# `serve --mcp-http` (MCP over streamable HTTP); checked when that is asked for.
+mcp = ["mcp>=2.3,<3"]
 
 [project.scripts]
 wgsextract = "wgsextract_cli.main:main"

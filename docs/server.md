@@ -3,7 +3,7 @@
 `wgsextract serve` offers WGS Extract's operations to other programs on the
 same computer: desktop apps, scripts and AI agents. It speaks either a small
 HTTP/JSON API or the [Model Context Protocol](https://modelcontextprotocol.io)
-(MCP) on stdio.
+(MCP), on stdio or over streamable HTTP.
 
 Both are generated from the [typed Python API](api.md): the same `*Params`
 fields, defaults, config.toml settings, result manifests and error kinds as
@@ -242,6 +242,52 @@ Results are the job record, as `structuredContent` and as compact JSON
 text. A failed analysis or a refused path is a result with `isError: true`
 that says why, so the agent can correct itself.
 
+### MCP over streamable HTTP
+
+`wgsextract serve --mcp-transport http` serves the same tools over MCP's
+streamable HTTP transport, for clients that connect to a running server
+rather than start one. It needs the optional `mcp` package, the official
+MCP Python SDK: `pip install 'wgsextract-cli[mcp]'`, or `pixi run -e mcp`
+from a source checkout (the `dev` environment has it too). Without it, the
+command stops and says so; stdio needs nothing extra.
+
+```console
+$ wgsextract serve --mcp-transport http --allow ~/wgs
+WGS Extract MCP server (streamable HTTP) on http://127.0.0.1:41874/mcp (read-only queries)
+Token: 9fJw2...
+  (also in ~/.../state/server/mcp.json, readable by you only)
+Allowed folders: /home/me/wgs
+```
+
+Point your client at the URL and send the token as a bearer token, for
+example:
+
+```json
+{
+  "mcpServers": {
+    "wgsextract": {
+      "type": "http",
+      "url": "http://127.0.0.1:41874/mcp",
+      "headers": { "Authorization": "Bearer 9fJw2..." }
+    }
+  }
+}
+```
+
+The token and port are new each launch unless you fix the port with
+`--port` or `server_mcp_port`; a client can read both from `mcp.json`. The
+server is guarded like the HTTP API: it listens on 127.0.0.1 only, refuses
+requests without the token (401 `unauthorized`) or with a foreign `Host`
+or `Origin` (403 `bad_host`, `bad_origin`), and limits request bodies to
+1 MB. The tools, `--allow-jobs`, `--allow-destructive` and the path guard
+are the same as on stdio.
+
+Unlike stdio, every client of one server shares its job list: anyone with
+the token sees and, with `--allow-jobs`, can cancel all of its jobs. A query
+whose call is cancelled, or whose client disconnects, cancels its job.
+Started jobs run until they finish or the server stops, which cancels the
+running ones and removes the job records, as on stdio.
+
 ## Settings and options
 
 | Setting | Option | Default |
@@ -249,7 +295,16 @@ that says why, so the agent can correct itself.
 | `server_port` | `--port` | 0: any free port |
 | `server_allowed_paths` | `--allow DIR` (adds) | none, plus the library and output folders |
 | `server_max_jobs` | `--max-jobs` | 1 |
+| `server_mcp_transport` | `--mcp-transport stdio\|http` (implies `--mcp`) | stdio |
+| `server_mcp_port` | `--port`, for MCP over HTTP | 0: any free port |
 | | `--allow-destructive` | off: requests that delete data are refused |
+| | `--ready-json` | off: the address is only printed to stderr and saved |
 
 Workers use the same config.toml as the server (`--config`). A request
 parameter that is left out takes its setting, as on the CLI.
+
+A program that starts the server itself, such as a desktop app, passes
+`--ready-json`. Once the server listens, it prints
+`{"url": ..., "token": ..., "pid": ...}` as one JSON line on stdout, so the
+program needn't parse the banner or find the state folder. It works for the
+HTTP API and MCP over HTTP, not MCP over stdio, and not with `--json`.

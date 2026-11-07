@@ -311,6 +311,26 @@ def test_a_repair_writing_its_output_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_an_example_download_into_a_busy_library_waits(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #478: example-genome download writes into <target_root>/test-1000genomes,
+    # not an outdir, so that folder is locked.
+    bam, ref = fake_data
+    collection = work / "test-1000genomes"
+    collection.mkdir()
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(collection)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/example-genome/download",
+            {"target_root": str(work), "dry_run": True},
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_hla_typing_building_its_library_index_waits_for_a_busy_library(
     tmp_path, work, fake_data, slow_coverage
 ):
@@ -376,6 +396,69 @@ def test_a_vep_run_on_a_vcf_in_a_busy_folder_waits(
         )
         assert status == 202, second
         assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_an_example_download_waits_for_a_job_in_its_example_folder(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #494 review: a forced download deletes files in the example folder,
+    # and folder locks match exactly, so locking the collection alone let a
+    # job writing in that example folder run alongside it.
+    bam, ref = fake_data
+    example = work / "test-1000genomes" / "phase3-chrmt-vcf"
+    example.mkdir(parents=True)
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(example)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/example-genome/download",
+            {
+                "target_root": str(work),
+                "example_ids": ["phase3-chrmt-vcf"],
+                "dry_run": True,
+            },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+@pytest.mark.parametrize("escape", [None, "test-1000genomes", "phase3-chrmt-vcf"])
+def test_an_example_download_stays_in_the_allowed_folders(
+    client, tmp_path, work, escape
+):
+    # PR #494 review: the guard saw only target_root, so an omitted one (the
+    # configured or built-in library) or a symlinked collection or example
+    # folder inside an allowed one sent the download elsewhere.
+    body: dict = {"example_ids": ["phase3-chrmt-vcf"], "dry_run": True}
+    if escape is not None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        link = work / "test-1000genomes"
+        if escape != link.name:
+            link.mkdir()
+            link = link / escape
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("can't create symlinks here")
+        body["target_root"] = str(work)
+    status, response = client.request("POST", "/ops/example-genome/download", body)
+    assert (status, response["error"]["code"]) == (403, "path_not_allowed")
+
+
+def test_example_genome_list_answers_with_the_catalog(tmp_path, work):
+    with _serve(tmp_path, [work]) as client:
+        status, body = client.request(
+            "POST",
+            "/ops/example-genome/list?wait=60",
+            {"target_root": str(work), "tag": ["pacbio"]},
+        )
+    assert (status, body["status"]) == (200, "succeeded"), body
+    details = body["result"]["details"]
+    assert details["collection"] == str(work.resolve() / "test-1000genomes")
+    assert details["examples"]
+    assert all("pacbio" in example["tags"] for example in details["examples"])
 
 
 def test_a_vep_folder_run_refuses_a_link_out_of_the_allowed_folders(tmp_path, work):
@@ -1139,6 +1222,14 @@ def test_repair_paths_cover_every_file():
     }  # fmt: skip
 
 
+_EXAMPLE_PATHS = [
+    (op, item)
+    for op in ("example-genome/list", "example-genome/download")
+    for item in find(op).fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
 _TYPING_PATHS = [
     (op, item)
     for op in ("typing/cyp2d6", "typing/hla", "typing/str")
@@ -1152,6 +1243,35 @@ _VEP_PATHS = [
     for item in find("vep/run").fields()
     if item.spec.path or item.spec.may_name_file
 ]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _EXAMPLE_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _EXAMPLE_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil", r"D:\evil", r"\\host\share\evil", r"sub\evil", "~/evil"]
+)
+def test_path_guard_covers_every_example_genome_path(op, field, value):
+    # #478: example-genome became server operations; the library a download
+    # writes into and the Aspera key it reads must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"target_root": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_example_genome_paths_cover_every_file():
+    assert {(op, item.name) for op, item in _EXAMPLE_PATHS} == {
+        ("example-genome/list", "target_root"),
+        ("example-genome/download", "target_root"),
+        ("example-genome/download", "aspera_key"),
+    }
+    assert find("example-genome/list").kind == "query"
+    assert find("example-genome/download").kind == "job"
 
 
 @pytest.mark.parametrize(
@@ -1535,7 +1655,7 @@ def test_jobs_outlive_the_server_and_can_be_rerun(
 
 def test_serve_command_publishes_its_address_and_cleans_up(tmp_path, work):
     proc = subprocess.Popen(
-        [*get_cli_command(), "serve", "--allow", str(work)],
+        [*get_cli_command(), "serve", "--allow", str(work), "--ready-json"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -1551,6 +1671,9 @@ def test_serve_command_publishes_its_address_and_cleans_up(tmp_path, work):
         discovery = Path(banner.split("(also in ")[1].split(",")[0])
         info = json.loads(discovery.read_text())
         assert info["url"] in banner and info["token"] in banner
+        # --ready-json: the program that started the server reads it from stdout.
+        assert proc.stdout is not None
+        assert json.loads(proc.stdout.readline()) == info
         if sys.platform != "win32":
             assert discovery.stat().st_mode & 0o777 == 0o600
         client = Client(info["url"].removesuffix("/v1"))
@@ -1678,6 +1801,8 @@ _BASE_REQUESTS: dict[str, dict[str, Any]] = {
     "pet-align": {"r1": _FILE},
     "qc/fastp": {"r1": _FILE},
     "analyze/batch-gen": {"output": _DATA + r"\batch.csv"},
+    # The library defaults to one outside the allowed folders.
+    "example-genome/download": {"target_root": _DATA},
     "bam/to-ubam": {"input": _FILE},
     "extract/custom": {"region": "chrM"},
     "info/chip": {"input": _FILE},
