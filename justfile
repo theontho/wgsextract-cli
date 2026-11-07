@@ -87,3 +87,67 @@ deps:
 # Remove gitignored scratch outputs (out/, tmp/)
 clean:
     pixi run clean
+
+# WGS Extract app (gui/); see gui/docs/developer_setup.md
+
+# Set up the app's toolchain (uv, Node, Rust) and locked dependencies
+[unix]
+[working-directory("gui")]
+gui-setup *args:
+    sh scripts/dev_setup.sh {{args}}
+
+# Set up the app's toolchain (uv, Node, Rust) and locked dependencies
+[windows]
+[working-directory("gui")]
+gui-setup *args:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/dev_setup.ps1 {{args}}
+
+# Check the app's development tools
+[working-directory("gui")]
+gui-precheck:
+    uv run --locked python tools/tasks.py precheck
+
+# The app's typecheck, bundle validation, locale lint and duplication check
+[working-directory("gui")]
+gui-lint:
+    uv run --locked python tools/tasks.py lint
+
+# The app's TypeScript and Python tooling tests
+[working-directory("gui")]
+gui-test:
+    uv run --locked python tools/tasks.py test
+
+# The app's lint and tests (mirrors GUI CI)
+[working-directory("gui")]
+gui-ci:
+    uv run --locked python tools/tasks.py ci
+
+# Build and serve the app's Web UI in a browser
+[working-directory("gui")]
+gui-run:
+    uv run --locked python tools/tasks.py run web
+
+# Serve the app's Web UI with TypeScript watch and server reload
+[working-directory("gui")]
+gui-dev:
+    uv run --locked python tools/tasks.py run dev
+
+# Run the Tauri desktop app in dev mode
+[working-directory("gui")]
+gui-tauri:
+    uv run --locked python tools/tasks.py run tauri
+
+# Build the Tauri desktop app for this host
+[working-directory("gui")]
+gui-build-tauri:
+    uv run --locked python tools/tasks.py build tauri
+
+# Package the app's installers for this host into gui/out/release/tauri
+[working-directory("gui")]
+gui-package:
+    uv run --locked python tools/tasks.py package tauri
+
+# Regenerate the app's site into gui/site/ (published at /app/ on Pages)
+[working-directory("gui")]
+gui-site:
+    uv run --locked python scripts/build_site.py

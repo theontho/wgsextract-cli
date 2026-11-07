@@ -1,0 +1,49 @@
+{
+  "name": "fresh install - hs38DH reference download and ladan CRAM microarray (requires GFC_TEST_LADAN_CRAM and GFC_TEST_GENOME_LIBRARY)",
+  "inputs": {
+    "fieldValues": {
+      "bam_path": "${GFC_TEST_LADAN_CRAM}",
+      "genome_library": "${GFC_TEST_GENOME_LIBRARY}",
+      "out_dir": "{{bundleWorkspace}}/output/ladan-microarray",
+      "ref_path": "{{bundleWorkspace}}/reference"
+    },
+    "checkedOptions": {
+      "microarray_formats": [
+        "all"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "id": "fresh-install-setup",
+      "kind": "setup",
+      "timeoutSeconds": 7200
+    },
+    {
+      "id": "download-hs38dh",
+      "kind": "action",
+      "pageID": "library",
+      "sectionID": "genome-management",
+      "controlID": "reference_genomes",
+      "actionID": "ref-download",
+      "rowID": "hs38DH-NIH-Alt-hs38DH.fa.gz",
+      "rowValues": {
+        "build": "GRCh38 / hg38",
+        "code": "hs38DH",
+        "final": "hs38DH.fa.gz",
+        "name": "hs38DH",
+        "source": "NIH-Alt",
+        "status": "missing"
+      },
+      "timeoutSeconds": 14400
+    },
+    {
+      "id": "microarray-ladan-cram",
+      "kind": "action",
+      "pageID": "microarray",
+      "sectionID": "microarray-formats",
+      "actionID": "microarray-generate",
+      "timeoutSeconds": 7200
+    }
+  ]
+}

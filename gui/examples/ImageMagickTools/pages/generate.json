@@ -1,0 +1,54 @@
+{
+  "id": "generate",
+  "title": "Generate",
+  "summary": "Create small sample images for ImageMagick workflows.",
+  "sections": [
+    {
+      "id": "generate",
+      "title": "Sample image",
+      "textIcon": "GN",
+      "controls": [
+        {
+          "id": "output_file",
+          "label": "Output file",
+          "kind": "path",
+          "pathType": "file"
+        },
+        {
+          "id": "image_size",
+          "label": "Image size",
+          "kind": "text",
+          "value": "128x128"
+        }
+      ],
+      "actions": [
+        {
+          "id": "generate-gradient",
+          "title": "Generate gradient",
+          "command": {
+            "executable": "magick",
+            "arguments": [
+              "-size",
+              "{{image_size}}",
+              "gradient:#224466-#88ccff",
+              "{{output_file}}"
+            ]
+          }
+        },
+        {
+          "id": "generate-checkerboard",
+          "title": "Generate checkerboard",
+          "command": {
+            "executable": "magick",
+            "arguments": [
+              "-size",
+              "{{image_size}}",
+              "pattern:checkerboard",
+              "{{output_file}}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

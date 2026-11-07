@@ -1,0 +1,19 @@
+{
+  "id": "conformance-basic",
+  "displayName": "bundle.displayName",
+  "summary": "bundle.summary",
+  "iconName": "fasta",
+  "textIcon": "🧪",
+  "sidebarIconStyle": "emoji",
+  "terminalTextDirection": "ltr",
+  "defaultLocalizationCode": "en",
+  "setup": {
+    "steps": [
+      { "id": "setup", "kind": "setupScript", "label": "setup.label", "value": "scripts/setup.sh" }
+    ]
+  },
+  "exitCodeReference": [
+    { "code": 7, "title": "exit.custom.title", "summary": "exit.custom.summary", "severity": "warning" }
+  ],
+  "pages": ["main.json"]
+}

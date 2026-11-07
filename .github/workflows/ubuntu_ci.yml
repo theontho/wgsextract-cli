@@ -1,10 +1,35 @@
 name: CI Ubuntu
 
+# The desktop app (gui/) has its own CI (gui-*.yml); app-only changes skip this.
 on:
   push:
     branches: [ main ]
+    paths:
+      - "**"
+      - "!gui/**"
+      - "!.github/workflows/gui-*.yml"
+      # tests/test_bump_version.py bumps the app's CLI pin in these.
+      - gui/scripts/bump-wgsextract-cli.py
+      - gui/examples/WGSExtract/scripts/wgsextract-release-tag.txt
+      - gui/examples/WGSExtract/manifest.json
+      - gui/docs/distribution.md
+      - gui/docs/CHANGELOG.md
+      - gui/app/tests/conformance.test.mjs
+      - gui/tools/packaging/tests/test_embedded_branding.py
   pull_request:
     branches: [ main ]
+    paths:
+      - "**"
+      - "!gui/**"
+      - "!.github/workflows/gui-*.yml"
+      # tests/test_bump_version.py bumps the app's CLI pin in these.
+      - gui/scripts/bump-wgsextract-cli.py
+      - gui/examples/WGSExtract/scripts/wgsextract-release-tag.txt
+      - gui/examples/WGSExtract/manifest.json
+      - gui/docs/distribution.md
+      - gui/docs/CHANGELOG.md
+      - gui/app/tests/conformance.test.mjs
+      - gui/tools/packaging/tests/test_embedded_branding.py
   workflow_dispatch:
 
 permissions:

@@ -16,11 +16,11 @@ python3 scripts/installlab/lab.py selftest linux                 # negative cont
 python3 scripts/installlab/lab.py run linux --install-dir "WGS Extract"   # a path with a space
 python3 scripts/installlab/lab.py run linux --update-from v0.4.0        # update a real release
 python3 scripts/installlab/lab.py judge out/installlab/runs/<run>/results
-python3 scripts/installlab/lab.py run macos --gui-repo ../gui-for-cli     # the macOS app
+python3 scripts/installlab/lab.py run macos --gui-repo gui                 # the macOS app
 python3 scripts/installlab/lab.py prepare windows-gui            # once: WebView2 + a desktop
-python3 scripts/installlab/lab.py run windows --gui-repo ../gui-for-cli   # the Windows app
+python3 scripts/installlab/lab.py run windows --gui-repo gui               # the Windows app
 python3 scripts/installlab/lab.py run windows --gui-installer <setup.exe> --test-sign  # signed install
-python3 scripts/installlab/lab.py run linux --gui-repo ../gui-for-cli     # the Linux app
+python3 scripts/installlab/lab.py run linux --gui-repo gui                 # the Linux app
 python3 scripts/installlab/lab.py mutate out/installlab/runs/<run>/results  # must all FAIL
 python3 scripts/installlab/lab.py gc --dry-run                    # what disk cleanup would remove
 ```
@@ -106,7 +106,7 @@ of failed tests only (`tmp_path_retention_policy = "failed"`).
 
 ## The macOS app
 
-`lab.py run macos --gui-repo <gui-for-cli checkout>` tests the WGS Extract app
+`lab.py run macos --gui-repo gui` tests the WGS Extract app
 the same way. It packages the DMG and builds the bundle-test runner from that
 checkout every time (`--dmg` tests a given DMG instead), so a stale build can't
 be what passes. In the VM:
@@ -146,9 +146,10 @@ format is checked there; the CLI lab measures concordance.
 ### Published macOS release acceptance
 
 Test the DMG downloaded from the published release, not a locally packaged app
-or a manually dispatched Actions artifact. Use a gui-for-cli checkout matching
-the release tag to build the bundle-test runner. The plan's `dataSource` steps
-need v0.4.4 or later; an older runner rejects them.
+or a manually dispatched Actions artifact. Use the app's source at the release
+tag (`gui/` of a checkout of the tag; for releases up to v0.6.6, a checkout of
+the former gui-for-cli repository) to build the bundle-test runner. The plan's
+`dataSource` steps need v0.4.4 or later; an older runner rejects them.
 
 ```bash
 mkdir -p out/installlab/releases/v0.4.4
@@ -199,7 +200,7 @@ and verifies the persisted policy before any product code runs.
 
 ## The Windows app
 
-`lab.py run windows --gui-repo <gui-for-cli checkout>` tests the WGS Extract
+`lab.py run windows --gui-repo gui` tests the WGS Extract
 Windows app (Tauri, NSIS installer) the same way. It cross-builds the x64
 installer from that checkout every time: on macOS with `make package
 PLATFORM=tauri-windows-cross` (which needs cargo-xwin, NSIS and LLVM, and says
@@ -258,7 +259,7 @@ installer; it does not prove a public release is signed.
 
 ## The Linux app
 
-`lab.py run linux --gui-repo <gui-for-cli checkout>` tests the Linux app (Tauri,
+`lab.py run linux --gui-repo gui` tests the Linux app (Tauri,
 `.deb`). Tauri can't cross-build Linux packages, so the lab builds the `.deb` the
 way `make package PLATFORM=tauri` does, in an `amd64` `ubuntu:24.04` container
 (Cargo and the build tree are kept in Docker volumes between builds);
@@ -387,7 +388,8 @@ and judged (and mutated) by a separate Linux job.
 ## In CI
 
 `.github/workflows/install_lab.yml` runs the lab on every pull request and push
-to `main`, and weekly. Within an hour of a new app release,
+to `main`, and weekly (changes only to the app in `gui/` skip it: they don't
+change the app it tests). Within an hour of a new app release,
 `app_release_watch.yml` also starts the weekly run's full matrix on `main` for
 that release (`-f app_release=<tag>`; the run is named after it):
 
@@ -409,11 +411,12 @@ sabotaged run's evidence (`--sabotage --no-judge`) is judged as a negative
 control: `lab.py judge` passes it only if it fails on the checks the sabotage
 breaks.
 
-To try an app fix before releasing it, run gui-for-cli's Distribution workflow
-on its branch, then this workflow with that run's ID:
+To try an app fix before releasing it, run the *GUI distribution* workflow
+(`gui-distribution.yml`) on its branch, then this workflow with that run's ID:
 `gh workflow run install_lab.yml -f app_run=<run id>`. The app jobs then test
-that run's signed builds, and `macos-app` checks out the app source at its
-commit.
+that run's builds, and `macos-app` checks out the app source at its commit.
+The latest app release is this repository's latest release once it carries the
+app; until then, the latest of the former gui-for-cli repository.
 
 Runners aren't new machines, so each run first makes its runner look like one,
 and the oracle still checks the result:

@@ -160,6 +160,8 @@ venv.bak/
 
 # Generated HTML; site_src and hand-maintained site assets remain tracked.
 /site/*.html
+# The desktop app's site, copied from gui/site by pages.yml.
+/site/app/
 /site_build
 
 # mypy

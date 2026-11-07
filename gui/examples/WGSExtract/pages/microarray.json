@@ -1,0 +1,337 @@
+{
+  "id": "microarray",
+  "title": "pages.microarray.title",
+  "summary": "pages.microarray.summary",
+  "sidebarGroup": "sidebar.groups.analyze",
+  "sections": [
+    {
+      "id": "microarray-inputs",
+      "title": "sections.microarray.microarray-inputs.title",
+      "subtitle": "sections.microarray.post-v063.builds.subtitle",
+      "iconName": "microarray-config",
+      "textIcon": "⚙️",
+      "controls": [
+        {
+          "id": "bam_path",
+          "label": "controls.microarray.microarray-inputs.bam_path.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.microarray.microarray-inputs.bam_path.tooltip"
+        },
+        {
+          "id": "ref_fasta",
+          "label": "controls.microarray.microarray-inputs.ref_path.label",
+          "kind": "dropdown",
+          "tooltip": "controls.microarray.microarray-inputs.ref_path.tooltip",
+          "dataSource": {
+            "path": "scripts/list-reference-genomes.py",
+            "arguments": [
+              "options",
+              "{{ref_path}}"
+            ]
+          }
+        },
+        {
+          "id": "out_dir",
+          "label": "controls.microarray.microarray-inputs.out_dir.label",
+          "kind": "path",
+          "tooltip": "controls.microarray.microarray-inputs.out_dir.tooltip"
+        },
+        {
+          "id": "microarray_min_gq",
+          "label": "controls.microarray.post-v063.min-gq.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.min-gq.tooltip"
+        },
+        {
+          "id": "microarray_min_dp",
+          "label": "controls.microarray.post-v063.min-dp.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.min-dp.tooltip"
+        },
+        {
+          "id": "microarray_strand_ambiguous",
+          "label": "controls.microarray.post-v063.strand.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "no-call",
+              "title": "controls.microarray.post-v063.strand.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.strand.tooltip"
+        },
+        {
+          "id": "microarray_resolve_rsids",
+          "label": "controls.microarray.post-v063.rsids.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--resolve-rsids",
+              "title": "controls.microarray.post-v063.rsids.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.rsids.tooltip"
+        },
+        {
+          "id": "microarray_absent_no_call",
+          "label": "controls.microarray.post-v063.absent.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--no-assume-hom-ref",
+              "title": "controls.microarray.post-v063.absent.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.absent.tooltip"
+        },
+        {
+          "id": "microarray_exclude_filtered",
+          "label": "controls.microarray.post-v063.filtered.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--exclude-filtered",
+              "title": "controls.microarray.post-v063.filtered.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.filtered.tooltip"
+        },
+        {
+          "id": "microarray_call_reasons",
+          "label": "controls.microarray.post-v063.reasons.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--call-reasons",
+              "title": "controls.microarray.post-v063.reasons.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.reasons.tooltip"
+        },
+        {
+          "id": "aadr_sample_id",
+          "label": "controls.microarray.post-v063.aadr-sample.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.aadr-sample.tooltip"
+        },
+        {
+          "id": "aadr_sex",
+          "label": "controls.microarray.post-v063.aadr-sex.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.aadr-sex.tooltip"
+        },
+        {
+          "id": "indel_format",
+          "label": "controls.microarray.post-v063.indel-format.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.indel-format.tooltip"
+        },
+        {
+          "id": "indel_manifest",
+          "label": "controls.microarray.post-v063.indel-manifest.label",
+          "kind": "path",
+          "tooltip": "controls.microarray.post-v063.indel-manifest.tooltip"
+        }
+      ]
+    },
+    {
+      "id": "microarray-formats",
+      "title": "sections.microarray.microarray-formats.title",
+      "subtitle": "sections.microarray.post-v063.aadr-2m.subtitle",
+      "iconName": "microarray-grid",
+      "textIcon": "▦",
+      "controls": [
+        {
+          "id": "microarray_formats",
+          "label": "controls.microarray.microarray-formats.microarray_formats.label",
+          "kind": "checkboxGroup",
+          "tooltip": "controls.microarray.microarray-formats.microarray_formats.tooltip",
+          "options": [
+            {
+              "id": "all",
+              "title": "options.microarray.microarray-formats.microarray_formats.combined-all.title",
+              "group": "Combined",
+              "selected": true
+            },
+            {
+              "id": "23andme_v3",
+              "title": "options.microarray.microarray-formats.microarray_formats.23andme-v3.title",
+              "group": "23andMe"
+            },
+            {
+              "id": "23andme_v4",
+              "title": "options.microarray.microarray-formats.microarray_formats.23andme-v4.title",
+              "group": "23andMe"
+            },
+            {
+              "id": "23andme_v5",
+              "title": "options.microarray.microarray-formats.microarray_formats.23andme-v5.title",
+              "group": "23andMe",
+              "selected": true
+            },
+            {
+              "id": "23andme_v35",
+              "title": "options.microarray.microarray-formats.microarray_formats.23andme-v3-v5.title",
+              "group": "23andMe",
+              "selected": true
+            },
+            {
+              "id": "ancestry_v1",
+              "title": "options.microarray.microarray-formats.microarray_formats.ancestry-v1.title",
+              "group": "AncestryDNA"
+            },
+            {
+              "id": "ancestry_v2",
+              "title": "options.microarray.microarray-formats.microarray_formats.ancestry-v2.title",
+              "group": "AncestryDNA"
+            },
+            {
+              "id": "ftdna_v2",
+              "title": "options.microarray.microarray-formats.microarray_formats.familytreedna-v2.title",
+              "group": "FamilyTreeDNA"
+            },
+            {
+              "id": "ftdna_v3",
+              "title": "options.microarray.microarray-formats.microarray_formats.familytreedna-v3.title",
+              "group": "FamilyTreeDNA"
+            },
+            {
+              "id": "ldna_v1",
+              "title": "options.microarray.microarray-formats.microarray_formats.livingdna-v1.title",
+              "group": "Living DNA"
+            },
+            {
+              "id": "ldna_v2",
+              "title": "options.microarray.microarray-formats.microarray_formats.livingdna-v2.title",
+              "group": "Living DNA"
+            },
+            {
+              "id": "myheritage_v1",
+              "title": "options.microarray.microarray-formats.microarray_formats.myheritage-v1.title",
+              "group": "MyHeritage"
+            },
+            {
+              "id": "myheritage_v2",
+              "title": "options.microarray.microarray-formats.microarray_formats.myheritage-v2.title",
+              "group": "MyHeritage"
+            },
+            {
+              "id": "myheritage_gsa_2025",
+              "title": "options.microarray.post-v063.myheritage-gsa.title",
+              "group": "MyHeritage"
+            },
+            {
+              "id": "myheritage_gsa_2025_609424",
+              "title": "options.microarray.post-v063.myheritage-gsa-609424.title",
+              "group": "MyHeritage"
+            },
+            {
+              "id": "ancestry_v2_2021",
+              "title": "options.microarray.post-v063.ancestry-2021.title",
+              "group": "AncestryDNA"
+            },
+            {
+              "id": "ancestry_v2_2024",
+              "title": "options.microarray.post-v063.ancestry-2024.title",
+              "group": "AncestryDNA"
+            },
+            {
+              "id": "aadr_1240k",
+              "title": "options.microarray.post-v063.aadr-1240k.title",
+              "group": "AADR"
+            },
+            {
+              "id": "aadr_ho",
+              "title": "options.microarray.post-v063.aadr-ho.title",
+              "group": "AADR"
+            },
+            {
+              "id": "aadr_1240k_ho",
+              "title": "options.microarray.post-v063.aadr-union.title",
+              "group": "AADR"
+            },
+            {
+              "id": "aadr_2m",
+              "title": "options.microarray.post-v063.aadr-2m.title",
+              "group": "AADR"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "id": "microarray-generate",
+          "title": "actions.microarray.microarray-formats.microarray-generate.title",
+          "tooltip": "actions.microarray.microarray-formats.microarray-generate.tooltip",
+          "disabledTooltip": "actions.microarray.microarray-formats.microarray-generate.disabledTooltip",
+          "disabledWhen": [
+            {
+              "placeholder": "bam_path.pathExtension",
+              "in": [
+                "bai",
+                "crai"
+              ]
+            }
+          ],
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "microarray",
+              "--input",
+              "{{bam_path}}",
+              "--ref",
+              "{{ref_fasta}}",
+              "--formats",
+              "{{microarray_formats}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--min-gq",
+                "{{microarray_min_gq}}"
+              ],
+              [
+                "--min-dp",
+                "{{microarray_min_dp}}"
+              ],
+              [
+                "--strand-ambiguous",
+                "{{microarray_strand_ambiguous}}"
+              ],
+              [
+                "{{microarray_resolve_rsids}}"
+              ],
+              [
+                "{{microarray_absent_no_call}}"
+              ],
+              [
+                "{{microarray_exclude_filtered}}"
+              ],
+              [
+                "{{microarray_call_reasons}}"
+              ],
+              [
+                "--aadr-sample-id",
+                "{{aadr_sample_id}}"
+              ],
+              [
+                "--aadr-sex",
+                "{{aadr_sex}}"
+              ],
+              [
+                "--indel-manifest",
+                "{{indel_format}}={{indel_manifest}}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "iconName": "microarray",
+  "textIcon": "▦"
+}

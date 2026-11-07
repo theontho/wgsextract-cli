@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Set the CLI's version everywhere the release workflow checks it.
+"""Set the release version everywhere the release workflow checks it.
 
 Usage: python scripts/bump_version.py 0.4.4
 
-Updates pyproject.toml, pixi.toml and src/wgsextract_cli/__init__.py, the three
-files release.yml compares with the vX.Y.Z tag (see docs/releasing.md).
+Updates pyproject.toml, pixi.toml and src/wgsextract_cli/__init__.py, then
+points the desktop app's bundle at the same CLI release with
+gui/scripts/bump-wgsextract-cli.py; release.yml compares all of them with the
+vX.Y.Z tag (see docs/releasing.md).
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +23,7 @@ VERSIONS = [
     ("pixi.toml", r'^version = "([^"]+)"$'),
     ("src/wgsextract_cli/__init__.py", r'^__version__ = "([^"]+)"$'),
 ]
+GUI_BUMP = "gui/scripts/bump-wgsextract-cli.py"
 
 
 def main(argv: list[str]) -> int:
@@ -59,6 +63,14 @@ def main(argv: list[str]) -> int:
         print(
             f"Could not write the new version ({e}); nothing changed.", file=sys.stderr
         )
+        return 1
+    # The app's script prepares all its changes before writing any, so when it
+    # fails only the files above need putting back.
+    gui = subprocess.run([sys.executable, str(ROOT / GUI_BUMP), f"v{new}"])
+    if gui.returncode:
+        for path in changes:
+            path.write_text(originals[path])
+        print(f"{GUI_BUMP} failed; nothing changed.", file=sys.stderr)
         return 1
     print(f"Version {new} (was {', '.join(sorted(old))}).")
     return 0

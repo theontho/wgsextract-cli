@@ -1,0 +1,12 @@
+{
+  "id": "ffmpeg-media",
+  "version": "0.1.0",
+  "displayName": "FFmpeg Media",
+  "summary": "Probe, transcode, and extract audio with FFmpeg.",
+  "textIcon": "FF",
+  "terminalTextDirection": "ltr",
+  "pages": [
+    "generate.json",
+    "media.json"
+  ]
+}

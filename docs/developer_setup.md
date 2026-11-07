@@ -43,6 +43,20 @@ gh pr create --fill
 
 `just` lists every recipe. Each wraps a `pixi run` task, so `pixi run test` and friends work without `just`.
 
+### The desktop app
+
+The WGS Extract desktop app is in `gui/`. It has its own toolchain (uv, Node and Rust) and setup; see [gui/docs/developer_setup.md](../gui/docs/developer_setup.md). From the repository root:
+
+```bash
+just gui-setup        # install uv, Node and Rust if missing, and the app's locked dependencies
+just gui-run          # build and serve the Web UI in a browser
+just gui-tauri        # run the desktop app in dev mode
+just gui-ci           # the app's lint and tests, as GUI CI runs them
+just gui-package      # build this platform's installers into gui/out/release/tauri
+```
+
+Root ruff, mypy and pytest skip `gui/`; changes there run GUI CI instead of the CLI's CI, and changes elsewhere don't run GUI CI.
+
 When you add or rename a command:
 
 - Give a new top-level command a tier (core, setup or advanced) and a short

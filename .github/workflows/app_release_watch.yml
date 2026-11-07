@@ -1,9 +1,9 @@
 name: App release watch
 
-# A new WGS Extract app release gets the full Install Lab run (the weekly matrix:
-# pinned CLI and negative controls included) within the hour, not at the next
-# weekly run. gui-for-cli can't dispatch workflows here without a credential, so
-# this repo checks for new releases itself.
+# A new WGS Extract release gets the full Install Lab run of its app (the weekly
+# matrix: pinned CLI and negative controls included) within the hour, not at the
+# next weekly run. The app joins the release after release.yml publishes it (or
+# when a maintainer publishes its draft), so this checks for that by the hour.
 on:
   schedule:
     - cron: "37 * * * *"
@@ -21,9 +21,13 @@ jobs:
       - name: Run the Install Lab for the latest app release if it hasn't had one
         env:
           GH_TOKEN: ${{ github.token }}
-          GUI_REPO: WGSExtract/gui-for-cli
         run: |
-          tag=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
+          tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          assets=$(gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+          if ! grep -q '_amd64\.deb$' <<< "$assets"; then
+            echo "Release $tag doesn't carry the app (yet)."
+            exit 0
+          fi
           # install_lab.yml names a run dispatched with app_release after it.
           title="Install Lab: app $tag"
           # Read the list first: a failed lookup must fail the watcher, not

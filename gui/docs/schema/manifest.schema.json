@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WGSExtract/wgsextract-cli/gui/schema/manifest.schema.json",
+  "title": "GUI for CLI Bundle Manifest",
+  "type": "object",
+  "required": ["id", "displayName", "summary", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "type": "string", "minLength": 1 },
+    "version": {
+      "description": "Optional bundle/package version. Embedded distribution packaging uses this as the app and installer version unless overridden by packaging configuration.",
+      "type": "string",
+      "minLength": 1
+    },
+    "displayName": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "iconName": { "type": "string" },
+    "iconPath": { "type": "string" },
+    "textIcon": { "$ref": "#/$defs/textIcon" },
+    "sidebarIconStyle": {
+      "type": "string",
+      "enum": ["automatic", "image", "emoji", "symbol", "hidden"]
+    },
+    "terminalTextDirection": {
+      "description": "Text direction for terminal output. Defaults to left-to-right so command output, paths, and logs remain readable in RTL interface languages.",
+      "type": "string",
+      "enum": ["ltr", "rtl"],
+      "default": "ltr"
+    },
+    "setup": { "$ref": "#/$defs/setup" },
+    "uninstall": { "$ref": "#/$defs/setup" },
+    "exitCodeReference": {
+      "description": "Optional descriptions for process exit codes. Entries override app-provided defaults for the same code, and title/summary can be strings.toml localization keys.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/exitCodeReferenceEntry" },
+      "default": []
+    },
+    "pages": {
+      "description": "Ordered page file names in the bundle pages/ directory, or legacy inline page objects.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^/]+\\.json$"
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        {
+          "type": "array",
+          "items": { "$ref": "page.schema.json" },
+          "minItems": 1
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/setupStep" },
+          "default": []
+        }
+      }
+    },
+    "exitCodeReferenceEntry": {
+      "type": "object",
+      "required": ["code", "title", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "integer" },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "severity": {
+          "type": "string",
+          "enum": ["warning", "error"],
+          "default": "error"
+        }
+      }
+    },
+    "setupStep": {
+      "type": "object",
+      "required": ["id", "kind", "label", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["bundledScript", "setupScript", "pathTool", "homebrewPackage", "pixiInstall", "pixiRun"]
+        },
+        "label": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "minLength": 1 },
+        "arguments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        },
+        "workingDirectory": { "type": "string" },
+        "optional": { "type": "boolean", "default": false },
+        "requiresAdmin": {
+          "description": "When true, setup runners request platform-specific admin elevation before running this step.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "textIcon": {
+      "description": "One or two user-visible Unicode characters used when text icons are preferred.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2
+    }
+  }
+}

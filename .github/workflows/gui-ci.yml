@@ -1,0 +1,100 @@
+name: GUI CI
+
+# Lint and test the WGS Extract desktop app in gui/. It only runs when the app
+# (or its workflows) change; CLI-only changes skip it. CI Ubuntu, which lints
+# every workflow, skips app-only changes, so this lints the app's workflows.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "gui/**"
+      - ".github/workflows/gui-*.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "gui/**"
+      - ".github/workflows/gui-*.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: gui
+
+jobs:
+  workflows:
+    name: GUI workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up lint-only Pixi environment
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: lint
+      - name: Lint and validate the workflows
+        run: |
+          pixi run -e lint -x actionlint
+          pixi run -e lint -x python scripts/validate_github_actions.py
+
+  checks:
+    name: GUI lint and test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: gui/app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        working-directory: gui/app
+
+      - name: Lint and test
+        run: python3 tools/tasks.py ci
+
+  test:
+    name: GUI test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, windows-latest ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: gui/app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        working-directory: gui/app
+
+      - name: Run tests
+        env:
+          CHOKIDAR_USEPOLLING: "1"
+        run: python3 tools/tasks.py test

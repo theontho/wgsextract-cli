@@ -1,0 +1,62 @@
+{
+  "name": "ImageMagick Tools smoke",
+  "inputs": {
+    "fieldValues": {
+      "input_file": "{{bundleWorkspace}}/sample.png",
+      "output_file": "{{bundleWorkspace}}/sample.png",
+      "image_size": "64x64",
+      "resize": "32x32"
+    }
+  },
+  "steps": [
+    {
+      "id": "generate-gradient",
+      "kind": "action",
+      "pageID": "generate",
+      "actionID": "generate-gradient",
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "identify",
+      "kind": "action",
+      "pageID": "image",
+      "actionID": "identify",
+      "inputs": {
+        "fieldValues": {
+          "input_file": "{{bundleWorkspace}}/sample.png"
+        }
+      },
+      "requiredOutput": [
+        "Format: PNG"
+      ],
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "resize",
+      "kind": "action",
+      "pageID": "image",
+      "actionID": "resize",
+      "inputs": {
+        "fieldValues": {
+          "input_file": "{{bundleWorkspace}}/sample.png",
+          "output_file": "{{bundleWorkspace}}/sample-small.png",
+          "resize": "32x32"
+        }
+      },
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "strip-metadata",
+      "kind": "action",
+      "pageID": "image",
+      "actionID": "strip-metadata",
+      "inputs": {
+        "fieldValues": {
+          "input_file": "{{bundleWorkspace}}/sample.png",
+          "output_file": "{{bundleWorkspace}}/sample-stripped.png"
+        }
+      },
+      "timeoutSeconds": 30
+    }
+  ]
+}

@@ -1,29 +1,26 @@
 ---
 output: 'gui.html'
 title: 'GUI Downloads | WGS Extract CLI'
-description: 'Download the separate gui-for-cli graphical interface for WGS Extract, or install the CLI-only wgsextract command-line app.'
+description: 'Download the WGS Extract desktop app, a graphical interface for the wgsextract command-line app, or install the CLI on its own.'
 eyebrow: 'Graphical interface'
-heading: 'Use gui-for-cli when you want WGS Extract with windows, buttons, and forms.'
-lede: 'The command-line app and graphical app are separate projects. Install `wgsextract-cli` when you want terminal commands and automation; install gui-for-cli from [gui-for-cli Releases](https://github.com/WGSExtract/gui-for-cli/releases){.inline-link} when you want a graphical interface for WGS Extract workflows.'
-toc: 'GUI releases|releases; Choose a download|downloads; CLI option|cli-option; How they fit|fit'
-footer_title: 'WGS Extract GUI'
-footer_text: 'Graphical releases are maintained in the gui-for-cli repository.'
-footer_link_text: 'Open all GUI releases'
-footer_link_href: 'https://github.com/WGSExtract/gui-for-cli/releases'
+heading: 'Use the WGS Extract app when you want windows, buttons, and forms.'
+lede: 'The WGS Extract desktop app runs the same `wgsextract` commands from a graphical interface. Both are built from this repository; install the CLI on its own when you want terminal commands and automation.'
+toc: 'Get the app|releases; Choose a download|downloads; CLI option|cli-option; How they fit|fit'
+footer_title: 'WGS Extract app'
+footer_text: 'The app is developed in the gui/ folder of the wgsextract-cli repository.'
+footer_link_text: 'Open the app site'
+footer_link_href: 'app/'
 ---
 
 ::: section id=releases
 ::: split
 ::: block
-## GUI releases live in gui-for-cli
-Download the WGS Extract graphical interface from the [gui-for-cli Releases page](https://github.com/WGSExtract/gui-for-cli/releases){.inline-link}. Use [the latest gui-for-cli release](https://github.com/WGSExtract/gui-for-cli/releases/latest){.inline-link} for current installers, release notes, signatures, and metadata.
-
-Use the release page when you want the newest platform packages, signatures, release notes, or older versions. The package names below describe what to choose on the latest release.
+## Get the WGS Extract app
+The [app's site](app/){.inline-link} has direct downloads for every platform, what the app does, and how it is built. From the first release after v0.6.6, each [wgsextract-cli release](https://github.com/WGSExtract/wgsextract-cli/releases){.inline-link} carries the app's installers next to the CLI it bundles; earlier app releases stay on the [former gui-for-cli repository](https://github.com/WGSExtract/gui-for-cli/releases){.inline-link}.
 :::
 
 ::: actions
-{{ button: Open latest GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|primary }}
-{{ button: Browse all GUI releases|https://github.com/WGSExtract/gui-for-cli/releases }}
+{{ button: Open the app site|app/|primary }}
 {{ button: Install CLI instead|install.html }}
 :::
 :::
@@ -32,39 +29,29 @@ Use the release page when you want the newest platform packages, signatures, rel
 ::: section id=downloads
 ::: wrap
 ::: section-head
-## Choose a GUI download
-Pick the package that matches your operating system. If you are unsure, open the [latest gui-for-cli release](https://github.com/WGSExtract/gui-for-cli/releases/latest){.inline-link} and choose the asset recommended for your platform.
+## Choose a download
+Pick the package that matches your operating system on the [app site's download section](app/){.inline-link}.
 :::
 
 ::: grid three
 ::: card
 ### Windows
-Use the x64 setup executable for a normal graphical install.
-
-{{ link: Open latest Windows GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|inline-link }}
-
-The release also includes a quick uninstall PowerShell helper and signature assets.
+Use the x64 setup executable (`_x64-setup.exe`) for a normal graphical install. A quick uninstall PowerShell helper and signature assets come with each release.
 :::
 
 ::: card
 ### macOS
-Use a DMG package, then drag the app into Applications when prompted.
-
-{{ link: Open latest macOS GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|inline-link }}
-
-Choose the `aarch64.dmg` for Apple Silicon or `x64.dmg` for Intel. The current GUI release is v0.6.6; its packages are separate from the CLI release.
+Use a DMG package, then drag the app into Applications when prompted. Choose the `aarch64.dmg` for Apple Silicon or `x64.dmg` for Intel.
 :::
 
 ::: card
 ### Linux
-Use the package format native to your distribution, or use the AppImage for a portable desktop app.
-
-{{ link: Open latest Linux GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|inline-link }}
+Use the package format native to your distribution (`.deb`, `.rpm` or Arch package), or the AppImage for a portable desktop app.
 :::
 :::
 
 ::: callout
-{{ text: **Checksums and signatures:** gui-for-cli release assets include signature, appcast, and metadata files where the GUI build publishes them. Use the [gui-for-cli releases page](https://github.com/WGSExtract/gui-for-cli/releases){.inline-link} when you need to verify a package before installing. }}
+{{ text: **Checksums and signatures:** each release carries the app's updater signatures and feed (`latest.json`) next to its installers. Use the [releases page](https://github.com/WGSExtract/wgsextract-cli/releases){.inline-link} when you need to verify a package before installing. }}
 :::
 :::
 :::
@@ -86,13 +73,13 @@ Install `wgsextract-cli` when you want terminal commands, scripts, automation, r
 ::: wrap
 ::: section-head
 ## How the GUI and CLI fit together
-The GUI and CLI are intentionally separate so each can ship on the cadence that fits its users.
+The app is a graphical front end for the CLI: it sets up the CLI release it bundles and runs its commands. Both ship together in each release.
 :::
 
 ::: grid two
 ::: card
 ### Use the GUI for interactive work
-Install gui-for-cli when you want a desktop-style app for selecting inputs, setting options, and running WGS Extract workflows without writing every command by hand.
+Install the WGS Extract app when you want a desktop-style app for selecting inputs, setting options, and running WGS Extract workflows without writing every command by hand.
 :::
 
 ::: card

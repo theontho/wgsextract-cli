@@ -1,0 +1,26 @@
+# Copy to .devconfig.toml and fill in local developer-only values.
+
+[apple.signing]
+# Apple ID used for notarization submissions.
+apple_id = "you@example.com"
+
+# Apple Developer team used for macOS signing / notarization.
+development_team = "TEAMID1234"
+team_id = "TEAMID1234"
+
+# Example: Developer ID Application: Your Name (TEAMID1234)
+signing_identity = ""
+
+# Optional; used by scripts/dev.py signing helpers. Tauri notarizes from APPLE_* env vars.
+notary_profile = ""
+
+# Optional only for creating a local notarytool keychain profile; packaging
+# uses notary_profile and does not pass passwords on the command line.
+app_specific_password = ""
+
+[packaging]
+# Optional embedded bundle used for local branded packaging builds.
+embedded_bundle_path = ""
+
+# Optional branded app/product name for packaging.
+app_name = ""

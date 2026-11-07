@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GUI for CLI",
+  "version": "0.1.0",
+  "identifier": "dev.guiforcli.web.embed.wgsextract",
+  "build": {
+    "frontendDist": "../../../dist"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../../dist": "app/dist",
+      "../../index.html": "app/web/index.html",
+      "../../styles.css": "app/web/styles.css",
+      "../../vendor": "app/web/vendor",
+      "resources/node": "node",
+      "resources/EmbeddedBundle": "examples/EmbeddedBundle",
+      "resources/branding.json": "branding.json",
+      "../../../../resources": "resources"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis-hooks.nsh"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    }
+  }
+}

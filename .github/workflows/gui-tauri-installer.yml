@@ -1,0 +1,84 @@
+name: GUI Tauri installer
+
+# Builds the app's Windows NSIS installer and runs it through install, bundle
+# setup, uninstall hooks, and cleanup. Slow, so it only runs when packaging
+# inputs change.
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/gui-tauri-installer.yml"
+      - "gui/examples/**"
+      - "gui/app/**"
+      - "gui/resources/**"
+      - "gui/scripts/validate-windows-tauri-lifecycle.ps1"
+      - "gui/scripts/windows-admin-task-broker.ps1"
+      - "gui/tools/packaging/windows/**"
+      - "gui/tools/tasks.py"
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/gui-tauri-installer.yml"
+      - "gui/examples/**"
+      - "gui/app/**"
+      - "gui/resources/**"
+      - "gui/scripts/validate-windows-tauri-lifecycle.ps1"
+      - "gui/scripts/windows-admin-task-broker.ps1"
+      - "gui/tools/packaging/windows/**"
+      - "gui/tools/tasks.py"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: gui
+
+jobs:
+  windows:
+    name: Windows installer lifecycle
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: gui/app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: gui/app
+
+      - name: Cache Tauri Rust build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            gui/app/web/packagers/tauri/target
+          key: ${{ runner.os }}-tauri-${{ hashFiles('gui/app/web/packagers/tauri/Cargo.lock', 'gui/app/web/packagers/tauri/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-tauri-
+
+      - name: Build Tauri installer
+        shell: pwsh
+        run: python tools/tasks.py package tauri
+
+      - name: Validate install setup uninstall lifecycle via admin broker
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\validate-windows-tauri-lifecycle.ps1 -AutomatedAdmin
+
+      - name: Upload Tauri installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-tauri-installer
+          path: gui/out/release/tauri/*.exe
+          if-no-files-found: error

@@ -13,19 +13,26 @@ name: Install Lab
 # see which releases have had a full run; otherwise the event's default name.
 run-name: "${{ inputs.app_release && format('Install Lab: app {0}', inputs.app_release) || '' }}"
 
+# The desktop app (gui/) has its own CI (gui-*.yml); app-only changes skip this.
 on:
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   push:
     branches: [ main ]
+    paths-ignore:
+      - gui/**
+      - .github/workflows/gui-*.yml
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
     inputs:
       app_run:
         description: >-
-          A gui-for-cli Distribution run ID: test its app builds instead of the
-          latest release (to try a fix before releasing it)
+          A GUI distribution run ID (gui-distribution.yml): test its app builds
+          instead of the latest release (to try a fix before releasing it)
         required: false
       app_release:
         description: >-
@@ -37,11 +44,7 @@ permissions:
   contents: read
 
 env:
-  # The app as users get it: the latest WGS Extract app release (or the one
-  # given as app_release), or the builds of the Distribution run given as app_run.
-  GUI_REPO: WGSExtract/gui-for-cli
   APP_RUN: ${{ inputs.app_run }}
-  APP_RELEASE: ${{ inputs.app_release }}
   # `tree`: the app sets up this CLI tree. `pinned` (weekly): the CLI release the
   # app pins, exactly as a user's app does.
   WEEKLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -86,7 +89,48 @@ jobs:
           path: out/installlab
           retention-days: 14
 
+  # The app as users get it: the latest WGS Extract app release (or the one
+  # given as app_release), or the builds of the GUI distribution run given as
+  # app_run. Releases after v0.6.6 carry the app; older ones are on the app's
+  # former repository, WGSExtract/gui-for-cli.
+  app-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      repo: ${{ steps.resolve.outputs.repo }}
+      release: ${{ steps.resolve.outputs.release }}
+      source: ${{ steps.resolve.outputs.source }}
+    steps:
+      - name: Find the app's release
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_RELEASE: ${{ inputs.app_release }}
+          OLD_REPO: WGSExtract/gui-for-cli
+        run: |
+          repo=$GITHUB_REPOSITORY
+          release=
+          if [ -z "$APP_RUN" ]; then
+            release=${APP_RELEASE:-$(gh release view -R "$repo" --json tagName -q .tagName)}
+            # No such release here (an app-only tag): the old repository.
+            assets=$(gh release view "$release" -R "$repo" --json assets -q '.assets[].name' || true)
+            if ! grep -q '_amd64\.deb$' <<< "$assets"; then
+              repo=$OLD_REPO
+              release=${APP_RELEASE:-$(gh release view -R "$repo" --json tagName -q .tagName)}
+            fi
+          fi
+          # The app's source: gui/ in this repository, the root in the old one.
+          source=out/app-src
+          if [ "$repo" = "$GITHUB_REPOSITORY" ]; then source=out/app-src/gui; fi
+          echo "App from $repo ${release:-run $APP_RUN}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "repo=$repo"
+            echo "release=$release"
+            echo "source=$source"
+          } >> "$GITHUB_OUTPUT"
+
   linux-app:
+    needs: app-source
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -106,13 +150,15 @@ jobs:
       - name: Download the app's .deb
         env:
           GH_TOKEN: ${{ github.token }}
+          GUI_REPO: ${{ needs.app-source.outputs.repo }}
+          APP_RELEASE: ${{ needs.app-source.outputs.release }}
         run: |
           if [ -n "$APP_RUN" ]; then
             gh run download "$APP_RUN" -R "$GUI_REPO" -n tauri-linux -D out/app-run
             mkdir -p out/app
             find out/app-run -name '*_amd64.deb' -exec mv {} out/app/ \;
           else
-            gh release download ${APP_RELEASE:+"$APP_RELEASE"} -R "$GUI_REPO" -p '*_amd64.deb' -D out/app
+            gh release download "$APP_RELEASE" -R "$GUI_REPO" -p '*_amd64.deb' -D out/app
           fi
           ls -l out/app
       # A fresh ubuntu:24.04 desktop user (Xvfb display): apt install, the app's
@@ -170,6 +216,7 @@ jobs:
           retention-days: 14
 
   macos-app:
+    needs: app-source
     runs-on: macos-latest
     timeout-minutes: 150
     strategy:
@@ -197,6 +244,8 @@ jobs:
         id: app
         env:
           GH_TOKEN: ${{ github.token }}
+          GUI_REPO: ${{ needs.app-source.outputs.repo }}
+          APP_RELEASE: ${{ needs.app-source.outputs.release }}
         run: |
           if [ -n "$APP_RUN" ]; then
             ref=$(gh run view "$APP_RUN" -R "$GUI_REPO" --json headSha -q .headSha)
@@ -204,7 +253,7 @@ jobs:
             mkdir -p out/app
             find out/app-run -name '*.dmg' -exec mv {} out/app/ \;
           else
-            ref=${APP_RELEASE:-$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)}
+            ref=$APP_RELEASE
             gh release download "$ref" -R "$GUI_REPO" -p '*.dmg' -D out/app
           fi
           ls -l out/app
@@ -218,18 +267,19 @@ jobs:
       - name: Check out the app's source (for its bundle-test runner)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ env.GUI_REPO }}
+          repository: ${{ needs.app-source.outputs.repo }}
           ref: ${{ steps.app.outputs.ref }}
-          path: out/gui-for-cli
+          path: out/app-src
           persist-credentials: false
       - name: Install, use and uninstall the app as the runner's macOS user
         env:
           CLI: ${{ matrix.cli }}
           DMG: ${{ steps.app.outputs.dmg }}
+          APP_SOURCE: ${{ needs.app-source.outputs.source }}
         run: |
           args=()
           if [ "$CLI" = tree ]; then args+=(--cli-from-tree); fi
-          python scripts/installlab/lab.py run host --gui-repo out/gui-for-cli --dmg "$DMG" "${args[@]}" --no-judge --out out/installlab/ci-macos-app
+          python scripts/installlab/lab.py run host --gui-repo "$APP_SOURCE" --dmg "$DMG" "${args[@]}" --no-judge --out out/installlab/ci-macos-app
       # No cache: this job has run the app repository's code, and a cache saved
       # here would be restored by this repository's other jobs.
       - name: Set up Pixi
@@ -297,6 +347,7 @@ jobs:
           retention-days: 14
 
   windows-app:
+    needs: app-source
     runs-on: windows-latest
     timeout-minutes: 150
     strategy:
@@ -310,6 +361,8 @@ jobs:
       - name: Download the app's installer
         env:
           GH_TOKEN: ${{ github.token }}
+          GUI_REPO: ${{ needs.app-source.outputs.repo }}
+          APP_RELEASE: ${{ needs.app-source.outputs.release }}
         run: |
           if ($env:APP_RUN) {
             gh run download $env:APP_RUN -R $env:GUI_REPO -n tauri-windows -D out/app-run
@@ -317,8 +370,7 @@ jobs:
             New-Item -ItemType Directory -Force out/app | Out-Null
             Get-ChildItem -Recurse out/app-run -Filter *_x64-setup.exe | Move-Item -Destination out/app
           } else {
-            $release = @($env:APP_RELEASE | Where-Object { $_ })
-            gh release download @release -R "$env:GUI_REPO" -p '*_x64-setup.exe' -D out/app
+            gh release download $env:APP_RELEASE -R $env:GUI_REPO -p '*_x64-setup.exe' -D out/app
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
           Get-ChildItem out/app

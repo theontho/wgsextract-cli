@@ -28,6 +28,7 @@ reviews:
     - "!**/tmp/**"
     - "!**/scratch/**"
     - "!**/node_modules/**"
+    - "!**/target/**"
     - "!pixi.lock"
     - "!**/*.lock"
   path_instructions:
@@ -41,6 +42,30 @@ reviews:
     - path: "scripts/**"
       instructions: |
         Verify both interactive and non-interactive behavior.
+    - path: "gui/app/web/packagers/tauri/**/*.rs"
+      instructions: |
+        Tauri desktop shell. It hosts the window, menus, native pickers, and updater only;
+        bundle behavior belongs in the TypeScript server. Prefer explicit error handling over unwrap/expect
+        outside startup paths.
+    - path: "gui/scripts/**"
+      instructions: |
+        Verify both interactive and non-interactive behavior.
+    - path: "gui/app/**/*.{ts,mjs,js}"
+      instructions: |
+        TypeScript compiled with tsc to vanilla ES modules (no bundler/framework). Keep dependencies minimal.
+        web/src/server is a small Node HTTP server; web/src/client is browser-side.
+        Shared code in gui/app/shared must run in both Node and the browser — no Node-only
+        APIs (fs, path, process) outside web/src/server. Behavior must hold on Windows, macOS, and Linux.
+    - path: "gui/app/**/*.{html,css}"
+      instructions: |
+        Plain HTML/CSS, no framework. Watch for accessibility: every interactive control
+        needs a label/aria-label; semantic elements over div soup.
+    - path: "gui/app/tests/**"
+      instructions: |
+        Verify both happy-path and error responses. Keep tests runnable via `node --test` and listed in gui/app/scripts/run-node-tests.mjs.
+    - path: "**/*.md"
+      instructions: |
+        Documentation. Skip prose nits unless content is misleading or incorrect.
 
 chat:
   auto_reply: true

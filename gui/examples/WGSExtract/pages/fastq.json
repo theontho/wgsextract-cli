@@ -1,0 +1,304 @@
+{
+  "id": "fastq",
+  "title": "pages.fastq.title",
+  "summary": "pages.fastq.summary",
+  "sidebarGroup": "sidebar.groups.convert",
+  "sections": [
+    {
+      "id": "multiqc",
+      "title": "sections.fastq.post-v063.multiqc.title",
+      "controls": [
+        {
+          "id": "multiqc_input",
+          "label": "controls.fastq.post-v063.multiqc-file.label",
+          "kind": "path",
+          "pathType": "file",
+          "tooltip": "controls.fastq.post-v063.multiqc-input.tooltip"
+        },
+        {
+          "id": "multiqc_directory",
+          "label": "controls.fastq.post-v063.multiqc-directory.label",
+          "kind": "path",
+          "pathType": "directory",
+          "tooltip": "controls.fastq.post-v063.multiqc-input.tooltip"
+        },
+        {
+          "id": "multiqc_force",
+          "label": "controls.fastq.post-v063.multiqc-force.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--force",
+              "title": "controls.fastq.post-v063.multiqc-force.label"
+            }
+          ],
+          "tooltip": "controls.fastq.post-v063.multiqc-force.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "multiqc",
+          "title": "actions.fastq.post-v063.multiqc.title",
+          "tooltip": "actions.fastq.post-v063.multiqc.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "qc",
+              "multiqc",
+              "--input",
+              "{{multiqc_input}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "{{multiqc_force}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "multiqc-directory",
+          "title": "actions.fastq.post-v063.multiqc-directory.title",
+          "tooltip": "actions.fastq.post-v063.multiqc.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "qc",
+              "multiqc",
+              "--input",
+              "{{multiqc_directory}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "{{multiqc_force}}"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "fastq-align",
+      "title": "sections.fastq.fastq-align.title",
+      "iconName": "sequence-reads",
+      "textIcon": "〰️",
+      "controls": [
+        {
+          "id": "fastq_r1",
+          "label": "controls.fastq.fastq-inputs.fastq_r1.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.fastq.fastq-inputs.fastq_r1.tooltip"
+        },
+        {
+          "id": "fastq_r2",
+          "label": "controls.fastq.fastq-inputs.fastq_r2.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.fastq.fastq-inputs.fastq_r2.tooltip"
+        },
+        {
+          "id": "ref_fasta",
+          "label": "controls.fastq.fastq-inputs.ref_fasta.label",
+          "kind": "dropdown",
+          "tooltip": "controls.fastq.fastq-inputs.ref_fasta.tooltip",
+          "dataSource": {
+            "path": "scripts/list-reference-genomes.py",
+            "arguments": [
+              "options",
+              "{{ref_path}}"
+            ]
+          }
+        },
+        {
+          "id": "out_dir",
+          "label": "controls.fastq.fastq-inputs.out_dir.label",
+          "kind": "path",
+          "tooltip": "controls.fastq.fastq-inputs.out_dir.tooltip"
+        },
+        {
+          "id": "fastq_output_format",
+          "label": "controls.fastq.fastq-inputs.fastq_output_format.label",
+          "kind": "dropdown",
+          "value": "BAM",
+          "tooltip": "controls.fastq.fastq-inputs.fastq_output_format.tooltip",
+          "options": [
+            {
+              "id": "BAM",
+              "title": "options.fastq.fastq-inputs.fastq_output_format.BAM.title",
+              "selected": true
+            },
+            {
+              "id": "CRAM",
+              "title": "options.fastq.fastq-inputs.fastq_output_format.CRAM.title"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "id": "align",
+          "title": "actions.fastq.fastq-inputs.align.title",
+          "tooltip": "actions.fastq.fastq-inputs.align.tooltip",
+          "estimatedDurationMinutes": 540,
+          "precheck": {
+            "diskSpaceGB": "{{fastq_r1.fileSizeGB}} * 8",
+            "diskSpacePath": "{{out_dir}}"
+          },
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "align",
+              "--r1",
+              "{{fastq_r1}}",
+              "--ref",
+              "{{ref_fasta}}",
+              "--format",
+              "{{fastq_output_format}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--r2",
+                "{{fastq_r2}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "fastqc",
+          "title": "actions.fastq.fastq-inputs.fastqc.title",
+          "tooltip": "actions.fastq.fastq-inputs.fastqc.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "qc",
+              "fastqc",
+              "--input",
+              "{{fastq_r1}}"
+            ]
+          }
+        },
+        {
+          "id": "fastp",
+          "title": "actions.fastq.fastq-inputs.fastp.title",
+          "tooltip": "actions.fastq.fastq-inputs.fastp.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "qc",
+              "fastp",
+              "--r1",
+              "{{fastq_r1}}"
+            ],
+            "optionalArguments": [
+              [
+                "--r2",
+                "{{fastq_r2}}"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "pet-inputs",
+      "title": "sections.pet-analysis.pet-inputs.title",
+      "iconName": "paired-end",
+      "textIcon": "🐾",
+      "controls": [
+        {
+          "id": "pet_species",
+          "label": "controls.pet-analysis.pet-inputs.pet_species.label",
+          "kind": "dropdown",
+          "tooltip": "controls.pet-analysis.pet-inputs.pet_species.tooltip",
+          "value": "dog",
+          "options": [
+            {
+              "id": "dog",
+              "title": "options.pet-analysis.pet-inputs.pet_species.dog.title"
+            },
+            {
+              "id": "cat",
+              "title": "options.pet-analysis.pet-inputs.pet_species.cat.title"
+            }
+          ]
+        },
+        {
+          "id": "pet_fastq_r1",
+          "label": "controls.pet-analysis.pet-inputs.pet_fastq_r1.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.pet-analysis.pet-inputs.pet_fastq_r1.tooltip"
+        },
+        {
+          "id": "pet_fastq_r2",
+          "label": "controls.pet-analysis.pet-inputs.pet_fastq_r2.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.pet-analysis.pet-inputs.pet_fastq_r2.tooltip"
+        },
+        {
+          "id": "pet_output_format",
+          "label": "controls.pet-analysis.pet-inputs.pet_output_format.label",
+          "kind": "dropdown",
+          "tooltip": "controls.pet-analysis.pet-inputs.pet_output_format.tooltip",
+          "value": "BAM",
+          "options": [
+            {
+              "id": "BAM",
+              "title": "options.pet-analysis.pet-inputs.pet_output_format.BAM.title"
+            },
+            {
+              "id": "CRAM",
+              "title": "options.pet-analysis.pet-inputs.pet_output_format.CRAM.title"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "id": "pet-align",
+          "title": "actions.pet-analysis.pet-inputs.pet-align.title",
+          "tooltip": "actions.pet-analysis.pet-inputs.pet-align.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "pet-align",
+              "--species",
+              "{{pet_species}}",
+              "--r1",
+              "{{pet_fastq_r1}}",
+              "--ref",
+              "{{ref_path}}",
+              "--format",
+              "{{pet_output_format}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--r2",
+                "{{pet_fastq_r2}}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "iconName": "fastq",
+  "textIcon": "📄"
+}

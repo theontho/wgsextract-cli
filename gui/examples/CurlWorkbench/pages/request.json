@@ -1,0 +1,79 @@
+{
+  "id": "request",
+  "title": "Request",
+  "summary": "Run basic curl requests against an endpoint.",
+  "sections": [
+    {
+      "id": "request",
+      "title": "HTTP request",
+      "textIcon": "UR",
+      "controls": [
+        {
+          "id": "url",
+          "label": "URL",
+          "kind": "text",
+          "value": "https://example.com"
+        },
+        {
+          "id": "method",
+          "label": "Method",
+          "kind": "dropdown",
+          "value": "GET",
+          "options": [
+            {
+              "id": "GET",
+              "title": "GET",
+              "selected": true
+            },
+            {
+              "id": "HEAD",
+              "title": "HEAD"
+            },
+            {
+              "id": "POST",
+              "title": "POST"
+            }
+          ]
+        },
+        {
+          "id": "body",
+          "label": "Request body",
+          "kind": "text",
+          "value": ""
+        }
+      ],
+      "actions": [
+        {
+          "id": "headers",
+          "title": "Show headers",
+          "command": {
+            "executable": "curl",
+            "arguments": [
+              "-I",
+              "{{url}}"
+            ]
+          }
+        },
+        {
+          "id": "request",
+          "title": "Run request",
+          "command": {
+            "executable": "curl",
+            "arguments": [
+              "-i",
+              "-X",
+              "{{method}}",
+              "{{url}}"
+            ],
+            "optionalArguments": [
+              [
+                "--data",
+                "{{body}}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

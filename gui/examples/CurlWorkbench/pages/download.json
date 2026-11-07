@@ -1,0 +1,58 @@
+{
+  "id": "download",
+  "title": "Download",
+  "summary": "Download URLs to local files and verify transfer metadata.",
+  "sections": [
+    {
+      "id": "download",
+      "title": "Download",
+      "textIcon": "DL",
+      "controls": [
+        {
+          "id": "url",
+          "label": "URL",
+          "kind": "text",
+          "value": "https://example.com"
+        },
+        {
+          "id": "output_file",
+          "label": "Output file",
+          "kind": "path",
+          "pathType": "file",
+          "tooltip": "Destination for the downloaded response body."
+        }
+      ],
+      "actions": [
+        {
+          "id": "download",
+          "title": "Download to file",
+          "command": {
+            "executable": "curl",
+            "arguments": [
+              "--fail",
+              "--show-error",
+              "--location",
+              "{{url}}",
+              "-o",
+              "{{output_file}}"
+            ]
+          }
+        },
+        {
+          "id": "download-with-progress",
+          "title": "Download with progress meter",
+          "command": {
+            "executable": "curl",
+            "arguments": [
+              "--fail",
+              "--location",
+              "{{url}}",
+              "-o",
+              "{{output_file}}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

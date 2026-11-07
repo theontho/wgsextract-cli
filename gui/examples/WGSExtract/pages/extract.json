@@ -1,0 +1,304 @@
+{
+  "id": "extract",
+  "title": "pages.extract.title",
+  "summary": "pages.extract.summary",
+  "sidebarGroup": "sidebar.groups.analyze",
+  "sections": [
+    {
+      "id": "extract-inputs",
+      "title": "sections.extract.extract-inputs.title",
+      "iconName": "extract",
+      "textIcon": "✂️",
+      "controls": [
+        {
+          "id": "extract_poz",
+          "label": "controls.extract.post-v063.poz.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--poz",
+              "title": "controls.extract.post-v063.poz.label"
+            }
+          ],
+          "tooltip": "controls.extract.post-v063.poz.tooltip"
+        },
+        {
+          "id": "extract_ybrowse",
+          "label": "controls.extract.post-v063.ybrowse.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--ybrowse",
+              "title": "controls.extract.post-v063.ybrowse.label"
+            }
+          ],
+          "tooltip": "controls.extract.post-v063.ybrowse.tooltip"
+        },
+        {
+          "id": "extract_unmapped_fastq",
+          "label": "controls.extract.post-v063.fastq.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--fastq",
+              "title": "controls.extract.post-v063.fastq.label"
+            }
+          ],
+          "tooltip": "controls.extract.post-v063.fastq.tooltip"
+        },
+        {
+          "id": "bam_path",
+          "label": "controls.extract.extract-inputs.bam_path.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.extract.extract-inputs.bam_path.tooltip"
+        },
+        {
+          "id": "out_dir",
+          "label": "controls.extract.extract-inputs.out_dir.label",
+          "kind": "path",
+          "tooltip": "controls.extract.extract-inputs.out_dir.tooltip"
+        },
+        {
+          "id": "extract_region",
+          "label": "controls.extract.extract-inputs.extract_region.label",
+          "kind": "text",
+          "placeholder": "controls.extract.extract-inputs.extract_region.placeholder",
+          "tooltip": "controls.extract.extract-inputs.extract_region.tooltip"
+        },
+        {
+          "id": "extract_extra",
+          "label": "controls.extract.extract-inputs.extract_extra.label",
+          "kind": "text",
+          "placeholder": "controls.extract.extract-inputs.extract_extra.placeholder",
+          "tooltip": "controls.extract.extract-inputs.extract_extra.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "mito-fasta",
+          "title": "actions.extract.extract-inputs.mito-fasta.title",
+          "tooltip": "actions.extract.extract-inputs.mito-fasta.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "mito-fasta",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "mt-bam",
+          "title": "actions.extract.extract-inputs.mt-bam.title",
+          "tooltip": "actions.extract.extract-inputs.mt-bam.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "mt-bam",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "mito-vcf",
+          "title": "actions.extract.extract-inputs.mito-vcf.title",
+          "tooltip": "actions.extract.extract-inputs.mito-vcf.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "mito-vcf",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "ydna-bam",
+          "title": "actions.extract.extract-inputs.ydna-bam.title",
+          "tooltip": "actions.extract.extract-inputs.ydna-bam.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "ydna-bam",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "{{extract_poz}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "ydna-vcf",
+          "title": "actions.extract.extract-inputs.ydna-vcf.title",
+          "tooltip": "actions.extract.extract-inputs.ydna-vcf.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "ydna-vcf",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "{{extract_ybrowse}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "y-mt-extract",
+          "title": "actions.extract.extract-inputs.y-mt-extract.title",
+          "tooltip": "actions.extract.extract-inputs.y-mt-extract.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "y-mt-extract",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "bam-subset",
+          "title": "actions.extract.extract-inputs.bam-subset.title",
+          "tooltip": "actions.extract.extract-inputs.bam-subset.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "bam-subset",
+              "--input",
+              "{{bam_path}}",
+              "--fraction",
+              "{{extract_extra}}"
+            ],
+            "optionalArguments": [
+              [
+                "--region",
+                "{{extract_region}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "unmapped",
+          "title": "actions.extract.extract-inputs.unmapped.title",
+          "tooltip": "actions.extract.extract-inputs.unmapped.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "unmapped",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "{{extract_unmapped_fastq}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "custom",
+          "title": "actions.extract.extract-inputs.custom.title",
+          "tooltip": "actions.extract.extract-inputs.custom.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "extract",
+              "custom",
+              "--input",
+              "{{bam_path}}",
+              "--region",
+              "{{extract_region}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "iconName": "extract",
+  "textIcon": "✂️"
+}

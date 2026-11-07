@@ -6,7 +6,7 @@ name: Rerun Lost Runners
 # caused is left alone.
 on:
   workflow_run:
-    workflows: ["CI Ubuntu", "CI macOS", "CI Windows", "Install Lab"]
+    workflows: ["CI Ubuntu", "CI macOS", "CI Windows", "Install Lab", "GUI CI", "GUI Tauri installer"]
     types: [completed]
 
 permissions:

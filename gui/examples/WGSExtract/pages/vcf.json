@@ -1,0 +1,265 @@
+{
+  "id": "vcf",
+  "title": "pages.vcf.title",
+  "summary": "pages.vcf.summary",
+  "sidebarGroup": "sidebar.groups.convert",
+  "sections": [
+    {
+      "id": "vcf-inputs",
+      "title": "sections.vcf.vcf-inputs.title",
+      "iconName": "inspect-variants",
+      "textIcon": "🔎",
+      "controls": [
+        {
+          "id": "ref_path",
+          "label": "controls.vcf.vcf-inputs.ref_path.label",
+          "kind": "path",
+          "tooltip": "controls.vcf.vcf-inputs.ref_path.tooltip"
+        },
+        {
+          "id": "out_dir",
+          "label": "controls.vcf.vcf-inputs.out_dir.label",
+          "kind": "path",
+          "tooltip": "controls.vcf.vcf-inputs.out_dir.tooltip"
+        }
+      ]
+    },
+    {
+      "id": "variant-calling",
+      "title": "sections.vcf.variant-calling.title",
+      "iconName": "variant-calling",
+      "textIcon": "🩺",
+      "controls": [
+        {
+          "id": "gatk_scatter",
+          "label": "controls.vcf.post-v063.scatter.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--scatter",
+              "title": "controls.vcf.post-v063.scatter.label"
+            }
+          ],
+          "tooltip": "controls.vcf.post-v063.scatter.tooltip"
+        },
+        {
+          "id": "bam_path",
+          "label": "controls.vcf.vcf-inputs.bam_path.label",
+          "kind": "path",
+          "defaultDirectory": "{{genome_library}}",
+          "tooltip": "controls.vcf.vcf-inputs.bam_path.tooltip"
+        },
+        {
+          "id": "vcf_region",
+          "label": "controls.vcf.variant-calling.vcf_region.label",
+          "kind": "text",
+          "placeholder": "controls.vcf.variant-calling.vcf_region.placeholder",
+          "tooltip": "controls.vcf.variant-calling.vcf_region.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "vcf-snp",
+          "title": "actions.vcf.variant-calling.vcf-snp.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-snp.tooltip",
+          "estimatedDurationMinutes": 34,
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract-vcf.sh",
+            "arguments": [
+              "snp",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-indel",
+          "title": "actions.vcf.variant-calling.vcf-indel.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-indel.tooltip",
+          "estimatedDurationMinutes": 34,
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract-vcf.sh",
+            "arguments": [
+              "indel",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-sv",
+          "title": "actions.vcf.variant-calling.vcf-sv.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-sv.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "sv",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-cnv",
+          "title": "actions.vcf.variant-calling.vcf-cnv.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-cnv.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "cnv",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-freebayes",
+          "title": "actions.vcf.variant-calling.vcf-freebayes.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-freebayes.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "freebayes",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-gatk",
+          "title": "actions.vcf.variant-calling.vcf-gatk.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-gatk.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "gatk",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "{{gatk_scatter}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-deepvariant",
+          "title": "actions.vcf.variant-calling.vcf-deepvariant.title",
+          "tooltip": "actions.vcf.variant-calling.vcf-deepvariant.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "deepvariant",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "iconName": "vcf",
+  "textIcon": "🩺"
+}

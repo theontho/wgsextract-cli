@@ -1,0 +1,12 @@
+{
+  "id": "git-helper",
+  "version": "0.1.0",
+  "displayName": "Git Helper",
+  "summary": "Common Git repository inspection and branch commands.",
+  "textIcon": "GT",
+  "terminalTextDirection": "ltr",
+  "pages": [
+    "repository.json",
+    "branches.json"
+  ]
+}

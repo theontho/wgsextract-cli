@@ -1,0 +1,70 @@
+{
+  "id": "generate",
+  "title": "Generate",
+  "summary": "Create tiny test media files with FFmpeg filter sources.",
+  "sections": [
+    {
+      "id": "generate",
+      "title": "Test media",
+      "textIcon": "GN",
+      "controls": [
+        {
+          "id": "output_file",
+          "label": "Output file",
+          "kind": "path",
+          "pathType": "file"
+        },
+        {
+          "id": "frame_size",
+          "label": "Frame size",
+          "kind": "text",
+          "value": "128x128"
+        },
+        {
+          "id": "duration_seconds",
+          "label": "Duration seconds",
+          "kind": "text",
+          "value": "1"
+        }
+      ],
+      "actions": [
+        {
+          "id": "generate-test-video",
+          "title": "Generate test video",
+          "command": {
+            "executable": "ffmpeg",
+            "arguments": [
+              "-hide_banner",
+              "-y",
+              "-f",
+              "lavfi",
+              "-i",
+              "testsrc=size={{frame_size}}:rate=1",
+              "-t",
+              "{{duration_seconds}}",
+              "-pix_fmt",
+              "yuv420p",
+              "{{output_file}}"
+            ]
+          }
+        },
+        {
+          "id": "generate-test-audio",
+          "title": "Generate test audio",
+          "command": {
+            "executable": "ffmpeg",
+            "arguments": [
+              "-hide_banner",
+              "-y",
+              "-f",
+              "lavfi",
+              "-i",
+              "sine=frequency=1000:duration={{duration_seconds}}",
+              "{{output_file}}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

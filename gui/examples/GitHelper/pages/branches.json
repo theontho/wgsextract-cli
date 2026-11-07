@@ -1,0 +1,98 @@
+{
+  "id": "branches",
+  "title": "Branches",
+  "summary": "Create, inspect, fetch, and checkout Git branches.",
+  "sections": [
+    {
+      "id": "branches",
+      "title": "Branches",
+      "textIcon": "BR",
+      "controls": [
+        {
+          "id": "repo_path",
+          "label": "Repository folder",
+          "kind": "path",
+          "pathType": "directory",
+          "tooltip": "Choose the local Git repository to inspect."
+        },
+        {
+          "id": "branch_name",
+          "label": "Branch name",
+          "kind": "text",
+          "value": "main"
+        },
+        {
+          "id": "remote_name",
+          "label": "Remote name",
+          "kind": "text",
+          "value": "origin"
+        }
+      ],
+      "actions": [
+        {
+          "id": "init-repository",
+          "title": "Initialize repository",
+          "command": {
+            "executable": "git",
+            "arguments": [
+              "init",
+              "{{repo_path}}"
+            ]
+          }
+        },
+        {
+          "id": "current-branch",
+          "title": "Show current branch",
+          "command": {
+            "executable": "git",
+            "arguments": [
+              "-C",
+              "{{repo_path}}",
+              "branch",
+              "--show-current"
+            ]
+          }
+        },
+        {
+          "id": "list-branches",
+          "title": "List branches",
+          "command": {
+            "executable": "git",
+            "arguments": [
+              "-C",
+              "{{repo_path}}",
+              "branch",
+              "--list"
+            ]
+          }
+        },
+        {
+          "id": "fetch",
+          "title": "Fetch remote",
+          "command": {
+            "executable": "git",
+            "arguments": [
+              "-C",
+              "{{repo_path}}",
+              "fetch",
+              "{{remote_name}}"
+            ]
+          }
+        },
+        {
+          "id": "checkout",
+          "title": "Checkout branch",
+          "command": {
+            "executable": "git",
+            "arguments": [
+              "-C",
+              "{{repo_path}}",
+              "checkout",
+              "{{branch_name}}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

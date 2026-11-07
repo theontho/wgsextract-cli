@@ -1,0 +1,227 @@
+name: GUI distribution
+
+# Builds the WGS Extract desktop app (gui/) for Linux, macOS (Apple Silicon and
+# Intel) and Windows.
+# - Run by hand (Actions > GUI distribution > Run workflow, or
+#   `gh workflow run gui-distribution.yml --ref BRANCH`): builds the installers
+#   as artifacts, to try a change before releasing it.
+# - Called by release.yml with a vX.Y.Z tag: builds that version, signed when
+#   the signing secrets are set, and adds the installers and the updater feed
+#   (latest.json) to the paired vX.Y.Z release. See docs/releasing.md.
+# - Run by hand with a tag: retries that for an existing release.
+# - On pull requests that change packaging: builds the installers unsigned, so
+#   a packaging break shows up before a release needs it.
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/gui-distribution.yml"
+      - "gui/app/web/packagers/**"
+      - "gui/tools/packaging/**"
+      - "gui/tools/tasks.py"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          An existing vX.Y.Z release to build the app from and add it to
+          (empty: only build artifacts from the chosen branch)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: The vX.Y.Z release to build and publish the app for.
+        required: true
+        type: string
+      ref:
+        description: The commit the tag points at.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  tauri:
+    name: Tauri (${{ matrix.artifact_name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-24.04
+            artifact_name: tauri-linux
+          - os: macos
+            runner: macos-latest
+            artifact_name: tauri-macos-arm64
+          - os: macos
+            runner: macos-15-intel
+            artifact_name: tauri-macos-x64
+          - os: windows
+            runner: windows-latest
+            artifact_name: tauri-windows
+    defaults:
+      run:
+        working-directory: gui
+    env:
+      PYTHON: python3
+      RELEASE_TAG: ${{ inputs.tag }}
+      TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY || secrets.TAURI_UPDATER_PUBKEY }}
+      TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+      TAURI_UPDATER_ENDPOINT: ${{ vars.TAURI_UPDATER_ENDPOINT }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      PACKAGE_REQUIRE_MACOS_SIGNING: ${{ inputs.tag != '' && '1' || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || inputs.tag }}
+          persist-credentials: false
+
+      - name: Configure release version
+        if: env.RELEASE_TAG != ''
+        shell: bash
+        run: echo "PACKAGE_APP_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      # The hosted runners ship rustup; Tauri builds with the current stable.
+      - name: Setup Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm \
+            zstd
+
+      # Tauri signs and notarizes the macOS app when these variables are set:
+      # https://v2.tauri.app/distribute/sign/macos/
+      - name: Configure macOS signing and notarization
+        if: matrix.os == 'macos'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_P12" ] || [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            if [ -n "$PACKAGE_REQUIRE_MACOS_SIGNING" ]; then
+              echo "::error::Releases need APPLE_CERTIFICATE_P12 and APPLE_SIGNING_IDENTITY secrets."
+              exit 1
+            fi
+            echo "::warning::Apple signing secrets are not configured; the macOS app will be unsigned."
+            exit 0
+          fi
+          {
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE_P12"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+          } >> "$GITHUB_ENV"
+          # Preferred: an App Store Connect API key (no Apple ID password or 2FA).
+          if [ -n "$APPLE_API_KEY_P8" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER_ID" ]; then
+            key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
+            printf '%s' "$APPLE_API_KEY_P8" > "$key"
+            {
+              echo "APPLE_API_KEY=$APPLE_API_KEY_ID"
+              echo "APPLE_API_ISSUER=$APPLE_API_ISSUER_ID"
+              echo "APPLE_API_KEY_PATH=$key"
+            } >> "$GITHUB_ENV"
+          elif [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            } >> "$GITHUB_ENV"
+          elif [ -n "$PACKAGE_REQUIRE_MACOS_SIGNING" ]; then
+            echo "::error::Releases need notarization credentials (App Store Connect API key or Apple ID)."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --prefix app
+
+      - name: Package Tauri app
+        run: python3 tools/tasks.py package tauri
+
+      - name: Upload Tauri artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: gui/out/release/tauri/*
+          if-no-files-found: error
+
+  publish:
+    name: Add the app to the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    needs: tauri
+    if: inputs.tag != ''
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || inputs.tag }}
+          persist-credentials: false
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: release-artifacts
+
+      - name: Generate updater feeds
+        run: |
+          python3 gui/tools/packaging/generate_update_feeds.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --version "${RELEASE_TAG#v}" \
+            --artifacts-root release-artifacts \
+            --output-dir release-artifacts/update-feeds
+
+      - name: Stage release assets
+        run: |
+          rm -rf release-assets
+          mkdir -p release-assets
+          find release-artifacts -type f -print0 | while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            case "$name" in
+              latest.json|*.sig|*.app.tar.gz|*.dmg|*.AppImage|*.deb|*.rpm|*.pkg.tar.zst|*-setup.exe|*-quick-uninstall.ps1)
+                asset_name="${name// /.}"
+                cp "$file" "release-assets/$asset_name"
+                ;;
+            esac
+          done
+          test -n "$(find release-assets -type f -print -quit)"
+          find release-assets -type f -print | sort
+
+      # release.yml has already created the release (published, or a draft
+      # when it had no notes file); the app's assets join the CLI's there.
+      - name: Upload the app to the release
+        run: gh release upload "$RELEASE_TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
