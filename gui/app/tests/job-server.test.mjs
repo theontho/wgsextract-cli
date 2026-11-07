@@ -78,10 +78,13 @@ server.listen(0, "127.0.0.1", () => {
 
 async function withBundle(t) {
   const bundleRoot = await mkdtemp(path.join(tmpdir(), "gui-for-cli-job-server-"));
-  t.after(() => rm(bundleRoot, { recursive: true, force: true }));
-  await writeFile(path.join(bundleRoot, "server.mjs"), fakeServer);
   const manager = createProcessManager({ maxOutputBytes: 1_048_576, maxErrorBytes: 65_536 });
-  t.after(() => manager.terminateAllProcesses());
+  // Windows can't remove the folder while the server still runs in it.
+  t.after(async () => {
+    await manager.terminateAllProcesses();
+    await rm(bundleRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+  await writeFile(path.join(bundleRoot, "server.mjs"), fakeServer);
   const startServer = (args = ["{{bundleRoot}}/server.mjs"]) =>
     createJobServer({ command: { executable: process.execPath, arguments: args }, startupTimeoutSeconds: 10 }, bundleRoot, manager.runProcess);
   return { bundleRoot, manager, startServer };
