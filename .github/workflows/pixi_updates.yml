@@ -55,6 +55,12 @@ jobs:
           # Use the installed interpreter; repair digests before candidate installation.
           pixi run --frozen --no-install -e dev -x python scripts/restore_pixi_hashes.py
           git diff --exit-code -- pixi.toml pyproject.toml
+          # Pixi re-derives each PyPI purl's ?source= mapping tag from run to
+          # run; a lock differing only in those tags is no update.
+          norm() { sed -E 's/\?source=[a-z-]+$//'; }
+          if cmp -s <(git show HEAD:pixi.lock | norm) <(norm < pixi.lock); then
+            git checkout -- pixi.lock
+          fi
           git diff --binary -- pixi.lock > out/pixi-update/pixi-lock.patch
           git diff --stat -- pixi.lock | tee out/pixi-update/summary.txt
           if [ -s out/pixi-update/pixi-lock.patch ]; then
@@ -141,9 +147,12 @@ jobs:
           git apply --index "$PATCH_DIR/pixi-lock.patch"
           git commit --quiet -m 'chore(deps): refresh pixi.lock within the declared pins' \
             -m "Resolved and validated by $RUN_URL"
-          # The branch already holds this tree; keep its head and CI approval.
+          # The branch already holds this content (ignoring the purl ?source=
+          # tags, as above); keep its head and its CI approval.
+          norm() { sed -E 's/\?source=[a-z-]+$//'; }
           if git fetch --quiet origin "refs/heads/$BRANCH" 2>/dev/null &&
-             git diff --quiet FETCH_HEAD HEAD; then
+             git diff --quiet FETCH_HEAD HEAD -- . ':(exclude)pixi.lock' &&
+             cmp -s <(git show FETCH_HEAD:pixi.lock | norm) <(git show HEAD:pixi.lock | norm); then
             echo "head=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_OUTPUT"
           else
             git push --force origin "HEAD:refs/heads/$BRANCH"
