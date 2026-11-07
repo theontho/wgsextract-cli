@@ -1,17 +1,26 @@
 import argparse
 import gzip
+import json
 import logging
+import os
 import shutil
+import subprocess
 import sys
+import threading
+import time
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
+from tests.fake_tools import python_tool
+from wgsextract_cli import api
+from wgsextract_cli.api.methylation import MethylationPileupParams
 from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.commands import methylation
 from wgsextract_cli.core import dependency_checks, pixi_tools
+from wgsextract_cli.core.dependencies import clear_tool_caches, get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
 
 LENGTHS = {"chr20": 64_444_167, "chr21": 46_709_983}
@@ -19,6 +28,11 @@ LENGTHS = {"chr20": 64_444_167, "chr21": 46_709_983}
 
 def parse(*argv: str) -> argparse.Namespace:
     return build_parser()[0].parse_args(["methylation", "pileup", *argv])
+
+
+def options(**fields: object) -> methylation.PileupOptions:
+    params = MethylationPileupParams(input=Path("r.bam"), **fields)  # type: ignore[arg-type]
+    return methylation.pileup_options(params)
 
 
 @pytest.fixture
@@ -32,10 +46,9 @@ def no_config(monkeypatch):
 
 
 def test_default_command_is_cpg_5mc_combined(no_config):
-    options = methylation.pileup_options(parse("-i", "r.bam"))
     intervals = methylation.region_intervals("chr20:10000001-11000000", LENGTHS)
     command = methylation.modkit_command(
-        "r.bam", "out.gz", "ref.fa", options, "8", intervals, "regions.bed"
+        "r.bam", "out.gz", "ref.fa", options(), "8", intervals, "regions.bed"
     )
     assert command[:8] == [
         "modkit", "pileup", "r.bam", "out.gz", "--ref", "ref.fa",
@@ -49,13 +62,11 @@ def test_default_command_is_cpg_5mc_combined(no_config):
 
 
 def test_options_5hmc_all_context_and_several_regions(no_config):
-    options = methylation.pileup_options(
-        parse("-i", "r.bam", "--5hmc", "--context", "all")
-    )
+    chosen = options(hydroxymethyl=True, context="all")
     intervals = methylation.region_intervals("chr20:5-10, chr21", LENGTHS)
     assert intervals == [("chr20", 4, 10), ("chr21", 0, LENGTHS["chr21"])]
     command = methylation.modkit_command(
-        "r.bam", "o.gz", "ref.fa", options, "2", intervals, "regions.bed"
+        "r.bam", "o.gz", "ref.fa", chosen, "2", intervals, "regions.bed"
     )
     modified = command.index("--modified-bases")
     assert command[modified + 1 : modified + 3] == ["5mC", "5hmC"]
@@ -72,23 +83,21 @@ def test_bad_regions_are_refused(region):
 def test_cli_overrides_config(monkeypatch):
     monkeypatch.setitem(methylation.settings, "methylation_5hmc", True)
     monkeypatch.setitem(methylation.settings, "methylation_combine_strands", False)
-    assert methylation.pileup_options(parse()) == methylation.PileupOptions(
-        "cpg", True, False
-    )
-    assert methylation.pileup_options(
-        parse("--no-5hmc", "--combine-strands")
+    assert options() == methylation.PileupOptions("cpg", True, False)
+    assert options(
+        hydroxymethyl=False, combine_strands=True
     ) == methylation.PileupOptions("cpg", False, True)
 
     monkeypatch.setitem(methylation.settings, "methylation_context", "chg")
     with pytest.raises(WGSExtractError, match="methylation_context"):
-        methylation.pileup_options(parse())
+        options()
 
 
 def test_combine_strands_needs_cpg(no_config):
     # The default quietly gives way; an explicit request is an error.
-    assert not methylation.pileup_options(parse("--context", "all")).combine_strands
+    assert not options(context="all").combine_strands
     with pytest.raises(WGSExtractError, match="needs --context cpg"):
-        methylation.pileup_options(parse("--context", "all", "--combine-strands"))
+        options(context="all", combine_strands=True)
 
 
 def write_sam(path: Path, tags: list[str], platform: str = "ONT") -> Path:
@@ -223,7 +232,7 @@ def test_missing_modkit_names_its_pixi_environment(tmp_path, monkeypatch):
         dependency_checks, "check_dependencies", lambda tools: [methylation.MODKIT]
     )
     with pytest.raises(WGSExtractError, match=r"modkit.*-e modkit"):
-        methylation.cmd_pileup(parse("-i", str(reads)))
+        methylation.run_pileup(MethylationPileupParams(input=reads))
 
 
 def test_windows_is_refused_before_inputs_are_resolved(monkeypatch):
@@ -262,3 +271,290 @@ def test_bedmethyl_summary(tmp_path):
 )
 def test_coverage_median_from_counts(counts, median):
     assert methylation._counter_median(Counter(counts)) == median
+
+
+# --- the typed API, against a fake modkit ---------------------------------------
+# modkit is an optional environment (and Linux/macOS only), so it is faked;
+# samtools reads the tags, and tabix indexes what the fake writes.
+
+_FAKE_MODKIT = """\
+import json, subprocess, sys, time
+argv = sys.argv[1:]
+with open({log!r}, "a") as f:
+    f.write(json.dumps(argv) + "\\n")
+codes = ["m", "h"] if "5hmC" in argv else ["m"]
+rows = "".join(
+    f"chr20\\t{{pos}}\\t{{pos + 1}}\\t{{code}}\\t10\\t.\\t{{pos}}\\t{{pos + 1}}\\t255,0,0"
+    f"\\t10\\t{{pct}}\\t{{n}}\\t{{10 - n}}\\t0\\t0\\t0\\t0\\t0\\n"
+    for pos, n in ((1, 9), (5, 1), (9, 8))
+    for code in codes
+    for pct in [f"{{n * 10:.2f}}"]
+)
+with open(argv[2], "wb") as out:
+    subprocess.run([{bgzip!r}, "-c"], input=rows.encode(), stdout=out, check=True)
+time.sleep({sleep})
+"""
+
+
+@pytest.fixture
+def fake_modkit(tmp_path, monkeypatch):
+    """Install a fake `modkit` on PATH; returns a function giving its logged
+    command lines. ``fake_modkit.install(sleep=...)`` reinstalls it."""
+    if sys.platform == "win32":
+        pytest.skip("modkit runs on Linux and macOS only")
+    log = tmp_path / "modkit_calls.jsonl"
+    bindir = tmp_path / "fakebin"
+
+    def install(sleep: float = 0) -> None:
+        clear_tool_caches()
+        bgzip = get_tool_path("bgzip")
+        source = _FAKE_MODKIT.format(log=str(log), bgzip=bgzip, sleep=sleep)
+        python_tool(bindir, "modkit", source)
+        clear_tool_caches()
+
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    install()
+
+    def calls() -> list[list[str]]:
+        if not log.exists():
+            return []
+        lines = log.read_text().splitlines()
+        return [argv for argv in map(json.loads, lines) if argv[:1] == ["pileup"]]
+
+    calls.install = install  # type: ignore[attr-defined]
+    return calls
+
+
+@pytest.fixture
+def tagged(tmp_path, no_config) -> tuple[Path, Path]:
+    """An indexed ONT BAM whose reads carry 5mC tags, and its reference."""
+    ref = tmp_path / "ref" / "ref.fa"
+    ref.parent.mkdir()
+    ref.write_text(">chr20\n" + "ACGT" * 250 + "\n")
+    sam = write_sam(tmp_path / "reads.sam", ["MM:Z:C+m?,0;\tML:B:C,230"] * 3)
+    bam = tmp_path / "reads" / "reads.bam"
+    bam.parent.mkdir()
+    subprocess.run(["samtools", "sort", "-o", str(bam), str(sam)], check=True)
+    subprocess.run(["samtools", "index", str(bam)], check=True)
+    return bam, ref
+
+
+@needs_samtools
+def test_api_pileup_writes_the_bedmethyl_summary_and_metrics(
+    tmp_path, fake_modkit, tagged
+):
+    bam, ref = tagged
+    result = api.methylation.pileup(
+        MethylationPileupParams(
+            input=bam,
+            ref=ref,
+            outdir=tmp_path / "out",
+            hydroxymethyl=True,
+            region="chr20:1-500",
+        )
+    )
+
+    assert result.status == "ok"
+    out = tmp_path / "out"
+    assert {o.role: Path(o.path) for o in result.outputs} == {
+        "bedmethyl": out / "reads.cpg.bedmethyl.gz",
+        "methylation_summary": out / "reads.cpg.methylation.tsv",
+    }
+    assert (out / "reads.cpg.bedmethyl.gz.tbi").is_file()
+    summary = (out / "reads.cpg.methylation.tsv").read_text().splitlines()
+    assert [line.split("\t")[0] for line in summary[1:]] == ["5mC", "5hmC"]
+    assert result.metrics["platform"] == "ont"
+    assert result.metrics["5mC_sites"] == 3
+    assert result.metrics["5mC_weighted_percent_modified"] == 60.0
+    [command] = fake_modkit()
+    # contract: modkit's --region is 0-based, half-open.
+    assert command[command.index("--region") + 1] == "chr20:0-500"
+
+
+@needs_samtools
+def test_api_expands_home_in_every_path(tmp_path, fake_modkit, tagged, monkeypatch):
+    """#478: `~` paths reach modkit expanded, with no literal `~` folder."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    api.methylation.pileup(
+        MethylationPileupParams(
+            input=Path("~/reads/reads.bam"),
+            ref=Path("~/ref/ref.fa"),
+            outdir=Path("~/out"),
+        )
+    )
+
+    assert (tmp_path / "out" / "reads.cpg.bedmethyl.gz.tbi").is_file()
+    [command] = fake_modkit()
+    assert command[1] == str(tmp_path / "reads" / "reads.bam")
+    assert command[command.index("--ref") + 1] == str(tmp_path / "ref" / "ref.fa")
+    assert not (tmp_path / "~").exists()
+
+
+@needs_samtools
+def test_cancelling_during_modkit_leaves_no_partial_output(
+    tmp_path, fake_modkit, tagged
+):
+    """#478: a cancel while modkit runs stops the run and deletes its output."""
+    fake_modkit.install(sleep=60)
+    bam, ref = tagged
+    out = tmp_path / "out"
+    token = api.CancelToken()
+
+    def cancel_once_modkit_writes() -> None:
+        deadline = time.monotonic() + 30
+        while not list(out.glob("*bedmethyl*")):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.05)
+        token.cancel()
+
+    watcher = threading.Thread(target=cancel_once_modkit_writes)
+    watcher.start()
+    started = time.monotonic()
+    result = api.methylation.pileup(
+        MethylationPileupParams(input=bam, ref=ref, outdir=out),
+        cancel=token,
+        check=False,
+    )
+    watcher.join()
+
+    assert (result.status, result.exit_code) == ("cancelled", 130)
+    assert time.monotonic() - started < 30
+    assert [p.name for p in out.iterdir() if "manifest" not in p.name] == []
+
+
+@needs_samtools
+def test_parquet_format_also_writes_the_sites(tmp_path, fake_modkit, tagged):
+    pq = pytest.importorskip("pyarrow.parquet")
+    bam, ref = tagged
+    result = api.methylation.pileup(
+        MethylationPileupParams(input=bam, ref=ref, table_format="parquet")
+    )
+
+    outputs = {o.role: o for o in result.outputs}
+    assert Path(outputs["methylation_summary"].path).suffix == ".parquet"
+    sites = pq.read_table(outputs["bedmethyl_table"].path)
+    assert sites.column("n_mod").to_pylist() == [9, 1, 8]
+    assert outputs["bedmethyl_table"].metrics["rows"] == 3
+
+
+@needs_samtools
+def test_a_cancelled_rerun_keeps_the_previous_results_with_atomic_outputs(
+    tmp_path, fake_modkit, tagged, monkeypatch
+):
+    """#478 review: with atomic_outputs, a failed rerun must not delete the
+    earlier complete bedMethyl, its index and summary."""
+    from wgsextract_cli.core.config import settings
+
+    monkeypatch.setitem(settings, "atomic_outputs", True)
+    bam, ref = tagged
+    out = tmp_path / "out"
+    params = MethylationPileupParams(input=bam, ref=ref, outdir=out)
+    api.methylation.pileup(params)
+    kept = ["reads.cpg.bedmethyl.gz", "reads.cpg.bedmethyl.gz.tbi"]
+    kept.append("reads.cpg.methylation.tsv")
+    before = {name: (out / name).read_bytes() for name in kept}
+    fake_modkit.install(sleep=60)
+    token = api.CancelToken()
+
+    def cancel_once_modkit_writes() -> None:
+        deadline = time.monotonic() + 30
+        while not list(out.glob(".*partial*")):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.05)
+        token.cancel()
+
+    watcher = threading.Thread(target=cancel_once_modkit_writes)
+    watcher.start()
+    result = api.methylation.pileup(params, cancel=token, check=False)
+    watcher.join()
+
+    assert result.status == "cancelled"
+    assert {name: (out / name).read_bytes() for name in kept} == before
+    assert not list(out.glob(".*partial*"))
+
+
+@needs_samtools
+def test_a_rerun_failing_before_modkit_keeps_the_previous_results(
+    tmp_path, fake_modkit, tagged
+):
+    """#493 review: a rerun refused in its region check deleted the earlier
+    bedMethyl, index and summary before writing anything."""
+    bam, ref = tagged
+    out = tmp_path / "out"
+    api.methylation.pileup(MethylationPileupParams(input=bam, ref=ref, outdir=out))
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+
+    result = api.methylation.pileup(
+        MethylationPileupParams(input=bam, ref=ref, outdir=out, region="chr20,chrZ"),
+        check=False,
+    )
+
+    assert result.status == "failed" and "chrZ" in result.error.message
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before
+
+
+@needs_samtools
+def test_a_rerun_cancelled_after_modkit_publishes_nothing_with_atomic_outputs(
+    tmp_path, fake_modkit, tagged, monkeypatch
+):
+    """#493 review: the new bedMethyl was published before its index and
+    summary, so a later failure left it beside the old summary."""
+    from wgsextract_cli.core.config import settings
+
+    monkeypatch.setitem(settings, "atomic_outputs", True)
+    bam, ref = tagged
+    out = tmp_path / "out"
+    api.methylation.pileup(MethylationPileupParams(input=bam, ref=ref, outdir=out))
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+    token = api.CancelToken()
+
+    def cancel_at_tabix(event: api.ProgressEvent) -> None:
+        if event.stage == "tool" and "tabix" in event.message:
+            token.cancel()
+
+    result = api.methylation.pileup(
+        MethylationPileupParams(input=bam, ref=ref, outdir=out, hydroxymethyl=True),
+        progress=cancel_at_tabix,
+        cancel=token,
+        check=False,
+    )
+
+    assert result.status == "cancelled"
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before
+
+
+@needs_samtools
+def test_a_server_job_does_not_follow_a_reference_sibling_out_of_scope(
+    tmp_path, fake_modkit, tagged
+):
+    """#493 review: for ref.fa.gz, the uncompressed ref.fa beside it was used
+    even when it links outside the folders a server job may read."""
+    from wgsextract_cli.core import read_scope
+
+    bam, ref = tagged
+    packed = Path(f"{ref}.gz")
+    with open(ref, "rb") as src, gzip.open(packed, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    outside = tmp_path / "outside" / "ref.fa"
+    outside.parent.mkdir()
+    ref.rename(outside)
+    ref.symlink_to(outside)
+    allowed = (tmp_path / "ref", tmp_path / "reads", tmp_path / "out")
+
+    def allows(path: str) -> bool:
+        real = Path(os.path.realpath(path))
+        return any(real.is_relative_to(folder) for folder in allowed)
+
+    with read_scope.limited_to(allows):
+        api.methylation.pileup(
+            MethylationPileupParams(input=bam, ref=packed, outdir=tmp_path / "out")
+        )
+
+    [command] = fake_modkit()
+    used = Path(command[command.index("--ref") + 1])
+    assert allows(str(used)) and not Path(f"{outside}.fai").exists()

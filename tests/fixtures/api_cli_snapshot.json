@@ -12589,6 +12589,725 @@
     "prog": "wgsextract lineage y-str"
    }
   },
+  "methylation": {
+   "help": "usage: wgsextract methylation [-h] <command> ...\n\npositional arguments:\n  <command>\n    pileup    Tabulate 5mC (and optionally 5hmC) per CpG with modkit into a bedMethyl file and\n              summary. Optional: Linux and macOS, install with `pixi install -e modkit`.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "pileup"
+      ],
+      "help": [
+       [
+        "pileup",
+        "Tabulate 5mC (and optionally 5hmC) per CpG with modkit into a bedMethyl file and summary. Optional: Linux and macOS, install with `pixi install -e modkit`."
+       ]
+      ],
+      "required": true,
+      "subparsers": "methylation_cmd"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "methylation"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract methylation"
+   }
+  },
+  "methylation pileup": {
+   "help": "usage: wgsextract methylation pileup [-h] [-r REGION] [--context {cpg,all}] [--5hmc | --no-5hmc]\n                                     [--combine-strands | --no-combine-strands]\n                                     [--format {tsv,parquet}]\n\noptions:\n  -h, --help            show this help message and exit\n  -r, --region REGION   Region(s), 1-based and inclusive: chr20:10000000-11000000 or chr1,chr2\n                        (default: the whole genome)\n  --context {cpg,all}   cpg: CpG sites only; all: every cytosine (CHG/CHH too). Overrides\n                        methylation_context in config.toml (default: cpg).\n  --5hmc, --no-5hmc     Also report 5-hydroxymethylcytosine (Nanopore 5mCG_5hmCG models).\n                        Overrides methylation_5hmc in config.toml (default: 5mC only).\n  --combine-strands, --no-combine-strands\n                        Sum both strands of each CpG into one row on its C. Overrides\n                        methylation_combine_strands in config.toml (default: on for CpG).\n  --format {tsv,parquet}\n                        Summary table format: tsv, or parquet (needs pyarrow), which also writes\n                        the sites as <stem>.<context>.bedmethyl.parquet (default: tsv)\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract methylation pileup --input ont.bam\n  wgsextract methylation pileup --input ont.bam --format parquet\n\noutputs (in the output directory unless noted):\n  <input stem>.<context>.bedmethyl.gz (+ .tbi) and <input\n  stem>.<context>.methylation.tsv; with --format parquet the summary is\n  .methylation.parquet and the calls are also in <input\n  stem>.<context>.bedmethyl.parquet.\n\nneeds:\n  modkit, samtools, tabix; depending on options and inputs, also: bcftools;\n  hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "region",
+      "exclusive_group": null,
+      "help": "Region(s), 1-based and inclusive: chr20:10000000-11000000 or chr1,chr2 (default: the whole genome)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "-r",
+       "--region"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "cpg",
+       "all"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "context",
+      "exclusive_group": null,
+      "help": "cpg: CpG sites only; all: every cytosine (CHG/CHH too). Overrides methylation_context in config.toml (default: cpg).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--context"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "BooleanOptionalAction",
+      "const": null,
+      "default": null,
+      "dest": "hydroxymethyl",
+      "exclusive_group": null,
+      "help": "Also report 5-hydroxymethylcytosine (Nanopore 5mCG_5hmCG models). Overrides methylation_5hmc in config.toml (default: 5mC only).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--5hmc",
+       "--no-5hmc"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "BooleanOptionalAction",
+      "const": null,
+      "default": null,
+      "dest": "combine_strands",
+      "exclusive_group": null,
+      "help": "Sum both strands of each CpG into one row on its C. Overrides methylation_combine_strands in config.toml (default: on for CpG).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--combine-strands",
+       "--no-combine-strands"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "tsv",
+       "parquet"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "tsv",
+      "dest": "table_format",
+      "exclusive_group": null,
+      "help": "Summary table format: tsv, or parquet (needs pyarrow), which also writes the sites as <stem>.<context>.bedmethyl.parquet (default: tsv)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--format"
+      ],
+      "required": false,
+      "type": "table_format_type.<locals>.table_format"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "methylation pileup",
+     "func": "cmd_pileup"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract methylation pileup"
+   }
+  },
   "microarray": {
    "help": "usage: wgsextract microarray [-h] [--formats FORMATS] [--format {tsv,parquet}] [--sample SAMPLE]\n                             [-r REGION] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --formats FORMATS     Comma-separated list of formats to generate (default: all).\n                        Available formats:\n                          Combined kit only (always written):\n                            all (every chip's markers in one 23andMe-style file, e.g. for GEDmatch;\n                            writes no vendor files: list the vendor formats to get them)\n                          23andMe:\n                            23andme_v2 (also v1: same markers), 23andme_v3, 23andme_v4, 23andme_v5,\n                            23andme_v5_2025 (v5 chip as exported in 2025), 23andme_v3+v5, 23andme_api\n                          AncestryDNA:\n                            ancestry_v1, ancestry_v2, ancestry_v2_2021 (2021 V2.0 layout),\n                            ancestry_v2_2024 (V2.0 chip as exported in 2024-25)\n                          Family Tree DNA:\n                            ftdna_v1 (Affymetrix, NCBI36 positions), ftdna_v2, ftdna_v3\n                          Living DNA:\n                            ldna_v1, ldna_v2\n                          MyHeritage:\n                            myheritage_v1, myheritage_v2,\n                            myheritage_gsa_2025 (609,346 markers), myheritage_gsa_2025_609424\n                          Nucleus:\n                            nucleus (array export, 2025)\n                          AADR v66.p1 (GRCh37 outputs, PLINK .bed/.bim/.fam AND EIGENSTRAT .geno/.snp/.ind):\n                            aadr_1240k, aadr_ho, aadr_1240k+ho (HO is a subset of 1240K in this release)\n                            aadr_2m (opt-in; first run 'ref aadr --install'; v66.p1 genetic distances\n                              differ from legacy 1240K/HO at 1,200,251 sites; maps are never mixed)\n  --format {tsv,parquet}\n                        Also save the genotypes as <input>_genotypes.tsv or .parquet (needs pyarrow): rsID, chrom, pos (in the input's build) and genotype\n  --sample SAMPLE       Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json,\n  --quiet, --debug, --config and the other global options are accepted before\n  or after the command; 'wgsextract --help' lists them all.\n\n15 advanced options not shown; 'wgsextract microarray --help-all' lists them.\n\nexamples:\n  wgsextract microarray --input sample.cram --formats 23andme_v5\n  wgsextract microarray --input sample.cram --formats 23andme_v5,ancestry_v2\n\noutputs (in the output directory unless noted):\n  <input stem>_<format>.txt (or the vendor's extension) per format, such as\n  sample_23andMe_V5.txt, and <input stem>_CombinedKit.txt; with --format also\n  <input stem>_genotypes.tsv or .parquet.\n\nneeds:\n  bcftools, bgzip, samtools, tabix; depending on options and inputs, also:\n  curl; minutes on a 30x genome.\n",
    "parser": {
@@ -37124,6 +37843,38 @@
   }
  },
  "namespaces": {
+  "-t 3 methylation pileup --input x.bam --region chrM": {
+   "_command": "methylation pileup",
+   "_explicit_dests": [
+    "input",
+    "region",
+    "threads"
+   ],
+   "atomic_output": false,
+   "combine_strands": null,
+   "command": "methylation",
+   "context": null,
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_pileup",
+   "genome": null,
+   "hydroxymethyl": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "methylation_cmd": "pileup",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "region": "chrM",
+   "table_format": "tsv",
+   "threads": 3,
+   "tmp_dir": null
+  },
   "-t 4 vcf snp -i x.bam --ref r.fa --quiet": {
    "_command": "vcf snp",
    "_explicit_dests": [
@@ -38575,6 +39326,164 @@
    "parent_pid": null,
    "quiet": false,
    "ref": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "methylation pileup --combine-strands --format parquet -o o": {
+   "_command": "methylation pileup",
+   "_explicit_dests": [
+    "combine_strands",
+    "outdir",
+    "table_format"
+   ],
+   "atomic_output": false,
+   "combine_strands": true,
+   "command": "methylation",
+   "context": null,
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_pileup",
+   "genome": null,
+   "hydroxymethyl": null,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "methylation_cmd": "pileup",
+   "outdir": "o",
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "table_format": "parquet",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "methylation pileup -i x.bam": {
+   "_command": "methylation pileup",
+   "_explicit_dests": [
+    "input"
+   ],
+   "atomic_output": false,
+   "combine_strands": null,
+   "command": "methylation",
+   "context": null,
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_pileup",
+   "genome": null,
+   "hydroxymethyl": null,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "methylation_cmd": "pileup",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "table_format": "tsv",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "methylation pileup -i x.bam --5hmc --context all": {
+   "_command": "methylation pileup",
+   "_explicit_dests": [
+    "context",
+    "hydroxymethyl",
+    "input"
+   ],
+   "atomic_output": false,
+   "combine_strands": null,
+   "command": "methylation",
+   "context": "all",
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_pileup",
+   "genome": null,
+   "hydroxymethyl": true,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "methylation_cmd": "pileup",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "table_format": "tsv",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "methylation pileup -i x.bam --no-5hmc --no-combine-strands": {
+   "_command": "methylation pileup",
+   "_explicit_dests": [
+    "combine_strands",
+    "hydroxymethyl",
+    "input"
+   ],
+   "atomic_output": false,
+   "combine_strands": false,
+   "command": "methylation",
+   "context": null,
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_pileup",
+   "genome": null,
+   "hydroxymethyl": false,
+   "input": "x.bam",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "methylation_cmd": "pileup",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": null,
+   "region": null,
+   "table_format": "tsv",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "methylation pileup -i x.cram --ref r.fa -r chr1,chr2:5-9": {
+   "_command": "methylation pileup",
+   "_explicit_dests": [
+    "input",
+    "ref",
+    "region"
+   ],
+   "atomic_output": false,
+   "combine_strands": null,
+   "command": "methylation",
+   "context": null,
+   "debug": false,
+   "full_help": false,
+   "func": "cmd_pileup",
+   "genome": null,
+   "hydroxymethyl": null,
+   "input": "x.cram",
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "memory": null,
+   "methylation_cmd": "pileup",
+   "outdir": null,
+   "parent_pid": null,
+   "quiet": false,
+   "ref": "r.fa",
+   "region": "chr1,chr2:5-9",
+   "table_format": "tsv",
    "threads": null,
    "tmp_dir": null
   },
