@@ -12,6 +12,7 @@ import tempfile
 import zlib
 from bisect import bisect_left
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,7 @@ from wgsextract_cli.core.resource_estimates import (
     plan_dv_postprocess,
     preflight_resources,
 )
+from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import (
     alignment_index,
     get_sam_index_cmd,
@@ -59,7 +61,7 @@ from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 from wgsextract_cli.core.warnings import GB, check_free_space, get_free_space_needed
 
-from .basic import record_variants, setup_caller
+from .basic import CallerSetup, record_variants, setup_caller
 
 # Google's image; Bioconda's deepvariant has shipped no DeepVariant since 1.8.
 DEFAULT_IMAGE = "google/deepvariant:1.10.0"
@@ -67,6 +69,12 @@ DEFAULT_ARM64_IMAGE = "localhost/wgsextract-deepvariant:1.10.0-arm64"
 # Google's experimental image with the ULTIMA model (google/deepvariant#1100),
 # until a release has it.
 DEFAULT_ULTIMA_IMAGE = "google/deepvariant:gh1100-ultima"
+# Its GPU build, for --gpu (Parabricks has no ULTIMA model), pinned to the
+# build validated in #358.
+DEFAULT_ULTIMA_GPU_IMAGE = (
+    "google/deepvariant:gh1100-ultima-gpu"
+    "@sha256:f5572ef9b996c619c9e73a3f3391f894af72bf868d27578d9a4985298e75a1f7"
+)
 _SETUP = (
     "DeepVariant runs from Google's Docker image on Linux and macOS (Apple "
     "Silicon emulates it, slowly): install Docker, then docker pull {image}. "
@@ -74,7 +82,11 @@ _SETUP = (
 )
 
 
-def deepvariant_image(model_type: str = "WGS") -> str:
+def deepvariant_image(model_type: str = "WGS", gpu: bool = False) -> str:
+    if model_type == "ULTIMA" and gpu:
+        return str(
+            settings.get("deepvariant_ultima_gpu_image") or DEFAULT_ULTIMA_GPU_IMAGE
+        )
     if model_type == "ULTIMA":
         return str(settings.get("deepvariant_ultima_image") or DEFAULT_ULTIMA_IMAGE)
     default = DEFAULT_ARM64_IMAGE if is_linux_arm64() else DEFAULT_IMAGE
@@ -204,10 +216,14 @@ def _verify_docker(model_type: str = "WGS") -> None:
     docker_info(setup)
 
 
-def _verify_docker_image(model_type: str) -> str:
-    image = deepvariant_image(model_type)
+def _verify_docker_image(model_type: str, gpu: bool = False) -> str:
+    image = deepvariant_image(model_type, gpu)
     setting = (
-        "deepvariant_ultima_image" if model_type == "ULTIMA" else "deepvariant_image"
+        "deepvariant_ultima_gpu_image"
+        if gpu
+        else "deepvariant_ultima_image"
+        if model_type == "ULTIMA"
+        else "deepvariant_image"
     )
     require_image(
         image,
@@ -390,7 +406,12 @@ def _supports_num_partitions(
     Pinned defaults and version tags decide without running anything;
     otherwise ask the image's or launcher's postprocess_variants.
     """
-    if image in {DEFAULT_IMAGE, DEFAULT_ARM64_IMAGE, DEFAULT_ULTIMA_IMAGE}:
+    if image in {
+        DEFAULT_IMAGE,
+        DEFAULT_ARM64_IMAGE,
+        DEFAULT_ULTIMA_IMAGE,
+        DEFAULT_ULTIMA_GPU_IMAGE,
+    }:
         return True
     if image:
         tag = re.search(r":v?(\d+)\.(\d+)[^/:@]*(?:@|$)", image)
@@ -504,31 +525,117 @@ _PARABRICKS_MODES = {
 }
 
 
-def _deepvariant_gpu(params: VcfDeepvariantParams) -> None:
+_GPU_REFUSAL = (
+    "--gpu runs DeepVariant's WGS, WES, PACBIO and ONT_R104 models with "
+    "Parabricks, and ULTIMA with Google's DeepVariant GPU image; use the CPU "
+    "version for --checkpoint or HYBRID_PACBIO_ILLUMINA."
+)
+_ULTIMA_GPU_SETUP = (
+    "DeepVariant's ULTIMA model runs on the GPU in Google's experimental image, "
+    "on x86-64 Linux (or WSL2) with an NVIDIA GPU, Docker and the NVIDIA "
+    "Container Toolkit: docker pull {image}"
+)
+# Free GPU memory call_variants needs in Google's GPU image (#358). On a 24 GiB
+# RTX 3090 with another process holding the rest, the ULTIMA model ran with
+# 7.3 GiB free and ran out of memory with 6.3 GiB.
+ULTIMA_GPU_MIN_FREE = round(7.3 * GIB)
+
+
+def _model_chosen(params: VcfDeepvariantParams) -> bool:
+    """Whether the options, not the reads, choose the model."""
+    return bool(params.model_type or params.ont or params.pacbio or params.wes)
+
+
+def _gpu_model(params: VcfDeepvariantParams) -> tuple[str, CallerSetup | None]:
+    """The model --gpu calls with, and the caller setup made to detect it from
+    the reads when the options don't choose it."""
+    model = _model_type(params)
+    if params.checkpoint or (model not in _PARABRICKS_MODES and model != "ULTIMA"):
+        raise UsageError(_GPU_REFUSAL)
+    if _model_chosen(params):
+        return model, None
+    caller = setup_caller(params)
+    return _model_type(params, caller.ref, caller.platform), caller
+
+
+def require_gpu_host() -> None:
+    """Refuse --gpu where neither Parabricks nor Google's ULTIMA GPU image
+    runs: both are x86-64 Linux only."""
+    if not sys.platform.startswith("linux"):
+        raise UsageError(
+            "--gpu is not supported on this platform; use Linux with an NVIDIA GPU."
+        )
+    if platform.machine().lower() not in {"x86_64", "amd64"}:
+        raise UsageError(
+            "--gpu is not supported on Linux ARM64: Parabricks and Google's "
+            "ULTIMA GPU image are x86-64 only. Use the native CPU pipeline instead."
+        )
+
+
+def _verify_ultima_gpu(params: VcfDeepvariantParams) -> None:
+    """Refuse an Ultima --gpu run this machine can't do, before any work."""
+    from wgsextract_cli.core.parabricks import verify_gpu_docker
+
+    setup = _ULTIMA_GPU_SETUP.format(image=deepvariant_image("ULTIMA", gpu=True))
+    if not params.dry_run:
+        # A dry run only plans, in the image, without the GPU.
+        verify_gpu_docker(setup)
+    else:
+        docker_info(setup)
+
+
+def _check_gpu_free(check: bool) -> None:
+    """Refuse (unless not ``check``) when a GPU lacks the memory call_variants
+    needs; just before it runs, so plans and finished reruns don't need one.
+    Every GPU is checked: the container gets them all."""
+    from wgsextract_cli.core.parabricks import gpu_memory
+
+    gpus = gpu_memory()
+    free = [gpu.free_bytes for gpu in gpus if gpu.free_bytes is not None]
+    if not free:
+        logging.warning("GPU memory is unknown; running call_variants anyway.")
+        return
+    least = min(free)
+    if least >= ULTIMA_GPU_MIN_FREE:
+        return
+    message = (
+        f"DeepVariant call_variants needs ~{ULTIMA_GPU_MIN_FREE / GIB:.1f} GiB of "
+        f"free memory on each GPU, but one has {least / GIB:.1f} GiB free "
+        "(other programs are using it)."
+    )
+    if check:
+        raise WGSExtractError(
+            f"{message} Wait for them to finish, or pass --no-gpu-memory-check "
+            "to try anyway."
+        )
+    warn("deepvariant_gpu_memory", f"{message} Continuing (--no-gpu-memory-check).")
+
+
+def _deepvariant_parabricks(
+    params: VcfDeepvariantParams, model_type: str, caller: CallerSetup | None
+) -> None:
     from wgsextract_cli.core.parabricks import (
         call_variants,
         plan_gpu_memory,
         verify_parabricks,
     )
 
-    refusal = (
-        "--gpu (Parabricks) runs DeepVariant's WGS, WES, PACBIO and ONT_R104 models; "
-        "use the CPU version for --checkpoint, ULTIMA or HYBRID_PACBIO_ILLUMINA."
-    )
-    # The options chose an unsupported model (usage); below, the input did.
-    if _model_type(params) not in _PARABRICKS_MODES or params.checkpoint:
-        raise UsageError(refusal)
+    if params.batch_size is not None:
+        raise UsageError("DeepVariant --batch-size doesn't apply to Parabricks.")
+    if params.dry_run or params.force_steps:
+        raise UsageError(
+            "--dry-run and --force-step apply to DeepVariant's stages; "
+            "Parabricks (--gpu) always runs in one step."
+        )
+    require_native_tool("parabricks")
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
     fit = plan_gpu_memory(
         "deepvariant", "deepvariant", check=not params.no_gpu_memory_check
     )
-    setup = setup_caller(params)
+    setup = caller or setup_caller(params)
     outdir, ref = setup.outdir, setup.ref
     input_file, region = str(params.input), params.region
-    model_type = _model_type(params, ref, setup.platform)
-    if model_type not in _PARABRICKS_MODES:
-        raise WGSExtractError(refusal)
     _require_ont_x86(model_type)
     if model_type == "ONT_R104":
         _warn_ont_chemistry(input_file, ref)
@@ -549,30 +656,48 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
     batch_size = params.batch_size
     if batch_size is not None and batch_size < 1:
         raise UsageError("DeepVariant --batch-size must be positive.")
-    if params.gpu:
-        if batch_size is not None:
-            raise UsageError("DeepVariant --batch-size is a CPU-only option.")
-        if params.dry_run or params.force_steps:
+    caller = None
+    gpu = params.gpu
+    if gpu:
+        require_gpu_host()
+        if params.region and any(
+            len(item.split()) > 1 for item in region_items(params.region, commas=True)
+        ):
+            # A spaced item would be one path to serve's --allow check but
+            # several to the depth check and DeepVariant.
             raise UsageError(
-                "--dry-run and --force-step apply to CPU DeepVariant's stages; "
-                "--gpu always runs Parabricks in one step."
+                "--gpu regions are separated by commas, without spaces: "
+                f"{params.region!r}"
             )
-        require_native_tool("parabricks")
-        _deepvariant_gpu(params)
-        return
+        model, caller = _gpu_model(params)
+        if model != "ULTIMA":
+            _deepvariant_parabricks(params, model, caller)
+            return
+        # Parabricks has no ULTIMA model: Google's GPU image runs DeepVariant's
+        # stages, as on the CPU, with call_variants on the GPU.
+        logging.info(
+            "Ultima reads on the GPU: running DeepVariant's stages in Google's "
+            "experimental GPU image (Parabricks has no ULTIMA model)."
+        )
+        _verify_ultima_gpu(params)
+        if params.region:
+            # --gpu's regions are comma-separated; DeepVariant's, spaced.
+            params = replace(
+                params, region=" ".join(region_items(params.region, commas=True))
+            )
     checkpoint = str(params.checkpoint) if params.checkpoint else None
     arm64_image = (
         _verify_arm64_image(_model_type(params), checkpoint)
-        if is_linux_arm64()
+        if is_linux_arm64() and not gpu
         else None
     )
     if not arm64_image:
         _require_ont_x86(_model_type(params))
-    local_dv = None if arm64_image else get_tool_path("run_deepvariant")
-    if not local_dv and not arm64_image:
+    local_dv = None if arm64_image or gpu else get_tool_path("run_deepvariant")
+    if not local_dv and not arm64_image and not gpu:
         _verify_docker()
     verify_dependencies(["samtools", "tabix"])
-    caller = setup_caller(params)
+    caller = caller or setup_caller(params)
     threads, outdir, ref = caller.threads, caller.outdir, caller.ref
     input_file, region = str(params.input), params.region
     model_type = _model_type(params, ref, caller.platform)
@@ -585,9 +710,13 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
         # A local run_deepvariant is a release, which has no ULTIMA model yet.
         _verify_docker(model_type)
         local_dv = None
-    image = arm64_image or (None if local_dv else _verify_docker_image(model_type))
+    image = arm64_image or (None if local_dv else _verify_docker_image(model_type, gpu))
     setup = (
-        _ARM64_SETUP if arm64_image else _SETUP.format(image=image) if image else None
+        _ARM64_SETUP
+        if arm64_image
+        else (_ULTIMA_GPU_SETUP if gpu else _SETUP).format(image=image)
+        if image
+        else None
     )
     available = _available_memory(setup)
     postprocess = _postprocess_plan(
@@ -608,6 +737,9 @@ def run_deepvariant(params: VcfDeepvariantParams) -> None:
         bool(arm64_image),
         [ref, input_file, out_vcf, str(work), checkpoint, *region_files],
         work,
+        gpu_check=(
+            (lambda: _check_gpu_free(not params.no_gpu_memory_check)) if gpu else None
+        ),
     )
     inputs: dict[str, str | None] = {
         "alignment": input_file,
@@ -741,17 +873,28 @@ class _Launcher:
         arm64: bool,
         paths: list[str | None],
         work: Path,
+        gpu_check: Callable[[], None] | None = None,
     ):
         self.local = local
         self.image = image
         self.arm64 = arm64
         self.paths = paths
         self.work = work
+        # A GPU image's check of the GPU, before the first stage that uses it.
+        self.gpu_check = gpu_check
 
     def launcher(self) -> str:
         return str(self.local) if not self.image else f"{_DV_BIN}/run_deepvariant"
 
-    def __call__(self, argv: list[str], *, capture: bool = False) -> str:
+    def __call__(
+        self, argv: list[str], *, capture: bool = False, gpu: bool = False
+    ) -> str:
+        """Run ``argv``; ``gpu`` gives a GPU image's container the GPUs."""
+        gpu = gpu and self.gpu_check is not None
+        if gpu:
+            assert self.gpu_check is not None
+            self.gpu_check()
+            self.gpu_check = lambda: None
         if not self.image:
             # stdin closed: DeepVariant's GNU parallel would read it otherwise.
             result = run_command(
@@ -760,7 +903,7 @@ class _Launcher:
             return (result.stdout or "") if capture else ""
         if not capture:
             # Its temporary files stay out of the stage outputs beside them.
-            return self._in_image(argv, self.work / ".tmp", capture)
+            return self._in_image(argv, self.work / ".tmp", capture, gpu)
         # Planning (also in --dry-run, which takes no lock) gets its own
         # temporary folder, away from a running stage's.
         self.work.mkdir(parents=True, exist_ok=True)
@@ -770,10 +913,13 @@ class _Launcher:
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def _in_image(self, argv: list[str], tmp: Path, capture: bool) -> str:
+    def _in_image(
+        self, argv: list[str], tmp: Path, capture: bool, gpu: bool = False
+    ) -> str:
         assert self.image is not None
         tmp.mkdir(parents=True, exist_ok=True)
         options: dict[str, Any] = {
+            "gpus": gpu,
             "temporary_directory": str(tmp),
             "oom_error": None if capture else _OOM_ERROR,
             "capture_output": capture,
@@ -921,7 +1067,7 @@ def _run_stages(
                         )
                         joblog += " --resume-failed"
                     command = command.replace("parallel ", f"parallel {joblog} ", 1)
-                run(["/bin/bash", "-c", command])
+                run(["/bin/bash", "-c", command], gpu=name == "call_variants")
             if name == "postprocess_variants":
                 for suffix in ("", ".tbi"):
                     source = Path(str(staged_vcf) + suffix)

@@ -72,7 +72,7 @@ _REFUSALS = [
     (["vcf", "gatk", *_CALL], 1, "GATK is not supported on Linux ARM64", _BOTH),
     (["vcf", "gatk", "--gpu", *_CALL], 1, "GATK is not supported", _BOTH),
     # CPU DeepVariant runs on ARM64; only the --gpu option is refused.
-    (["vcf", "deepvariant", "--gpu", *_CALL], 2, "Parabricks --gpu is", _BOTH),
+    (["vcf", "deepvariant", "--gpu", *_CALL], 2, "--gpu is not supported", _BOTH),
     (["deps", "check", "--tool", "gatk"], 1, "GATK is not supported", _BOTH),
     (["align", "--platform", "ultima", *_ALIGN], 1, "GATK is not", _BOTH),
     # The commands look for these inputs first; the CLI refuses before that.

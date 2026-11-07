@@ -968,8 +968,9 @@ class VcfDeepvariantParams(_CallerParams):
 
     The model follows ``ont``, ``pacbio``, ``model_type`` and ``wes``, else the
     reads (ONT_R104 for ONT, ULTIMA for flow-tagged Ultima reads, else WGS).
-    The CPU version runs in stages that a rerun resumes; ``gpu`` runs
-    Parabricks in one step.
+    DeepVariant's own pipeline runs in stages that a rerun resumes. ``gpu``
+    runs Parabricks in one step, except for ULTIMA, which Parabricks lacks:
+    Google's ULTIMA GPU image runs the stages with call_variants on the GPU.
     """
 
     COMMAND = "vcf deepvariant"
@@ -1009,13 +1010,14 @@ class VcfDeepvariantParams(_CallerParams):
     )
     batch_size: int | None = param(
         None,
-        help="CPU inference batch size (upstream default: 1024). "
+        help="call_variants batch size (upstream default: 1024; not Parabricks). "
         "Use 256 to lower TensorFlow peak RAM without changing models or precision; "
         "--threads controls make_examples shards, not this batch.",
     )
     gpu: bool = param(
         False,
-        help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
+        help="Call on an NVIDIA GPU: Parabricks, or Google's ULTIMA GPU image "
+        "for Ultima reads (x86-64 Linux, Docker; see README).",
         action="store_true",
     )
     no_gpu_memory_check: bool = no_gpu_memory_check_param()
