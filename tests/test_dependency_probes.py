@@ -387,8 +387,10 @@ def test_a_slow_lockfile_query_still_gives_the_install_hint(
         f"sys.exit(subprocess.call([{str(fake_pixi.exe)!r}, *sys.argv[1:]]))\n",
     )
     monkeypatch.setenv("PIXI_EXE", str(slow))
-    # The clock: the real limits are a minute, then three.
-    monkeypatch.setattr(pixi_tools, "PIXI_QUERY_TIMEOUTS", (2, 60))
+    # The clock: only the first limit shrinks, below the 4 s stall; the
+    # retry keeps its real budget so a slow runner can't fail this test.
+    retry = pixi_tools.PIXI_QUERY_TIMEOUTS[-1]
+    monkeypatch.setattr(pixi_tools, "PIXI_QUERY_TIMEOUTS", (2, retry))
 
     results = check_all_dependencies([], ["minimap2"])
 
