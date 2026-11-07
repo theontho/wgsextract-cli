@@ -46,8 +46,7 @@ class Server(ThreadingHTTPServer):
 
     @property
     def hosts(self) -> frozenset[str]:
-        port = self.server_address[1]
-        return frozenset({f"127.0.0.1:{port}", f"localhost:{port}"})
+        return local_hosts(self.server_address[1])
 
 
 def job_view(job: Job, query: dict[str, list[str]]) -> dict[str, Any]:
@@ -66,6 +65,39 @@ def _wait(query: dict[str, list[str]]) -> float:
     except ValueError:
         raise RequestError(400, "usage", "wait must be a number of seconds.") from None
     return min(max(seconds, 0.0), MAX_WAIT_SECONDS)
+
+
+def check_headers(
+    header: Callable[[str], str | None],
+    hosts: frozenset[str],
+    token: str | None,
+    discovery: str,
+) -> None:
+    """Refuse a request naming another host (DNS rebinding), sent from a web
+    page of another origin, or, unless ``token`` is None, without the bearer
+    token ``wgsextract serve`` printed and saved in ``discovery``."""
+    if (header("Host") or "") not in hosts:
+        raise RequestError(403, "bad_host", "Unexpected Host header.")
+    origin = header("Origin")
+    if origin and origin.removeprefix("http://") not in hosts:
+        raise RequestError(403, "bad_origin", "Cross-origin requests are refused.")
+    if token is None:
+        return
+    scheme, _, sent = (header("Authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(
+        sent.strip().encode(), token.encode()
+    ):
+        raise RequestError(
+            401,
+            "unauthorized",
+            "Send 'Authorization: Bearer <token>'; `wgsextract serve` "
+            f"printed the token and saved it in its {discovery}.",
+        )
+
+
+def local_hosts(port: int) -> frozenset[str]:
+    """The Host headers a server on 127.0.0.1:``port`` answers."""
+    return frozenset({f"127.0.0.1:{port}", f"localhost:{port}"})
 
 
 Route = Callable[["Handler", re.Match[str], dict[str, list[str]]], None]
@@ -101,23 +133,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(error.status, error.to_dict(), **headers)
 
     def _check_request(self, path: str) -> None:
-        if self.headers.get("Host", "") not in self.server.hosts:
-            raise RequestError(403, "bad_host", "Unexpected Host header.")
-        origin = self.headers.get("Origin")
-        if origin and origin.removeprefix("http://") not in self.server.hosts:
-            raise RequestError(403, "bad_origin", "Cross-origin requests are refused.")
-        if path == "/v1/health":
-            return
-        scheme, _, token = self.headers.get("Authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not hmac.compare_digest(
-            token.strip().encode(), self.server.token.encode()
-        ):
-            raise RequestError(
-                401,
-                "unauthorized",
-                "Send 'Authorization: Bearer <token>'; `wgsextract serve` "
-                "printed the token and saved it in its server.json.",
-            )
+        check_headers(
+            self.headers.get,
+            self.server.hosts,
+            None if path == "/v1/health" else self.server.token,
+            "server.json",
+        )
 
     def _body(self) -> object:
         try:

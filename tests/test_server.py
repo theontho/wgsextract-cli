@@ -1449,7 +1449,7 @@ def test_jobs_outlive_the_server_and_can_be_rerun(
 
 def test_serve_command_publishes_its_address_and_cleans_up(tmp_path, work):
     proc = subprocess.Popen(
-        [*get_cli_command(), "serve", "--allow", str(work)],
+        [*get_cli_command(), "serve", "--allow", str(work), "--ready-json"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -1465,6 +1465,9 @@ def test_serve_command_publishes_its_address_and_cleans_up(tmp_path, work):
         discovery = Path(banner.split("(also in ")[1].split(",")[0])
         info = json.loads(discovery.read_text())
         assert info["url"] in banner and info["token"] in banner
+        # --ready-json: the program that started the server reads it from stdout.
+        assert proc.stdout is not None
+        assert json.loads(proc.stdout.readline()) == info
         if sys.platform != "win32":
             assert discovery.stat().st_mode & 0o777 == 0o600
         client = Client(info["url"].removesuffix("/v1"))
