@@ -159,7 +159,8 @@ jobs and results; when none is free, threads extend on the CPU.
 HG002 with `-K 10000000` (the reads and alignments of the extra chunk; more
 with larger `-K`). After 20M reads, on Macs with at least 16 GiB, the denser
 suffix-array sample adds one 33-bit entry for every 32 rows of the suffix
-array, about 0.76 GiB for hs38 (built in about 18 s).
+array, about 0.76 GiB for hs38 (built in about 18 s). 0.7.0 does not change
+the peak.
 With `--metal` the GPU uses the whole index
 (4.3 GiB for hs38) in place, so it stays resident while aligning; it has not
 been tested on 8 GB Macs.
@@ -185,6 +186,7 @@ three for 0.3.0 `--metal`):
 | `wgse-bwa --metal` 0.4.0 (also mate rescue) | 9 | 241.2 s | 5.9 GiB | −50.0% |
 | `wgse-bwa --metal` 0.5.0 (also seed extension) | 9 | 213.1 s | 6.1 GiB | −55.9% |
 | `wgse-bwa --metal` 0.6.0 (faster kernels, overlap) | 9 | 147.1 s | 6.2 GiB | −69.5% |
+| `wgse-bwa --metal` 0.7.0 (faster CPU share) | 9 | 136.0 s | 6.2 GiB | −71.8% |
 
 The 0.4.0 row comes from a later session on AC power that interleaved three
 runs each of 0.4.0 `--metal` (243.6, 243.0 and 237.0 s), 0.3.0 `--metal`
@@ -211,6 +213,15 @@ light background load (Spotlight and Photos indexing): 0.6.0 `--metal` took
 the same session. These 10M reads end before the denser suffix-array sample
 is built; in runs that build it at the start, it saved a further 10–12% of
 the time after the build.
+
+The 0.7.0 row comes from a fifth session on AC power that interleaved three
+runs each of 0.7.0 `--metal` (134.1, 133.6 and 140.3 s) and 0.6.0 `--metal`
+(146.9, 148.2 and 153.8 s; mean 149.7 s), with the order reversed in the
+third round, and two of the 0.7.0 CPU backend (533.6 and 537.9 s, slower than
+in earlier sessions; the battery was charging): 0.7.0 `--metal` took 9.1% less
+time than 0.6.0 `--metal`, and was faster in each round. Its CPU threads
+mapped 2.4M of the 10M reads (1.6M in 0.6.0) and rescued the mates of 2.4M
+pairs (1.7M). Its "vs CPU" uses 482.7 s like the rows above.
 
 An earlier session measured 481.2 s (CPU) and 425.4 s (0.2.0 `--metal`). On
 200k of those pairs 0.3.0 `--metal` saved 33% with 9 threads, 41% with 4 and
@@ -251,7 +262,11 @@ by the CPU threads and pairing by the GPU. 0.6.0 therefore makes the rescue and
 extension kernels faster and overlaps the two steps of consecutive chunks, and
 borrows two ideas from BWA-MEM2 without its larger index: counting bases in a
 whole occurrence block at once, and (on long runs) a denser suffix-array
-sample.
+sample. A profile of 0.6.0 `--metal` found the GPU busy for 94% of the run,
+with its seeding and locate kernels bound by memory latency, while the CPU
+threads spent 30% of their busy time in mate rescue's 8-bit kernel and 10% in
+locate. 0.7.0 therefore speeds up the CPU threads' share, so that they take
+more of the work from the GPU.
 
 ## Building
 
