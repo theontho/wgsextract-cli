@@ -19,7 +19,7 @@ from wgsextract_cli.api.vcf import (
     VcfSnpParams,
     _VcfFileParams,
 )
-from wgsextract_cli.core import ultima
+from wgsextract_cli.core import read_scope, ultima
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, ploidy_for_build
 from wgsextract_cli.core.config import settings
@@ -248,7 +248,11 @@ def plain_reference(ref: str, outdir: str) -> Iterator[str]:
         yield ref
         return
     sibling = ref[:-3]
-    if Path(sibling).is_file():
+    # A server job may read only its allowed folders; the sibling or its
+    # index can be a link elsewhere.
+    if Path(sibling).is_file() and all(
+        read_scope.may_follow(p) for p in (sibling, f"{sibling}.fai")
+    ):
         if not Path(sibling + ".fai").is_file():
             try:
                 run_command(["samtools", "faidx", sibling], capture_output=True)

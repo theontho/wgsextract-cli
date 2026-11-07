@@ -311,6 +311,25 @@ def test_a_repair_writing_its_output_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_methylation_run_waits_while_its_reference_folder_is_busy(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # #493 review: an unindexed reference is indexed beside itself.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    shutil.copy(ref, work / "ref.fa")
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        request = {"input": str(bam), "ref": str(work / "ref.fa")}
+        status, second = client.request(
+            "POST", "/ops/methylation/pileup", {**request, "outdir": str(other)}
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_a_vep_run_on_a_vcf_in_a_busy_folder_waits(
     tmp_path, work, fake_data, slow_coverage
 ):
@@ -1050,6 +1069,33 @@ def test_caller_paths_cover_every_file():
             find("vcf/clair3"), {**allowed, "model": "r1041_e82_400bps_sup_v500"}
         )
     )
+
+
+_METHYLATION_PATHS = [
+    item
+    for item in find("methylation/pileup").fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize("field", [item.name for item in _METHYLATION_PATHS])
+@pytest.mark.parametrize(
+    "value", ["D:evil.bam", r"D:\evil.bam", r"\\host\share\evil.bam", r"sub\evil.bam"]
+)
+def test_path_guard_covers_every_methylation_path(field, value):
+    # #478: `methylation pileup` became a server operation; every file or
+    # folder it reads or writes must be inside an allowed folder.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    op = find("methylation/pileup")
+    guard.check(params_from_json(op, {**allowed, "region": "chr20:1-9,chr21"}))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(op, {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_methylation_paths_cover_every_file():
+    assert {item.name for item in _METHYLATION_PATHS} == {"input", "ref", "outdir"}
 
 
 # Each backend's region list: DeepVariant splits on whitespace, Parabricks
