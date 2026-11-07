@@ -82,6 +82,8 @@ npm --prefix app run bundle:validate -- examples/WGSExtract path/to/bundle.zip
 
 Bundles can include `strings.toml` and `strings.<language-code>.toml` localization tables next to `manifest.json`. Schema files live in `docs/schema/manifest.schema.json` and `docs/schema/page.schema.json`.
 
+Actions can also run as cancellable jobs on a local server that the bundle declares; see [job servers](docs/job-server.md).
+
 Run a bundle's action test plans with:
 
 ```bash

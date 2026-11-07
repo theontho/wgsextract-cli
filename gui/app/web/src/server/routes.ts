@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import type { BundleManifest, Labels, LooseRecord, RunProcess } from "../../../shared/types.js";
-import { evaluatePrecheck, evaluateSetupInstallSizePrecheck, fileStateValues, runAction, runDataSource } from "./action-runner.js";
+import { evaluatePrecheck, evaluateSetupInstallSizePrecheck, fileStateValues, runDataSource } from "./action-runner.js";
 import { serveBundleFavicon, serveBundleFile } from "./assets.js";
 import { loadLocaleOptions } from "./bundle-loader.js";
 import { loadConfig, saveBundleState, saveConfig } from "./config-store.js";
@@ -9,6 +9,8 @@ import { errorMessage, HttpError } from "./errors.js";
 import { contentType, json, notFound, readJSONBody, serveIndex, staticFile } from "./http.js";
 import { findConfigEditorControl, locationKey, resolveActionReference, resolveDataSource, type DynamicActions } from "./manifest-lookup.js";
 import { streamNDJSON } from "./ndjson.js";
+import { runActionPreferringServer } from "./job-server-action.js";
+import type { JobServer } from "./job-server.js";
 import { configPath, distModulePath, normalizeContext } from "./paths.js";
 import { pickPath, type NativePickerEndpoint } from "./path-picker.js";
 import { optionalString, parseActionReference, parseBundleStatePatch, parseCommandContext, parseLabels, parseManifestLocation, parsePrecheckTarget, requestObject, requiredString } from "./request-bodies.js";
@@ -38,6 +40,8 @@ export interface RequestHandlerContext {
     dynamicActions: DynamicActions;
     enableDevReload: boolean;
     hostnames?: string[];
+    /** The bundle's job server, when its manifest declares one. */
+    jobServer: JobServer | undefined;
     localizedBundleLoader: {
         load: (locale?: string, preferredLocales?: string[]) => Promise<LocalizedBundle>;
     };
@@ -82,7 +86,7 @@ export function createRequestHandler(context: RequestHandlerContext) {
             const actionContext = commandContext(body, context);
             await streamNDJSON(
                 response,
-                (emit, signal) => runAction(action, actionContext, signal, context.bundleRoot, context.runProcess, emit),
+                (emit, signal) => runActionPreferringServer(action, actionContext, signal, context.bundleRoot, context.runProcess, context.jobServer, emit),
                 (error) => ({ type: "error", error }),
             );
         },

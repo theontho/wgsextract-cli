@@ -16,6 +16,7 @@ const defaultTests = [
   "tests/platform.test.mjs",
   "tests/platform-command.test.mjs",
   "tests/process-runner.test.mjs",
+  "tests/job-server.test.mjs",
   "tests/path-picker.test.mjs",
   "tests/operations.test.mjs",
   "tests/routes.test.mjs",

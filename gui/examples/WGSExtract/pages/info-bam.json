@@ -80,6 +80,15 @@
                 "{{out_dir}}"
               ]
             ]
+          },
+          "serverOperation": {
+            "operation": "info/calculate-coverage",
+            "parameters": {
+              "input": "{{bam_path}}",
+              "bins": true,
+              "ref": "{{ref_path}}",
+              "outdir": "{{out_dir}}"
+            }
           }
         },
         {
@@ -134,6 +143,12 @@
               "--input",
               "{{bam_path}}"
             ]
+          },
+          "serverOperation": {
+            "operation": "info/calculate-coverage",
+            "parameters": {
+              "input": "{{bam_path}}"
+            }
           }
         },
         {
