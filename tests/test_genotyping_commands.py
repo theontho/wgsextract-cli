@@ -330,6 +330,7 @@ def test_hla_release_is_not_read_through_a_symlink_out_of_the_read_scope(
     assert result.metrics.get("ipd_imgt_hla_release") != "outside"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="T1K is not supported on Windows")
 def test_hla_streams_t1k_output_only_with_debug(
     tmp_path, mhc_bam, hla_setup, monkeypatch, capfd
 ):
