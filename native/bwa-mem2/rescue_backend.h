@@ -3,6 +3,7 @@
 // Seams for GPU SMEM collection, GPU mate rescue and mapping one chunk while
 // the previous one pairs, in the generated bwamem.cpp, bwamem_pair.cpp and fastmap.cpp.
 #include "bwamem.h"
+#include "../bwa/ksw_batch.h"
 
 // Replaces kt_for(worker_bwt) (appended to bwamem.cpp).
 void wgse_kt_for_bwt(worker_t &w, int n);
@@ -10,6 +11,10 @@ void wgse_kt_for_bwt(worker_t &w, int n);
 // their SMEMs on the GPU too; returns 0 to leave the chunk to upstream.
 int wgse_metal_seed(FMI_search *fmi, const mem_opt_t *opt, bseq1_t *seqs, int n, int threads,
     void (*worker)(void *, long, int), void *data);
+// Starts collecting the SMEMs of a chunk just read on the GPU, while the
+// previous chunk maps; wgse_metal_seed() for the same reads continues it.
+void wgse_metal_preseed(FMI_search *fmi, const mem_opt_t *opt, const bseq1_t *seqs, int n,
+    int threads);
 // mem_collect_smem()'s result for these reads from the GPU, in mmc's matchArray
 // for tid, or nullptr to leave them to mem_collect_smem().
 SMEM *wgse_metal_smems(FMI_search *fmi, const mem_opt_t *opt, const bseq1_t *seq, int nseq,
@@ -17,6 +22,17 @@ SMEM *wgse_metal_smems(FMI_search *fmi, const mem_opt_t *opt, const bseq1_t *seq
 SMEM *mem_collect_smem(FMI_search *fmi, const mem_opt_t *opt, const bseq1_t *seq_, int nseq,
     SMEM *matchArray, int32_t *min_intv_ar, int16_t *query_pos_ar, uint8_t *enc_qdb,
     int32_t *rid, mem_cache *mmc, int64_t &tot_smem, int tid);
+
+// bns_get_seq()'s forward and reverse-strand loops (native/bwa/pac_oracle.c.in).
+void wgse_unpack_pac(const uint8_t *pac, int64_t beg, int64_t end, uint8_t *seq);
+void wgse_unpack_pac_reverse(const uint8_t *pac, int64_t beg_f, int64_t end_f, uint8_t *seq);
+// bns_get_seq_v2()'s window [beg, end) of the reference without the .0123 file:
+// decoded from the .pac into a per-thread buffer, valid until the thread's next call.
+uint8_t *wgse_ref_window(int64_t l_pac, const uint8_t *pac, int64_t beg, int64_t end);
+
+// mem_sort_dedup_patch()'s sorts on pointers (native/bwa/sort_oracle.c.in).
+void wgse_sort_alnreg_by_end(size_t n, mem_alnreg_t *a);
+void wgse_sort_alnreg_by_score(size_t n, mem_alnreg_t *a);
 
 // mem_process_seqs() in two halves (mem_stages.cpp.in).
 void *wgse_mem_map(mem_opt_t *opt, int64_t n_processed, int n, bseq1_t *seqs,

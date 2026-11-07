@@ -15,8 +15,8 @@ static void wgse_sort_alnreg(int by_end, size_t n, mem_alnreg_t *a)
 	mem_alnreg_t small_copy[small], *copy = small_copy;
 	size_t i;
 	if (n > small) { /* BWA's malloc wrapper aborts on failure, as everywhere in bwamem.c. */
-		order = malloc(n * sizeof(*order));
-		copy = malloc(n * sizeof(*copy));
+		order = (wgse_alnreg_p*)malloc(n * sizeof(*order));
+		copy = (mem_alnreg_t*)malloc(n * sizeof(*copy));
 	}
 	for (i = 0; i < n; ++i) order[i] = &a[i];
 	if (by_end) ks_introsort(wgse_ars2, n, order);

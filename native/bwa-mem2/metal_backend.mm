@@ -16,7 +16,10 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstring>
+#include <deque>
 #include <filesystem>
+#include <iterator>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <pthread/qos.h>
@@ -32,6 +35,7 @@ constexpr int32_t max_query = 256;
 constexpr int32_t max_target = 8192;
 constexpr const char *tiled_memory_limit = "tiled extension exceeds memory bound";
 std::atomic<Backend> selected_backend{Backend::automatic};
+std::atomic<bool> metal_active{false};
 std::atomic<uint64_t> gpu_batches{0}, gpu_pairs{0}, cpu_batches{0}, cpu_pairs{0};
 std::atomic<uint64_t> cpu_call_ns{0}, gpu_call_ns{0}, pack_ns{0}, gpu_exec_ns{0};
 std::atomic<uint64_t> unpack_ns{0};
@@ -766,18 +770,21 @@ std::atomic<bool> rescue_enabled{true}, rescue_usable{true}, all_on_gpu{false};
 bool overlap_enabled = true;
 std::atomic<bool> overlap_active{false};
 std::atomic<size_t> overlapped_chunks{0};
-bool inject_rescue_failure = false, verify_rescue = false;
+bool inject_rescue_failure = false, verify_rescue = false, cpu_rescue_batching = true;
 size_t rescue_batch_pairs = 4096;
 // Prepared batches waiting for the CPU threads; bounds their memory.
 constexpr size_t rescue_outstanding_batches = 3;
 // Bounds one rescue batch's reads and reference windows (and its row scratch).
 constexpr size_t rescue_batch_bytes = size_t(64) << 20;
+// Bounds a CPU-taken pair's batched windows; larger ones stay with upstream's ksw_align2().
+constexpr size_t cpu_rescue_bytes = size_t(4) << 20;
 constexpr int threadgroup_size = 256;
 std::unique_ptr<GpuRescue> rescuer;
 std::mutex rescue_mutex;
 size_t rescue_batches = 0, rescue_gpu_pairs = 0, rescue_cpu_pairs = 0, rescue_wasted_pairs = 0;
 size_t rescue_jobs = 0, rescue_declined = 0, rescue_skipped = 0;
 size_t rescue_hits = 0, rescue_misses = 0, rescue_mismatches = 0;
+size_t rescue_cpu_jobs = 0, rescue_cpu_hits = 0, rescue_cpu_skipped = 0;
 double rescue_gpu_seconds = 0, rescue_kernel_seconds = 0, rescue_seconds = 0,
     rescue_wait_seconds = 0;
 
@@ -814,12 +821,23 @@ struct RescueBatch : BatchBase {
 struct RescueCurrent {
     const RescueBatch *batch = nullptr;
     uint32_t begin = 0, end = 0;
+    // Whether this thread aligned the windows itself (wgse_ksw_align2_batch).
+    bool cpu = false;
 };
 thread_local RescueCurrent rescue_current;
 struct RescueTally {
-    size_t hits = 0, misses = 0, mismatches = 0;
+    size_t hits = 0, misses = 0, mismatches = 0, cpu_jobs = 0, cpu_hits = 0, cpu_skipped = 0;
 };
 thread_local RescueTally rescue_tally;
+
+// A CPU-taken pair's rescue windows, aligned together on its own thread.
+struct CpuRescue {
+    RescueBatch batch;
+    std::vector<uint8_t> bases;
+    std::vector<wgse_ksw_task_t> tasks;
+    std::vector<size_t> offsets;
+};
+thread_local CpuRescue cpu_rescue;
 
 // worker_sam for paired-end chunks with GPU mate rescue: the GPU aligns every
 // rescue window mem_sam_pe() may try for its pairs, and mem_matesw() uses the
@@ -880,6 +898,60 @@ private:
         batch.keys.push_back({ms, rb, re, l_ms, is_rev, xtra, uint32_t(batch.jobs.size() - 1)});
     }
 
+    static void emit_cpu(void *context, const uint8_t *ms, int l_ms, int is_rev, int64_t rb,
+        int64_t re, const uint8_t *ref, int xtra) {
+        auto &cpu = *static_cast<CpuRescue *>(context);
+        const int64_t tlen = re - rb;
+        // 16-bit windows gain nothing from the batch, so upstream aligns them
+        // only if mem_matesw() still asks.
+        if (!(xtra & KSW_XBYTE)
+            || cpu.bases.size() + size_t(l_ms) + size_t(tlen) > cpu_rescue_bytes) {
+            cpu.batch.keys.push_back({ms, rb, re, l_ms, is_rev, xtra, skipped_job});
+            ++rescue_tally.cpu_skipped;
+            return;
+        }
+        const size_t query = cpu.bases.size(), target = query + size_t(l_ms);
+        cpu.bases.resize(target + size_t(tlen));
+        uint8_t *bases = cpu.bases.data();
+        // mem_matesw()'s query: the mate, reverse-complemented if is_rev.
+        for (int i = 0; i < l_ms; ++i) {
+            if (is_rev) bases[query + size_t(l_ms - 1 - i)] = ms[i] < 4 ? 3 - ms[i] : 4;
+            else bases[query + size_t(i)] = ms[i];
+        }
+        memcpy(bases + target, ref, size_t(tlen));
+        cpu.batch.keys.push_back({ms, rb, re, l_ms, is_rev, xtra, uint32_t(cpu.tasks.size())});
+        cpu.tasks.push_back({l_ms, int(tlen), xtra, nullptr, nullptr, {}});
+        cpu.offsets.push_back(query);
+    }
+
+    // Aligns every window mem_sam_pe() may try for a pair the CPU took, in one
+    // interleaved batch, unless there are too few to gain from interleaving.
+    void align_on_cpu(long pair) {
+        CpuRescue &cpu = cpu_rescue;
+        cpu.batch.keys.clear();
+        cpu.batch.results.clear();
+        cpu.bases.clear();
+        cpu.tasks.clear();
+        cpu.offsets.clear();
+        wgse_rescue_candidates(opt_, bns_, pac_, pes_, seqs_ + 2 * pair, regs_ + 2 * pair,
+            emit_cpu, &cpu);
+        if (cpu.tasks.size() < 2) return;
+        for (size_t i = 0; i < cpu.tasks.size(); ++i) {
+            cpu.tasks[i].query = cpu.bases.data() + cpu.offsets[i];
+            cpu.tasks[i].target = cpu.tasks[i].query + cpu.tasks[i].qlen;
+        }
+        wgse_ksw_align2_batch(int(cpu.tasks.size()), cpu.tasks.data(), 5, opt_->mat,
+            opt_->o_del, opt_->e_del, opt_->o_ins, opt_->e_ins);
+        cpu.batch.results.reserve(cpu.tasks.size());
+        for (const wgse_ksw_task_t &task : cpu.tasks) {
+            const kswr_t &r = task.r;
+            cpu.batch.results.push_back({r.score, r.te, r.qe, r.score2, r.te2, r.tb, r.qb,
+                rescue_ok});
+        }
+        rescue_tally.cpu_jobs += cpu.tasks.size();
+        rescue_current = {&cpu.batch, 0, uint32_t(cpu.batch.keys.size()), true};
+    }
+
     void skip(RescueBatch &batch, const uint8_t *ms, int64_t rb, int64_t re, int l_ms,
         int is_rev, int xtra) {
         ++skipped;
@@ -922,10 +994,13 @@ private:
 
     void begin(long pair, BatchBase *base) override {
         rescue_current = {};
-        if (!base) return;
+        if (!base) {
+            if (cpu_rescue_batching) align_on_cpu(pair);
+            return;
+        }
         const auto *batch = static_cast<const RescueBatch *>(base);
         const size_t index = size_t(pair - batch->first);
-        rescue_current = {batch, batch->pair_keys[index], batch->pair_keys[index + 1]};
+        rescue_current = {batch, batch->pair_keys[index], batch->pair_keys[index + 1], false};
     }
 
     void end() override { rescue_current = {}; }
@@ -935,6 +1010,9 @@ private:
         rescue_hits += rescue_tally.hits;
         rescue_misses += rescue_tally.misses;
         rescue_mismatches += rescue_tally.mismatches;
+        rescue_cpu_jobs += rescue_tally.cpu_jobs;
+        rescue_cpu_hits += rescue_tally.cpu_hits;
+        rescue_cpu_skipped += rescue_tally.cpu_skipped;
         rescue_tally = {};
     }
 
@@ -1010,10 +1088,10 @@ int wgse_metal_matesw(const mem_opt_t *opt, const uint8_t *ms, uint8_t *seq, int
                 *aln = cpu;
             }
         }
-        ++rescue_tally.hits;
+        ++(pair.cpu ? rescue_tally.cpu_hits : rescue_tally.hits);
         return 1;
     }
-    ++rescue_tally.misses;
+    if (!pair.cpu) ++rescue_tally.misses;
     return 0;
 }
 
@@ -1024,7 +1102,7 @@ static_assert(sizeof(SeedParameters) == 80 && sizeof(SeedSmem) == 32);
 static_assert(sizeof(SeedRead) == 8 && sizeof(SeedCount) == 20);
 // Longer reads stay on the CPU; the CPU collects a read itself in O(length^2) memory.
 constexpr uint32_t seed_max_length = 512;
-constexpr size_t seed_outstanding_batches = 3;
+constexpr size_t seed_outstanding_batches = 8;
 constexpr size_t seed_group = 64;
 
 struct SeedKernel {
@@ -1050,7 +1128,8 @@ size_t seed_batch_reads = 16384;
 // SMEMs per read on the GPU (more is rare); a read with more goes to the CPU.
 uint32_t seed_capacity = 128;
 std::mutex seed_mutex;
-size_t seed_batches = 0, seed_gpu_units = 0, seed_cpu_units = 0, seed_wasted_units = 0;
+size_t seed_batches = 0, seed_gpu_units = 0, seed_cpu_units = 0, seed_wasted_units = 0,
+    seed_preseeded_chunks = 0;
 size_t seed_reads = 0, seed_cpu_reads = 0, seed_hits = 0, seed_misses = 0,
     seed_mismatches = 0;
 double seed_gpu_seconds = 0, seed_kernel_seconds = 0, seed_seconds = 0, seed_wait_seconds = 0;
@@ -1079,8 +1158,6 @@ struct SeedBatch : BatchBase {
 // Runs the kernel on FMI_search's checkpoints in place; buffers grow to the largest batch.
 class GpuSeeds {
 public:
-    double kernel_seconds = 0;
-
     GpuSeeds(SeedKernel &kernel, const FMI_search *fmi) : runtime_(kernel.runtime),
         pipeline_(kernel.pipeline), fmi_(fmi) {
         if (!pipeline_) throw std::runtime_error(kernel.failure());
@@ -1099,11 +1176,14 @@ public:
 
     const FMI_search *fmi() const { return fmi_; }
 
-    void run(SeedParameters p, SeedBatch &batch) {
+    // Returns the kernel's seconds.
+    double run(SeedParameters p, SeedBatch &batch) {
+        std::lock_guard<std::mutex> lock(mutex_);
         const size_t count = batch.reads.size();
         batch.counts.assign(count, SeedCount{});
         batch.offsets.assign(count, 0);
-        if (count == 0) return;
+        double elapsed = 0;
+        if (count == 0) return elapsed;
         @autoreleasepool {
             p.reads = static_cast<uint32_t>(count);
             // Upstream's prevArray never outgrows the read.
@@ -1120,12 +1200,10 @@ public:
             memcpy(reads_.contents, batch.reads.data(), count * sizeof(SeedRead));
             // Every dispatch rewrites its outputs from unchanged inputs, so
             // Runtime::dispatch can rerun an interrupted one.
-            double elapsed = 0;
             if (!runtime_.dispatch(pipeline_,
                 {index_, parameters_, bases_, reads_, scratch_, smems_, counts_}, count,
                 seed_group, elapsed))
                 throw std::runtime_error("GPU seeding: " + runtime_.failure());
-            kernel_seconds += elapsed;
             const auto *counts = static_cast<const SeedCount *>(counts_.contents);
             const auto *smems = static_cast<const SeedSmem *>(smems_.contents);
             size_t total = 0;
@@ -1150,12 +1228,14 @@ public:
                 total += n;
             }
         }
+        return elapsed;
     }
 
 private:
     wgse::metal::Runtime &runtime_;
     id<MTLComputePipelineState> pipeline_;
     const FMI_search *fmi_;
+    std::mutex mutex_;
     id<MTLBuffer> index_ = nil, parameters_ = nil, bases_ = nil, reads_ = nil, scratch_ = nil,
         smems_ = nil, counts_ = nil;
 
@@ -1167,7 +1247,20 @@ private:
         if (!buffer) throw std::runtime_error("GPU seeding allocation failed");
     }
 };
-std::unique_ptr<GpuSeeds> seeder;
+std::mutex seeder_mutex;
+std::shared_ptr<GpuSeeds> seeder;
+
+std::shared_ptr<GpuSeeds> gpu_seeds(const FMI_search *fmi) {
+    std::lock_guard<std::mutex> lock(seeder_mutex);
+    if (!seeder || seeder->fmi() != fmi) seeder = std::make_shared<GpuSeeds>(seed_kernel(), fmi);
+    return seeder;
+}
+
+// A scheduler started ahead of its chunk (wgse_metal_preseed) prepares only
+// while no mapping chunk's GPU side is seeding, so it uses the GPU's idle time.
+std::mutex seed_turn_mutex;
+std::condition_variable seed_turn;
+int seed_mapping_gpu = 0;
 
 // The GPU's SMEMs for the unit this thread is mapping.
 struct SeedCurrent {
@@ -1184,17 +1277,46 @@ class SeedScheduler : public Splitter {
 public:
     size_t reads = 0;
 
-    SeedScheduler(const bseq1_t *seqs, int n, int threads, const SeedParameters &parameters,
-        void (*worker)(void *, long, int), void *data)
+    SeedScheduler(std::shared_ptr<GpuSeeds> seeds, const bseq1_t *seqs, int n, int threads,
+        const SeedParameters &parameters)
         : Splitter(threads, (n + BATCH_SIZE - 1) / BATCH_SIZE,
               std::max<long>(1, long(seed_batch_reads) / BATCH_SIZE), true, all_on_gpu,
-              seed_outstanding_batches, worker, data),
-          seqs_(seqs), n_(n), parameters_(parameters) {}
+              seed_outstanding_batches, nullptr, nullptr),
+          seeds_(std::move(seeds)), seqs_(seqs), n_(n), parameters_(parameters) {}
+
+    ~SeedScheduler() override {
+        {
+            std::lock_guard<std::mutex> lock(seed_turn_mutex);
+            cancelled_ = true;
+        }
+        seed_turn.notify_all();
+        cancel_gpu();
+    }
+
+    bool same(const FMI_search *fmi, const bseq1_t *seqs, int n) const {
+        return seeds_->fmi() == fmi && seqs_ == seqs && n_ == n;
+    }
+
+    // Maps the chunk; its GPU side, if started ahead, now prepares in turn.
+    void map(void (*worker)(void *, long, int), void *data) {
+        {
+            std::lock_guard<std::mutex> lock(seed_turn_mutex);
+            mapping_ = true;
+            if (!gpu_done_) ++seed_mapping_gpu, counted_ = true;
+        }
+        seed_turn.notify_all();
+        run(worker, data);
+    }
+
+    double kernel_seconds = 0;
 
 private:
+    std::shared_ptr<GpuSeeds> seeds_;
     const bseq1_t *seqs_;
     const long n_;
     SeedParameters parameters_;
+    // Guarded by seed_turn_mutex.
+    bool mapping_ = false, cancelled_ = false, gpu_done_ = false, counted_ = false;
 
     // The bases mem_kernel1_core() encodes; reads it would encode through
     // nst_nt4_table's negative indices, or too long, stay on the CPU.
@@ -1233,7 +1355,21 @@ private:
         // The test failure comes after a published batch, with the next one packed.
         if (inject_seed_failure && batches > 0)
             throw std::runtime_error("injected GPU seeding failure (test)");
-        if (!taken(first)) seeder->run(parameters_, batch);
+        bool cancelled;
+        {
+            std::unique_lock<std::mutex> lock(seed_turn_mutex);
+            seed_turn.wait(lock, [this] { return mapping_ || cancelled_ || !seed_mapping_gpu; });
+            cancelled = cancelled_;
+        }
+        // A cancelled scheduler never maps; it publishes nothing usable.
+        if (cancelled) {
+            SeedCount declined{};
+            declined.status = seed_declined;
+            batch.counts.assign(batch.reads.size(), declined);
+            batch.offsets.assign(batch.reads.size(), 0);
+        } else if (!taken(first)) {
+            kernel_seconds += seeds_->run(parameters_, batch);
+        }
         std::vector<uint8_t>().swap(batch.bases);
         std::vector<SeedRead>().swap(batch.reads);
     }
@@ -1257,7 +1393,22 @@ private:
         seed_usable = false;
         record_failure(reason);
     }
+
+    void gpu_finished() override {
+        {
+            std::lock_guard<std::mutex> lock(seed_turn_mutex);
+            gpu_done_ = true;
+            if (counted_) --seed_mapping_gpu, counted_ = false;
+        }
+        seed_turn.notify_all();
+    }
 };
+
+// Schedulers started ahead by wgse_metal_preseed(), oldest first.
+std::mutex preseed_mutex;
+std::deque<std::unique_ptr<SeedScheduler>> preseeded;
+// Chunks read but not yet mapped; more would not start sooner.
+constexpr size_t preseed_chunks = 2;
 
 // One read's SMEMs from upstream's passes, as mem_collect_smem() runs them,
 // unsorted; read.seq is already 2-bit encoded.
@@ -1370,44 +1521,93 @@ bool same_smem(const SMEM &a, const SMEM &b) {
 }
 }
 
-int wgse_metal_seed(FMI_search *fmi, const mem_opt_t *opt, bseq1_t *seqs, int n, int threads,
-    void (*worker)(void *, long, int), void *data) {
+namespace {
+bool seeding_usable(int n, int threads) {
     std::string unavailable;
-    if (selected_backend == Backend::cpu || !seed_enabled || !seed_usable || n < 1 || threads < 1
-        || !wgse_metal_available(unavailable))
-        return 0;
+    return selected_backend != Backend::cpu && seed_enabled && seed_usable && n > 0 && threads > 0
+        && wgse_metal_available(unavailable);
+}
+
+std::unique_ptr<SeedScheduler> seed_scheduler(FMI_search *fmi, const mem_opt_t *opt,
+    const bseq1_t *seqs, int n, int threads) {
+    SeedParameters parameters{};
+    std::copy_n(fmi->wgse_count(), 5, parameters.count);
+    parameters.sentinel = fmi->sentinel_index;
+    parameters.min_seed_len = opt->min_seed_len;
+    parameters.split_len = static_cast<int>(opt->min_seed_len * opt->split_factor + .499);
+    parameters.split_width = opt->split_width;
+    parameters.max_mem_intv = static_cast<int32_t>(opt->max_mem_intv);
+    parameters.third_pass = opt->max_mem_intv > 0;
+    return std::make_unique<SeedScheduler>(gpu_seeds(fmi), seqs, n, threads, parameters);
+}
+
+// The scheduler wgse_metal_preseed() started for these reads, if any. Every
+// chunk's map calls this before its reads are freed, so no entry outlives its
+// reads (the key is their address); older entries are dropped all the same.
+std::unique_ptr<SeedScheduler> take_preseeded(FMI_search *fmi, const bseq1_t *seqs, int n) {
+    std::deque<std::unique_ptr<SeedScheduler>> stale;
+    std::unique_ptr<SeedScheduler> found;
+    {
+        std::lock_guard<std::mutex> lock(preseed_mutex);
+        for (auto it = preseeded.begin(); it != preseeded.end(); ++it) {
+            if (!(*it)->same(fmi, seqs, n)) continue;
+            found = std::move(*it);
+            std::move(preseeded.begin(), it, std::back_inserter(stale));
+            preseeded.erase(preseeded.begin(), it + 1);
+            break;
+        }
+    }
+    return found;
+}
+}
+
+void wgse_metal_preseed(FMI_search *fmi, const mem_opt_t *opt, const bseq1_t *seqs, int n,
+    int threads) {
+    if (!seeding_usable(n, threads)) return;
     @autoreleasepool {
         try {
-            if (!seeder || seeder->fmi() != fmi)
-                seeder = std::make_unique<GpuSeeds>(seed_kernel(), fmi);
-            SeedParameters parameters{};
-            std::copy_n(fmi->wgse_count(), 5, parameters.count);
-            parameters.sentinel = fmi->sentinel_index;
-            parameters.min_seed_len = opt->min_seed_len;
-            parameters.split_len = static_cast<int>(opt->min_seed_len * opt->split_factor + .499);
-            parameters.split_width = opt->split_width;
-            parameters.max_mem_intv = static_cast<int32_t>(opt->max_mem_intv);
-            parameters.third_pass = opt->max_mem_intv > 0;
-            auto start = Splitter::Clock::now();
-            const double kernel_before = seeder->kernel_seconds;
-            SeedScheduler scheduler(seqs, n, threads, parameters, worker, data);
-            scheduler.run();
-            std::lock_guard<std::mutex> lock(seed_mutex);
-            seed_batches += scheduler.batches;
-            seed_gpu_units += scheduler.prepared;
-            seed_cpu_units += scheduler.unprepared;
-            seed_wasted_units += scheduler.wasted;
-            seed_reads += scheduler.reads;
-            seed_gpu_seconds += scheduler.gpu_time;
-            seed_kernel_seconds += seeder->kernel_seconds - kernel_before;
-            seed_wait_seconds += scheduler.waited;
-            seed_seconds += Splitter::seconds(start);
+            {
+                std::lock_guard<std::mutex> lock(preseed_mutex);
+                if (preseeded.size() >= preseed_chunks) return;
+            }
+            auto scheduler = seed_scheduler(fmi, opt, seqs, n, threads);
+            scheduler->start_gpu();
+            std::lock_guard<std::mutex> lock(preseed_mutex);
+            preseeded.push_back(std::move(scheduler));
         } catch (const std::exception &error) {
-            // Nothing was mapped: the scheduler throws only before it starts.
+            seed_usable = false;
+            record_failure(error.what());
+        }
+    }
+}
+
+int wgse_metal_seed(FMI_search *fmi, const mem_opt_t *opt, bseq1_t *seqs, int n, int threads,
+    void (*worker)(void *, long, int), void *data) {
+    std::unique_ptr<SeedScheduler> scheduler = take_preseeded(fmi, seqs, n);
+    if (!seeding_usable(n, threads)) return 0;
+    const bool preseeded_chunk = scheduler != nullptr;
+    @autoreleasepool {
+        auto start = Splitter::Clock::now();
+        try {
+            if (!scheduler) scheduler = seed_scheduler(fmi, opt, seqs, n, threads);
+        } catch (const std::exception &error) {
+            // Nothing was mapped.
             seed_usable = false;
             record_failure(error.what());
             return 0;
         }
+        scheduler->map(worker, data);
+        std::lock_guard<std::mutex> lock(seed_mutex);
+        seed_batches += scheduler->batches;
+        seed_preseeded_chunks += preseeded_chunk;
+        seed_gpu_units += scheduler->prepared;
+        seed_cpu_units += scheduler->unprepared;
+        seed_wasted_units += scheduler->wasted;
+        seed_reads += scheduler->reads;
+        seed_gpu_seconds += scheduler->gpu_time;
+        seed_kernel_seconds += scheduler->kernel_seconds;
+        seed_wait_seconds += scheduler->waited;
+        seed_seconds += Splitter::seconds(start);
     }
     return 1;
 }
@@ -1472,6 +1672,7 @@ bool wgse_metal_overlap() {
 void wgse_set_overlap(bool enable) { overlap_enabled = enable; }
 void wgse_note_overlapped_chunk() { ++overlapped_chunks; }
 void wgse_set_gpu_rescue(bool enable) { rescue_enabled = enable; }
+void wgse_set_cpu_rescue_batching(bool enable) { cpu_rescue_batching = enable; }
 void wgse_set_gpu_rescue_batch(size_t pairs) { rescue_batch_pairs = std::max<size_t>(1, pairs); }
 void wgse_inject_rescue_failure() { inject_rescue_failure = true; }
 void wgse_verify_gpu_rescue() { verify_rescue = true; }
@@ -1486,6 +1687,8 @@ bool wgse_metal_available(std::string &reason) {
     return reason.empty();
 }
 
+bool wgse_metal_active() { return metal_active.load(std::memory_order_relaxed); }
+
 bool wgse_metal_hardware_supported() { return state().hardware_supported; }
 
 bool wgse_metal_execution_failed(std::string &reason) {
@@ -1496,6 +1699,8 @@ bool wgse_metal_execution_failed(std::string &reason) {
 
 void wgse_set_backend(Backend backend) {
     selected_backend = backend;
+    std::string unavailable;
+    metal_active = backend != Backend::cpu && wgse_metal_available(unavailable);
     uint64_t unset = 0;
     metrics_start.compare_exchange_strong(unset, now_ns());
 }
@@ -1692,18 +1897,20 @@ void wgse_print_backend_metrics() {
     fprintf(stderr, "[wgse-bwa-mem2] rescue_batches=%zu rescue_gpu_pairs=%zu rescue_cpu_pairs=%zu "
         "rescue_wasted_pairs=%zu rescue_jobs=%zu rescue_declined=%zu rescue_skipped=%zu "
         "rescue_hits=%zu rescue_misses=%zu rescue_mismatches=%zu interruptions=%zu "
-        "overlap=%d overlapped_chunks=%zu\n",
+        "overlap=%d overlapped_chunks=%zu rescue_cpu_jobs=%zu rescue_cpu_hits=%zu "
+        "rescue_cpu_skipped=%zu\n",
         rescue_batches, rescue_gpu_pairs, rescue_cpu_pairs, rescue_wasted_pairs, rescue_jobs,
         rescue_declined, rescue_skipped, rescue_hits, rescue_misses, rescue_mismatches,
-        wgse::metal::Runtime::interruptions(), int(overlap_active.load()), overlapped_chunks.load());
+        wgse::metal::Runtime::interruptions(), int(overlap_active.load()), overlapped_chunks.load(),
+        rescue_cpu_jobs, rescue_cpu_hits, rescue_cpu_skipped);
     fprintf(stderr, "[wgse-bwa-mem2] rescue seconds gpu=%.3f kernel=%.3f pair=%.3f cpu_wait=%.3f\n",
         rescue_gpu_seconds, rescue_kernel_seconds, rescue_seconds, rescue_wait_seconds);
     std::lock_guard<std::mutex> seed_lock(seed_mutex);
     fprintf(stderr, "[wgse-bwa-mem2] seed_batches=%zu seed_gpu_units=%zu seed_cpu_units=%zu "
         "seed_wasted_units=%zu seed_reads=%zu seed_cpu_reads=%zu seed_hits=%zu seed_misses=%zu "
-        "seed_mismatches=%zu\n",
+        "seed_mismatches=%zu seed_preseeded_chunks=%zu\n",
         seed_batches, seed_gpu_units, seed_cpu_units, seed_wasted_units, seed_reads,
-        seed_cpu_reads, seed_hits, seed_misses, seed_mismatches);
+        seed_cpu_reads, seed_hits, seed_misses, seed_mismatches, seed_preseeded_chunks);
     fprintf(stderr, "[wgse-bwa-mem2] seed seconds gpu=%.3f kernel=%.3f map=%.3f cpu_wait=%.3f\n",
         seed_gpu_seconds, seed_kernel_seconds, seed_seconds, seed_wait_seconds);
 }

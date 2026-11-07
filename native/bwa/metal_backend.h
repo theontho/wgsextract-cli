@@ -1,7 +1,7 @@
 #pragma once
 
 #include "bwamem.h"
-#include "ksw.h"
+#include "ksw_batch.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -25,14 +25,6 @@ void wgse_sort_alnreg_by_score(size_t n, mem_alnreg_t *a);
 // bns_get_seq()'s forward and reverse-strand loops (pac_oracle.c.in).
 void wgse_unpack_pac(const uint8_t *pac, int64_t beg, int64_t end, uint8_t *seq);
 void wgse_unpack_pac_reverse(const uint8_t *pac, int64_t beg_f, int64_t end_f, uint8_t *seq);
-// ksw_align2() for n tasks at once with upstream's exact results (ksw_oracle.c.in).
-typedef struct {
-    int qlen, tlen, xtra;
-    uint8_t *query, *target;
-    kswr_t r;
-} wgse_ksw_task_t;
-void wgse_ksw_align2_batch(int n, wgse_ksw_task_t *tasks, int m, const int8_t *mat,
-    int o_del, int e_del, int o_ins, int e_ins);
 // bwt_sa() for mem_chain(): the GPU's position when it located this row.
 bwtint_t wgse_metal_sa(const bwt_t *bwt, bwtint_t k);
 // mem_process_seqs() in two halves (appended to the generated bwamem.c), which

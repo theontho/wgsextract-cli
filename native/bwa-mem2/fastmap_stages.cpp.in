@@ -1,6 +1,7 @@
 /* wgse: with Metal, the pipeline runs mem_process_seqs() as two steps (see
  * wgse_mem_map()), so a third worker maps the next chunk while this one pairs.
- * ktp_worker() still runs each step in chunk order. */
+ * ktp_worker() still runs each step in chunk order. A chunk's GPU seeding
+ * starts when it is read (wgse_metal_preseed()). */
 struct wgse_chunk_t {
     ktp_data_t *data;
     void *mapped;
@@ -9,6 +10,12 @@ struct wgse_chunk_t {
 static ktp_data_t *wgse_kt_pipeline(void *shared, int step, void *data, mem_opt_t *opt,
                                     worker_t &w)
 {
+    if (step == 0) {
+        ktp_data_t *ret = kt_pipeline(shared, step, data, opt, w);
+        if (ret && !(opt->flag & MEM_F_SMARTPE))
+            wgse_metal_preseed(w.fmi, opt, ret->seqs, ret->n_seqs, w.nthreads);
+        return ret;
+    }
     if (!wgse_overlap) return kt_pipeline(shared, step, data, opt, w);
     if (step == 1) {
         ktp_data_t *ret = kt_pipeline(shared, step, data, opt, w);

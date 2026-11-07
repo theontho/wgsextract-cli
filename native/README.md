@@ -17,9 +17,11 @@ printed by `--version`.
 
 ## Installing
 
-The `macos-aligners-8` prerelease has `wgse-bwa` 0.7.0 and `wgse-bwa-mem2`
-0.2.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
-later. Earlier prereleases: `macos-aligners-7` has `wgse-bwa` 0.7.0 and
+The `macos-aligners-9` prerelease has `wgse-bwa` 0.7.0 and `wgse-bwa-mem2`
+0.3.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
+later. Earlier prereleases: `macos-aligners-8` has `wgse-bwa` 0.7.0 and
+`wgse-bwa-mem2` 0.2.0, whose `--metal` loads the `.0123` file and starts GPU
+seeding only when a chunk maps; `macos-aligners-7` has `wgse-bwa` 0.7.0 and
 `wgse-bwa-mem2` 0.1.0, whose `--metal` only extends seeds on the GPU;
 `macos-aligners-6` has `wgse-bwa` 0.6.0, whose
 CPU threads locate seeds and rescue mates one at a time;
@@ -39,8 +41,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-8 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-8 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-9 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-9 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -60,7 +62,7 @@ wgse-bwa-mem2 capabilities --json
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
 `xattr -dr com.apple.quarantine wgse-bwa-0.7.0-macos-arm64` (and
-`wgse-bwa-mem2-0.2.0-macos-arm64`).
+`wgse-bwa-mem2-0.3.0-macos-arm64`).
 
 ## Usage
 
@@ -147,6 +149,13 @@ What runs on the GPU:
   the seeds' total number of hits for every read, and lets it prefetch
   sampled entries, which it never did because of an operator-precedence slip;
   neither changes any result.
+  With `--metal`, 0.3.0 does not load the `.0123` file (the reference unpacked
+  to a byte per base, 6.2 GB for hs38) and decodes extension windows from the
+  `.pac` instead; the GPU starts seeding a chunk as soon as it is read, while
+  the previous chunk maps, so CPU threads seed almost nothing; and CPU threads
+  rescue mates in interleaved batches, sort alignments by pointer and unpack
+  reference bases with NEON, as `wgse-bwa` 0.7.0 does. None of this changes
+  any result.
 
 With a Metal backend both print GPU and CPU work counts to stderr.
 
@@ -186,6 +195,11 @@ scratch and output for one batch of 16384 reads (about 0.17 GiB for 150 bp
 reads), up to three prepared seeding batches, mate-rescue buffers like
 `wgse-bwa`'s, and the extra chunk of pairing one chunk while it maps the next
 (about 0.16 GiB with `-K 10000000`; more with larger `-K`).
+`--metal` 0.3.0 does not load the 6.2 GB `.0123` file, so it peaked at
+11.5 GiB (14.8 GiB with the default `-K`, against 19.7 GiB for 0.2.0), even
+though it keeps up to eight prepared seeding batches per chunk and seeds up to
+two chunks ahead. That leaves more room for other applications on a 32 GB
+Mac; it has not been tested on a 16 GB Mac.
 
 ## Performance
 
@@ -272,6 +286,28 @@ when other applications' memory had to be compressed to make room for the
 17 GB process on this 32 GB Mac. A profile of 0.2.0 `--metal` found mapping on
 the critical path (162 s), with pairing overlapped under it; the GPU kernels
 ran 45 s of seeding, 69 s of mate rescue and 31 s of seed extension.
+
+A later session measured 0.3.0 the same way, in three interleaved rounds on AC
+power (the 0.3.0 CPU backend in the first two), with 0.2.0 `--metal` running
+first in the second and third:
+
+| Aligner | Threads | Time | Peak RSS | vs CPU |
+| --- | --- | --- | --- | --- |
+| `wgse-bwa-mem2` 0.3.0 | 9 | 454.2 s | 16.3 GiB | — |
+| `wgse-bwa-mem2 --metal` 0.2.0 | 9 | 153.2 s | 16.9 GiB | −66.3% |
+| `wgse-bwa-mem2 --metal` 0.3.0 | 9 | 116.6 s | 11.5 GiB | −74.3% |
+
+0.3.0 `--metal` (117.3, 116.5 and 116.0 s) took 23.9% less time than 0.2.0
+`--metal` (150.1, 155.8 and 153.8 s) and was faster in each round; in an
+earlier session with less memory pressure, 0.2.0 `--metal` took 138.9–141.4 s
+and 0.3.0 `--metal` 116.3–118.4 s (17% less). 0.2.0 `--metal` spent 68–90 s in
+the kernel (5.9–8.5M page reclaims) making room for its 17 GB; 0.3.0 spent
+12 s. The CPU backend is unchanged in 0.3.0. With the default `-K`, 0.3.0
+`--metal` took 115.5 s and 0.2.0 `--metal` 160.8 s (one run each). A profile
+of 0.3.0 `--metal` found the GPU busy 88% of the run (extension 46 s, seeding
+38 s, mate rescue 37 s), with CPU threads seeding 16 of 4983 units; their
+busy time went to seed extension the GPU had no room for (21%), mate rescue
+(17%) and suffix-array locate (14%).
 
 Before the full index was available, BWA-MEM2 was measured with 10.6M read
 pairs against a small reference (chr20 fragment, Y, MT) whose whole index fits

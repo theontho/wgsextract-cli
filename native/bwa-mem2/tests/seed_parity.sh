@@ -106,8 +106,10 @@ run single single.fq -t 1
 run options "pairs-R1.fq pairs-R2.fq" -t 4 -k 15 -r 1.0 -s 20 -y 0
 run wide "pairs-R1.fq pairs-R2.fq" -t 4 -k 25 -r 3 -s 3 -y 3000000000
 run third "pairs-R1.fq pairs-R2.fq" -t 4 -y 200
-# Small chunks.
+# Small chunks; the GPU starts seeding each one when it is read.
 run chunks "pairs-R1.fq pairs-R2.fq" -t 4 -K 100000
+test "$(metric metal-chunks.log seed_preseeded_chunks)" -gt 0
+test "$(metric metal-chunks.log seed_misses)" -eq 0
 # Reads with more SMEMs than the GPU keeps are collected on the CPU.
 gpu="$gpu --gpu-seed-capacity 4"
 run capacity "pairs-R1.fq pairs-R2.fq" -t 4
@@ -142,3 +144,13 @@ same cpu-paired.sam failed-metal.sam
     mem -t 4 reference.fa pairs-R1.fq pairs-R2.fq > failed-auto.sam 2> failed-auto.log
 grep -q 'CPU fallback: injected GPU seeding failure' failed-auto.log
 same cpu-paired.sam failed-auto.sam
+# The same with two chunks of several batches, seeded ahead.
+"$aligner" mem -t 4 -K 1000000 reference.fa pairs-R1.fq pairs-R2.fq > cpu-two.sam 2> cpu-two.log
+status=0
+# shellcheck disable=SC2086
+"$aligner" $gpu --gpu-inject-seed-failure mem -t 4 -K 1000000 reference.fa pairs-R1.fq \
+    pairs-R2.fq > failed-chunks.sam 2> failed-chunks.log || status=$?
+test "$status" -eq 1
+grep -q 'CPU fallback: injected GPU seeding failure' failed-chunks.log
+test "$(metric failed-chunks.log seed_preseeded_chunks)" -ge 1
+same cpu-two.sam failed-chunks.sam
