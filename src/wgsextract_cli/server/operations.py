@@ -33,7 +33,14 @@ Kind = Literal["query", "job"]
 # makes new files, takes longer or changes what is recorded about a sample, so
 # MCP offers it only with --allow-jobs.
 QUERIES = frozenset(
-    {"info", "info chip", "sample show", "ref status", "ref library-list"}
+    {
+        "info",
+        "info chip",
+        "sample show",
+        "ref status",
+        "ref library-list",
+        "example-genome list",
+    }
 )
 
 

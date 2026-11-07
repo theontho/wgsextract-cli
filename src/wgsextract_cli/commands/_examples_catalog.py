@@ -1,9 +1,10 @@
-from argparse import Namespace
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from wgsextract_cli.core import runtime
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.utils import WGSExtractError
 
 HTTPS_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
@@ -283,7 +284,7 @@ CONFIG_ROLES = {"alignment", "vcf", "fastq_r1", "fastq_r2"}
 
 
 def _filter_examples_by_tags(
-    examples: tuple[GenomeExample, ...], tags: list[str] | None
+    examples: tuple[GenomeExample, ...], tags: Sequence[str] | None
 ) -> list[GenomeExample]:
     if not tags:
         return list(examples)
@@ -291,7 +292,7 @@ def _filter_examples_by_tags(
     return [example for example in examples if wanted.issubset(set(example.tags))]
 
 
-def _target_root(override: str | None) -> Path:
+def _target_root(override: PathInput | None) -> Path:
     """Return a canonical genome-library root, resolving symlinks for consistency."""
     if override:
         root = Path(override).expanduser()
@@ -302,29 +303,12 @@ def _target_root(override: str | None) -> Path:
     return root.resolve()
 
 
-def cmd_list(args: Namespace) -> None:
-    """List available example genomes with metadata and usage instructions."""
-    root = _target_root(args.target_root)
-    print(f"Target collection: {root / COLLECTION_DIR}")
-    print()
-    for example in _filter_examples_by_tags(EXAMPLES, getattr(args, "tag", None)):
-        print(f"{example.example_id}")
-        print(f"  label: {example.label}")
-        print(f"  type:  {example.data_type}")
-        print(f"  size:  {example.size}")
-        if example.tags:
-            print(f"  tags:  {', '.join(example.tags)}")
-        print(f"  files: {len(example.files)}")
-        print(f"  use:   wgsextract --genome {COLLECTION_DIR}/{example.example_id} ...")
-        print()
-
-
 def _all_tags() -> list[str]:
     return sorted({tag for example in EXAMPLES for tag in example.tags})
 
 
 def _select_examples(
-    example_ids: list[str], include_all: bool, tags: list[str] | None = None
+    example_ids: Sequence[str], include_all: bool, tags: Sequence[str] | None = None
 ) -> list[GenomeExample]:
     if tags:
         if example_ids or include_all:

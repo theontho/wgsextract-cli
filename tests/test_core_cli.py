@@ -13,6 +13,7 @@ from unittest.mock import Mock
 import pytest
 import tomllib
 
+from wgsextract_cli import api
 from wgsextract_cli.cli import bootstrap, parser
 from wgsextract_cli.commands import _deps_status, examples
 from wgsextract_cli.core import config, process_registry, resource_policy
@@ -443,16 +444,14 @@ def test_deps_check_exits_nonzero_when_mandatory_missing(monkeypatch, capsys):
         _deps_status.run(Namespace(tool=None, debug=False))
 
 
-def _download_args(root: Path, force: bool) -> Namespace:
-    return Namespace(
-        example_ids=["phase3-chrmt-vcf"],
-        all=False,
-        tag=None,
-        method="https",
-        target_root=str(root),
-        aspera_key=None,
-        force=force,
-        dry_run=False,
+def _download(root: Path, force: bool) -> None:
+    api.examples.download(
+        api.ExampleGenomeDownloadParams(
+            example_ids=("phase3-chrmt-vcf",),
+            method="https",
+            target_root=root,
+            force=force,
+        )
     )
 
 
@@ -481,7 +480,7 @@ def test_example_download_resumes_partial_and_skips_complete(tmp_path, monkeypat
     first.write_bytes(b"complete")
     examples._partial_path(second).write_bytes(b"half-")
 
-    examples.cmd_download(_download_args(tmp_path, force=False))
+    _download(tmp_path, force=False)
 
     assert first.read_bytes() == b"complete"
     assert second.read_bytes() == b"half-rest"
@@ -501,7 +500,7 @@ def test_example_download_force_discards_existing(tmp_path, monkeypatch):
     destinations[0].write_bytes(b"old")
     examples._partial_path(destinations[1]).write_bytes(b"stale-")
 
-    examples.cmd_download(_download_args(tmp_path, force=True))
+    _download(tmp_path, force=True)
 
     assert calls == [None] * len(destinations)
     assert [d.read_bytes() for d in destinations] == [b"rest"] * len(destinations)
@@ -518,7 +517,7 @@ def test_example_download_says_how_to_select_it_with_genome(
     config.settings["genome_library"] = str(root) if configured else None
 
     with caplog.at_level(logging.INFO):
-        examples.cmd_download(_download_args(root, force=False))
+        _download(root, force=False)
 
     use = "Use --genome test-1000genomes/phase3-chrmt-vcf"
     message = next(r.getMessage() for r in caplog.records if use in r.getMessage())

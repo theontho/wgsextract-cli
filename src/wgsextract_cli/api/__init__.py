@@ -27,8 +27,9 @@ from its Params fields, so the API and ``--help`` cannot drift.
 Stability: the names exported here and the group modules (``api.extract``,
 ``api.info``, ``api.bam``, ``api.qc``, ``api.align``, ``api.vcf``,
 ``api.lineage``, ``api.methylation``, ``api.microarray``, ``api.panel``, ``api.ref``,
-``api.repair``, ``api.genotyping``, ``api.report``, ``api.sample``, ``api.support``, ``api.pet``, ``api.analyze``,
-``api.vep``, ``api.benchmark``) follow
+``api.repair``, ``api.genotyping``, ``api.report``, ``api.sample``,
+``api.support``, ``api.pet``, ``api.analyze``, ``api.examples``, ``api.vep``,
+``api.benchmark``) follow
 semantic versioning from the 1.0 release; adding fields with defaults is not
 a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
@@ -53,6 +54,7 @@ from . import (
     analyze,
     bam,
     benchmark,
+    examples,
     extract,
     genotyping,
     info,
@@ -94,6 +96,7 @@ from .bam import (
     BamUnsortParams,
 )
 from .benchmark import BenchmarkParams
+from .examples import ExampleGenomeDownloadParams, ExampleGenomeListParams
 from .extract import (
     BamSubsetParams,
     CustomParams,
@@ -199,6 +202,8 @@ __all__ = [
     "CommandFailed",
     "CoverageSampleParams",
     "CustomParams",
+    "ExampleGenomeDownloadParams",
+    "ExampleGenomeListParams",
     "FakeDataParams",
     "FastpParams",
     "FastqcParams",
@@ -291,6 +296,7 @@ __all__ = [
     "analyze",
     "bam",
     "benchmark",
+    "examples",
     "extract",
     "genotyping",
     "info",

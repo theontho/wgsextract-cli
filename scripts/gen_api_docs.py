@@ -47,6 +47,7 @@ GROUPS = (
     api.report,
     api.sample,
     api.support,
+    api.examples,
     api.vep,
     api.benchmark,
 )
