@@ -36,6 +36,19 @@
       "items": { "$ref": "#/$defs/exitCodeReferenceEntry" },
       "default": []
     },
+    "jobServer": {
+      "description": "A local job server, started on first use, that runs actions with a serverOperation as cancellable jobs. See docs/job-server.md.",
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "Starts the server, which prints {\"url\": ..., \"token\": ...} as one JSON line on stdout once it is listening.",
+          "$ref": "page.schema.json#/$defs/command"
+        },
+        "startupTimeoutSeconds": { "type": "number", "exclusiveMinimum": 0, "default": 60 }
+      }
+    },
     "pages": {
       "description": "Ordered page file names in the bundle pages/ directory, or legacy inline page objects.",
       "oneOf": [

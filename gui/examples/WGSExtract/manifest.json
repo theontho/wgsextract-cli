@@ -96,6 +96,17 @@
       }
     ]
   },
+  "jobServer": {
+    "command": {
+      "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+      "arguments": [
+        "serve",
+        "--ready-json",
+        "--allow",
+        "{{home}}"
+      ]
+    }
+  },
   "pages": [
     "fastq.json",
     "info-bam.json",

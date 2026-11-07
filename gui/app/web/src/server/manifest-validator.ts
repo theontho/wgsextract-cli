@@ -32,6 +32,7 @@ export function validateManifest(manifest: BundleManifest): void {
     validateUniqueIDs(manifest.pages, "pages");
     validateUniqueValues(pageFiles(manifest), "pages");
     validateExitCodeReference(manifest);
+    validateJobServer(manifest);
     validateSetupSteps(manifest.setup?.steps, "setup.steps");
     validateSetupSteps(manifest.uninstall?.steps, "uninstall.steps");
     for (const page of manifest.pages) {
@@ -49,6 +50,18 @@ function validateExitCodeReference(manifest: BundleManifest): void {
     for (const entry of entries) {
         requireNonEmpty(entry.title, `exitCodeReference.${entry.code}.title`);
         requireNonEmpty(entry.summary, `exitCodeReference.${entry.code}.summary`);
+    }
+}
+
+function validateJobServer(manifest: BundleManifest): void {
+    const jobServer = manifest.jobServer;
+    if (jobServer == null) {
+        return;
+    }
+    requireNonEmpty(jobServer.command?.executable, "jobServer.command.executable");
+    const timeout = jobServer.startupTimeoutSeconds;
+    if (timeout != null && (typeof timeout !== "number" || !(timeout > 0))) {
+        throw new BundleValidationError("Invalid jobServer.startupTimeoutSeconds: expected a positive number.");
     }
 }
 

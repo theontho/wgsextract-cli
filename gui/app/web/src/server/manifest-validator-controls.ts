@@ -1,4 +1,4 @@
-import type { ActionSpec, ConfigFileSpec, ConfigSetting, ControlSpec } from "../../../shared/types.js";
+import type { ActionSpec, ConfigFileSpec, ConfigSetting, ControlSpec, ServerOperationSpec } from "../../../shared/types.js";
 import {
     BundleValidationError,
     requireNonEmpty,
@@ -21,6 +21,20 @@ export function validateAction(action: ActionSpec, basePath: string): void {
     validateConditions(action.visibleWhen, `${basePath}.visibleWhen`);
     validateConditions(action.disabledWhen, `${basePath}.disabledWhen`);
     validateConfirmation(action.confirm, `${basePath}.confirm`);
+    if (action.serverOperation != null) {
+        validateServerOperation(action.serverOperation, `${basePath}.serverOperation`);
+    }
+}
+
+function validateServerOperation(operation: ServerOperationSpec, basePath: string): void {
+    // The operation becomes part of the job server URL, so only plain path segments are allowed.
+    if (typeof operation.operation !== "string" || !/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*$/.test(operation.operation)) {
+        throw new BundleValidationError(`Invalid ${basePath}.operation: expected names separated by '/'.`);
+    }
+    const parameters: unknown = operation.parameters;
+    if (parameters != null && (typeof parameters !== "object" || Array.isArray(parameters))) {
+        throw new BundleValidationError(`Invalid ${basePath}.parameters: expected an object.`);
+    }
 }
 
 export function validateControl(control: ControlSpec, sectionPath: string): void {
