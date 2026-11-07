@@ -327,6 +327,55 @@ def test_an_example_download_into_a_busy_library_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_an_example_download_waits_for_a_job_in_its_example_folder(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #494 review: a forced download deletes files in the example folder,
+    # and folder locks match exactly, so locking the collection alone let a
+    # job writing in that example folder run alongside it.
+    bam, ref = fake_data
+    example = work / "test-1000genomes" / "phase3-chrmt-vcf"
+    example.mkdir(parents=True)
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(example)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST",
+            "/ops/example-genome/download",
+            {
+                "target_root": str(work),
+                "example_ids": ["phase3-chrmt-vcf"],
+                "dry_run": True,
+            },
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
+@pytest.mark.parametrize("escape", [None, "test-1000genomes", "phase3-chrmt-vcf"])
+def test_an_example_download_stays_in_the_allowed_folders(
+    client, tmp_path, work, escape
+):
+    # PR #494 review: the guard saw only target_root, so an omitted one (the
+    # configured or built-in library) or a symlinked collection or example
+    # folder inside an allowed one sent the download elsewhere.
+    body: dict = {"example_ids": ["phase3-chrmt-vcf"], "dry_run": True}
+    if escape is not None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        link = work / "test-1000genomes"
+        if escape != link.name:
+            link.mkdir()
+            link = link / escape
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("can't create symlinks here")
+        body["target_root"] = str(work)
+    status, response = client.request("POST", "/ops/example-genome/download", body)
+    assert (status, response["error"]["code"]) == (403, "path_not_allowed")
+
+
 def test_example_genome_list_answers_with_the_catalog(tmp_path, work):
     with _serve(tmp_path, [work]) as client:
         status, body = client.request(
@@ -1419,6 +1468,8 @@ _BASE_REQUESTS: dict[str, dict[str, Any]] = {
     "pet-align": {"r1": _FILE},
     "qc/fastp": {"r1": _FILE},
     "analyze/batch-gen": {"output": _DATA + r"\batch.csv"},
+    # The library defaults to one outside the allowed folders.
+    "example-genome/download": {"target_root": _DATA},
     "bam/to-ubam": {"input": _FILE},
     "extract/custom": {"region": "chrM"},
     "info/chip": {"input": _FILE},

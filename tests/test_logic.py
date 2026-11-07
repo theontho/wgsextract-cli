@@ -148,6 +148,36 @@ class TestExamplesDownload(unittest.TestCase):
             self.assertNotIn("vcf_index", config)
             self.assertNotIn(".tbi", config)
 
+    def test_cancelling_a_download_stops_before_the_next_file(self):
+        # PR #494 review: the HTTPS transfer never saw the cancel token and the
+        # file loop never checked it, so a cancelled job kept downloading.
+        from wgsextract_cli import api
+        from wgsextract_cli.commands import examples
+
+        token = api.CancelToken()
+        transfers = []
+
+        def fake_download(url, dest, *, cancel_event=None, **_kwargs):
+            transfers.append((dest, cancel_event))
+            token.cancel()
+            Path(dest).write_text("data")
+            return True
+
+        params = api.ExampleGenomeDownloadParams(
+            example_ids=("phase3-chrmt-vcf",),
+            method="https",
+            target_root=self.test_dir,
+        )
+        with (
+            patch.object(examples.shutil, "which", return_value="/usr/bin/curl"),
+            patch.object(examples, "download_file", side_effect=fake_download),
+        ):
+            result = api.examples.download(params, cancel=token, check=False)
+
+        self.assertEqual(result.error.kind, "cancelled")
+        [(_dest, cancel_event)] = transfers
+        self.assertTrue(cancel_event is not None and cancel_event.is_set())
+
     def test_unknown_example_raises_clear_error(self):
         from wgsextract_cli.commands import _examples_catalog as examples
 

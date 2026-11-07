@@ -109,13 +109,33 @@ class ExampleGenomeDownloadParams(Params):
         action="store_true",
     )
 
+    def implied_paths(self) -> Iterator[tuple[str, Path]]:
+        # The library may come from config, and a folder or file in it may be
+        # a symlink out of the allowed folders (the guard resolves those).
+        from wgsextract_cli.commands._examples_catalog import COLLECTION_DIR
+        from wgsextract_cli.commands.examples import written_paths
+        from wgsextract_cli.core import runtime
+        from wgsextract_cli.core.config import settings
+
+        root = self.target_root or settings.get("genome_library")
+        collection = (
+            Path(root).expanduser() if root else runtime.repo_root() / "genomes"
+        ) / COLLECTION_DIR
+        yield "target_root", collection
+        for folder, files in written_paths(self, collection).items():
+            yield "target_root", folder
+            yield from (("target_root", file) for file in files)
+
     def write_folders(self) -> Iterator[Path]:
         from wgsextract_cli.commands._examples_catalog import (
             COLLECTION_DIR,
             _target_root,
         )
+        from wgsextract_cli.commands.examples import written_paths
 
-        yield _target_root(self.target_root) / COLLECTION_DIR
+        collection = _target_root(self.target_root) / COLLECTION_DIR
+        yield collection
+        yield from written_paths(self, collection)
 
 
 def list_examples(

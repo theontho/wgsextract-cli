@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import tomli_w
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._runtime import cancel_event, checkpoint
 from wgsextract_cli.api.examples import (
     ExampleGenomeDownloadParams,
     ExampleGenomeListParams,
@@ -100,6 +101,41 @@ def _partial_path(destination: Path) -> Path:
     return destination.with_name(destination.name + ".partial")
 
 
+def _download_paths(destination: Path) -> list[Path]:
+    """A download's file and the sidecars resuming it."""
+    partial = _partial_path(destination)
+    return [
+        destination,
+        partial,
+        Path(str(partial) + ".segments"),
+        Path(str(partial) + ".source"),
+    ]
+
+
+def written_paths(
+    params: ExampleGenomeDownloadParams, collection: Path
+) -> dict[Path, list[Path]]:
+    """Each selected example's folder in ``collection`` and the files a
+    download writes in it; empty when the selection is invalid (the download
+    fails before writing)."""
+    try:
+        selected = _select_examples(params.example_ids, params.all, params.tag)
+    except WGSExtractError:
+        return {}
+    written = {}
+    for example in selected:
+        folder = collection / example.example_id
+        written[folder] = [
+            *(
+                path
+                for file in example.files
+                for path in _download_paths(folder / _filename(file.url_path))
+            ),
+            folder / GENOME_CONFIG_NAME,
+        ]
+    return written
+
+
 def _download_file(
     source: str,
     destination: Path,
@@ -114,7 +150,10 @@ def _download_file(
         "%s %s", "Resuming" if partial.exists() else "Downloading", redact_urls(source)
     )
     if method != "aspera" and urlparse(source).scheme in {"http", "https"}:
-        if not download_file(source, str(destination), use_cache=not force):
+        if not download_file(
+            source, str(destination), cancel_event=cancel_event(), use_cache=not force
+        ):
+            checkpoint()  # a cancelled download is not a failed one
             raise WGSExtractError(f"Download failed. Re-run to resume from {partial}.")
         return
     try:
@@ -248,15 +287,10 @@ def run_download(params: ExampleGenomeDownloadParams) -> None:
 
         example_dir.mkdir(parents=True, exist_ok=True)
         for source, destination, role, transfer_method in planned:
+            checkpoint()
             if params.force:
-                destination.unlink(missing_ok=True)
-                _partial_path(destination).unlink(missing_ok=True)
-                Path(str(_partial_path(destination)) + ".segments").unlink(
-                    missing_ok=True
-                )
-                Path(str(_partial_path(destination)) + ".source").unlink(
-                    missing_ok=True
-                )
+                for path in _download_paths(destination):
+                    path.unlink(missing_ok=True)
             elif destination.exists():
                 logging.info(f"Skipping existing {destination}")
                 current_result().add_output(destination, role)
