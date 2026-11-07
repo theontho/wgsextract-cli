@@ -20,7 +20,8 @@ def _repo_on_subprocess_path(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_shared_smoke_modules_run_on_one_xdist_worker(
     pytester: pytest.Pytester,
 ) -> None:
-    pytester.makeconftest("from tests.conftest import pytest_collection_modifyitems")
+    # #515: pytest 9.2 broke xdist's loadgroup, spreading these over workers.
+    pytester.makeconftest("from tests.conftest import pytest_xdist_make_scheduler")
     test = """
 from pathlib import Path
 from tests.smoke_utils import ensure_fake_data
@@ -44,7 +45,6 @@ def test_worker(request):
     result.assert_outcomes(passed=2)
     workers = (pytester.path / "workers.txt").read_text().splitlines()
     assert len(workers) == 2 and len(set(workers)) == 1
-    assert "@shared-smoke" in result.stdout.str()
 
 
 def test_explicit_config_override_does_not_leak_between_tests(

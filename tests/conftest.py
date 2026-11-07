@@ -1,29 +1,55 @@
+import ast
+import functools
 import os
 import signal
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.fake_tools import FakePixi
-from tests.smoke_utils import ensure_fake_data, isolate_home, state_directory_setting
+from tests.smoke_utils import isolate_home, state_directory_setting
 from wgsextract_cli.core.config import get_config_path, reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.runtime import repo_root, source_checkout_root
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Keep module-owned outputs and shared synthetic-data generation serialized."""
-    for item in items:
-        module = getattr(item, "module", None)
-        if module is not None:
-            group = (
-                "shared-smoke"
-                if getattr(module, "ensure_fake_data", None) is ensure_fake_data
-                else module.__name__
-            )
-            item.add_marker(pytest.mark.xdist_group(group))
+@functools.cache
+def _uses_shared_fake_data(module_path: Path) -> bool:
+    """Whether a test module imports the shared synthetic-data generator."""
+    try:
+        tree = ast.parse(module_path.read_bytes(), str(module_path))
+    except (OSError, SyntaxError):
+        return False
+    return any(
+        isinstance(node, ast.ImportFrom)
+        and (node.module, node.level) in {("tests.smoke_utils", 0), ("smoke_utils", 1)}
+        and any(alias.name == "ensure_fake_data" for alias in node.names)
+        for node in tree.body
+    )
+
+
+@pytest.hookimpl(optionalhook=True, tryfirst=True)
+def pytest_xdist_make_scheduler(config: pytest.Config, log: Any) -> Any:
+    """Under loadgroup, serialize each module, and all ensure_fake_data users together.
+
+    Those modules share out/fake_30x. The xdist controller sees only node IDs,
+    so the group is derived from the module path. xdist's own loadgroup stopped working with pytest 9.2 (#515,
+    pytest-dev/pytest-xdist#1386), which this does not depend on.
+    """
+    if config.getvalue("dist") != "loadgroup":
+        return None
+    from xdist.scheduler import LoadScopeScheduling
+
+    class ModuleGroupScheduling(LoadScopeScheduling):  # type: ignore[misc]
+        def _split_scope(self, nodeid: str) -> str:
+            path = nodeid.split("::", 1)[0]
+            if _uses_shared_fake_data(config.rootpath / path):
+                return "shared-smoke"
+            return path
+
+    return ModuleGroupScheduling(config, log)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
