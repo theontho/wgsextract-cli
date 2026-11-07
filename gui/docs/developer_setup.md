@@ -86,18 +86,27 @@ rustc-wrapper = "sccache"
 ```
 
 sccache's cache keys include absolute paths, so a crate compiled in one worktree
-only matches in another once each worktree's root is listed in `basedirs` in
+only matches in another once each worktree's root, or a folder above them all, is
+listed in `basedirs` in
 sccache's config file (`~/.config/sccache/config` on Linux,
 `~/Library/Application Support/Mozilla.sccache/config` on macOS,
 `%APPDATA%\Mozilla\sccache\config\config` on Windows; see
 [sccache's configuration](https://github.com/mozilla/sccache/blob/main/docs/Configuration.md)):
 
 ```toml
-basedirs = ["/home/me/src/wgsextract-cli", "/home/me/src/wgsextract-cli-my-change"]
+basedirs = ['/home/me/src']
 ```
 
-Setup prints an advisory naming the file and the worktree root until both are
-configured. Pointing every worktree at one
+On Windows, write the path in single quotes, which TOML takes literally; in double
+quotes each backslash must be doubled:
+
+```toml
+basedirs = ['C:\Users\me\src']
+```
+
+`SCCACHE_BASEDIRS`, if set, replaces this list. Setup prints an advisory with the
+line to add until both are configured, and says so if sccache's config isn't
+valid TOML. Pointing every worktree at one
 shared `target-dir` instead is not recommended: Cargo locks the directory, so
 builds in different worktrees wait on each other, and alternating branches with
 different dependencies rebuilds them anyway.

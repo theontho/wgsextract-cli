@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import re
@@ -81,31 +82,67 @@ def sccache_config() -> Path:
     return Path(xdg) / "sccache" / "config"
 
 
-def sccache_basedirs(config: Path) -> set[str]:
-    """The roots sccache strips from paths in cache keys (file and environment)."""
-    configured = read_toml(config).get("basedirs")
-    dirs = [d for d in configured if isinstance(d, str)] if isinstance(configured, list) else []
-    dirs += os.environ.get("SCCACHE_BASEDIRS", "").split(os.pathsep)
-    return {os.path.normcase(str(Path(d).expanduser())) for d in dirs if d}
+def sccache_basedirs(config: Path) -> list[Path]:
+    """The roots sccache strips from paths in its cache keys.
+
+    SCCACHE_BASEDIRS, when set, replaces the config file's list. Raises
+    ValueError if the config file exists but isn't valid TOML.
+    """
+    if os.environ.get("SCCACHE_BASEDIRS"):
+        dirs = os.environ["SCCACHE_BASEDIRS"].split(os.pathsep)
+    else:
+        try:
+            text = config.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        try:
+            configured = tomllib.loads(text).get("basedirs")
+        except tomllib.TOMLDecodeError as error:
+            raise ValueError(f"{config} is not valid TOML ({error})") from error
+        dirs = configured if isinstance(configured, list) else []
+    return [Path(d) for d in dirs if isinstance(d, str) and d]
+
+
+def comparable(path: Path) -> Path:
+    return Path(os.path.normcase(path.expanduser().resolve()))
+
+
+def covers(basedirs: list[Path], root: Path) -> bool:
+    """Whether a basedirs entry is root or a parent of it (sccache strips prefixes)."""
+    return any(comparable(root).is_relative_to(comparable(d)) for d in basedirs)
+
+
+def toml_string(value: str) -> str:
+    """A TOML string for value; literal quotes keep Windows backslashes as typed."""
+    return f"'{value}'" if "'" not in value and "\n" not in value else json.dumps(value)
 
 
 def compile_cache_advice(home: Path, root: Path, config: Path) -> str | None:
     """Advice for sharing compiled Rust crates across worktrees at root, or None.
 
     sccache keys Rust compilations on absolute paths, so a cache hit in another
-    worktree also needs its root in sccache's basedirs.
+    worktree also needs the worktree's root, or a parent of it, in sccache's
+    basedirs.
     """
     wrapper = rustc_wrapper(home)
     if wrapper and "sccache" not in Path(wrapper).name:
         return None
+    try:
+        basedirs = sccache_basedirs(config)
+    except ValueError as error:
+        return (
+            f"Advisory: sccache's config {error}; fix it, or sccache may fail every "
+            "Cargo build. Quote Windows paths with single quotes, e.g. "
+            "basedirs = ['C:\\Users\\me\\src'], or double each backslash."
+        )
     basedir = (
-        f"add this worktree's root, {root}, to 'basedirs' in {config} (sccache "
-        "strips those roots from its cache keys)"
+        f"add this worktree's root (or a folder above it) to sccache's {config}: "
+        f"basedirs = [{toml_string(str(root))}]"
     )
     if wrapper:
-        if os.path.normcase(str(root)) in sccache_basedirs(config):
+        if covers(basedirs, root):
             return None
-        return f"Advisory: {basedir} so this worktree reuses other worktrees' compiled Tauri crates."
+        return f"Advisory: {basedir}, so this worktree reuses other worktrees' compiled Tauri crates."
     enable = (
         f"add 'rustc-wrapper = \"sccache\"' under [build] in {cargo_config(home)}, "
         f"and {basedir}"
