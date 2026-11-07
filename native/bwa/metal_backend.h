@@ -15,7 +15,24 @@ int wgse_metal_enabled(void);
 void *wgse_metal_calloc(size_t count, size_t size);
 int wgse_metal_map(const mem_opt_t *opt, const bwt_t *bwt, int n, bseq1_t *seqs,
     void (*worker)(void *, long, int), void *data);
-int wgse_metal_take(const uint8_t *seq, bwtintv_v *out);
+// The GPU's SMEM intervals for this read, if it seeded it.
+int wgse_metal_take(const mem_opt_t *opt, const bwt_t *bwt, const uint8_t *seq, bwtintv_v *out);
+// Locates the rows mem_chain() will look up for the CPU's intervals, in one batch.
+void wgse_metal_locate(const mem_opt_t *opt, const bwt_t *bwt, const bwtintv_v *mem);
+// mem_sort_dedup_patch()'s ks_introsort() calls with upstream's exact result (sort_oracle.c.in).
+void wgse_sort_alnreg_by_end(size_t n, mem_alnreg_t *a);
+void wgse_sort_alnreg_by_score(size_t n, mem_alnreg_t *a);
+// bns_get_seq()'s forward and reverse-strand loops (pac_oracle.c.in).
+void wgse_unpack_pac(const uint8_t *pac, int64_t beg, int64_t end, uint8_t *seq);
+void wgse_unpack_pac_reverse(const uint8_t *pac, int64_t beg_f, int64_t end_f, uint8_t *seq);
+// ksw_align2() for n tasks at once with upstream's exact results (ksw_oracle.c.in).
+typedef struct {
+    int qlen, tlen, xtra;
+    uint8_t *query, *target;
+    kswr_t r;
+} wgse_ksw_task_t;
+void wgse_ksw_align2_batch(int n, wgse_ksw_task_t *tasks, int m, const int8_t *mat,
+    int o_del, int e_del, int o_ins, int e_ins);
 // bwt_sa() for mem_chain(): the GPU's position when it located this row.
 bwtint_t wgse_metal_sa(const bwt_t *bwt, bwtint_t k);
 // mem_process_seqs() in two halves (appended to the generated bwamem.c), which
@@ -95,8 +112,10 @@ void wgse_set_gpu_locate_rows(size_t rows);
 void wgse_set_gpu_rescue(bool enable);
 void wgse_set_gpu_rescue_batch(size_t pairs);
 void wgse_inject_rescue_failure();
-// Also run each GPU rescue alignment on the CPU and count differences.
+// Also run each GPU or batched CPU rescue alignment with ksw_align2() and count differences.
 void wgse_verify_gpu_rescue();
+// Whether CPU threads align a taken pair's rescue windows in one batch (default on).
+void wgse_set_cpu_rescue_batching(bool enable);
 void wgse_set_gpu_extend(bool enable);
 // Pairs per GPU extension batch.
 void wgse_set_gpu_extend_pairs(size_t pairs);

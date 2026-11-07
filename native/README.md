@@ -17,9 +17,11 @@ printed by `--version`.
 
 ## Installing
 
-The `macos-aligners-6` prerelease has `wgse-bwa` 0.6.0 and `wgse-bwa-mem2`
+The `macos-aligners-7` prerelease has `wgse-bwa` 0.7.0 and `wgse-bwa-mem2`
 0.1.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
-later. Earlier prereleases: `macos-aligners-5` has `wgse-bwa` 0.5.0, with
+later. Earlier prereleases: `macos-aligners-6` has `wgse-bwa` 0.6.0, whose
+CPU threads locate seeds and rescue mates one at a time;
+`macos-aligners-5` has `wgse-bwa` 0.5.0, with
 slower GPU kernels and no overlap of mapping and pairing;
 `macos-aligners-4` has `wgse-bwa` 0.4.0, whose
 `--metal` also rescues mates on the GPU but extends seeds on the CPU;
@@ -35,8 +37,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-6 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-6 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-7 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-7 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -55,7 +57,7 @@ wgse-bwa-mem2 capabilities --json
 
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
-`xattr -dr com.apple.quarantine wgse-bwa-0.6.0-macos-arm64` (and
+`xattr -dr com.apple.quarantine wgse-bwa-0.7.0-macos-arm64` (and
 `wgse-bwa-mem2-0.1.0-macos-arm64`).
 
 ## Usage
@@ -117,7 +119,13 @@ What runs on the GPU:
   occurrence blocks with fewer GPU instructions, and once a run has mapped 20M
   reads (on Macs with at least 16 GiB of memory) the GPU derives a suffix-array
   sample for every 16th row from the index's every-32nd-row samples, which
-  halves the steps of each locate on the GPU and the CPU. At most two GPU
+  halves the steps of each locate on the GPU and the CPU. From 0.7.0 the CPU
+  threads do their share of the work faster, so they take more of each chunk
+  from the GPU, which is the bottleneck: they locate a read's seeds with 16
+  suffix-array walks interleaved, align a pair's mate-rescue windows together
+  (running upstream's 8-bit kernel on up to four windows of the same length
+  at once), sort the rescued alignments by pointer, and unpack reference bases
+  with NEON, all with upstream's exact results. At most two GPU
   command buffers of the process run at once: with more, macOS sometimes
   aborts one to keep the display responsive (`ImpactingInteractivity`). It
   can still do so when other processes load the GPU; 0.6.0 then runs the

@@ -142,6 +142,14 @@ int run(int argc, char **argv) {
             }
             wgse_set_gpu_rescue(strcmp(value, "on") == 0);
             command_index += 2;
+        } else if (strcmp(option, "--cpu-rescue-batch") == 0) {
+            const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
+            if (strcmp(value, "on") && strcmp(value, "off")) {
+                fprintf(stderr, "--cpu-rescue-batch requires on or off\n");
+                return 2;
+            }
+            wgse_set_cpu_rescue_batching(strcmp(value, "on") == 0);
+            command_index += 2;
         } else if (strcmp(option, "--gpu-rescue-batch") == 0) {
             const char *value = argc > command_index + 1 ? argv[command_index + 1] : "";
             char *end = nullptr;

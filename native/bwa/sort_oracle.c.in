@@ -1,0 +1,36 @@
+
+/* mem_sort_dedup_patch()'s two ks_introsort() calls, run on pointers. The same
+ * introsort makes the same comparisons and the same moves, so it leaves the
+ * regions in exactly upstream's order while moving 8 bytes instead of 88. */
+typedef mem_alnreg_t *wgse_alnreg_p;
+#define wgse_alnreg_slt2(a, b) alnreg_slt2(*(a), *(b))
+KSORT_INIT(wgse_ars2, wgse_alnreg_p, wgse_alnreg_slt2)
+#define wgse_alnreg_slt(a, b) alnreg_slt(*(a), *(b))
+KSORT_INIT(wgse_ars, wgse_alnreg_p, wgse_alnreg_slt)
+
+static void wgse_sort_alnreg(int by_end, size_t n, mem_alnreg_t *a)
+{
+	enum { small = 32 };
+	wgse_alnreg_p small_order[small], *order = small_order;
+	mem_alnreg_t small_copy[small], *copy = small_copy;
+	size_t i;
+	if (n > small) {
+		order = malloc(n * sizeof(*order));
+		copy = malloc(n * sizeof(*copy));
+		if (!order || !copy) {
+			free(order), free(copy);
+			if (by_end) ks_introsort(mem_ars2, n, a);
+			else ks_introsort(mem_ars, n, a);
+			return;
+		}
+	}
+	for (i = 0; i < n; ++i) order[i] = &a[i];
+	if (by_end) ks_introsort(wgse_ars2, n, order);
+	else ks_introsort(wgse_ars, n, order);
+	for (i = 0; i < n; ++i) copy[i] = *order[i];
+	memcpy(a, copy, n * sizeof(*a));
+	if (n > small) free(order), free(copy);
+}
+
+void wgse_sort_alnreg_by_end(size_t n, mem_alnreg_t *a) { wgse_sort_alnreg(1, n, a); }
+void wgse_sort_alnreg_by_score(size_t n, mem_alnreg_t *a) { wgse_sort_alnreg(0, n, a); }
