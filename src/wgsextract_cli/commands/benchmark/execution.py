@@ -170,7 +170,7 @@ def _run_cli_subprocess(
             **process_group_kwargs(),
         )
         # Registered so a cancelled run stops the step's whole process tree.
-        key = f"benchmark {stderr_log.name}"
+        key = f"benchmark {stderr_log.resolve()}"
         proc_registry.register_process(key, process)
         try:
             # A timed wait: infinite Windows waits defer Ctrl-C handling.

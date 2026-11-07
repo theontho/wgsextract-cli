@@ -937,6 +937,7 @@ time.sleep(60)
     )
     watcher.join()
 
+    assert marker.exists(), "the step's child never started"
     assert (result.status, result.exit_code) == ("cancelled", 130)
     assert time.monotonic() - started < 30
     assert not psutil.pid_exists(int(marker.read_text()))
