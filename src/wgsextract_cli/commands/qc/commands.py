@@ -156,26 +156,28 @@ def run_fastqc(params: FastqcParams) -> None:
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     logging.info(LOG_MESSAGES["running_fastqc"].format(input=input_path))
-    try:
-        run_command(
-            [
-                "fastqc",
-                "-t",
-                threads,
-                "--outdir",
-                java_local_path(outdir),
-                java_local_path(input_path),
-            ]
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"FastQC failed: {e}") from e
-    stem = Path(outdir, fastqc_stem(input_path))
-    report_html = stem.with_name(stem.name + ".html")
-    report_zip = stem.with_name(stem.name + ".zip")
-    if not report_html.is_file() or not report_zip.is_file():
-        raise WGSExtractError(
-            f"FastQC wrote no report for {input_path} (expected {report_html})."
-        )
+    stem = fastqc_stem(input_path)
+    names = (stem + ".html", stem + ".zip")
+    # Staged so a run that writes nothing can't pass with a previous run's reports.
+    with tempfile.TemporaryDirectory(prefix=".fastqc_", dir=outdir) as work:
+        try:
+            run_command(
+                [
+                    "fastqc",
+                    "-t",
+                    threads,
+                    "--outdir",
+                    java_local_path(work),
+                    java_local_path(input_path),
+                ]
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"FastQC failed: {e}") from e
+        if not all(Path(work, name).is_file() for name in names):
+            raise WGSExtractError(f"FastQC wrote no report for {input_path}.")
+        for name in names:
+            os.replace(Path(work, name), Path(outdir, name))
+    report_html, report_zip = (Path(outdir, name) for name in names)
     result = current_result()
     result.add_output(report_html, "fastqc_report_html")
     result.add_output(report_zip, "fastqc_report_zip")

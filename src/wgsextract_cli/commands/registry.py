@@ -206,18 +206,21 @@ ADVANCED_SUBCOMMANDS = frozenset(
 @dataclass(frozen=True)
 class Deprecation:
     """A command that still works but warns, naming its replacement; it is
-    removed in ``remove_in`` (one minor release after it is deprecated)."""
+    removed in ``remove_in`` (one minor release after it is deprecated).
+    ``bare`` deprecates only running a group without a subcommand; the group
+    and its subcommands stay."""
 
     path: str
     replacement: str
     remove_in: str
+    bare: bool = False
 
 
 # Commands that duplicate another one exactly (the #352 wrapper audit). Help
 # and the generated docs list them as deprecated, and running one warns.
 DEPRECATIONS: tuple[Deprecation, ...] = (
     Deprecation("ref library-list", "ref library --list", "0.8.0"),
-    Deprecation("vep", "vep run", "0.8.0"),
+    Deprecation("vep", "vep run", "0.8.0", bare=True),
 )
 DEPRECATED = {deprecation.path: deprecation for deprecation in DEPRECATIONS}
 

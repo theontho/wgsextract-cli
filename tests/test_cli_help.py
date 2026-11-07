@@ -338,13 +338,23 @@ def test_help_lists_deprecated_commands_apart(capsys):
     doc = json.loads(capsys.readouterr().out)
     marked = {c["path"]: c["deprecated"] for c in doc["commands"] if "deprecated" in c}
     assert marked == {
-        d.path: {"replacement": d.replacement, "remove_in": d.remove_in}
+        d.path: {
+            "replacement": d.replacement,
+            "remove_in": d.remove_in,
+            "without_subcommand": d.bare,
+        }
         for d in DEPRECATIONS
     }
 
+    # PR #506 review: only bare 'vep' is retired, not the group.
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert "deprecated" not in capsys.readouterr().out
     with pytest.raises(SystemExit):
         main(["vep", "--help"])
-    assert "deprecated" in capsys.readouterr().out
+    assert "Running 'wgsextract vep' without a subcommand is deprecated" in (
+        capsys.readouterr().out.replace("\n  ", " ")
+    )
 
 
 def _parse(words: list[str]):

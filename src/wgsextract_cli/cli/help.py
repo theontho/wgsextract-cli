@@ -220,7 +220,7 @@ def apply_help_metadata(parser: argparse.ArgumentParser, prefix: str = "") -> No
             subparser.deprecation = DEPRECATED.get(path)
             subparser.advanced_actions = advanced_actions(subparser, path)
             tiers[choice.dest] = command_tier(path)
-            if path in DEPRECATED and choice.help:
+            if path in DEPRECATED and not DEPRECATED[path].bare and choice.help:
                 choice.help = f"({deprecated_text(DEPRECATED[path])}) {choice.help}"
             apply_help_metadata(subparser, path)
         if group_tier is not None and group_tier != ADVANCED:
@@ -290,10 +290,14 @@ def deprecated_text(deprecation: Deprecation) -> str:
 
 def deprecation_message(deprecation: Deprecation) -> str:
     """The warning a deprecated command prints when it runs."""
-    return (
-        f"'wgsextract {deprecation.path}' is deprecated and will be removed in "
+    subject = f"'wgsextract {deprecation.path}'"
+    if deprecation.bare:
+        subject = f"Running {subject} without a subcommand"
+    text = (
+        f"{subject} is deprecated and will be removed in "
         f"{deprecation.remove_in}; use 'wgsextract {deprecation.replacement}'."
     )
+    return text + (" Its subcommands are not affected." if deprecation.bare else "")
 
 
 def contract_text(
@@ -306,11 +310,14 @@ def contract_text(
     command's --help."""
     lines = []
     if deprecation is not None:
-        lines += [
-            _heading("deprecated:", color),
-            f"  {deprecation_message(deprecation)}",
-            "",
-        ]
+        lines.append(_heading("deprecated:", color))
+        lines += textwrap.wrap(
+            deprecation_message(deprecation),
+            width=78,
+            initial_indent="  ",
+            subsequent_indent="  ",
+        )
+        lines.append("")
     lines.append(_heading("examples:", color))
     lines += [f"  {example}" for example in command_help.examples]
     sections = [
@@ -408,8 +415,15 @@ def format_index(entries: list[CommandEntry], color: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _md_deprecated(deprecation: Deprecation) -> str:
+    """The deprecated form in Markdown: `path`, plus "without a subcommand"."""
+    alone = " without a subcommand" if deprecation.bare else ""
+    return f"`{deprecation.path}`{alone}"
+
+
 def _deprecated_summary(deprecation: Deprecation) -> str:
-    return f"Use '{deprecation.replacement}'; removed in {deprecation.remove_in}."
+    alone = "Without a subcommand: use" if deprecation.bare else "Use"
+    return f"{alone} '{deprecation.replacement}'; removed in {deprecation.remove_in}."
 
 
 def _index_groups(
@@ -467,6 +481,7 @@ def index_json(
             command["deprecated"] = {
                 "replacement": entry.deprecation.replacement,
                 "remove_in": entry.deprecation.remove_in,
+                "without_subcommand": entry.deprecation.bare,
             }
         commands.append(command)
     document: dict[str, Any] = {"schema": HELP_SCHEMA}
@@ -779,7 +794,8 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
             "| --- | --- | --- |",
         ]
         out += [
-            f"| `{e.path}` | `{e.deprecation.replacement}` | {e.deprecation.remove_in} |"
+            f"| {_md_deprecated(e.deprecation)} | `{e.deprecation.replacement}` "
+            f"| {e.deprecation.remove_in} |"
             for e in deprecated
             if e.deprecation is not None
         ]
@@ -829,7 +845,7 @@ def render_site_commands() -> str:
     if DEPRECATED:
         out += ["::: card", "### Deprecated"]
         out += [
-            f"- `{d.path}`: use `{d.replacement}`; removed in {d.remove_in}."
+            f"- {_md_deprecated(d)}: use `{d.replacement}`; removed in {d.remove_in}."
             for d in DEPRECATED.values()
         ]
         out += [":::", ""]
