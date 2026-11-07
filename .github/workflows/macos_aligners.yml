@@ -83,7 +83,7 @@ jobs:
           case "$TAG" in macos-aligners-*) ;; *) echo "Tag must start with macos-aligners-" >&2; exit 1 ;; esac
           {
             echo "Optional Apple Silicon (macOS 13+, arm64) rebuilds of BWA 0.7.19 and BWA-MEM2 2.3. Not used by the wgsextract CLI yet."
-            echo "Both align on the CPU by default. Their EXPERIMENTAL --metal flags offload seeding (wgse-bwa) or seed extension (wgse-bwa-mem2) to the GPU."
+            echo "Both align on the CPU by default. Their EXPERIMENTAL --metal flags offload seeding, locate, seed extension and mate rescue (wgse-bwa) or seeding, seed extension and mate rescue (wgse-bwa-mem2) to the GPU."
             echo "Built from native/ at ${GITHUB_SHA} by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
             echo "See native/README.md for usage, benchmarks and licences."
             echo

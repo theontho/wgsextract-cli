@@ -132,7 +132,19 @@ What runs on the GPU:
   aborted work again, up to four times, before it finishes on the CPU (and
   `--metal` exits 1).
 - `wgse-bwa-mem2`: batches seed extension across worker threads, keeping small
-  batches on the CPU.
+  batches on the CPU. From 0.2.0 it also collects the SMEMs of batches of 16384
+  reads on the GPU (upstream's three passes, reading the index's occurrence
+  table in place), rescues mates on the GPU with `wgse-bwa`'s kernel, and pairs
+  one chunk while it maps the next, as `wgse-bwa` 0.6.0 does. As in `wgse-bwa`,
+  the GPU takes reads from the front of each chunk and the CPU threads from
+  the back, the CPU uses a GPU result only for exactly the reads and inputs it
+  was computed for, reads with more than 128 SMEMs or over 512 bases are
+  seeded on the CPU, and at most two GPU command buffers run at once; aborted
+  GPU work is retried and then finished on the CPU (`--metal` exits 1). 0.2.0
+  also stops upstream's suffix-array locate from allocating a buffer sized by
+  the seeds' total number of hits for every read, and lets it prefetch
+  sampled entries, which it never did because of an operator-precedence slip;
+  neither changes any result.
 
 With a Metal backend both print GPU and CPU work counts to stderr.
 
@@ -164,7 +176,14 @@ the peak.
 With `--metal` the GPU uses the whole index
 (4.3 GiB for hs38) in place, so it stays resident while aligning; it has not
 been tested on 8 GB Macs.
-`wgse-bwa-mem2 --metal` adds under 100 MB of GPU buffers.
+`wgse-bwa-mem2` peaked at 16.3 GiB on hs38 with 9 threads and `-K 10000000`
+(it loads its 17.0 GB of index files), so it does not fit in a 16 GB Mac.
+`--metal` 0.1.0 added under 100 MB of GPU buffers; 0.2.0 peaked at 16.9 GiB.
+It reads the index's 5.8 GiB occurrence table in place, and adds GPU seeding
+scratch and output for one batch of 16384 reads (about 0.17 GiB for 150 bp
+reads), up to three prepared seeding batches, mate-rescue buffers like
+`wgse-bwa`'s, and the extra chunk of pairing one chunk while it maps the next
+(about 0.16 GiB with `-K 10000000`; more with larger `-K`).
 
 ## Performance
 
@@ -229,9 +248,32 @@ An earlier session measured 481.2 s (CPU) and 425.4 s (0.2.0 `--metal`). On
 `--metal` with 9 threads, and 0.5.0 `--metal` 11% less than 0.4.0 (11.1 s
 against 12.4 s, three runs each).
 
-The BWA-MEM2 human index cannot be built on this machine, so BWA-MEM2 was
-measured with 10.6M read pairs against a small reference (chr20 fragment, Y,
-MT) whose whole index fits in cache. Full-genome gains will be smaller:
+BWA-MEM2's human index needs about 73 GB of memory to build, so it was built on
+a Linux machine with upstream bwa-mem2 2.3 (the index files are the same on
+macOS). On the same full-genome data and threads, `wgse-bwa-mem2` measured as
+follows, in three interleaved rounds on AC power with the order reversed in
+the third:
+
+| Aligner | Threads | Time | Peak RSS | vs CPU |
+| --- | --- | --- | --- | --- |
+| `wgse-bwa-mem2` 0.1.0 | 9 | 447.5 s | 16.3 GiB | — |
+| `wgse-bwa-mem2` 0.2.0 | 9 | 458.3 s | 16.3 GiB | — |
+| `wgse-bwa-mem2 --metal` 0.1.0 (seed extension) | 9 | 395.7 s | 16.3 GiB | −11.6% |
+| `wgse-bwa-mem2 --metal` 0.2.0 (also seeding, rescue, overlap) | 9 | 161.2 s | 16.9 GiB | −64.8% |
+
+0.2.0 `--metal` (167.8, 172.2 and 143.5 s) took 59.3% less time than 0.1.0
+`--metal` (440.8, 395.6 and 350.6 s) and was faster in each round; without
+overlapping mapping and pairing it took 175.9 s. Each "vs CPU" compares with
+the same version's CPU backend. The two CPU builds used the same user time
+(2822–2848 s); their wall times varied with system time (144–367 s), which grew
+when other applications' memory had to be compressed to make room for the
+17 GB process on this 32 GB Mac. A profile of 0.2.0 `--metal` found mapping on
+the critical path (162 s), with pairing overlapped under it; the GPU kernels
+ran 45 s of seeding, 69 s of mate rescue and 31 s of seed extension.
+
+Before the full index was available, BWA-MEM2 was measured with 10.6M read
+pairs against a small reference (chr20 fragment, Y, MT) whose whole index fits
+in cache:
 
 | Aligner | Threads | Time | vs packaged build |
 | --- | --- | --- | --- |

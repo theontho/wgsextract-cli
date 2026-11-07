@@ -4,6 +4,7 @@
  * and moves the chunk's alignments out of w; wgse_mem_pair() runs the rest. */
 #include <atomic>
 static std::atomic<int> wgse_pairing{0};
+static std::atomic<long> wgse_pair_starts{0};
 
 struct wgse_mapped_t {
     worker_t w;
@@ -21,13 +22,17 @@ void *wgse_mem_map(mem_opt_t *opt, int64_t n_processed, int n, bseq1_t *seqs,
     w.seqs = seqs; w.n_processed = n_processed;
     w.pes = &m->pes[0];
 
+    // A chunk overlaps if any pairing ran while it was mapped.
+    const bool paired_at_start = wgse_pairing.load() != 0;
+    const long pairs_before = wgse_pair_starts.load();
     uint64_t tim = __rdtsc();
     fprintf(stderr, "[0000] 1. Calling kt_for - worker_bwt\n");
     wgse_kt_for_bwt(w, n); // SMEMs (+SAL)
     fprintf(stderr, "[0000] 2. Calling kt_for - worker_aln\n");
     kt_for(worker_aln, &w, n); // BSW
     tprof[WORKER10][0] += __rdtsc() - tim;
-    if (wgse_pairing.load()) wgse_note_overlapped_chunk();
+    if (paired_at_start || wgse_pairing.load() || wgse_pair_starts.load() != pairs_before)
+        wgse_note_overlapped_chunk();
 
     if (opt->flag & MEM_F_PE) {
         if (pes0)
@@ -49,6 +54,7 @@ void wgse_mem_pair(void *mapped)
     wgse_mapped_t *m = (wgse_mapped_t *) mapped;
     worker_t &w = m->w;
     ++wgse_pairing;
+    ++wgse_pair_starts;
     uint64_t tim = __rdtsc();
     fprintf(stderr, "[0000] 3. Calling kt_for - worker_sam\n");
     if (!wgse_metal_pair(w.opt, w.fmi->idx->bns, w.fmi->idx->pac, m->pes, m->n, w.seqs,
