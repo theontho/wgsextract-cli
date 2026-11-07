@@ -4,10 +4,9 @@ PYTHON ?= uv run python
 TASKS := $(PYTHON) tools/tasks.py
 
 export BUNDLE PORT RELEASE_DIR
-export BRANCH BASE WORKTREE WORKTREE_PATH WORKTREE_ROOT WORKTREE_RUN_SETUP WORKTREE_FETCH WORKTREE_COPY_LOCAL_CONFIG WORKTREE_OVERWRITE_LOCAL_CONFIG FORCE
 
 .PHONY: help setup precheck lint test ci build build-tauri run dev tauri package package-windows-cross clean \
-	worktree-setup worktree-teardown dup dup-ci cloc site
+	dup dup-ci cloc site
 
 ##@ General
 
@@ -15,17 +14,11 @@ help: ## Show available targets.
 	@awk 'BEGIN {FS = ":.*##"} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-zA-Z_-]+:.*##/ {printf "  %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf '\n%s\n' 'Set BUNDLE=<path> and PORT=<port> for run/dev. Windows: powershell -ExecutionPolicy Bypass -File .\make.ps1 <target>.'
 
-setup: ## Bootstrap user tools, install locked dependencies/hooks, verify and smoke test.
+setup: ## Bootstrap user tools, install locked dependencies, verify and smoke test.
 	sh scripts/dev_setup.sh
 
 precheck: ## Check the local development environment.
 	$(TASKS) precheck
-
-worktree-setup: ## Create and initialize a developer worktree. Usage: make worktree-setup BRANCH=name [WORKTREE_PATH=path]
-	$(PYTHON) tools/worktree.py setup
-
-worktree-teardown: ## Remove a registered developer worktree. Usage: make worktree-teardown BRANCH=name [FORCE=1]
-	$(PYTHON) tools/worktree.py teardown
 
 ##@ Develop
 

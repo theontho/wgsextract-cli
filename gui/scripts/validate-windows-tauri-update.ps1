@@ -1,5 +1,5 @@
 param(
-    [string]$Repo = "WGSExtract/gui-for-cli",
+    [string]$Repo = "WGSExtract/wgsextract-cli",
     [string]$LatestTag = "",
     [string]$OldVersion = "",
     [string]$UpdaterPublicKey = "",

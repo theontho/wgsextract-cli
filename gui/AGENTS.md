@@ -60,11 +60,17 @@ benchmarks) live on the `old-experimental` branch; do not reintroduce them here.
 - Redact keys, tokens, and secrets in displayed configuration.
 - Behavior must work the same on Windows, macOS, and Linux; platform-specific script folders in bundles are the extension point.
 
-## Dev Identity Verification
+## Part of the wgsextract-cli repository
 
-This project uses a gitignored `.dev_id` file to ensure commits use the expected identity.
+This folder is the WGS Extract desktop app inside the wgsextract-cli
+repository; the root `AGENTS.md` applies too (commits, pull requests, issue
+queue). Run the commands here from `gui/`, or the root's `just gui-*` recipes
+from anywhere. The root's pre-commit hooks lint `gui/` changes with
+`tools/tasks.py lint`; the GUI's CI is `.github/workflows/gui-*.yml`. The app
+ships in the same `vX.Y.Z` release as the CLI it bundles (see
+`docs/releasing.md` at the root).
 
-Run `make setup` to create `.dev_id`, install Git hooks, and prepare the default development tools.
+Run `make setup` to prepare the development tools.
 
 ## Build and run
 
@@ -81,4 +87,4 @@ Duplication is checked with [jscpd](https://github.com/kucherenko/jscpd). It run
 - `make dup` — full report (HTML output in `out/jscpd/`)
 - `make dup-ci` — console-only, CI-friendly
 
-Threshold is 0.5% duplication; minLines 30, minTokens 70. Configure in `.jscpd.json` at the repo root. If you add a legitimate clone that can't be deduped, raise the threshold deliberately and document why.
+Threshold is 0.5% duplication; minLines 30, minTokens 70. Configure in `gui/.jscpd.json`. If you add a legitimate clone that can't be deduped, raise the threshold deliberately and document why.

@@ -74,7 +74,7 @@ No signing is required to build the Linux packages or the Windows NSIS installer
 
 ### Windows installer lifecycle test
 
-`.github/workflows/tauri-installer.yml` builds the NSIS installer, silently
+The repository's `.github/workflows/gui-tauri-installer.yml` builds the NSIS installer, silently
 installs it, launches the packaged app, runs bundle setup, runs bundle uninstall
 hooks, runs the native uninstaller, and checks cleanup. Run the same check
 locally on Windows with
@@ -83,11 +83,14 @@ locally on Windows with
 
 ## CI / release automation
 
-`.github/workflows/distribution.yml` builds the Tauri app on macOS, Linux, and
-Windows runners for `workflow_dispatch` and `v*` tags.
+The repository's `.github/workflows/gui-distribution.yml` builds the Tauri app
+on macOS, Linux, and Windows runners. Run it by hand (`gh workflow run
+gui-distribution.yml --ref BRANCH`) for unsigned artifacts; the release workflow
+(`release.yml`) calls it for each `vX.Y.Z` release, which ships the CLI and the
+app together (see `docs/releasing.md` at the repository root).
 
-The macOS job signs and notarizes when these secrets are present (tagged
-releases fail without them):
+The macOS job signs and notarizes when these secrets are present (releases fail
+without them):
 
 - `APPLE_CERTIFICATE_P12`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`
 - notarization, either:
@@ -115,7 +118,7 @@ Rerun it when the certificate is renewed.
 GitHub updates secrets individually. If an upload fails, the matching
 certificate and password remain in a private `out/apple-signing.*` directory.
 Retry with `--resume <directory>` and the same `--repo OWNER/NAME`; this uploads
-the same pair rather than generating a new password. Do not run Distribution
+the same pair rather than generating a new password. Do not run GUI distribution
 until the retry succeeds. Successful uploads remove the local recovery files;
 otherwise remove those specific files once recovery is complete.
 
@@ -126,20 +129,9 @@ The macOS release builds natively on an Apple Silicon runner and an Intel runner
 `scripts/bump-wgsextract-cli.py vX.Y.Z` points the WGSExtract bundle at another
 wgsextract-cli release: the tag setup installs, the bundle version that names the
 installers, the tests that pin both, and a CHANGELOG entry. It changes nothing if
-any file can't be updated.
-`.github/workflows/wgsextract-cli-release-watch.yml` runs it hourly when a newer
-release is published and opens the PR. PRs opened with `GITHUB_TOKEN` don't
-trigger workflows, so it dispatches CI, Secret Scan and Tauri installer on the
-branch, and later runs start any of them that haven't run. Opening the PR
-needs **Allow GitHub Actions to create and approve pull requests** (Settings >
-Actions > General); without it the job pushes the branch and fails once with a
-link to open the PR by hand.
-
-When the app release is published, Distribution appends the bundled CLI
-release's notes (under `## WGSExtract CLI vX.Y.Z`) to the app release notes, so
-users see what changed in the CLI without leaving the app release page. Bare
-`#123` references in those notes are rewritten as `WGSExtract/wgsextract-cli#123`
-so they keep pointing at the CLI repository.
+any file can't be updated. The root's `scripts/bump_version.py X.Y.Z` runs it
+with the CLI's own version bump, since the app and the CLI it bundles ship in
+the same release; the release workflow refuses a tag the bundle doesn't pin.
 
 ## Self-updates
 
@@ -159,7 +151,7 @@ Configure release automation with:
 - `TAURI_UPDATER_PUBKEY` repository variable or secret containing the generated public key.
 - `TAURI_SIGNING_PRIVATE_KEY` secret containing the private key content or path.
 - optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret.
-- optional `TAURI_UPDATER_ENDPOINTS` / `.devconfig.toml` `[tauri.updater] endpoint = "..."`; the default endpoint is `https://github.com/WGSExtract/gui-for-cli/releases/latest/download/latest.json`.
+- optional `TAURI_UPDATER_ENDPOINTS` / `.devconfig.toml` `[tauri.updater] endpoint = "..."`; the default endpoint is `https://github.com/WGSExtract/wgsextract-cli/releases/latest/download/latest.json` (the app ships in each `vX.Y.Z` release of this repository; see `docs/releasing.md` at the repository root).
 
 When updater signing is configured, Tauri emits `.sig` files next to the macOS
 `.app.tar.gz`, the Windows NSIS installer, and the Linux AppImage. Packaging
@@ -172,24 +164,25 @@ signature, installs the update, and restarts the app.
 
 ### GitHub Release feed generation
 
-On `v*` tags, `.github/workflows/distribution.yml` downloads the packaged artifacts, publishes them to the GitHub Release, and runs:
+For a release, `gui-distribution.yml` downloads the packaged artifacts, adds
+them to the `vX.Y.Z` GitHub Release, and runs (from the repository root):
 
 ```bash
-python3 tools/packaging/generate_update_feeds.py \
+python3 gui/tools/packaging/generate_update_feeds.py \
   --repo "$GITHUB_REPOSITORY" \
-  --tag "$GITHUB_REF_NAME" \
-  --version "${GITHUB_REF_NAME#v}" \
+  --tag "$RELEASE_TAG" \
+  --version "${RELEASE_TAG#v}" \
   --artifacts-root release-artifacts \
   --output-dir release-artifacts/update-feeds
 ```
 
 It writes `latest.json` with `windows-x86_64`, `linux-x86_64`, and
 `darwin-aarch64`/`darwin-x86_64` entries for every signed artifact it finds.
-Tag builds set `PACKAGE_APP_VERSION` from the tag name so the packaged apps and
+Release builds set `PACKAGE_APP_VERSION` from the tag name so the packaged apps and
 the feed agree on the update version.
 
-For end-to-end update testing before a production release, push a prerelease
-tag such as `v0.1.1-updater-test.1` and build the app with updater endpoints
-pointed at that tag's release assets instead of the `latest` URLs. On Windows,
+For end-to-end update testing before a production release, build the app with
+`TAURI_UPDATER_ENDPOINTS` pointed at a test release's `latest.json` instead of
+the `latest` URL. On Windows,
 `scripts/validate-windows-tauri-update.ps1` installs an older release and
 drives the update.

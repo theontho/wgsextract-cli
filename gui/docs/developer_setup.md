@@ -1,10 +1,11 @@
 # Developer setup
 
-Clone the repository, then run one command from its root:
+The app lives in the `gui/` folder of the wgsextract-cli repository. Clone it,
+then run one command from `gui/` (or `just gui-setup` from the root):
 
 ```sh
-git clone https://github.com/WGSExtract/gui-for-cli.git
-cd gui-for-cli
+git clone https://github.com/WGSExtract/wgsextract-cli.git
+cd wgsextract-cli/gui
 make setup
 ```
 
@@ -12,8 +13,8 @@ On Linux/macOS without `make`, use `sh scripts/dev_setup.sh` instead.
 On Windows, use **Windows PowerShell 5.1**, not WSL:
 
 ```powershell
-git clone https://github.com/WGSExtract/gui-for-cli.git
-cd gui-for-cli
+git clone https://github.com/WGSExtract/wgsextract-cli.git
+cd wgsextract-cli\gui
 powershell -ExecutionPolicy Bypass -File .\make.ps1 setup
 ```
 
@@ -23,11 +24,6 @@ powershell -ExecutionPolicy Bypass -File .\make.ps1 setup
   Rust/Cargo (minimal stable toolchain). uv supplies Python 3.11+ when needed.
   Node archives are verified against the publisher's SHA-256 checksums.
 - Runs `uv sync --locked` and `npm --prefix app ci`; does not rewrite lockfiles.
-- Registers an available developer identity using the existing identity tool,
-  without changing Git configuration; installs and checks the existing hooks.
-  If no identity exists, this is advisory: set `git config user.name "Your Name"`
-  and `git config user.email "you@example.com"`, then run
-  `uv run python scripts/dev-register.py` before committing.
 - Checks tool versions and locked Cargo metadata, compiles TypeScript, starts the
   real GitHelper server on an ephemeral loopback port, verifies HTTP 200, and
   stops it. Smoke children use a private app-support container under
@@ -111,18 +107,19 @@ powershell -ExecutionPolicy Bypass -File .\make.ps1 test
 `dev` runs the TypeScript watcher and reloadable server on all three platforms.
 Use Ctrl-C to stop both. The process-scoped execution-policy bypass is required
 on fresh Windows clients where the default policy is Restricted.
-For a fork, push to your fork and open a PR against `WGSExtract/gui-for-cli`.
-Hooks check identity/lint on commit and tests on push. The commit hook also
-scans staged changes for secrets when [gitleaks](https://github.com/gitleaks/gitleaks#installing)
-is installed, and warns otherwise; CI always scans. Run `make build-tauri`
-after changing the Tauri shell or packaging. `make tauri` runs the desktop UI.
+For a fork, push to your fork and open a PR against `WGSExtract/wgsextract-cli`.
+The repository's pre-commit hooks (installed by the root's developer setup,
+`docs/developer_setup.md`) scan staged changes for secrets and run `make lint`
+when `gui/` changes; CI (`.github/workflows/gui-*.yml`) runs lint and tests on
+every platform. Run `make build-tauri` after changing the Tauri shell or
+packaging. `make tauri` runs the desktop UI.
 
 ## Make an AI-directed change
 
 Install and authenticate your preferred agent CLI using its official instructions.
 Run it from this repository so it reads `AGENTS.md` / `CLAUDE.md`.
 Pick an issue from the
-[good-first-issue list](https://github.com/WGSExtract/gui-for-cli/labels/good%20first%20issue)
+[good-first-issue list](https://github.com/WGSExtract/wgsextract-cli/labels/good%20first%20issue)
 and give it a bounded request, for example:
 
 > Fix #N. Read the issue and repository instructions, confirm the behavior,

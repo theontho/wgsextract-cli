@@ -39,7 +39,6 @@ def main(argv: list[str] | None = None) -> int:
         check_command(
             "Rust Cargo (Tauri builds)", ["cargo", "--version"], cwd=repo_root
         ),
-        check_repository_hooks(repo_root),
         check_config_directory(),
     ]
     for check in checks:
@@ -81,39 +80,6 @@ def check_npm_dependencies(repo_root: Path) -> CheckResult:
         "npm dependencies",
         False,
         "run 'make setup' (or 'powershell -ExecutionPolicy Bypass -File .\\make.ps1 setup' on Windows)",
-    )
-
-
-def check_repository_hooks(repo_root: Path) -> CheckResult:
-    if not (repo_root / ".git").exists():
-        return CheckResult(
-            "Repository hooks",
-            False,
-            "not inside the repository; run from the repo root",
-        )
-    script = repo_root / "scripts" / "setup-hooks.py"
-    if not script.exists():
-        return CheckResult(
-            "Repository hooks", False, "scripts/setup-hooks.py was not found"
-        )
-    try:
-        result = subprocess.run(
-            [sys.executable, "scripts/setup-hooks.py", "--check"],
-            cwd=repo_root,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=CHECK_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return CheckResult(
-            "Repository hooks", False, f"timed out after {CHECK_TIMEOUT_SECONDS}s"
-        )
-    except OSError as error:
-        return CheckResult("Repository hooks", False, str(error))
-    return CheckResult(
-        "Repository hooks", result.returncode == 0, first_line(result.stdout)
     )
 
 

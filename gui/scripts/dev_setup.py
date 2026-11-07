@@ -230,23 +230,6 @@ def main() -> int:
     for instruction in missing:
         print(f"Manual prerequisite (setup never elevates): {instruction}", flush=True)
     run("npm", "--prefix", "app", "ci")
-    if not (ROOT / ".dev_id").exists():
-        if succeeds("git", "config", "user.name") and succeeds(
-            "git", "config", "user.email"
-        ):
-            run(
-                sys.executable,
-                "scripts/dev-register.py",
-                "--local-only",
-                "--no-update-git-config",
-            )
-        else:
-            print(
-                "Advisory: configure git user.name and user.email, then run "
-                "'uv run python scripts/dev-register.py'. Commits require .dev_id."
-            )
-    run(sys.executable, "scripts/setup-hooks.py")
-    run(sys.executable, "scripts/setup-hooks.py", "--check")
     run(
         "cargo",
         "metadata",

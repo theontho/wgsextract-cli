@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/WGSExtract/gui-for-cli/schema/manifest.schema.json",
+  "$id": "https://github.com/WGSExtract/wgsextract-cli/gui/schema/manifest.schema.json",
   "title": "GUI for CLI Bundle Manifest",
   "type": "object",
   "required": ["id", "displayName", "summary", "pages"],

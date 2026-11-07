@@ -5,7 +5,7 @@ description: 'Documentation map for GUI for CLI: the app, bundles, distribution,
 eyebrow: 'Documentation'
 heading: 'Where to go next.'
 lede: 'Start with v0.6.6 downloads or one-command developer setup. Workflow details, distribution, and schemas live close to the code.'
-actions: 'Open README|https://github.com/WGSExtract/gui-for-cli/blob/main/README.md|primary; Architecture|architecture.html'
+actions: 'Open README|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/README.md|primary; Architecture|architecture.html'
 footer_title: 'Documentation map'
 footer_text: 'Product docs stay short; detailed engineering notes stay close to the code.'
 ---
@@ -18,7 +18,7 @@ footer_text: 'Product docs stay short; detailed engineering notes stay close to 
 ### README
 The top-level README describes the app, setup, common commands, bundles, config, and distribution packaging.
 
-{{ link: Open README|https://github.com/WGSExtract/gui-for-cli/blob/main/README.md|inline-link }}
+{{ link: Open README|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/README.md|inline-link }}
 :::
 
 ::: card
@@ -28,7 +28,7 @@ Clone the repo and run `make setup` on Linux/macOS, or `powershell -ExecutionPol
 
 Setup prepares missing user-level uv, Node, and Rust tools, locked dependencies, hooks, and a real Web UI smoke check. It never elevates or installs system packages; the guide lists manual desktop prerequisites. No sibling WGSExtract CLI checkout or genome download is needed for UI development: start with `examples/GitHelper`.
 
-{{ link: Open developer setup|https://github.com/WGSExtract/gui-for-cli/blob/main/docs/developer_setup.md|inline-link }}
+{{ link: Open developer setup|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/docs/developer_setup.md|inline-link }}
 :::
 
 ::: card
@@ -37,7 +37,7 @@ Setup prepares missing user-level uv, Node, and Rust tools, locked dependencies,
 Download installers and read the complete GUI and bundled CLI release notes. The changelog tracks the move to one Tauri app, native Windows setup, macOS notarization, and bundle improvements.
 
 {{ link: Open releases|https://github.com/WGSExtract/gui-for-cli/releases|inline-link }}
-{{ link: Open changelog|https://github.com/WGSExtract/gui-for-cli/blob/main/docs/CHANGELOG.md|inline-link }}
+{{ link: Open changelog|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/docs/CHANGELOG.md|inline-link }}
 :::
 
 ::: card
@@ -46,7 +46,7 @@ Download installers and read the complete GUI and bundled CLI release notes. The
 Nanopore handling in existing actions, plus opt-in MultiQC, expanded microarray/AADR exports, targeted Y analysis, and resource requirements. See what is in the app and what is still CLI only.
 
 {{ link: WGSExtract workflows|wgsextract.html|inline-link }}
-{{ link: Post-v0.6.3 feature details|https://github.com/WGSExtract/gui-for-cli/blob/main/docs/wgsextract-post-v063.md|inline-link }}
+{{ link: Post-v0.6.3 feature details|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/docs/wgsextract-post-v063.md|inline-link }}
 :::
 
 ::: card
@@ -54,7 +54,7 @@ Nanopore handling in existing actions, plus opt-in MultiQC, expanded microarray/
 ### Bundle schemas
 `manifest.json` and page files are described by JSON Schemas in `docs/schema/`.
 
-{{ link: Open schemas|https://github.com/WGSExtract/gui-for-cli/tree/main/docs/schema|inline-link }}
+{{ link: Open schemas|https://github.com/WGSExtract/wgsextract-cli/tree/main/gui/docs/schema|inline-link }}
 :::
 
 ::: card
@@ -70,7 +70,7 @@ The SwiftUI app, Swift CLI, prototype renderers, and benchmark reports live on t
 ### Packaging
 Signing, notarization, Tauri packages for each OS, release artifacts, self-updates, and embedded bundle defaults.
 
-{{ link: Open distribution doc|https://github.com/WGSExtract/gui-for-cli/blob/main/docs/distribution.md|inline-link }}
+{{ link: Open distribution doc|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/docs/distribution.md|inline-link }}
 :::
 :::
 :::
@@ -90,6 +90,6 @@ open site/index.html
 
 The dependency-free generator writes HTML to `site/` for GitHub Pages. Commit regenerated HTML alongside source changes; `make site` is also available.
 
-{{ link: Site generation guide|https://github.com/WGSExtract/gui-for-cli/blob/main/docs/site_generation.md|inline-link }}
+{{ link: Site generation guide|https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/docs/site_generation.md|inline-link }}
 :::
 :::

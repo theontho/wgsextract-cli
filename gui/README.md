@@ -6,6 +6,8 @@ GUI for CLI turns a portable CLI-tool bundle into an installable desktop app for
 
 The first real app built with GUI for CLI is the WGSExtract interface in `examples/WGSExtract`. It exercises setup steps, long-running commands, dynamic data sources, localization, configuration, terminal output, file pickers, and release packaging against a realistic genomics workflow.
 
+This folder is part of the [wgsextract-cli](../README.md) repository: the app ships in the same `vX.Y.Z` release as the CLI it bundles (see [releasing](../docs/releasing.md)), and the root's `just gui-*` recipes run the commands below from anywhere in the repository. Its history up to the move is in the former [gui-for-cli](https://github.com/WGSExtract/gui-for-cli) repository too, with app releases up to v0.6.6.
+
 Earlier work, including the SwiftUI macOS app, the Swift CLI, Electron and a dozen experimental renderers, and the benchmarks across them, is preserved on the [`old-experimental`](https://github.com/WGSExtract/gui-for-cli/tree/old-experimental) branch.
 
 ## Layout
@@ -28,7 +30,7 @@ Earlier work, including the SwiftUI macOS app, the Swift CLI, Electron and a doz
 - Rust/Cargo and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS to build the desktop app.
 
 `make setup` (Windows: `powershell -ExecutionPolicy Bypass -File .\make.ps1 setup`)
-bootstraps missing user-level tools, installs locked dependencies and hooks, and
+bootstraps missing user-level tools, installs locked dependencies, and
 runs a quick Web UI smoke test. It never elevates or installs system packages.
 See [developer setup](docs/developer_setup.md) for manual OS prerequisites,
 the change-to-PR loop, and an AI-agent walkthrough.
@@ -36,7 +38,7 @@ the change-to-PR loop, and an AI-agent walkthrough.
 ## Getting started
 
 ```bash
-make setup      # user tools, locked deps, dev identity, hooks, smoke test
+make setup      # user tools, locked deps, smoke test
 make precheck   # verify the toolchain
 make run        # serve the Web UI at http://127.0.0.1:8787 with examples/WGSExtract
 make tauri      # run the desktop app in dev mode
@@ -65,7 +67,6 @@ make dev BUNDLE=examples/GitHelper PORT=9000
 | `make package` | Build Tauri distributables for this host into `out/release/tauri/`. |
 | `make package-windows-cross` | Cross-build the Windows installer from macOS or Linux. |
 | `make site` | Regenerate the static project site into `site/` from `site_src/`. |
-| `make worktree-setup BRANCH=my-feature` | Create a sibling developer worktree, copy local ignored dev config, and run setup. Set `WORKTREE_PATH=...` to override the location. |
 | `make worktree-teardown BRANCH=my-feature` | Remove that worktree. Dirty worktrees are refused unless `FORCE=1` is set. |
 
 Development targets run through `tools/tasks.py`, so `uv run python tools/tasks.py <action> [target]` works too.

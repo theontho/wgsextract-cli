@@ -13,11 +13,9 @@ function Show-Help {
     @"
 Usage: powershell -ExecutionPolicy Bypass -File .\make.ps1 <target> [NAME=value ...]
 
-  setup              Bootstrap user tools, locked dependencies/hooks, and smoke test.
+  setup              Bootstrap user tools, locked dependencies, and smoke test.
                      Optional: -SkipSmoke -WebOnly
   precheck           Verify development tools and repository setup.
-  worktree-setup     Create a developer worktree (BRANCH=name).
-  worktree-teardown  Remove a registered worktree (BRANCH=name).
   run                Build and serve the Web UI (BUNDLE=path PORT=port).
   dev                Serve the Web UI with watch and reload.
   tauri              Run the Tauri desktop app.
@@ -69,8 +67,6 @@ switch ($Action) {
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
     "precheck" { Invoke-PythonTool @("tools/precheck.py") }
-    "worktree-setup" { Invoke-PythonTool @("tools/worktree.py", "setup") }
-    "worktree-teardown" { Invoke-PythonTool @("tools/worktree.py", "teardown") }
     default {
         if (-not $targets.ContainsKey($Action)) {
             Write-Host "Unknown target: $Action"

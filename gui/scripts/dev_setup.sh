@@ -12,6 +12,8 @@ finish() {
     trap - 0
     tools_missing=false
     for tool in uv node cargo; do
+        # The caller's PATH, in a subshell so this script's PATH is unchanged.
+        # shellcheck disable=SC2030
         if ! (PATH="$original_path"; command -v "$tool") >/dev/null 2>&1; then
             tools_missing=true
             break
@@ -23,6 +25,7 @@ finish() {
     exit "$status"
 }
 trap finish 0
+# shellcheck disable=SC2031
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 mkdir -p tmp/dev-setup "$HOME/.local/bin"
 export TMPDIR="$PWD/tmp/dev-setup"
@@ -67,7 +70,9 @@ if ! command -v cargo >/dev/null 2>&1; then
     sh tmp/dev-setup/rustup-init.sh -y --profile minimal
     tools_changed=true
 fi
-# Persist Node's bin directory for new login and interactive shells.
+# Persist Node's bin directory for new login and interactive shells (expanded
+# by those shells, not now).
+# shellcheck disable=SC2016
 path_line='export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"'
 login_profile="$HOME/.profile"
 if [ -f "$HOME/.bash_profile" ]; then login_profile="$HOME/.bash_profile"

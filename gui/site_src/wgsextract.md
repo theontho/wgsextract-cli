@@ -80,7 +80,7 @@ AADR 2M is excluded from `all`: explicitly install its pinned metadata from Libr
 
 CLI setup is native on Windows, without WSL or MSYS2, and GUI settings save real TOML booleans and numbers, including `false`. Earlier CLI releases also fixed fresh Windows installation, added warnings for invalid configuration values, and improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.
 
-[Download v0.6.6](index.html), read the [CLI v0.6.6 release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.6) and [ONT limitations](https://github.com/WGSExtract/wgsextract-cli/blob/v0.6.6/docs/ont.md), or see the [workflow details and prerequisites](https://github.com/WGSExtract/gui-for-cli/blob/main/docs/wgsextract-post-v063.md).
+[Download v0.6.6](index.html), read the [CLI v0.6.6 release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.6) and [ONT limitations](https://github.com/WGSExtract/wgsextract-cli/blob/v0.6.6/docs/ont.md), or see the [workflow details and prerequisites](https://github.com/WGSExtract/wgsextract-cli/blob/main/gui/docs/wgsextract-post-v063.md).
 :::
 :::
 

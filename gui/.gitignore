@@ -1,6 +1,5 @@
 # Local machine and secrets
 .DS_Store
-.dev_id
 .devconfig.toml
 .env
 .env.*

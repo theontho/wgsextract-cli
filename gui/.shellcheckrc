@@ -1,0 +1,2 @@
+# `CDPATH= cd` is the POSIX idiom for a cd that ignores the caller's CDPATH.
+disable=SC1007
