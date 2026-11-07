@@ -828,7 +828,9 @@ def test_path_guard_covers_every_ref_path(op, field, value):
     assert refused.value.code in ("usage", "path_not_allowed")
 
 
-@pytest.mark.parametrize("op", ["ref/gene-map", "ref/clinvar", "ref/status"])
+@pytest.mark.parametrize(
+    "op", ["ref/gene-map", "ref/clinvar", "ref/status", "ref/library-list"]
+)
 def test_path_guard_checks_the_library_above_a_genomes_fasta(tmp_path, op):
     # PR #458 review: a FASTA in <library>/genomes names that library, which
     # these commands write into or read, so the library must be allowed too.
@@ -847,7 +849,7 @@ def test_path_guard_checks_the_library_above_a_genomes_fasta(tmp_path, op):
     PathGuard([tmp_path / "library", tmp_path / "genomes"]).check(params)
 
 
-@pytest.mark.parametrize("op", ["ref/clinvar", "ref/status"])
+@pytest.mark.parametrize("op", ["ref/clinvar", "ref/status", "ref/library-list"])
 def test_path_guard_checks_the_library_of_a_home_relative_fasta(
     tmp_path, monkeypatch, op
 ):
@@ -893,6 +895,51 @@ def test_path_guard_refuses_home_relative_file_names_in_text_fields(
     with pytest.raises(RequestError, match="not ~") as refused:
         PathGuard([tmp_path]).check(params_from_json(find(op), request))
     assert refused.value.code == "usage"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("reference_library", "outside"),
+        ("reference_fasta", "outside/genomes/hg38.fa"),
+    ],
+)
+def test_a_library_list_request_checks_the_library_it_falls_back_to(
+    tmp_path, work, monkeypatch, key, value
+):
+    # #478: with no ref, the configured FASTA's library (else the configured
+    # library) is the one read, so it must be an allowed folder too.
+    from wgsextract_cli.core.config import settings
+
+    fasta = tmp_path / "outside" / "genomes" / "hg38.fa"
+    fasta.parent.mkdir(parents=True)
+    fasta.write_text(">chr1\nA\n")
+    # The FASTA's library comes first, even when reference_library is allowed.
+    monkeypatch.setitem(settings, "reference_library", str(work))
+    monkeypatch.setitem(settings, key, str(tmp_path / value))
+    with _serve(tmp_path, [work]) as client:
+        status, body = client.request("POST", "/ops/ref/library-list", {})
+        assert (status, body["error"]["code"]) == (403, "path_not_allowed"), body
+        status, body = client.request(
+            "POST", "/ops/ref/library-list", {"ref": str(work)}
+        )
+        assert status == 202, body
+
+
+def test_ref_library_list_is_a_query_with_the_listing_as_details(client, work):
+    (work / "genomes").mkdir()
+    (work / "genomes" / "hs38.fa.gz").write_bytes(b"x")
+    _, ops = client.request("GET", "/ops")
+    assert {op["op"]: op["kind"] for op in ops["ops"]}["ref/library-list"] == "query"
+
+    status, job = client.request("POST", "/ops/ref/library-list", {"ref": str(work)})
+    assert status == 202, job
+    client.events(job["id"])
+    _, job = client.request("GET", f"/jobs/{job['id']}")
+    assert job["status"] == "succeeded", job
+    details = job["result"]["details"]
+    assert details["library"] == str(work)
+    assert {g["code"]: g["status"] for g in details["genomes"]}["hs38"] == ("unindexed")
 
 
 def test_ref_library_requests_must_name_a_genome():
@@ -1479,6 +1526,7 @@ _BASE_REQUESTS: dict[str, dict[str, Any]] = {
     "panel/bed": {"genes": ["BRCA1"]},
     "qc/vcf": {"input": _FILE},
     "ref/library": {"install": "hs38"},
+    "ref/library-list": {"ref": _DATA},
     "report": {"input": _FILE},
     "sample/show": {"input": _FILE},
     "sample/set": {"input": _FILE, "sex": "female"},

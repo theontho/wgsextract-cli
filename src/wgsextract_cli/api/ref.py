@@ -198,6 +198,39 @@ class RefLibraryParams(_InLibrary, Params):
 
 
 @dataclass(frozen=True, kw_only=True)
+class RefLibraryListParams(_InLibrary, Params):
+    """List the catalog's genomes with their status in the library (installed,
+    unindexed, incomplete or missing), size, N counts and VEP cache, then the
+    gene maps and annotation data it holds."""
+
+    COMMAND = "ref library-list"
+
+    ref: Path | None = param(
+        None,
+        doc="Reference library folder, or a FASTA in it (default: config "
+        "reference_fasta's library, else reference_library, else the default "
+        "library).",
+        flags=("--ref",),
+        path="file_or_directory",
+        shared=True,
+        config_key="reference_fasta",
+    )
+
+    def implied_paths(self) -> Iterator[tuple[str, Path]]:
+        from ._params import with_config_defaults
+
+        # Unset, ref is the configured FASTA's library, else reference_library.
+        filled = with_config_defaults(self)
+        if filled.ref is not None:
+            yield "ref", _library_named(filled.ref)
+        else:
+            yield "ref", self.library()
+
+    def write_folders(self) -> Iterator[Path]:
+        return iter(())
+
+
+@dataclass(frozen=True, kw_only=True)
 class RefStatusParams(Params):
     """What the reference library holds, as the result's ``details``: genomes
     and their indexes, annotation data, gene maps, VEP cache, PharmCAT,
@@ -450,11 +483,31 @@ def library(
     check: bool = True,
 ) -> CommandResult:
     """Install ``params.install``; output roles ``reference`` (the FASTA) and
-    ``reference_sidecar``. The CLI's listing and menu aren't offered: use
-    ``status`` for what is installed."""
+    ``reference_sidecar``. The CLI's menu isn't offered: ``library_list``
+    lists the catalog's genomes and ``status`` reports what is installed."""
     from wgsextract_cli.commands.ref.library_commands import run_library
 
     return execute(params, run_library, progress=progress, cancel=cancel, check=check)
+
+
+def library_list(
+    params: RefLibraryListParams,
+    *,
+    progress: ProgressCallback | None = None,
+    cancel: CancelToken | None = None,
+    check: bool = True,
+) -> CommandResult:
+    """List the library. ``details`` has ``library``, ``genomes`` (``code``,
+    ``label``, ``file``, ``status``, ``size``, and whether its ``n_counts`` and
+    a ``vep_cache`` for its assembly are in the library) and
+    ``resources`` (``gene_maps``, then per build ``clinvar``, ``revel``,
+    ``phylop`` and ``gnomad``, each true when installed); ``text`` is the
+    CLI's table."""
+    from wgsextract_cli.commands.ref.core_commands import run_library_list
+
+    return execute(
+        params, run_library_list, progress=progress, cancel=cancel, check=check
+    )
 
 
 def status(

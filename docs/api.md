@@ -1647,8 +1647,8 @@ a missing `.fai`/`.gzi`; `contigs` and `signature` are metrics.
 CLI: `wgsextract ref library`.
 
 Install `params.install`; output roles `reference` (the FASTA) and
-`reference_sidecar`. The CLI's listing and menu aren't offered: use
-`status` for what is installed.
+`reference_sidecar`. The CLI's menu isn't offered: `library_list`
+lists the catalog's genomes and `status` reports what is installed.
 
 `RefLibraryParams`: Install a catalog genome into the library's `genomes` folder, trying
 each mirror that hosts it.
@@ -1657,6 +1657,25 @@ each mirror that hosts it.
 | --- | --- | --- | --- | --- |
 | `install` | `str \| None` | `None` | `--install` | The genome's catalog code (e.g. hs38) or 1-based index (required). |
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
+
+### `api.ref.library_list(RefLibraryListParams)`
+
+CLI: `wgsextract ref library-list`.
+
+List the library. `details` has `library`, `genomes` (`code`,
+`label`, `file`, `status`, `size`, and whether its `n_counts` and
+a `vep_cache` for its assembly are in the library) and
+`resources` (`gene_maps`, then per build `clinvar`, `revel`,
+`phylop` and `gnomad`, each true when installed); `text` is the
+CLI's table.
+
+`RefLibraryListParams`: List the catalog's genomes with their status in the library (installed,
+unindexed, incomplete or missing), size, N counts and VEP cache, then the
+gene maps and annotation data it holds.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference library folder, or a FASTA in it (default: config reference_fasta's library, else reference_library, else the default library). |
 
 ### `api.ref.status(RefStatusParams)`
 
