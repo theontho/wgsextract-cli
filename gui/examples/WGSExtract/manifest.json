@@ -96,6 +96,18 @@
       }
     ]
   },
+  "resultDocument": {
+    "format": "wgsextract.result/1",
+    "executables": [
+      "{{bundleRoot}}/scripts/run-wgsextract.sh",
+      "{{bundleRoot}}/scripts/run-wgsextract-vcf.sh",
+      "{{bundleRoot}}/scripts/unalign-to-fastq.sh"
+    ],
+    "arguments": [
+      "--result-file",
+      "{{resultDocumentPath}}"
+    ]
+  },
   "jobServer": {
     "command": {
       "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",

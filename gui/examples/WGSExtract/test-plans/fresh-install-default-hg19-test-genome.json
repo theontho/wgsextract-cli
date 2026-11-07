@@ -185,6 +185,7 @@
           "ref_path": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz"
         }
       },
+      "expectedResult": { "status": "ok" },
       "timeoutSeconds": 300
     },
     {
@@ -227,6 +228,7 @@
           "ref_path": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz"
         }
       },
+      "expectedResult": { "status": "ok", "outputs": ["alignment"] },
       "timeoutSeconds": 900
     },
     {
@@ -316,6 +318,7 @@
       "pageID": "fastq",
       "sectionID": "fastq-align",
       "actionID": "fastqc",
+      "expectedResult": { "status": "ok", "outputs": ["fastqc_report_html", "fastqc_report_zip"] },
       "timeoutSeconds": 600
     },
     {
@@ -350,6 +353,7 @@
           "ref_path": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz"
         }
       },
+      "expectedResult": { "status": "ok", "outputs": ["mt_bam"] },
       "timeoutSeconds": 600
     },
     {

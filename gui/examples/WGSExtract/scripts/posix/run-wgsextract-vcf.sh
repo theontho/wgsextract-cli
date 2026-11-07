@@ -11,7 +11,7 @@ case "${1:-}" in
   snp|indel) ;;
   *)
     printf 'Usage: %s snp|indel [ARG...]\n' "$0" >&2
-    exit 64
+    exit 2
     ;;
 esac
 

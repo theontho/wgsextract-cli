@@ -1,4 +1,4 @@
-import type { CommandContext, RunProcess } from "../../../shared/types.js";
+import type { CommandContext, LooseRecord, RunProcess } from "../../../shared/types.js";
 
 /** Plan inputs as written in plan JSON; values are expanded to strings before use. */
 export type BundleTestInputs = {
@@ -22,10 +22,19 @@ export type BundleTestStep = {
     expectedExitCodes?: Array<number | null>;
     requiredOutput?: string[];
     forbiddenOutput?: string[];
+    /** action steps: what the action's result document (manifest resultDocument) must report. */
+    expectedResult?: BundleTestExpectedResult;
     /** dataSource steps: the fewest options the data source must offer. */
     minimumOptions?: number;
     timeoutSeconds?: number;
     continueOnFailure?: boolean;
+};
+
+export type BundleTestExpectedResult = {
+    status?: string;
+    /** Output roles that must each be listed and exist on disk with the recorded size. */
+    outputs?: string[];
+    errorKind?: string;
 };
 
 export type BundleTestPlan = {
@@ -61,6 +70,8 @@ export type BundleTestStepReport = {
     finishedAt: string;
     durationSeconds: number;
     output: string;
+    /** The action's result document, as it printed it. */
+    result?: LooseRecord;
     error: string | null;
 };
 

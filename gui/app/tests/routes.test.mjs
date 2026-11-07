@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -263,6 +263,61 @@ test("POST /api/run/stream renders the referenced manifest action server-side", 
   assert.equal(events[2].result.exitCode, 0);
   assert.match(events[2].result.command, /tool HG001$/);
   assert.deepEqual(calls.runProcess.map((call) => [call.executable, call.args]), [["tool", ["HG001"]]]);
+});
+
+test("a declared result document is read from stdout, and only its files can be opened", async (t) => {
+  const { baseURL, calls, context, tempRoot } = await withTestServer(t);
+  context.manifest.resultDocument = { format: "wgsextract.result/1", executables: ["tool"], arguments: ["--json"] };
+  const output = path.join(tempRoot, "sample.cram");
+  await writeFile(output, "cram");
+  const document = { schema: "wgsextract.result/1", status: "ok", outputs: [{ path: output, role: "alignment", size_bytes: 4 }] };
+  context.runProcess = async (executable, args, options = {}) => {
+    calls.runProcess.push({ executable, args });
+    if (executable !== "tool") {
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    await options.onStderr?.("log line\n");
+    return { exitCode: 0, stdout: JSON.stringify(document), stderr: "log line\n" };
+  };
+
+  const events = await readNDJSON(await apiFetch(baseURL, "/api/run/stream", {
+    body: { action: { pageID: "main", sectionID: "run", actionID: "run" }, context: runContext },
+  }));
+  const unlisted = await apiFetch(baseURL, "/api/result/open", { body: { path: path.join(tempRoot, "index.html"), reveal: false } });
+  const listed = await apiFetch(baseURL, "/api/result/open", { body: { path: output, reveal: false } });
+
+  assert.deepEqual(events.map((event) => [event.type, event.stream]), [["start", undefined], ["output", "stderr"], ["complete", undefined]]);
+  assert.match(events[0].command, /tool HG001 --json$/);
+  assert.equal(events[2].result.resultDocument.outputs[0].role, "alignment");
+  assert.equal(unlisted.status, 403);
+  assert.equal(listed.status, 200);
+  assert.deepEqual(calls.runProcess.slice(1).map((call) => call.args), [[output]]);
+});
+
+test("review regression: a listed relative output stays tied to its run's workspace, and a failed opener is reported", async (t) => {
+  const { baseURL, context, tempRoot } = await withTestServer(t);
+  context.manifest.resultDocument = { format: "wgsextract.result/1", executables: ["tool"], arguments: ["--json"] };
+  const document = { schema: "wgsextract.result/1", status: "ok", outputs: [{ path: "report.html", role: "report" }] };
+  const otherRoot = path.join(tempRoot, "other-bundle");
+  await mkdir(otherRoot);
+  await writeFile(path.join(tempRoot, "report.html"), "first");
+  await writeFile(path.join(otherRoot, "report.html"), "second");
+  context.runProcess = async (executable) => executable === "tool"
+    ? { exitCode: 0, stdout: JSON.stringify(document), stderr: "" }
+    : { exitCode: 4, stdout: "", stderr: "no application can open report.html\n" };
+
+  await readNDJSON(await apiFetch(baseURL, "/api/run/stream", {
+    body: { action: { pageID: "main", sectionID: "run", actionID: "run" }, context: runContext },
+  }));
+  const failedOpen = await apiFetch(baseURL, "/api/result/open", { body: { path: "report.html", reveal: false } });
+  context.bundleRoot = otherRoot;
+  const otherBundle = await apiFetch(baseURL, "/api/result/open", { body: { path: "report.html", reveal: false } });
+
+  if (process.platform !== "win32") {
+    assert.equal(failedOpen.status, 500);
+    assert.match((await failedOpen.json()).error, /no application can open/);
+  }
+  assert.equal(otherBundle.status, 403);
 });
 
 test("POST /api/run/stream rejects command bodies and unknown actions without running anything", async (t) => {

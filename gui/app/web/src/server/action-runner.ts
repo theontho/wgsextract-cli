@@ -1,7 +1,8 @@
-import { stat, statfs } from "node:fs/promises";
-import { homedir, platform } from "node:os";
+import { mkdtemp, readFile, rm, stat, statfs } from "node:fs/promises";
+import { homedir, platform, tmpdir } from "node:os";
 import path from "node:path";
 import { commandLine, evaluateNumeric, interpolate, renderedCommand } from "../../../shared/rendering.js";
+import { commandWithResultArguments, parseResultDocumentText, resultDocumentInFile, type ResultDocument, type ResultDocumentSpec } from "../../../shared/result-document.js";
 import type { ActionSpec, BundleManifest, CommandContext, DataSourcePayload, Labels, LooseRecord, ProcessResult, RunProcess, StringMap, ValueMap } from "../../../shared/types.js";
 import { decodeXML, environmentKey, formatGB, resolveBundlePath, resolveUserPath } from "./paths.js";
 import { platformCommand } from "./platform-command.js";
@@ -14,6 +15,8 @@ export type ActionRunResult = ProcessResult & {
     startedAt: string;
     finishedAt: string;
     command: string;
+    /** Set when the action declares a result document: the parsed document, or null when the command wrote none. */
+    resultDocument?: ResultDocument | null;
 };
 
 export type ActionEvent =
@@ -47,33 +50,56 @@ export async function runAction(
     bundleRoot: string,
     runProcess: RunProcess,
     emit: ActionEmit = () => { },
+    resultSpec?: ResultDocumentSpec,
 ): Promise<ActionRunResult> {
     if (!action?.command) {
         throw new Error("Missing action command.");
     }
     const resolvedContext = await contextWithFileState(context, bundleRoot);
-    const rendered = renderedCommand(action.command, resolvedContext);
-    const executable = isPlatformScriptReference(rendered.executable, bundleRoot)
-        ? await resolvePlatformScriptPath(rendered.executable, bundleRoot)
-        : rendered.executable;
-    const display = await platformCommand(executable, rendered.arguments ?? []);
-    const startedAt = new Date().toISOString();
-    await emit({ type: "start", command: commandLine(display.executable, display.args), startedAt });
-    const result = await runProcess(executable, rendered.arguments ?? [], {
-        cwd: bundleRoot,
-        env: { ...process.env, GUI_FOR_CLI_BUNDLE_ROOT: bundleRoot, GUI_FOR_CLI_BUNDLE_WORKSPACE: bundleRoot },
-        ...(signal ? { signal } : {}),
-        onStdout: (text) => void emit({ type: "output", stream: "stdout", text }),
-        onStderr: (text) => void emit({ type: "output", stream: "stderr", text }),
-    });
-    const actionResult: ActionRunResult = {
-        ...result,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        command: commandLine(display.executable, display.args),
-    };
-    await emit({ type: "complete", result: actionResult });
-    return actionResult;
+    const documentDirectory = resultSpec && resultDocumentInFile(resultSpec) ? await mkdtemp(path.join(tmpdir(), "gui-for-cli-result-")) : undefined;
+    const documentPath = documentDirectory ? path.join(documentDirectory, "result.json") : "";
+    try {
+        const rendered = renderedCommand(commandWithResultArguments(action.command, resultSpec, documentPath), resolvedContext);
+        const executable = isPlatformScriptReference(rendered.executable, bundleRoot)
+            ? await resolvePlatformScriptPath(rendered.executable, bundleRoot)
+            : rendered.executable;
+        const display = await platformCommand(executable, rendered.arguments ?? []);
+        const startedAt = new Date().toISOString();
+        await emit({ type: "start", command: commandLine(display.executable, display.args), startedAt });
+        // A document printed on stdout is read once the command exits, not streamed as output.
+        const documentOnStdout = resultSpec && !documentDirectory;
+        const result = await runProcess(executable, rendered.arguments ?? [], {
+            cwd: bundleRoot,
+            env: { ...process.env, GUI_FOR_CLI_BUNDLE_ROOT: bundleRoot, GUI_FOR_CLI_BUNDLE_WORKSPACE: bundleRoot },
+            ...(signal ? { signal } : {}),
+            ...(documentOnStdout ? {} : { onStdout: (text: string) => void emit({ type: "output", stream: "stdout", text }) }),
+            onStderr: (text) => void emit({ type: "output", stream: "stderr", text }),
+        });
+        let resultDocument: ResultDocument | null | undefined;
+        if (resultSpec && documentDirectory) {
+            resultDocument = parseResultDocumentText(await readFile(documentPath, "utf8").catch(() => ""), resultSpec.format);
+        }
+        else if (resultSpec) {
+            resultDocument = parseResultDocumentText(result.stdout, resultSpec.format);
+            if (!resultDocument && result.stdout) {
+                await emit({ type: "output", stream: "stdout", text: result.stdout });
+            }
+        }
+        const actionResult: ActionRunResult = {
+            ...result,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            command: commandLine(display.executable, display.args),
+            ...(resultDocument === undefined ? {} : { resultDocument }),
+        };
+        await emit({ type: "complete", result: actionResult });
+        return actionResult;
+    }
+    finally {
+        if (documentDirectory) {
+            await rm(documentDirectory, { recursive: true, force: true });
+        }
+    }
 }
 
 /** Validates a manifest data source declaration (bundle JSON, so untyped until here). */

@@ -232,6 +232,36 @@ def test_json_stdout_is_one_document_despite_child_output(tmp_path):
     assert "human text" not in proc.stdout + proc.stderr
 
 
+def test_result_file_keeps_human_output_and_writes_the_document(tmp_path, capsys):
+    # The desktop app (#529) reads the document from --result-file so that
+    # human-readable reports, such as info's table, still reach the user.
+    from wgsextract_cli.core.results import current_result, human_output
+
+    def command(args):
+        human_output("human text")
+        current_result().add_metrics(answer=42)
+
+    result_file = tmp_path / "result.json"
+    assert dispatch(command, tmp_path, _result_file=str(result_file)) == 0
+    assert "human text" in capsys.readouterr().out
+    document = json.loads(result_file.read_text())
+    assert_valid(document)
+    assert document["metrics"] == {"answer": 42}
+
+
+def test_cli_result_file_records_a_missing_tool(tmp_path):
+    result_file = tmp_path / "result.json"
+    rc, stdout, stderr = run_cli(
+        ["deps", "check", "--tool", "wgse-no-such-tool"]
+        + ["--result-file", str(result_file)]
+    )
+    assert rc == 3, stderr
+    assert not stdout.lstrip().startswith("{")
+    document = json.loads(result_file.read_text())
+    assert_valid(document)
+    assert document["error"]["kind"] == "missing_dependency"
+
+
 def test_every_subcommand_gets_its_full_command_name():
     parser, _ = build_parser()
     args = parser.parse_args(["vcf", "snp", "--json"])

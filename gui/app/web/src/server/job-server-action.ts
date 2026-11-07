@@ -1,4 +1,5 @@
 import { interpolate } from "../../../shared/rendering.js";
+import { parseResultDocument, type ResultDocumentSpec } from "../../../shared/result-document.js";
 import type { ActionSpec, CommandContext, LooseRecord, RunProcess, ServerOperationSpec } from "../../../shared/types.js";
 import { contextWithFileState, runAction, type ActionEmit, type ActionRunResult } from "./action-runner.js";
 import { errorMessage } from "./errors.js";
@@ -15,7 +16,8 @@ const maxOutputBytes = 1_048_576;
 /**
  * Runs an action with a `serverOperation` as a job on the bundle's job server, and every
  * other action (or any action when the server can't be started or refuses the job) as
- * its command.
+ * its command. With `resultSpec`, the result document comes from the job record's `result`
+ * or from the command's stdout.
  */
 export async function runActionPreferringServer(
     action: ActionSpec,
@@ -25,16 +27,17 @@ export async function runActionPreferringServer(
     runProcess: RunProcess,
     jobServer: JobServer | undefined,
     emit: ActionEmit = () => { },
+    resultSpec?: ResultDocumentSpec,
 ): Promise<ActionRunResult> {
     const operation = action.serverOperation;
     if (operation && jobServer && !signal?.aborted) {
         const parameters = renderedParameters(operation, await contextWithFileState(context, bundleRoot));
         const job = await startServerJob(jobServer, operation.operation, parameters);
         if (job) {
-            return runJob(job.address, job.id, `${operation.operation} ${JSON.stringify(parameters)}`, signal, emit);
+            return runJob(job.address, job.id, `${operation.operation} ${JSON.stringify(parameters)}`, signal, emit, resultSpec);
         }
     }
-    return runAction(action, context, signal, bundleRoot, runProcess, emit);
+    return runAction(action, context, signal, bundleRoot, runProcess, emit, resultSpec);
 }
 
 /** Starts the job, restarting a server that stopped answering once; undefined when no job was created. */
@@ -73,7 +76,14 @@ export function renderedParameters(operation: ServerOperationSpec, context: Comm
     return parameters;
 }
 
-async function runJob(address: JobServerAddress, id: string, command: string, signal: AbortSignal | undefined, emit: ActionEmit): Promise<ActionRunResult> {
+async function runJob(
+    address: JobServerAddress,
+    id: string,
+    command: string,
+    signal: AbortSignal | undefined,
+    emit: ActionEmit,
+    resultSpec: ResultDocumentSpec | undefined,
+): Promise<ActionRunResult> {
     const startedAt = new Date().toISOString();
     await emit({ type: "start", command, startedAt });
     const stdout = new TailBuffer(maxOutputBytes);
@@ -135,6 +145,7 @@ async function runJob(address: JobServerAddress, id: string, command: string, si
         startedAt,
         finishedAt: new Date().toISOString(),
         command,
+        ...(resultSpec ? { resultDocument: jobResultDocument(job.result, resultSpec) } : {}),
     };
     await emit({ type: "complete", result });
     return result;
@@ -158,4 +169,9 @@ function errorText(error: unknown): string {
         return String(error.message);
     }
     return typeof error === "string" ? error : JSON.stringify(error);
+}
+
+/** A job record's `result` is the declared document, but `wgsextract serve` leaves out its `schema` to keep records short. */
+function jobResultDocument(value: unknown, spec: ResultDocumentSpec) {
+    return parseResultDocument(value != null && typeof value === "object" ? { schema: spec.format, ...value } : value, spec.format);
 }

@@ -9,7 +9,7 @@ $forwardArgs = @($args | ForEach-Object { [string]$_ })
 
 if ($forwardArgs.Count -lt 1 -or $forwardArgs[0] -notin @("snp", "indel")) {
     [Console]::Error.WriteLine("Usage: run-wgsextract-vcf.ps1 snp|indel [ARG...]")
-    exit 64
+    exit 2
 }
 
 $ref = ""

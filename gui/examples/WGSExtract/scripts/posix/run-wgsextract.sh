@@ -38,7 +38,7 @@ for argument in "$@"; do
     esac
   fi
   if [ -n "$input_path" ] && index_input_message "$input_path"; then
-    exit 1
+    exit 2
   fi
   previous="$argument"
 done
@@ -47,19 +47,21 @@ if [ "${1:-}" = "microarray" ]; then
   if [ -z "$microarray_ref_path" ]; then
     printf '%s\n' "Reference genome is required before generating microarray kits." >&2
     printf '%s\n' "Install/download the reference library from the Library page or rerun setup, then choose an existing reference FASTA." >&2
-    exit 1
+    exit 2
   fi
   if [ -d "$microarray_ref_path" ]; then
     printf 'Reference genome must be a FASTA file, not the reference library directory: %s\n' "$microarray_ref_path" >&2
     printf '%s\n' "Choose an installed reference FASTA from the Reference genome dropdown on the Microarray page." >&2
-    exit 1
+    exit 2
   fi
   if [ ! -f "$microarray_ref_path" ]; then
     printf 'Reference genome was not found: %s\n' "$microarray_ref_path" >&2
     printf '%s\n' "Install/download the reference library from the Library page or rerun setup, then choose an existing reference FASTA." >&2
-    exit 1
+    exit 2
   fi
 fi
+
+# Refusals above exit 2, the CLI's usage-error code, so the app shows them next to the form.
 
 # The bundle's settings file is this runtime's config.toml, so what the CLI saves
 # (ref bootstrap's reference_library, for one) stays in the workspace instead of

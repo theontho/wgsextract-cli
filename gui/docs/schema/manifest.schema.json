@@ -36,6 +36,27 @@
       "items": { "$ref": "#/$defs/exitCodeReferenceEntry" },
       "default": []
     },
+    "resultDocument": {
+      "description": "Actions whose command runs one of these executables print a result document on stdout. The app adds the arguments, captures stdout instead of streaming it, and shows the document's outputs, warnings and metrics. See docs/result-documents.md.",
+      "type": "object",
+      "required": ["format", "executables"],
+      "additionalProperties": false,
+      "properties": {
+        "format": { "description": "The document format.", "enum": ["wgsextract.result/1"] },
+        "executables": {
+          "description": "command.executable values, exactly as written in the pages, of the actions that print the document.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "arguments": {
+          "description": "Appended after all other arguments to ask the command for the document. With an argument containing {{resultDocumentPath}}, the app reads the document from that temporary file; otherwise from stdout, such as with --json.",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      }
+    },
     "jobServer": {
       "description": "A local job server, started on first use, that runs actions with a serverOperation as cancellable jobs. See docs/job-server.md.",
       "type": "object",

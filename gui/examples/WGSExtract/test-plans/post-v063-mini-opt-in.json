@@ -51,7 +51,7 @@
       "pageID": "fastq",
       "sectionID": "multiqc",
       "actionID": "multiqc-directory",
-      "requiredOutput": ["multiqc_report.html"],
+      "expectedResult": { "status": "ok", "outputs": ["multiqc_report"] },
       "timeoutSeconds": 600
     },
     {
@@ -65,7 +65,7 @@
           "multiqc_force": ["--force"]
         }
       },
-      "requiredOutput": ["multiqc_report.html"],
+      "expectedResult": { "status": "ok", "outputs": ["multiqc_report"] },
       "timeoutSeconds": 600
     }
   ]

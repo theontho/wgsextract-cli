@@ -500,7 +500,7 @@ test("WGSExtract Windows runtime wrapper rejects BAM and CRAM index inputs", asy
       "sample.cram.crai",
     ], { env: process.env });
 
-    assert.equal(result.exitCode, 1);
+    assert.equal(result.exitCode, 2);
     assert.match(result.stderr, /Selected CRAM index file/);
     assert.match(result.stderr, /Choose the CRAM data file instead: sample\.cram(\s|$)/);
   } finally {
@@ -525,7 +525,7 @@ test("WGSExtract POSIX runtime wrapper rejects BAM and CRAM index inputs", async
       "--input",
       "sample.CRAM.CRAI",
     ], { env: process.env });
-    assert.equal(cramResult.exitCode, 1);
+    assert.equal(cramResult.exitCode, 2);
     assert.match(cramResult.stderr, /Selected CRAM index file/);
     assert.match(cramResult.stderr, /Choose the CRAM data file instead: sample\.CRAM(\s|$)/);
 
@@ -534,7 +534,7 @@ test("WGSExtract POSIX runtime wrapper rejects BAM and CRAM index inputs", async
       "microarray",
       "--input=sample.BAM.BAI",
     ], { env: process.env });
-    assert.equal(bamResult.exitCode, 1);
+    assert.equal(bamResult.exitCode, 2);
     assert.match(bamResult.stderr, /Selected BAM index file/);
     assert.match(bamResult.stderr, /Choose the BAM data file instead: sample\.BAM(\s|$)/);
 
@@ -549,7 +549,7 @@ test("WGSExtract POSIX runtime wrapper rejects BAM and CRAM index inputs", async
       "--ref",
       missingRefPath,
     ], { env: process.env });
-    assert.equal(refResult.exitCode, 1);
+    assert.equal(refResult.exitCode, 2);
     assert.match(refResult.stderr, /Reference genome was not found/);
     assert.match(refResult.stderr, /Library page or rerun setup/);
 
@@ -561,7 +561,7 @@ test("WGSExtract POSIX runtime wrapper rejects BAM and CRAM index inputs", async
       "--ref",
       directoryRefPath,
     ], { env: process.env });
-    assert.equal(directoryRefResult.exitCode, 1);
+    assert.equal(directoryRefResult.exitCode, 2);
     assert.match(directoryRefResult.stderr, /must be a FASTA file/);
     assert.match(directoryRefResult.stderr, /Reference genome dropdown/);
   } finally {

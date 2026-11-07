@@ -40,6 +40,8 @@ function send(job, type, data) {
 }
 function finish(job, status, exitCode) {
   Object.assign(job, { status, exit_code: exitCode });
+  // Like wgsextract serve, the record carries the run's result document without its schema, empty fields left out.
+  if (status === "succeeded") job.result = { status: "ok", outputs: [{ path: "/data/sample.bam.cov.csv", role: "coverage", size_bytes: 12 }] };
   send(job, "status", { status });
 }
 const server = createServer(async (request, response) => {
@@ -114,10 +116,10 @@ function action(operation, parameters = {}) {
   };
 }
 
-async function run(bundle, spec, jobServer, signal) {
+async function run(bundle, spec, jobServer, signal, resultSpec) {
   const events = [];
   const context = { fieldValues: { bam: "/data/sample.bam", ref: "" } };
-  const result = await runActionPreferringServer(spec, context, signal, bundle.bundleRoot, bundle.manager.runProcess, jobServer, (event) => events.push(event));
+  const result = await runActionPreferringServer(spec, context, signal, bundle.bundleRoot, bundle.manager.runProcess, jobServer, (event) => events.push(event), resultSpec);
   return { result, events, output: events.filter((event) => event.type === "output").map((event) => event.text).join("") };
 }
 
@@ -133,6 +135,21 @@ test("an action with a serverOperation runs as a job, with its progress in the o
   // An empty placeholder leaves its parameter out; non-string values are sent as written.
   assert.match(output, /params \{"input":"\/data\/sample\.bam","bins":true\}/);
   assert.doesNotMatch(output, /ran the command/);
+});
+
+test("a job's result document is read from its record, which wgsextract serve sends without its schema", async (t) => {
+  const bundle = await withBundle(t);
+  const resultSpec = { format: "wgsextract.result/1", executables: [process.execPath] };
+  const jobServer = bundle.startServer();
+
+  const declared = await run(bundle, action("quick"), jobServer, undefined, resultSpec);
+  const undeclared = await run(bundle, action("quick"), jobServer);
+
+  assert.equal(declared.result.resultDocument.status, "ok");
+  assert.deepEqual(declared.result.resultDocument.outputs.map((output) => [output.role, output.path, output.sizeBytes]), [["coverage", "/data/sample.bam.cov.csv", 12]]);
+  assert.deepEqual(declared.result.resultDocument.warnings, []);
+  assert.equal(declared.events.at(-1).result.resultDocument.status, "ok");
+  assert.equal(undeclared.result.resultDocument, undefined);
 });
 
 test("a job's result keeps the end of a large log, and streams all of it", async (t) => {
